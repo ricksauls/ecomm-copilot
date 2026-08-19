@@ -1,0 +1,56 @@
+{# Fixed navigation rail. `active_nav` (a slug like "dashboard") selects the
+   highlighted item. `client_mode` hides the credits card when true. #}
+<nav class="rail">
+  <div class="rail-brand">
+    <div class="name">ecomm-copilot</div>
+    <hr class="red-rule" />
+    <div class="tagline">Your eCommerce Team, Amplified.</div>
+  </div>
+
+  {# Brand switcher: a dropdown affordance. The picker itself is not built. #}
+  <div class="brand-switcher" role="button" tabindex="0" aria-haspopup="true">
+    <div class="brand-chip">MC</div>
+    <div class="meta">
+      <div class="brand-name">Meridian Commerce Group</div>
+      <div class="brand-count">148 products</div>
+    </div>
+    <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="#8c8c8c"
+         stroke-width="1.2" aria-hidden="true"><path d="M3 5l3 3 3-3" /></svg>
+  </div>
+
+  {% set nav_items = [
+    ('dashboard', 'Dashboard', url_for('pages.dashboard')),
+    ('products', 'Products', '#'),
+    ('competitive', 'Competitive', '#'),
+    ('creative', 'Creative', '#'),
+    ('shelf', 'Share of shelf', '#'),
+    ('billing', 'Billing', '#'),
+  ] %}
+  <div class="rail-nav">
+    {% for slug, label, href in nav_items %}
+    <a href="{{ href }}" class="nav-item {{ 'active' if active_nav == slug else '' }}">
+      <span class="mark"></span>{{ label }}
+    </a>
+    {% endfor %}
+  </div>
+
+  <div class="rail-spacer"></div>
+
+  {# Credits read as operational convenience, not currency. Hidden in Client View. #}
+  {% if not client_mode %}
+  <div class="credits">
+    <div class="label">Available credits</div>
+    <div class="balance">4,250<span class="approx">≈ $4,250</span></div>
+    <div class="divider"></div>
+    <a href="#" class="add">Add credits</a>
+  </div>
+  {% endif %}
+
+  {# User block is the sign-out target. In production this likely becomes a small
+     menu (Account, Billing, Sign out) rather than a single action. #}
+  <a href="{{ url_for('pages.landing') }}" class="user-block">
+    <div class="user-chip">DK</div>
+    <div class="who">Dana Kirsch · Meridian</div>
+    <div class="signout">Sign out</div>
+  </a>
+</nav>

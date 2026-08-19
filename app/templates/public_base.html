@@ -1,0 +1,17 @@
+{# Base layout for the public (dark) surface: landing and sign-in.
+   The workspace uses a separate base because its shell (nav rail + topbar) and
+   light palette differ enough that sharing one base would mean more branching
+   than duplication saves. #}
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{% block title %}ecomm-copilot{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/tokens.css') }}" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/public.css') }}" />
+  </head>
+  <body class="public {% block body_class %}{% endblock %}">
+    {% block content %}{% endblock %}
+  </body>
+</html>

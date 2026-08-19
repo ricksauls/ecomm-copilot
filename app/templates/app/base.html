@@ -1,0 +1,27 @@
+{# Base layout for the authenticated workspace (light surface).
+   Provides the fixed nav rail and topbar shell; each screen fills the
+   `pane_content` block. The rail's active item and the topbar breadcrumb are
+   passed in per screen. #}
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{% block title %}ecomm-copilot{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/tokens.css') }}" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/workspace.css') }}" />
+  </head>
+  <body class="workspace">
+    <div class="shell">
+      {% include "app/_rail.html" %}
+      <div class="content-col">
+        {% include "app/_topbar.html" %}
+        <div class="pane">
+          <div class="pane-inner">
+            {% block pane_content %}{% endblock %}
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
