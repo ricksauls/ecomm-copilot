@@ -1,0 +1,10 @@
+# repo-startup-template
+node_modules/
+.env
+.env.local
+.env.production
+dist/
+build/
+coverage/
+*.log
+.DS_Store
