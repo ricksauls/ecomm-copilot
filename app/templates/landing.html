@@ -1,0 +1,211 @@
+{% extends "public_base.html" %}
+{% block title %}ecomm-copilot — Your eCommerce Team, Amplified.{% endblock %}
+
+{# The design system's arrow glyph, used on CTAs. Reused inline where needed. #}
+{% set arrow %}
+<svg class="arrow" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"
+     aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4" /></svg>
+{% endset %}
+
+{% block content %}
+<header class="site-header">
+  <div class="public-wrap">
+    <a href="{{ url_for('pages.landing') }}" class="wordmark">ecomm-copilot</a>
+    <nav class="site-nav">
+      <a href="#how-it-works">How it works</a>
+      <a href="#deliverables">Deliverables &amp; Pricing</a>
+    </nav>
+    <div class="header-spacer"></div>
+    <div class="header-actions">
+      <a href="{{ url_for('pages.signin') }}" class="btn-quiet">Sign in</a>
+      <a href="{{ url_for('pages.signin') }}" class="btn btn-primary">Request access</a>
+    </div>
+  </div>
+</header>
+
+<main>
+  {# --- Hero: deliberately typographic, no product mock --- #}
+  <section class="hero">
+    <div class="public-wrap">
+      <div class="hero-inner">
+        <p class="label">For retail agencies and brand teams</p>
+        <hr class="red-rule" style="margin: 20px 0 24px;" />
+        <h1>Your eCommerce Team, Amplified.</h1>
+        <p class="sub">
+          See which listings are losing ground on Walmart, understand exactly why,
+          and buy the specific solution that closes the gap.
+        </p>
+        <div class="cta-row">
+          <a href="{{ url_for('pages.signin') }}" class="btn btn-primary btn-lg">
+            Request access {{ arrow }}
+          </a>
+          <a href="{{ url_for('pages.signin') }}" class="btn btn-secondary btn-lg">
+            Sign in to the workspace
+          </a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  {# --- Why this matters --- #}
+  <section class="section why">
+    <div class="public-wrap">
+      <p class="label eyebrow">Why this matters</p>
+      <h2>Driving discoverability and conversion.</h2>
+      <div class="why-cols">
+        <div class="why-col">
+          <h3>Discoverability</h3>
+          <p>Getting your product in front of shoppers' eyes.</p>
+        </div>
+        <div class="why-divider"></div>
+        <div class="why-col">
+          <h3>Conversion</h3>
+          <p>Converting those shoppers to customers.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  {# --- How it works --- #}
+  <section class="section" id="how-it-works">
+    <div class="public-wrap how">
+      <div class="how-rail">
+        <p class="label">How it works</p>
+        <h2>Four steps, and the fourth one closes the loop.</h2>
+        <p class="sub">
+          Every recommendation names the gap it closes and the score it should move.
+          Nothing is sold on a hunch.
+        </p>
+      </div>
+      <div class="how-steps">
+        <div class="step">
+          <div class="step-num accent">01</div>
+          <div>
+            <h4>Add the listing</h4>
+            <p>Point at a Walmart item number. Product assets and existing PDP content come in with it.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">02</div>
+          <div>
+            <h4>Score it</h4>
+            <p>Six dimensions, measured against top competitors on the same shelf.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">03</div>
+          <div>
+            <h4>Buy the fix that closes the gap</h4>
+            <p>Retail-ready image sets, content optimization, seasonal versions.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">04</div>
+          <div>
+            <h4>Watch the score and the shelf move</h4>
+            <p>Share of shelf and search rank are tracked daily, so the next recommendation is based on what actually changed.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  {# --- Deliverables --- #}
+  <section class="section" id="deliverables">
+    <div class="public-wrap">
+      <div class="deliverables-head">
+        <div>
+          <p class="label">Deliverables</p>
+          <h2>Priced per output, not per seat.</h2>
+        </div>
+        <p class="note">
+          Buy against credits or a card. Credits are an accounting convenience,
+          not a currency.
+        </p>
+      </div>
+      <div class="card-grid">
+        <div class="deliverable">
+          <p class="label">Creative</p>
+          <h4>Retail-ready PDP image set</h4>
+          <p>Eight images at 2000 &times; 2000, built to Walmart specification from your assets and approved claims.</p>
+          <div class="deliverable-foot">
+            <span class="deliverable-price">$450</span>
+            <span class="deliverable-turn">3 days</span>
+          </div>
+        </div>
+        <div class="deliverable">
+          <p class="label">Creative</p>
+          <h4>Seasonal version</h4>
+          <p>Reuses approved creative for a matched occasion.</p>
+          <div class="deliverable-foot">
+            <span class="deliverable-price">$180</span>
+            <span class="deliverable-turn">2 days</span>
+          </div>
+        </div>
+        <div class="deliverable">
+          <p class="label">Content</p>
+          <h4>Content optimization</h4>
+          <p>Title, bullets, and description rewritten to fit Walmart recommended format as well as optimizing for search.</p>
+          <div class="deliverable-foot">
+            <span class="deliverable-price">$275</span>
+            <span class="deliverable-turn">2 days</span>
+          </div>
+        </div>
+        <div class="deliverable">
+          <p class="label">Analysis</p>
+          <h4>Competitive PDP analysis</h4>
+          <p>The 0–100 score, decomposed across six dimensions, with the ranked actions that move it.</p>
+          <div class="deliverable-foot">
+            <span class="deliverable-price">$350</span>
+            <span class="deliverable-turn">2 days</span>
+          </div>
+        </div>
+        <div class="deliverable">
+          <p class="label">Monitoring</p>
+          <h4>Competitive monitoring</h4>
+          <p>Share of shelf, search rank, availability, and price position across your tracked terms.</p>
+          <div class="deliverable-foot">
+            <span class="deliverable-price">$95 / mo</span>
+            <span class="deliverable-turn">Daily</span>
+          </div>
+        </div>
+        <div class="deliverable">
+          <p class="label">Portfolio</p>
+          <h4>Agency workspace</h4>
+          <p>Every brand and listing in one view, ranked by how much ground each one is losing.</p>
+          <div class="deliverable-foot">
+            <span class="deliverable-price">Included</span>
+            <span class="deliverable-turn">Per agency</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  {# --- Closing CTA ---
+       Copy note from the handoff: "stands this right now" is the client's
+       verbatim wording and reads like a leftover word. Left as-authored per the
+       "copy is final, use verbatim" instruction; flag for confirmation before
+       launch. #}
+  <section class="public-wrap">
+    <div class="closing">
+      <h2>Bring in one portfolio and see where it stands this right now.</h2>
+      <a href="{{ url_for('pages.signin') }}" class="btn btn-primary" style="padding: 14px 22px;">
+        Request access {{ arrow }}
+      </a>
+    </div>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <div class="public-wrap">
+    <span class="wordmark" style="font-size: 13px;">ecomm-copilot</span>
+    <span class="footer-tag">Your eCommerce Team, Amplified.</span>
+    <div class="footer-links">
+      <a href="#">Privacy</a>
+      <a href="#">Terms</a>
+      <a href="{{ url_for('pages.signin') }}">Sign in</a>
+    </div>
+  </div>
+</footer>
+{% endblock %}

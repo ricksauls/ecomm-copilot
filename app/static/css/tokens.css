@@ -1,0 +1,156 @@
+/* Design tokens for ecomm-copilot.
+ *
+ * Every value here is transcribed from the design handoff. This file is the
+ * single source of truth for color, type, and spacing: components reference
+ * these custom properties rather than hardcoding hex or px values, so the
+ * palette can be re-themed from one place (the handoff explicitly calls for
+ * tokenising from the start rather than hardcoding).
+ *
+ * The five-color system has no positive/negative pair by design. Signal red is
+ * the only accent; improvements (+3, +6.3) render in neutral mid-gray, not a
+ * success green. Do not add a sixth color in a component. */
+
+/* --- Self-hosted Inter, four weights. No CDN: the app must render offline. --- */
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/static/fonts/Inter-Regular.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/static/fonts/Inter-Medium.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/static/fonts/Inter-SemiBold.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/static/fonts/Inter-Bold.woff2") format("woff2");
+}
+
+:root {
+  /* --- Color: the five-color system plus its light-surface derivations --- */
+  --black: #050505;          /* nav rail bg; primary button fill; primary text on light */
+  --graphite: #121212;       /* raised surfaces inside the dark rail only */
+  --faint-gray: #2a2a2a;     /* hairlines inside the dark rail; avatar chip fill */
+  --mid-gray: #4a4a4a;       /* secondary body text on light; secondary numerics */
+  --cool-gray: #8c8c8c;      /* labels, captions, metadata, muted nav items */
+  --canvas: #f3f3f3;         /* page background; text color on the dark rail */
+  --surface: #ffffff;        /* card fill */
+  --border: #e1e1e1;         /* card borders; table header rules on light */
+  --divider: #efefef;        /* table row dividers (lighter than border) */
+  --placeholder: #ededed;    /* image placeholder fill; empty data-bar track */
+  --control-border: #c9c9c9; /* outline button borders; chip borders */
+  --row-hover: #fafafa;      /* table row hover; the highlighted "this is you" row */
+  --signal-red: #ff3b30;     /* the only accent; used at most once or twice per view */
+
+  /* --- Typography --- */
+  --font: "Inter", system-ui, sans-serif;
+
+  /* --- Spacing scale (4px base). Named by px value for direct mapping. --- */
+  --space-3: 3px;
+  --space-4: 4px;
+  --space-6: 6px;
+  --space-8: 8px;
+  --space-9: 9px;
+  --space-12: 12px;
+  --space-14: 14px;   /* the uniform card gap in every grid */
+  --space-16: 16px;
+  --space-20: 20px;
+  --space-22: 22px;
+  --space-24: 24px;
+  --space-26: 26px;
+  --space-28: 28px;
+  --space-34: 34px;   /* page padding left/right/top */
+  --space-52: 52px;
+  --space-60: 60px;   /* page padding bottom */
+
+  /* --- Borders & radii. Nothing rounder than 4px; no shadows anywhere. --- */
+  --radius-card: 4px;
+  --radius-chip: 2px;
+
+  /* --- Motion --- */
+  --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --fade: 180ms;
+}
+
+/* --- Base reset --- */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* The characteristic tracked-uppercase label. Nearly every card starts with
+ * one. The workspace uses 9.5px/+0.11em; the public surface overrides to
+ * 10px/+0.12em in its own stylesheet. */
+.label {
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--cool-gray);
+}
+
+/* The 32x2px red rule that sits above a card headline when it needs an accent.
+ * This is the only accent-card treatment; no left-border accent cards. */
+.red-rule {
+  width: 32px;
+  height: 2px;
+  background: var(--signal-red);
+  border: 0;
+  margin: 9px 0;
+}
+
+/* Custom scrollbars, per spec: 10px, square, thumb #d6d6d6. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #d6d6d6 transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: #d6d6d6;
+  border-radius: 0;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Respect reduced-motion preferences (quality floor from the design skill). */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}

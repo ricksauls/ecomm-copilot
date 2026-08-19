@@ -1,0 +1,70 @@
+{% extends "public_base.html" %}
+{% block title %}Sign in — ecomm-copilot{% endblock %}
+
+{% block content %}
+<div class="signin">
+  {# --- Left panel: holds the brand argument while the user signs in ---
+       The pitch copy here is fixture content standing in for a real value line;
+       it currently names the demo agency, which a production sign-in page would
+       not. Replace with a fixed brand statement or genuine aggregate stats. #}
+  <div class="signin-left">
+    <a href="{{ url_for('pages.landing') }}" class="wordmark" style="align-self: flex-start;">
+      ecomm-copilot
+    </a>
+    <div class="spacer"></div>
+    <div class="signin-pitch">
+      <hr class="red-rule" />
+      <h2>Every listing you manage, scored against the competition.</h2>
+      <p>
+        Meridian Commerce Group holds 15 brands and 148 products in one portfolio
+        view. Twenty-four analyses ran this month.
+      </p>
+    </div>
+    <div class="spacer"></div>
+    <p class="signin-foot">Walmart · Amazon and Target next</p>
+  </div>
+
+  {# --- Right panel: the form ---
+       Presentational only in this pass. The inputs render the resting visual
+       state; real authentication, validation, focus/invalid/loading states,
+       and rate limiting are a follow-up. Because these are real <input>s (not
+       static text as in the prototype), they are keyboard-focusable now, which
+       is the correct accessible baseline. #}
+  <div class="signin-right">
+    <div>
+      <p class="label">Sign in</p>
+      <h2>Welcome back</h2>
+      <p class="intro">Use the address your agency was granted access on.</p>
+    </div>
+
+    <div class="field">
+      <label for="email">Work email</label>
+      <input type="email" id="email" name="email" autocomplete="email"
+             placeholder="you@agency.com" />
+    </div>
+
+    <div class="field">
+      <div class="field-label-row">
+        <label for="password">Password</label>
+        <a href="#" class="forgot">Forgot?</a>
+      </div>
+      <input type="password" id="password" name="password" autocomplete="current-password" />
+    </div>
+
+    {# Routes to the dashboard. This is a stand-in for real auth: replace with a
+       POST to a sign-in handler that establishes a session, then redirects. #}
+    <a href="{{ url_for('pages.dashboard') }}" class="btn btn-primary">Sign in</a>
+
+    <div class="or-divider"><span>or</span></div>
+
+    <a href="{{ url_for('pages.dashboard') }}" class="btn btn-secondary">
+      Continue with single sign-on
+    </a>
+
+    <p class="fine-print">
+      Access is granted per agency. <a href="{{ url_for('pages.landing') }}">Request access</a>
+      if your team is not set up yet.
+    </p>
+  </div>
+</div>
+{% endblock %}

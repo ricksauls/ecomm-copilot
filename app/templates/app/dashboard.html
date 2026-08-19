@@ -1,0 +1,99 @@
+{% extends "app/base.html" %}
+{% block title %}Dashboard — ecomm-copilot{% endblock %}
+
+{% block pane_content %}
+{# --- Page header --- #}
+<div class="page-header">
+  <div>
+    <p class="label eyebrow">Portfolio</p>
+    <h1>{{ agency.name }}</h1>
+    <p class="subtitle">{{ agency.subtitle }}</p>
+  </div>
+  <div class="header-buttons">
+    <a href="#" class="wbtn wbtn-secondary">Export report</a>
+    <a href="#" class="wbtn wbtn-primary">Add product</a>
+  </div>
+</div>
+
+{# --- KPI row --- #}
+<div class="kpi-row">
+  {% for kpi in kpis %}
+  <div class="card kpi">
+    <div class="label">{{ kpi.label }}</div>
+    <div class="metric">
+      {{ kpi.value }}
+      {% if kpi.delta %}<span class="delta">{{ kpi.delta }}</span>{% endif %}
+    </div>
+    {% if kpi.sparkline %}
+      {# Final bar is "now" (black); the two before it are mid-tone. #}
+      <div class="sparkline">
+        {% for h in kpi.sparkline %}
+          {% set idx = loop.index0 %}
+          {% set count = kpi.sparkline | length %}
+          <span class="bar {{ 'now' if idx == count - 1 else ('mid' if idx >= count - 3 else '') }}"
+                style="height: {{ h }}px;"></span>
+        {% endfor %}
+      </div>
+    {% elif kpi.footnote %}
+      <div class="footnote">{{ kpi.footnote }}</div>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+
+{# --- Main row: table + sidebar --- #}
+<div class="main-row">
+  {# Products losing ground. Order is an editorial "needs attention" ranking,
+     not a sort on any single column. #}
+  <div class="card table-card">
+    <div class="table-head">
+      <div>
+        <h2>Products losing ground</h2>
+        <p class="sub">Ranked by gap to the leading competitor in each set</p>
+      </div>
+      <a href="#" class="all-link">All 148 →</a>
+    </div>
+    <div class="table-cols table-header-row">
+      <div class="col">Product</div>
+      <div class="col r">Score</div>
+      <div class="col r">Gap to top</div>
+      <div class="col r">Recommended</div>
+    </div>
+    {% for row in losing_ground %}
+    <a href="#" class="table-cols table-row">
+      <div class="col product-cell">
+        <div class="product-thumb"></div>
+        <div class="product-lines">
+          <div class="product-name">{{ row.name }}</div>
+          <div class="product-meta">{{ row.brand }} · {{ row.item }}</div>
+        </div>
+      </div>
+      <div class="col r col-score">{{ row.score }}</div>
+      <div class="col r col-gap {{ 'worst' if row.worst else '' }}">{{ row.gap }}</div>
+      <div class="col r col-rec">{{ row.recommended }} →</div>
+    </a>
+    {% endfor %}
+  </div>
+
+  {# --- Sidebar --- #}
+  <div class="sidebar">
+    <div class="card card-pad seasonal">
+      <div class="label">Seasonal window</div>
+      <hr class="red-rule" />
+      <h3>Back to School closes in 19 days</h3>
+      <p>12 products in this portfolio are eligible for a matched seasonal set before the window closes.</p>
+      <a href="#" class="wbtn wbtn-primary wbtn-full">Review 12 eligible products</a>
+    </div>
+
+    <div class="card card-pad activity">
+      <div class="label">Recent activity</div>
+      {% for item in recent_activity %}
+      <div class="item">
+        <div class="title">{{ item.title }}</div>
+        <div class="meta">{{ item.meta }}</div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endblock %}

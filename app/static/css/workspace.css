@@ -1,0 +1,579 @@
+/* Authenticated workspace (light) styles.
+ *
+ * The workspace inverts the design system for a dense, all-day tool: the dark
+ * canvas moves to a fixed 236px nav rail, #f3f3f3 becomes the page, #ffffff the
+ * card surface. Same type scale, hairlines, and single accent as the public
+ * surface. Full-viewport two-column shell; only the content pane scrolls. */
+
+body.workspace {
+  background: var(--canvas);
+  color: var(--black);
+  height: 100vh;
+  overflow: hidden;
+}
+
+.shell {
+  display: flex;
+  height: 100vh;
+}
+
+/* --- Nav rail (236px, fixed, #050505) --- */
+.rail {
+  width: 236px;
+  flex-shrink: 0;
+  background: var(--black);
+  color: var(--canvas);
+  display: flex;
+  flex-direction: column;
+  padding: 28px 0 20px;
+}
+.rail-brand {
+  padding: 0 24px 26px;
+}
+.rail-brand .name {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--canvas);
+}
+.rail-brand .tagline {
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--cool-gray);
+}
+
+/* Brand switcher (dropdown affordance; picker not built) */
+.brand-switcher {
+  margin: 0 16px 22px;
+  padding: 11px 13px;
+  background: var(--graphite);
+  border: 1px solid var(--faint-gray);
+  border-radius: var(--radius-card);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  transition: border-color var(--fade) var(--ease);
+}
+.brand-switcher:hover {
+  border-color: var(--mid-gray);
+}
+.brand-chip {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  border: 1px solid var(--mid-gray);
+  border-radius: var(--radius-chip);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 600;
+}
+.brand-switcher .meta {
+  flex: 1;
+  min-width: 0;
+}
+.brand-switcher .brand-name {
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.brand-switcher .brand-count {
+  font-size: 10px;
+  color: var(--cool-gray);
+}
+
+/* Nav items */
+.rail-nav {
+  padding: 0 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: var(--radius-card);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--cool-gray);
+  text-decoration: none;
+  transition: background var(--fade) var(--ease), color var(--fade) var(--ease);
+}
+.nav-item .mark {
+  width: 3px;
+  height: 14px;
+  border-radius: 1px;
+  background: transparent;
+  flex-shrink: 0;
+}
+.nav-item:hover {
+  color: var(--canvas);
+}
+.nav-item.active {
+  color: var(--canvas);
+  background: var(--graphite);
+}
+.nav-item.active .mark {
+  background: var(--signal-red);
+}
+
+.rail-spacer {
+  flex: 1;
+}
+
+/* Credits card (hidden entirely in Client View) */
+.credits {
+  margin: 0 16px 14px;
+  padding: 14px 14px 13px;
+  background: var(--graphite);
+  border: 1px solid var(--faint-gray);
+  border-radius: var(--radius-card);
+}
+.credits .label {
+  color: var(--cool-gray);
+}
+.credits .balance {
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  margin-top: 8px;
+}
+.credits .balance .approx {
+  font-size: 10.5px;
+  font-weight: 400;
+  color: var(--cool-gray);
+  letter-spacing: 0;
+  margin-left: 6px;
+}
+.credits .divider {
+  height: 1px;
+  background: var(--faint-gray);
+  margin: 12px 0;
+}
+.credits .add {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--canvas);
+  text-decoration: none;
+  transition: color var(--fade) var(--ease);
+}
+.credits .add:hover {
+  color: var(--signal-red);
+}
+
+/* User block (sign-out target) */
+.user-block {
+  margin: 0 12px;
+  padding: 8px 12px;
+  border-radius: var(--radius-card);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background var(--fade) var(--ease);
+}
+.user-block:hover {
+  background: var(--graphite);
+}
+.user-chip {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  background: var(--faint-gray);
+  border-radius: var(--radius-chip);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--canvas);
+}
+.user-block .who {
+  flex: 1;
+  min-width: 0;
+  font-size: 11.5px;
+  color: var(--cool-gray);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.user-block .signout {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--mid-gray);
+}
+
+/* --- Content column --- */
+.content-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* Topbar */
+.topbar {
+  height: 60px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 34px;
+  background: var(--canvas);
+  border-bottom: 1px solid var(--border);
+}
+.breadcrumb {
+  font-size: 12.5px;
+  color: var(--cool-gray);
+}
+.topbar-spacer {
+  flex: 1;
+}
+.search {
+  width: 250px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  color: var(--cool-gray);
+  font-size: 12.5px;
+  margin-right: 12px;
+}
+.search svg {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+}
+.client-toggle {
+  padding: 7px 13px;
+  background: var(--surface);
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-card);
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--black);
+  cursor: pointer;
+  transition: border-color var(--fade) var(--ease);
+}
+.client-toggle:hover {
+  border-color: var(--black);
+}
+
+/* Scrolling content pane */
+.pane {
+  flex: 1;
+  overflow-y: auto;
+  padding: 34px 34px 60px;
+}
+.pane-inner {
+  max-width: 1220px;
+  margin: 0 auto;
+}
+
+/* --- Page header pattern (shared across workspace screens) --- */
+.page-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 26px;
+}
+.page-header .eyebrow {
+  margin-bottom: 9px;
+}
+.page-header h1 {
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  margin: 0;
+}
+.page-header .subtitle {
+  font-size: 13.5px;
+  color: var(--mid-gray);
+  margin: 8px 0 0;
+}
+.header-buttons {
+  display: flex;
+  gap: 9px;
+}
+
+/* --- Workspace buttons (primary is dark fill on light) --- */
+.wbtn {
+  font-size: 12.5px;
+  font-weight: 500;
+  padding: 9px 15px;
+  border-radius: var(--radius-card);
+  border: 1px solid transparent;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--fade) var(--ease), border-color var(--fade) var(--ease);
+}
+.wbtn-primary {
+  background: var(--black);
+  color: var(--canvas);
+}
+.wbtn-primary:hover {
+  background: var(--faint-gray);
+}
+.wbtn-secondary {
+  background: var(--surface);
+  color: var(--black);
+  border-color: var(--control-border);
+}
+.wbtn-secondary:hover {
+  border-color: var(--black);
+}
+.wbtn-full {
+  width: 100%;
+  padding: 10px 14px;
+}
+
+/* --- Cards --- */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+}
+.card-pad {
+  padding: 20px 22px;
+}
+
+/* KPI row */
+.kpi-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  margin-bottom: 14px;
+}
+.kpi {
+  padding: 20px 22px;
+}
+.kpi .metric {
+  font-size: 40px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  margin-top: 14px;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.kpi .metric .delta {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--mid-gray); /* improvements are neutral, never green */
+}
+.kpi .footnote {
+  font-size: 12px;
+  color: var(--cool-gray);
+  margin-top: 12px;
+}
+/* Sparkline: three-tone bars, no chart library, no axes. */
+.sparkline {
+  display: flex;
+  gap: 2px;
+  align-items: flex-end;
+  height: 16px;
+  margin-top: 12px;
+}
+.sparkline .bar {
+  flex: 1;
+  background: var(--border);
+}
+.sparkline .bar.mid {
+  background: var(--control-border);
+}
+.sparkline .bar.now {
+  background: var(--black);
+}
+
+/* --- Main row: table + sidebar --- */
+.main-row {
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  gap: 14px;
+}
+
+/* Products losing ground table */
+.table-card {
+  padding: 22px 0 6px;
+}
+.table-head {
+  padding: 0 22px 16px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.table-head h2 {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0;
+}
+.table-head .sub {
+  font-size: 12.5px;
+  color: var(--cool-gray);
+  margin: 4px 0 0;
+}
+.table-head .all-link {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--black);
+  text-decoration: none;
+}
+.table-head .all-link:hover {
+  color: var(--signal-red);
+}
+.table-cols {
+  display: grid;
+  grid-template-columns: 1fr 78px 96px 150px;
+  align-items: center;
+}
+.table-header-row {
+  padding: 0 22px 9px;
+  border-bottom: 1px solid var(--border);
+}
+.table-header-row .col {
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--cool-gray);
+}
+.table-header-row .col.r,
+.table-row .col.r {
+  text-align: right;
+}
+.table-row {
+  padding: 15px 22px;
+  border-bottom: 1px solid var(--divider);
+  cursor: pointer;
+  text-decoration: none;
+  color: inherit;
+  transition: background var(--fade) var(--ease);
+}
+.table-row:last-child {
+  border-bottom: 0;
+}
+.table-row:hover {
+  background: var(--row-hover);
+}
+.product-cell {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.product-thumb {
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  background: var(--placeholder);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-chip);
+}
+.product-lines {
+  min-width: 0;
+}
+.product-name {
+  font-size: 13.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.product-meta {
+  font-size: 11.5px;
+  color: var(--cool-gray);
+}
+.col-score {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+.col-gap {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--mid-gray);
+}
+.col-gap.worst {
+  color: var(--signal-red); /* only the worst row's gap is red */
+}
+.col-rec {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--black);
+}
+
+/* Sidebar cards */
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.seasonal h3 {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+  margin: 0;
+}
+.seasonal p {
+  font-size: 13px;
+  color: var(--mid-gray);
+  margin: 12px 0 16px;
+  text-wrap: pretty;
+}
+.activity .item {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--divider);
+}
+.activity .item:last-child {
+  border-bottom: 0;
+}
+.activity .item .title {
+  font-size: 13px;
+  font-weight: 500;
+}
+.activity .item .meta {
+  font-size: 11.5px;
+  color: var(--cool-gray);
+  margin-top: 3px;
+}
+
+/* Keyboard focus visibility */
+a:focus-visible,
+.wbtn:focus-visible,
+.client-toggle:focus-visible,
+.table-row:focus-visible {
+  outline: 2px solid var(--cool-gray);
+  outline-offset: 2px;
+}
+
+/* --- Responsive: the design targets >=1400px. Below the rail + content
+   minimum, stack the sidebar under the table. A full mobile rail collapse is a
+   later task (see handoff: rail should collapse to icons first). --- */
+@media (max-width: 1100px) {
+  .kpi-row {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .main-row {
+    grid-template-columns: 1fr;
+  }
+}

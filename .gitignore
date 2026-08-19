@@ -1,10 +1,37 @@
-# repo-startup-template
-node_modules/
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# --- Virtual environments ---
+.venv/
+venv/
+env/
+
+# --- Environment / secrets (never commit real secrets) ---
 .env
 .env.local
 .env.production
-dist/
-build/
-coverage/
+
+# --- SQLite databases ---
+*.db
+*.sqlite
+*.sqlite3
+
+# --- Logs ---
+logs/
 *.log
+
+# --- Test / coverage ---
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# --- OS / editor ---
 .DS_Store
+.idea/
+.vscode/

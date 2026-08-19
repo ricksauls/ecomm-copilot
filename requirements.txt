@@ -1,0 +1,6 @@
+# Runtime dependencies. Pin exact versions so builds are reproducible and a
+# compromised new release can't silently enter the app (see security-standards).
+Flask==3.0.3
+gunicorn==22.0.0
+
+# The CI workflow additionally installs ruff, pip-audit, and pytest as tooling.
