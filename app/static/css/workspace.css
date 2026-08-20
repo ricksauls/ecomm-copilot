@@ -26,6 +26,11 @@ body.workspace {
   display: flex;
   flex-direction: column;
   padding: 28px 0 20px;
+  /* The shell hides body overflow, so on short viewports the rail must scroll
+     internally — otherwise its bottom (credits + sign-out) is clipped and
+     unreachable. */
+  height: 100vh;
+  overflow-y: auto;
 }
 .rail-brand {
   padding: 0 24px 26px;
