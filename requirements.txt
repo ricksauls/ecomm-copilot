@@ -4,4 +4,9 @@ Flask==3.1.3
 gunicorn==22.0.0
 python-dotenv==1.2.2
 
+# Auth: Werkzeug (ships with Flask) hashes passwords; Authlib + requests power
+# optional Google SSO.
+Authlib==1.7.2
+requests==2.34.2
+
 # The CI workflow installs the dev/tooling pins from requirements-dev.txt.

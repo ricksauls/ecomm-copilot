@@ -184,12 +184,7 @@ body.workspace {
   display: flex;
   align-items: center;
   gap: 10px;
-  cursor: pointer;
   text-decoration: none;
-  transition: background var(--fade) var(--ease);
-}
-.user-block:hover {
-  background: var(--graphite);
 }
 .user-chip {
   width: 24px;
@@ -213,12 +208,23 @@ body.workspace {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* Sign-out is a real POST button; strip the native button chrome so it reads
+   as the same quiet label it did before, and give it a clear hover affordance. */
 .user-block .signout {
   font-size: 10px;
   font-weight: 500;
   letter-spacing: 0.09em;
   text-transform: uppercase;
   color: var(--mid-gray);
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  font-family: inherit;
+  transition: color var(--fade) var(--ease);
+}
+.user-block .signout:hover {
+  color: var(--canvas);
 }
 
 /* --- Content column --- */

@@ -20,8 +20,8 @@
     </nav>
     <div class="header-spacer"></div>
     <div class="header-actions">
-      <a href="{{ url_for('pages.signin') }}" class="btn-quiet">Sign in</a>
-      <a href="{{ url_for('pages.signin') }}" class="btn btn-primary">Request access</a>
+      <a href="{{ url_for('auth.signin') }}" class="btn-quiet">Sign in</a>
+      <a href="{{ url_for('auth.signup') }}" class="btn btn-primary">Request access</a>
     </div>
   </div>
 </header>
@@ -40,10 +40,10 @@
             and implement the specific solution that closes the gap.
           </p>
           <div class="cta-row">
-            <a href="{{ url_for('pages.signin') }}" class="btn btn-primary btn-lg">
+            <a href="{{ url_for('auth.signup') }}" class="btn btn-primary btn-lg">
               Request access {{ arrow }}
             </a>
-            <a href="{{ url_for('pages.signin') }}" class="btn btn-secondary btn-lg">
+            <a href="{{ url_for('auth.signin') }}" class="btn btn-secondary btn-lg">
               Sign in to the workspace
             </a>
           </div>
@@ -179,7 +179,7 @@
   <section class="public-wrap">
     <div class="closing">
       <h2>Bring in one portfolio and see where it stands right now.</h2>
-      <a href="{{ url_for('pages.signin') }}" class="btn btn-primary" style="padding: 14px 22px;">
+      <a href="{{ url_for('auth.signup') }}" class="btn btn-primary" style="padding: 14px 22px;">
         Request access {{ arrow }}
       </a>
     </div>
@@ -196,7 +196,7 @@
     <div class="footer-links">
       <a href="#">Privacy</a>
       <a href="#">Terms</a>
-      <a href="{{ url_for('pages.signin') }}">Sign in</a>
+      <a href="{{ url_for('auth.signin') }}">Sign in</a>
     </div>
   </div>
 </footer>

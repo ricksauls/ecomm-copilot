@@ -49,11 +49,14 @@
   </div>
   {% endif %}
 
-  {# User block is the sign-out target. In production this likely becomes a small
-     menu (Account, Billing, Sign out) rather than a single action. #}
-  <a href="{{ url_for('pages.landing') }}" class="user-block">
-    <div class="user-chip">DK</div>
-    <div class="who">Dana Kirsch · Meridian</div>
-    <div class="signout">Sign out</div>
-  </a>
+  {# User block: the signed-in account and a CSRF-protected sign-out. In
+     production this likely becomes a small menu (Account, Billing, Sign out). #}
+  <div class="user-block">
+    <div class="user-chip">{{ (current_user['email'][0] | upper) if current_user else '?' }}</div>
+    <div class="who">{{ current_user['email'] if current_user else '' }}</div>
+    <form method="post" action="{{ url_for('auth.signout') }}" class="signout-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+      <button type="submit" class="signout">Sign out</button>
+    </form>
+  </div>
 </nav>

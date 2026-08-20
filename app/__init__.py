@@ -99,13 +99,44 @@ def create_app() -> Flask:
         os.environ.get("SESSION_COOKIE_SECURE", "true").lower() != "false"
     )
 
+    # Google SSO credentials (optional). Read into config so oauth.init_oauth
+    # can gate on their presence; absent -> SSO stays disabled.
+    app.config["GOOGLE_CLIENT_ID"] = os.environ.get("GOOGLE_CLIENT_ID")
+    app.config["GOOGLE_CLIENT_SECRET"] = os.environ.get("GOOGLE_CLIENT_SECRET")
+
     _register_security_headers(app)
     _register_error_handlers(app)
 
-    # Blueprint carrying the public and workspace pages.
+    # Database: resolve path, create schema, register teardown.
+    from app import db
+
+    db.init_app(app)
+
+    # Optional Google SSO (no-op when unconfigured).
+    from app.oauth import init_oauth
+
+    init_oauth(app)
+
+    # Auth request lifecycle: load the current user, then enforce CSRF on unsafe
+    # methods. Registered before blueprints so they run for every route.
+    from app import security
+
+    app.before_request(security.load_current_user)
+    app.before_request(security.verify_csrf)
+
+    # Expose the CSRF token and current user to every template.
+    @app.context_processor
+    def _inject_auth_context():
+        from flask import g
+
+        return {"csrf_token": security.csrf_token, "current_user": g.get("user")}
+
+    # Blueprints: public/workspace pages and the auth routes.
+    from app import auth
     from app.routes import pages
 
     app.register_blueprint(pages.bp)
+    app.register_blueprint(auth.bp)
 
     logger.info("Application initialised (log level %s)", logging.getLevelName(app.logger.level))
     return app

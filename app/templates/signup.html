@@ -1,11 +1,10 @@
 {% extends "public_base.html" %}
-{% block title %}Sign in — ecomm-copilot{% endblock %}
+{% block title %}Request access — ecomm-copilot{% endblock %}
 
 {% block content %}
 <div class="signin">
-  {# --- Left panel: holds the brand argument while the user signs in ---
-       A fixed value statement (discoverability + conversion), deliberately not
-       tied to any one account's numbers. #}
+  {# Reuses the sign-in split layout and styles; left panel carries the same
+     value statement, right panel is the account-creation form. #}
   <div class="signin-left">
     <a href="{{ url_for('pages.landing') }}" class="wordmark" style="align-self: flex-start;"
        aria-label="ecomm-copilot home">
@@ -24,24 +23,21 @@
     <div class="spacer"></div>
   </div>
 
-  {# --- Right panel: the sign-in form ---
-       Posts to auth.signin. The hidden csrf_token guards the POST; `next`
-       carries the originally requested path through the login guard. On failure
-       the view re-renders this template with `error` set and the email kept. #}
+  {# Posts to auth.signup. CSRF-guarded; on failure re-renders with `error` set
+     and the email preserved. #}
   <div class="signin-right">
     <div>
-      <p class="label">Sign in</p>
-      <h2>Welcome back</h2>
-      <p class="intro">Enter your email and password to continue.</p>
+      <p class="label">Request access</p>
+      <h2>Create your account</h2>
+      <p class="intro">Set up an email and password to get started.</p>
     </div>
 
     {% if error %}
     <div class="form-error" role="alert">{{ error }}</div>
     {% endif %}
 
-    <form method="post" action="{{ url_for('auth.signin') }}" novalidate>
+    <form method="post" action="{{ url_for('auth.signup') }}" novalidate>
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-      <input type="hidden" name="next" value="{{ next or '' }}" />
 
       <div class="field">
         <label for="email">Work email</label>
@@ -52,22 +48,16 @@
       <div class="field">
         <label for="password">Password</label>
         <input type="password" id="password" name="password"
-               autocomplete="current-password" required />
+               autocomplete="new-password" required minlength="8" />
+        <p class="field-hint">At least 8 characters.</p>
       </div>
 
-      <button type="submit" class="btn btn-primary">Sign in</button>
+      <button type="submit" class="btn btn-primary">Create account</button>
     </form>
 
-    {% if sso_google %}
-    <div class="or-divider"><span>or</span></div>
-    <a href="{{ url_for('auth.google_login') }}" class="btn btn-secondary">
-      Continue with Google
-    </a>
-    {% endif %}
-
     <p class="fine-print">
-      New to ecomm-copilot?
-      <a href="{{ url_for('auth.signup') }}">Request access</a>
+      Already have an account?
+      <a href="{{ url_for('auth.signin') }}">Sign in</a>
     </p>
   </div>
 </div>

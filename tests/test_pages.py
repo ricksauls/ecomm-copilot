@@ -18,7 +18,9 @@ def test_signin_renders(client):
     assert b"Welcome back" in resp.data
 
 
-def test_dashboard_renders(client):
+def test_dashboard_renders_when_authenticated(client, auth):
+    # Registering logs the user in, so the guarded dashboard is reachable.
+    auth.register()
     resp = client.get("/app")
     assert resp.status_code == 200
     assert b"Products losing ground" in resp.data
