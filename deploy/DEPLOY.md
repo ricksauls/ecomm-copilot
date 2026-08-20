@@ -82,7 +82,7 @@ Actions):
 | `DEPLOY_HOST` | `142.93.244.23` |
 | `DEPLOY_USER` | `deploy` |
 | `DEPLOY_SSH_KEY` | private half of a CI-only keypair whose public half is in `deploy`'s `~/.ssh/authorized_keys` |
-| `DEPLOY_FINGERPRINT` | `ssh-keyscan 142.93.244.23 \| ssh-keygen -lf -` |
+| `DEPLOY_FINGERPRINT` | `ssh-keyscan -t ecdsa 142.93.244.23 \| ssh-keygen -lf - \| awk '{print $2}'` (the SSH client in the deploy action negotiates the ECDSA host key, so pin that one, not ed25519) |
 
 After the secrets exist, every push to `main` that passes CI runs the deploy.
 
