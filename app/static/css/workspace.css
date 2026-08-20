@@ -182,9 +182,19 @@ body.workspace {
   padding: 8px 12px;
   border-radius: var(--radius-card);
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
   text-decoration: none;
+}
+/* Stack the email over the sign-out so the full address gets the rail's width
+   and wraps instead of truncating. */
+.user-meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
 }
 .user-chip {
   width: 24px;
@@ -200,13 +210,11 @@ body.workspace {
   color: var(--canvas);
 }
 .user-block .who {
-  flex: 1;
-  min-width: 0;
   font-size: 11.5px;
+  line-height: 1.35;
   color: var(--cool-gray);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  /* Let long emails wrap fully rather than truncate. */
+  overflow-wrap: anywhere;
 }
 /* Sign-out is a real POST button; strip the native button chrome so it reads
    as the same quiet label it did before, and give it a clear hover affordance. */

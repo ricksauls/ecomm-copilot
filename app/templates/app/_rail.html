@@ -53,10 +53,12 @@
      production this likely becomes a small menu (Account, Billing, Sign out). #}
   <div class="user-block">
     <div class="user-chip">{{ (current_user['email'][0] | upper) if current_user else '?' }}</div>
-    <div class="who">{{ current_user['email'] if current_user else '' }}</div>
-    <form method="post" action="{{ url_for('auth.signout') }}" class="signout-form">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-      <button type="submit" class="signout">Sign out</button>
-    </form>
+    <div class="user-meta">
+      <div class="who">{{ current_user['email'] if current_user else '' }}</div>
+      <form method="post" action="{{ url_for('auth.signout') }}" class="signout-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+        <button type="submit" class="signout">Sign out</button>
+      </form>
+    </div>
   </div>
 </nav>
