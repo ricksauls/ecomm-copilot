@@ -4,9 +4,8 @@
 {% block content %}
 <div class="signin">
   {# --- Left panel: holds the brand argument while the user signs in ---
-       The pitch copy here is fixture content standing in for a real value line;
-       it currently names the demo agency, which a production sign-in page would
-       not. Replace with a fixed brand statement or genuine aggregate stats. #}
+       A fixed value statement (discoverability + conversion), deliberately not
+       tied to any one account's numbers. #}
   <div class="signin-left">
     <a href="{{ url_for('pages.landing') }}" class="wordmark" style="align-self: flex-start;"
        aria-label="ecomm-copilot home">
@@ -16,14 +15,14 @@
     <div class="spacer"></div>
     <div class="signin-pitch">
       <hr class="red-rule" />
-      <h2>Every listing you manage, scored against the competition.</h2>
+      <h2>Driving Discoverability and Conversion</h2>
       <p>
-        Meridian Commerce Group holds 15 brands and 148 products in one portfolio
-        view. Twenty-four analyses ran this month.
+        Getting your products in front of shoppers and converting those shoppers
+        to customers.
       </p>
     </div>
     <div class="spacer"></div>
-    <p class="signin-foot">Walmart · Amazon and Target next</p>
+    <p class="signin-foot">Walmart</p>
   </div>
 
   {# --- Right panel: the form ---
@@ -62,11 +61,6 @@
     <a href="{{ url_for('pages.dashboard') }}" class="btn btn-secondary">
       Continue with single sign-on
     </a>
-
-    <p class="fine-print">
-      Access is granted per agency. <a href="{{ url_for('pages.landing') }}">Request access</a>
-      if your team is not set up yet.
-    </p>
   </div>
 </div>
 {% endblock %}
