@@ -29,10 +29,12 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          # Install project deps if a requirements file exists yet.
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          # Tooling used by the steps below.
-          pip install ruff pip-audit pytest
+          # Install runtime deps plus the pinned tooling (ruff, pip-audit,
+          # pytest) from requirements-dev.txt. Pinning the tools too keeps CI
+          # reproducible — an unpinned `pip install ruff` silently pulls newer,
+          # stricter versions and turns green builds red on a schedule nobody
+          # chose (see security-standards: pin tooling for reproducible builds).
+          pip install -r requirements-dev.txt
 
       - name: Lint
         run: ruff check .

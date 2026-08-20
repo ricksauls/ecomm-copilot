@@ -1,7 +1,7 @@
 # Runtime dependencies. Pin exact versions so builds are reproducible and a
 # compromised new release can't silently enter the app (see security-standards).
-Flask==3.0.3
+Flask==3.1.3
 gunicorn==22.0.0
-python-dotenv==1.0.1
+python-dotenv==1.2.2
 
-# The CI workflow additionally installs ruff, pip-audit, and pytest as tooling.
+# The CI workflow installs the dev/tooling pins from requirements-dev.txt.
