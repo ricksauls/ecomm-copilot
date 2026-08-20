@@ -44,6 +44,19 @@ body.public {
   letter-spacing: -0.02em;
   color: var(--canvas);
   text-decoration: none;
+  /* The wordmark now wraps the logo lockup; keep the link box tight to the image. */
+  display: inline-flex;
+  align-items: center;
+}
+/* Brand logo lockup (icon + wordmark). Sized by height; width follows the
+   image's ~4:1 aspect. Renders on dark surfaces, matching the artwork. */
+.brand-logo {
+  height: 52px;
+  width: auto;
+  display: block;
+}
+.brand-logo-sm {
+  height: 36px;
 }
 .site-nav {
   display: flex;

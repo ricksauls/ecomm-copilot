@@ -10,7 +10,10 @@
 {% block content %}
 <header class="site-header">
   <div class="public-wrap">
-    <a href="{{ url_for('pages.landing') }}" class="wordmark">ecomm-copilot</a>
+    <a href="{{ url_for('pages.landing') }}" class="wordmark" aria-label="ecomm-copilot home">
+      <img src="{{ url_for('static', filename='img/ecomm-copilot-logo.png') }}"
+           alt="ecomm-copilot" class="brand-logo" />
+    </a>
     <nav class="site-nav">
       <a href="#how-it-works">How it works</a>
       <a href="#deliverables">Deliverables &amp; Pricing</a>
@@ -34,7 +37,7 @@
           <h1>Your eCommerce Team, Amplified.</h1>
           <p class="sub">
             See which listings are losing ground on Walmart, understand exactly why,
-            and buy the specific solution that closes the gap.
+            and implement the specific solution that closes the gap.
           </p>
           <div class="cta-row">
             <a href="{{ url_for('pages.signin') }}" class="btn btn-primary btn-lg">
@@ -61,7 +64,7 @@
     <div class="public-wrap how">
       <div class="how-rail">
         <p class="label">How it works</p>
-        <h2>Four steps, and the fourth one closes the loop.</h2>
+        <h2>Four steps, completing the loop and closing the gap.</h2>
         <p class="sub">
           Every recommendation names the gap it closes and the score it should move.
           Nothing is sold on a hunch.
@@ -86,7 +89,7 @@
           <div class="step-num">03</div>
           <div>
             <h4>Implement the fix that closes the gap</h4>
-            <p>Retail-ready image sets, content optimization, seasonal versions.</p>
+            <p>Retail-ready image sets, copy content optimization, and seasonal versions.</p>
           </div>
         </div>
         <div class="step">
@@ -185,7 +188,10 @@
 
 <footer class="site-footer">
   <div class="public-wrap">
-    <span class="wordmark" style="font-size: 13px;">ecomm-copilot</span>
+    <span class="wordmark">
+      <img src="{{ url_for('static', filename='img/ecomm-copilot-logo.png') }}"
+           alt="ecomm-copilot" class="brand-logo brand-logo-sm" />
+    </span>
     <span class="footer-tag">Your eCommerce Team, Amplified.</span>
     <div class="footer-links">
       <a href="#">Privacy</a>

@@ -36,6 +36,13 @@ body.workspace {
   letter-spacing: -0.02em;
   color: var(--canvas);
 }
+/* Brand logo lockup in the rail. Sized by height; width follows the image's
+   ~4:1 aspect. The rail is on --black, matching the artwork. */
+.rail-brand .name .brand-logo {
+  height: 48px;
+  width: auto;
+  display: block;
+}
 .rail-brand .tagline {
   font-size: 9.5px;
   font-weight: 500;

@@ -8,8 +8,10 @@
        it currently names the demo agency, which a production sign-in page would
        not. Replace with a fixed brand statement or genuine aggregate stats. #}
   <div class="signin-left">
-    <a href="{{ url_for('pages.landing') }}" class="wordmark" style="align-self: flex-start;">
-      ecomm-copilot
+    <a href="{{ url_for('pages.landing') }}" class="wordmark" style="align-self: flex-start;"
+       aria-label="ecomm-copilot home">
+      <img src="{{ url_for('static', filename='img/ecomm-copilot-logo.png') }}"
+           alt="ecomm-copilot" class="brand-logo" />
     </a>
     <div class="spacer"></div>
     <div class="signin-pitch">
