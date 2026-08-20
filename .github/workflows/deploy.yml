@@ -1,0 +1,53 @@
+# Continuous deployment: push to the DigitalOcean droplet after CI passes.
+#
+# This runs ONLY after the "CI" workflow (lint, pip-audit, tests) completes
+# successfully on main, so a red build never reaches production. It SSHes into
+# the droplet and runs the pull-and-restart deploy script there.
+#
+# Required repository secrets (Settings -> Secrets and variables -> Actions):
+#   DEPLOY_HOST         droplet IP or hostname
+#   DEPLOY_USER         low-privilege deploy user on the droplet
+#   DEPLOY_SSH_KEY      private key whose public half is in that user's
+#                       ~/.ssh/authorized_keys (a key dedicated to CI, not a
+#                       personal key)
+#   DEPLOY_FINGERPRINT  the droplet's SSH host key fingerprint, to pin the
+#                       server identity and prevent MITM on first connect
+#                       (get it with: ssh-keyscan <host> | ssh-keygen -lf -)
+name: Deploy
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+
+# Least privilege: this workflow reads nothing from GitHub and writes nothing
+# back; all it needs lives in the SSH secrets above.
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # Gate on the CI run's conclusion — `types: [completed]` fires on failure
+    # too, so without this a failing build would still deploy.
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      # Pinned to a full commit SHA rather than a mutable tag so a compromised
+      # action release cannot silently run against production.
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2  # v1.2.5
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          fingerprint: ${{ secrets.DEPLOY_FINGERPRINT }}
+          # Runs on the droplet. `set -e` aborts on the first failed command so a
+          # broken pull or pip step doesn't restart the service on bad code.
+          # The git deploy key path matches deploy/DEPLOY.md.
+          script: |
+            set -e
+            cd /opt/ecomm-copilot
+            GIT_SSH_COMMAND="ssh -i ~/.ssh/ecomm_deploy" git pull --ff-only
+            ./.venv/bin/pip install -q -r requirements.txt
+            sudo systemctl restart ecomm-copilot
