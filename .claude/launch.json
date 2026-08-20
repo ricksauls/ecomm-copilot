@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "ecomm-copilot",
+      "runtimeExecutable": ".venv/bin/python",
+      "runtimeArgs": ["wsgi.py"],
+      "port": 5000
+    },
+    {
+      "name": "ecomm-copilot-preview",
+      "runtimeExecutable": ".venv/bin/python",
+      "runtimeArgs": ["-m", "flask", "--app", "wsgi:app", "run", "--port", "5050"],
+      "port": 5050
+    }
+  ]
+}

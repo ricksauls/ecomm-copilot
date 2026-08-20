@@ -35,3 +35,6 @@ coverage.xml
 .DS_Store
 .idea/
 .vscode/
+
+# --- Local working assets (duplicates of tracked app/static/img sources) ---
+Images/
