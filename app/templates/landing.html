@@ -28,39 +28,29 @@
   <section class="hero">
     <div class="public-wrap">
       <div class="hero-inner">
-        <p class="label">For retail agencies and brand teams</p>
-        <hr class="red-rule" style="margin: 20px 0 24px;" />
-        <h1>Your eCommerce Team, Amplified.</h1>
-        <p class="sub">
-          See which listings are losing ground on Walmart, understand exactly why,
-          and buy the specific solution that closes the gap.
-        </p>
-        <div class="cta-row">
-          <a href="{{ url_for('pages.signin') }}" class="btn btn-primary btn-lg">
-            Request access {{ arrow }}
-          </a>
-          <a href="{{ url_for('pages.signin') }}" class="btn btn-secondary btn-lg">
-            Sign in to the workspace
-          </a>
+        <div class="hero-copy">
+          <p class="label">For retail agencies and brand teams</p>
+          <hr class="red-rule" style="margin: 20px 0 24px;" />
+          <h1>Your eCommerce Team, Amplified.</h1>
+          <p class="sub">
+            See which listings are losing ground on Walmart, understand exactly why,
+            and buy the specific solution that closes the gap.
+          </p>
+          <div class="cta-row">
+            <a href="{{ url_for('pages.signin') }}" class="btn btn-primary btn-lg">
+              Request access {{ arrow }}
+            </a>
+            <a href="{{ url_for('pages.signin') }}" class="btn btn-secondary btn-lg">
+              Sign in to the workspace
+            </a>
+          </div>
         </div>
-      </div>
-    </div>
-  </section>
-
-  {# --- Why this matters --- #}
-  <section class="section why">
-    <div class="public-wrap">
-      <p class="label eyebrow">Why this matters</p>
-      <h2>Driving discoverability and conversion.</h2>
-      <div class="why-cols">
-        <div class="why-col">
-          <h3>Discoverability</h3>
-          <p>Getting your product in front of shoppers' eyes.</p>
-        </div>
-        <div class="why-divider"></div>
-        <div class="why-col">
-          <h3>Conversion</h3>
-          <p>Converting those shoppers to customers.</p>
+        {# Hero image: sits to the right of the copy on wide viewports and stacks
+           below it on narrow ones (layout lives in .hero-inner in public.css). #}
+        <div class="hero-media">
+          <img class="hero-image"
+               src="{{ url_for('static', filename='img/team-workspace.png') }}"
+               alt="eCommerce team working at their desks" />
         </div>
       </div>
     </div>
@@ -81,28 +71,28 @@
         <div class="step">
           <div class="step-num accent">01</div>
           <div>
-            <h4>Add the listing</h4>
+            <h4>Provide listing(s)</h4>
             <p>Point at a Walmart item number. Product assets and existing PDP content come in with it.</p>
           </div>
         </div>
         <div class="step">
           <div class="step-num">02</div>
           <div>
-            <h4>Score it</h4>
-            <p>Six dimensions, measured against top competitors on the same shelf.</p>
+            <h4>Scoring</h4>
+            <p>Meaningful dimensions, measured and scored against Walmart best practices.</p>
           </div>
         </div>
         <div class="step">
           <div class="step-num">03</div>
           <div>
-            <h4>Buy the fix that closes the gap</h4>
+            <h4>Implement the fix that closes the gap</h4>
             <p>Retail-ready image sets, content optimization, seasonal versions.</p>
           </div>
         </div>
         <div class="step">
           <div class="step-num">04</div>
           <div>
-            <h4>Watch the score and the shelf move</h4>
+            <h4>Watch the improvements</h4>
             <p>Share of shelf and search rank are tracked daily, so the next recommendation is based on what actually changed.</p>
           </div>
         </div>
