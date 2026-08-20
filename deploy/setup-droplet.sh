@@ -46,6 +46,13 @@ install -m 644 "$APP_DIR/deploy/nginx.conf" \
 ln -sf /etc/nginx/sites-available/ecomm-copilot \
   /etc/nginx/sites-enabled/ecomm-copilot
 
+# nginx (www-data) serves /static/ directly from the app dir under
+# /home/deploy. Home dirs are drwxr-x--- (750) by default, so www-data can't
+# traverse in and static assets 403. Add ONLY world-execute (search) on the
+# home dir — not read — so nginx can reach the static tree while .env (600) and
+# the DB stay unreadable to others.
+chmod o+x /home/deploy
+
 echo "==> Installing scoped sudoers line for CI restart"
 # Validate into a temp file with visudo before moving into place — a malformed
 # sudoers file can lock out sudo entirely, so never write it directly.
