@@ -1,169 +1,107 @@
-# Deploying ecomm-copilot to a DigitalOcean droplet
+# Deploying ecomm-copilot
 
-This is the one-time server setup plus the ongoing auto-deploy flow. The app is
-a Flask/gunicorn service behind nginx (TLS via Let's Encrypt), running as the
-unprivileged `www-data` user. After setup, every push to `main` that passes CI
-deploys automatically via `.github/workflows/deploy.yml`.
+The app runs on the shared **wm-content-tools** droplet (`142.93.244.23`,
+Ubuntu 24.04), following the same convention as the other apps there:
 
-Config files referenced here live in this `deploy/` directory:
+- App directory: **`/home/deploy/apps/ecomm-copilot`**, owned by `deploy`
+- systemd service runs as **`User=deploy`**, gunicorn bound to **`127.0.0.1:8001`**
+  (8000/8002 are used by other apps)
+- nginx reverse proxy for **ecomm-copilot.com / www.ecomm-copilot.com**, TLS via
+  Let's Encrypt (certbot)
+
+Because `deploy` owns its home directory, the clone / venv / `.env` / git-pull
+steps need **no sudo**. Only four steps need root, collected in
+`deploy/setup-droplet.sh`.
+
+Config files in this `deploy/` directory:
 - `ecomm-copilot.service` — the systemd unit
 - `nginx.conf` — the reverse-proxy server block
-
-Replace `your-domain.example` and `<droplet-ip>` throughout with real values.
+- `setup-droplet.sh` — the four root-only steps, run once with sudo
 
 ---
 
-## One-time droplet setup
+## One-time setup
 
-### 1. System packages and app directory
-
-```bash
-sudo apt update && sudo apt install -y python3-venv python3-pip nginx git
-sudo mkdir -p /opt/ecomm-copilot && sudo chown $USER:$USER /opt/ecomm-copilot
-```
-
-### 2. Read-only git deploy key
-
-The repo is private, so give the droplet a dedicated **read-only** deploy key
-rather than personal credentials.
+### Unprivileged steps (as the `deploy` user)
 
 ```bash
+# Read-only git deploy key, added to the repo under Settings -> Deploy keys
 ssh-keygen -t ed25519 -C "ecomm-copilot-droplet" -f ~/.ssh/ecomm_deploy -N ""
-cat ~/.ssh/ecomm_deploy.pub
-```
 
-Add that public key to the repo under **Settings → Deploy keys** (leave "Allow
-write access" unchecked), then clone:
-
-```bash
+# Clone, venv, deps
+mkdir -p ~/apps
 GIT_SSH_COMMAND="ssh -i ~/.ssh/ecomm_deploy" \
-  git clone git@github.com:ricksauls/ecomm-copilot.git /opt/ecomm-copilot
-```
+  git clone git@github.com:ricksauls/ecomm-copilot.git ~/apps/ecomm-copilot
+cd ~/apps/ecomm-copilot
+python3 -m venv venv
+venv/bin/pip install -r requirements.txt
 
-### 3. Virtualenv and dependencies
-
-```bash
-cd /opt/ecomm-copilot
-python3 -m venv .venv
-./.venv/bin/pip install -r requirements.txt
-```
-
-### 4. Secrets in .env (never committed)
-
-Generate a signing key and write the file, then lock its permissions:
-
-```bash
-cd /opt/ecomm-copilot
-printf 'SECRET_KEY=%s\nDATABASE_URL=/opt/ecomm-copilot/app.db\nAPP_URL=https://your-domain.example\n' \
-  "$(python3 -c 'import secrets; print(secrets.token_hex(32))')" > .env
+# Secrets — generated locally, never committed. chmod 600.
+printf 'SECRET_KEY=%s\nDATABASE_URL=%s/app.db\nAPP_URL=https://ecomm-copilot.com\n' \
+  "$(python3 -c 'import secrets; print(secrets.token_hex(32))')" "$PWD" > .env
 chmod 600 .env
 ```
 
-Add any API keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) by editing `.env`. See
-`.env.example` for the full list of variables.
+### Privileged steps (once, with sudo)
 
-### 5. systemd service
+`deploy/setup-droplet.sh` installs the systemd unit, the nginx site, a scoped
+sudoers line (passwordless restart of *only* this service, for CI deploys), and
+starts the service:
 
 ```bash
-sudo cp /opt/ecomm-copilot/deploy/ecomm-copilot.service /etc/systemd/system/
-sudo chown -R www-data:www-data /opt/ecomm-copilot
-sudo systemctl daemon-reload
-sudo systemctl enable --now ecomm-copilot
-sudo systemctl status ecomm-copilot   # should be active, listening on 127.0.0.1:8000
+sudo bash ~/apps/ecomm-copilot/deploy/setup-droplet.sh
 ```
 
-### 6. nginx reverse proxy
+### DNS + HTTPS
 
-Edit `deploy/nginx.conf` to set the real `server_name`, then:
+Point the domain at the droplet, then issue the certificate:
 
-```bash
-sudo cp /opt/ecomm-copilot/deploy/nginx.conf /etc/nginx/sites-available/ecomm-copilot
-sudo ln -s /etc/nginx/sites-available/ecomm-copilot /etc/nginx/sites-enabled/
-sudo nginx -t && sudo systemctl reload nginx
-```
-
-The app is now live on `http://your-domain.example`.
-
-### 7. HTTPS
-
-Point an `A` record for the domain at `<droplet-ip>` first, then:
+1. At your DNS provider, create **A** records:
+   - `ecomm-copilot.com` -> `142.93.244.23`
+   - `www.ecomm-copilot.com` -> `142.93.244.23`
+2. Wait for them to resolve (`dig +short ecomm-copilot.com` returns the IP).
+3. Issue the cert (rewrites nginx to add 443 + HTTP->HTTPS redirect, auto-renews):
 
 ```bash
-sudo apt install -y certbot python3-certbot-nginx
-sudo certbot --nginx -d your-domain.example
-```
-
-certbot rewrites the nginx block to serve 443, redirects HTTP→HTTPS, and sets up
-auto-renewal.
-
-### 8. Firewall
-
-```bash
-sudo ufw allow OpenSSH
-sudo ufw allow 'Nginx Full'
-sudo ufw --force enable
+sudo certbot --nginx -d ecomm-copilot.com -d www.ecomm-copilot.com
 ```
 
 ---
 
-## Enable auto-deploy from GitHub Actions
+## Auto-deploy (GitHub Actions)
 
-The deploy user needs to (a) authenticate the CI SSH connection and (b) restart
-the service without a password prompt.
+`.github/workflows/deploy.yml` deploys over SSH **only after the CI workflow
+passes on `main`**. It reuses the droplet's `deploy` user and restarts the
+service via the scoped sudoers line above.
 
-### 1. CI SSH key
-
-Create a second key pair for the GitHub runner (separate from the git deploy
-key), and authorize its public half for the deploy user on the droplet:
-
-```bash
-# On your workstation:
-ssh-keygen -t ed25519 -C "ecomm-copilot-ci" -f ecomm_ci -N ""
-# Append ecomm_ci.pub to the droplet deploy user's ~/.ssh/authorized_keys.
-```
-
-### 2. Passwordless restart only
-
-Give the deploy user permission to restart **just this service** — nothing more.
-Create `/etc/sudoers.d/ecomm-copilot` (edit with `sudo visudo -f`):
-
-```
-<deploy-user> ALL=(root) NOPASSWD: /usr/bin/systemctl restart ecomm-copilot
-```
-
-### 3. Repository Actions secrets
-
-Under **Settings → Secrets and variables → Actions**, add:
+Required repository **Actions secrets** (Settings -> Secrets and variables ->
+Actions):
 
 | Secret | Value |
 | --- | --- |
-| `DEPLOY_HOST` | `<droplet-ip>` or hostname |
-| `DEPLOY_USER` | the deploy user |
-| `DEPLOY_SSH_KEY` | contents of the private `ecomm_ci` file |
-| `DEPLOY_FINGERPRINT` | output of `ssh-keyscan <droplet-ip> \| ssh-keygen -lf -` |
+| `DEPLOY_HOST` | `142.93.244.23` |
+| `DEPLOY_USER` | `deploy` |
+| `DEPLOY_SSH_KEY` | private half of a CI-only keypair whose public half is in `deploy`'s `~/.ssh/authorized_keys` |
+| `DEPLOY_FINGERPRINT` | `ssh-keyscan 142.93.244.23 \| ssh-keygen -lf -` |
 
-Once the secrets exist, every push to `main` that passes CI triggers
-`.github/workflows/deploy.yml`, which SSHes in and runs the pull-and-restart.
+After the secrets exist, every push to `main` that passes CI runs the deploy.
 
 ---
 
 ## Manual deploy / rollback
 
-To deploy by hand (or if you need to roll back to a known commit):
-
 ```bash
-cd /opt/ecomm-copilot
+cd ~/apps/ecomm-copilot
 GIT_SSH_COMMAND="ssh -i ~/.ssh/ecomm_deploy" git pull --ff-only   # or: git checkout <sha>
-./.venv/bin/pip install -r requirements.txt
+venv/bin/pip install -r requirements.txt
 sudo systemctl restart ecomm-copilot
 ```
 
 ## Troubleshooting
 
 - **App won't start:** `sudo journalctl -u ecomm-copilot -n 50 --no-pager`
-- **502 from nginx:** the service is down or not on `127.0.0.1:8000` — check the
-  status and journal above.
-- **Static files 404:** confirm the `alias` in the nginx block matches
-  `/opt/ecomm-copilot/app/static/`.
+- **502 from nginx:** the service is down or not on `127.0.0.1:8001`.
+- **Static files 404:** confirm the nginx `alias` matches
+  `/home/deploy/apps/ecomm-copilot/app/static/`.
 - **Never** run gunicorn/Flask with `debug=True` on the droplet — the debugger
   allows remote code execution.

@@ -3,41 +3,40 @@
 # Install on the droplet at /etc/systemd/system/ecomm-copilot.service, then:
 #   sudo systemctl daemon-reload && sudo systemctl enable --now ecomm-copilot
 #
-# The app runs as the unprivileged `www-data` user (never root — a compromised
-# worker should not own the box) and binds only to loopback; nginx is the sole
-# public entry point and terminates TLS in front of it.
+# Follows this droplet's convention (matching wm-competitive-intel): the app
+# lives under /home/deploy/apps and runs as the unprivileged `deploy` user. It
+# binds only to loopback; nginx is the sole public entry point and terminates
+# TLS in front of it. Port 8001 is chosen because 8000/8002 are already taken
+# by other apps on this shared box.
 
 [Unit]
 Description=ecomm-copilot (gunicorn)
 After=network.target
 
 [Service]
-User=www-data
-Group=www-data
-WorkingDirectory=/opt/ecomm-copilot
+User=deploy
+Group=deploy
+WorkingDirectory=/home/deploy/apps/ecomm-copilot
 
 # Secrets (SECRET_KEY, API keys, DATABASE_URL) come from the local-only .env,
-# never from the unit file or the repo. Keep that file chmod 600 and owned by
-# www-data so no other account can read it.
-EnvironmentFile=/opt/ecomm-copilot/.env
+# never from the unit file or the repo. Keep that file chmod 600.
+EnvironmentFile=/home/deploy/apps/ecomm-copilot/.env
 
-# 3 workers is a sane default for a small droplet (roughly 2*cores + 1); tune to
-# the droplet size. Bind to loopback only so the app is unreachable except via
-# the nginx reverse proxy.
-ExecStart=/opt/ecomm-copilot/.venv/bin/gunicorn --workers 3 --bind 127.0.0.1:8000 wsgi:app
+# 3 workers is a sane default for a small droplet (~2*cores + 1). Bind to
+# loopback only so the app is unreachable except via the nginx reverse proxy.
+ExecStart=/home/deploy/apps/ecomm-copilot/venv/bin/gunicorn --workers 3 --bind 127.0.0.1:8001 wsgi:app
 
 Restart=always
 RestartSec=3
 
 # --- Least-privilege hardening ---
-# Drop ambient capabilities and block privilege escalation from within the
-# process, then wall it off from the rest of the filesystem. The app only needs
-# to write its SQLite DB under its own working directory.
+# Block privilege escalation and wall the process off from the wider
+# filesystem; it only needs to write within its own app directory (SQLite DB,
+# etc.). ProtectHome is intentionally NOT set, since the app lives in /home.
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
-ProtectHome=true
-ReadWritePaths=/opt/ecomm-copilot
+ReadWritePaths=/home/deploy/apps/ecomm-copilot
 
 [Install]
 WantedBy=multi-user.target

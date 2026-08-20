@@ -42,12 +42,12 @@ jobs:
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           fingerprint: ${{ secrets.DEPLOY_FINGERPRINT }}
-          # Runs on the droplet. `set -e` aborts on the first failed command so a
-          # broken pull or pip step doesn't restart the service on bad code.
-          # The git deploy key path matches deploy/DEPLOY.md.
+          # Runs on the droplet as the deploy user. `set -e` aborts on the first
+          # failed command so a broken pull or pip step doesn't restart the
+          # service on bad code. The git deploy key path matches deploy/DEPLOY.md.
           script: |
             set -e
-            cd /opt/ecomm-copilot
+            cd /home/deploy/apps/ecomm-copilot
             GIT_SSH_COMMAND="ssh -i ~/.ssh/ecomm_deploy" git pull --ff-only
-            ./.venv/bin/pip install -q -r requirements.txt
+            venv/bin/pip install -q -r requirements.txt
             sudo systemctl restart ecomm-copilot
