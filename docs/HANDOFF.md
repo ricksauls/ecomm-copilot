@@ -133,10 +133,9 @@ aren't, and *not* the on-page spec table, which Walmart A/B-gates off
 dimensions aren't in the JSON, so Pillow fetches the bytes to measure. Browser
 work is slow and serial → it runs in the **worker**, never in a request.
 
-**Proven:** on the droplet, fetching item 10294528 (Tabasco) scores **58/100**
-with 13 attributes measured (Attributes dimension 75/100). Note `key_features`
-came back 0 for this item — bullets weren't extracted though
-`idml.productHighlights` had 6 rows; see gap #7.
+**Proven:** on the droplet, fetching item 10294528 (Tabasco) scores **76/100**
+with all five dimensions scoring — 13 attributes measured (Attributes 75/100)
+and 6 key-feature bullets from `idml.longDescription` (Key features 100/100).
 
 ---
 
@@ -159,11 +158,11 @@ came back 0 for this item — bullets weren't extracted though
 5. **Nice-to-haves:** retry `blocked` items, a scoring history view, export.
 6. **Other nav screens** — PDP Image Set Creation, PDP Copy Content Creation,
    Competitive Intelligence are still placeholders.
-7. **Key-features extraction gap** — `key_features` scored 0 on Tabasco
-   (10294528): `fetch.py` only reads `product.keyFeatures`, which was empty,
-   even though `data.idml.productHighlights` carried 6 name/value rows. Add
-   `idml.productHighlights` (and/or the WM scraper's `highlights` /
-   shortDescription-bullet fallbacks) as bullet sources in `_extract_bullets`.
+7. ~~**Key-features extraction gap**~~ — **DONE (2026-08-21):** `fetch.py` now
+   falls back to the `<li>` bullets in `data.idml.longDescription` when
+   `product.keyFeatures` is empty (`_extract_idml_bullets`). Tabasco went from
+   key_features 0 → 100. (`idml.productHighlights` was a red herring — those are
+   spec attributes, already counted under Attributes.)
 
 ---
 
