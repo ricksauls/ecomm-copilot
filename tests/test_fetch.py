@@ -88,17 +88,16 @@ def test_idml_spec_pairs_override_product_json_and_mark_measured():
     """idml specs are authoritative over any product-level __NEXT_DATA__ specs.
 
     The full attribute set lives on data.idml.specifications, so when we pass
-    those rows they win over the product node and the dimension becomes
-    measurable and scored.
+    those rows they win over the product node and populate the record. (Scoring
+    of the attributes dimension is paused, so we assert the captured fields, not
+    a dimension score — the data is still collected for when it's re-enabled.)
     """
     pairs = [{"name": f"Attr {i}", "value": str(i)} for i in range(12)]
     pdp = parse_product(_PRODUCT, url="u", item_id="10294528", spec_pairs=pairs)
     assert pdp.attributes_present == 12  # idml count, not the 3 product-JSON specs
     assert pdp.attributes_measured is True
-
-    attributes = next(d for d in score_pdp(pdp).dimensions if d.key == "attributes")
-    assert attributes.available is True
-    assert attributes.score > 0
+    # Attributes are captured but intentionally not among the scored dimensions.
+    assert "attributes" not in {d.key for d in score_pdp(pdp).dimensions}
 
 
 def test_empty_idml_specs_still_count_as_measured():
@@ -106,10 +105,6 @@ def test_empty_idml_specs_still_count_as_measured():
     pdp = parse_product({"name": "No specs here"}, url="u", spec_pairs=[])
     assert pdp.attributes_present == 0
     assert pdp.attributes_measured is True
-
-    attributes = next(d for d in score_pdp(pdp).dimensions if d.key == "attributes")
-    assert attributes.available is True  # counted toward the overall
-    assert attributes.score == 0
 
 
 def test_extract_idml_specs_flat_list():

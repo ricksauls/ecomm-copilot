@@ -302,13 +302,19 @@ def score_pdp(pdp: PdpRecord) -> ScoreResult:
     """
     dimensions = [
         _score_imagery(pdp),
-        _score_attributes(pdp),
+        # Attributes scoring is paused (product decision, 2026-08-21). The spec
+        # extraction + record fields (attributes_present/measured) still run in
+        # the fetch layer, so re-enabling is just uncommenting this line — the
+        # weighting below already normalizes over whatever dimensions are present.
+        # _score_attributes(pdp),
         _score_title(pdp),
         _score_key_features(pdp),
         _score_description(pdp),
     ]
     # Only measurable dimensions count toward the overall, so an unmeasurable
-    # one (e.g. attributes today) doesn't unfairly drag the score down.
+    # one doesn't unfairly drag the score down. The overall is normalized over
+    # the present dimensions' weights, so dropping one (e.g. paused attributes)
+    # rescales the rest automatically.
     scored = [d for d in dimensions if d.available]
     total_weight = sum(d.weight for d in scored) or 1
     overall = round(sum(d.score * d.weight for d in scored) / total_weight)

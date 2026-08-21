@@ -28,6 +28,19 @@ def test_dashboard_renders_when_authenticated(client, auth):
     assert b"\xe2\x88\x9217" in resp.data  # U+2212 17
 
 
+def test_pdp_scoring_page_renders(client, auth):
+    # The guarded intake page renders with its heading, and no longer shows the
+    # removed "Content Scoring" eyebrow or the topbar search / client-view UI.
+    auth.register()
+    resp = client.get("/app/pdp-scoring")
+    assert resp.status_code == 200
+    assert b"Score PDPs" in resp.data
+    # The eyebrow line is gone (the rail nav item keeps its own label).
+    assert b"(Product Detail Page) Content Scoring" not in resp.data
+    assert b"Search products, brands" not in resp.data
+    assert b"Client view" not in resp.data
+
+
 def test_unknown_route_404(client):
     resp = client.get("/does-not-exist")
     assert resp.status_code == 404

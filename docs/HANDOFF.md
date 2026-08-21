@@ -110,7 +110,7 @@ meant to be recalibrated against real search-rank/conversion data):
 | Dimension | Weight | Rule-based signals today | AI-pass (not built) |
 |---|---|---|---|
 | Imagery | 25 | count, max px (zoom) — video paused 2026-08-21 | infographic/lifestyle via vision |
-| Attributes | 20 | spec count from `data.idml.specifications` | category schema % |
+| Attributes | 20 | **scoring paused 2026-08-21** (still extracted, not scored) | category schema % |
 | Title | 18 | length band, ALL-CAPS, word count | keyword/SEO coverage |
 | Key features | 18 | count, bullet length | benefit-vs-feature, keywords |
 | Description | 19 | word count / depth | structure + SEO depth |

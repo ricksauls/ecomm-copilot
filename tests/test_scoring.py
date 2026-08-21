@@ -64,30 +64,30 @@ def test_overall_is_weighted_average():
 def test_every_dimension_present_and_scored():
     result = score_pdp(_weak_pdp())
     keys = {d.key for d in result.dimensions}
-    assert keys == {"imagery", "attributes", "title", "key_features", "description"}
+    # Attributes scoring is paused, so it isn't among the returned dimensions.
+    assert keys == {"imagery", "title", "key_features", "description"}
     # A weak PDP should generate recommendations to act on.
     assert any(d.recommendations for d in result.dimensions)
 
 
-def test_unmeasured_attributes_are_excluded_from_overall():
-    # Default attributes_measured=False -> attributes dimension is unavailable
-    # and must not drag the overall down.
+def test_attributes_dimension_is_not_scored():
+    # Attributes scoring is paused: the dimension must not appear at all, even
+    # when the record carries measured attributes.
     pdp = PdpRecord(
         url="u", title="A reasonable product title with enough words here",
-        image_count=6, max_image_px=2000, has_video=True,
+        image_count=6, max_image_px=2000,
         bullets=["one benefit line here", "another benefit line", "third line ok"],
         description=" ".join(["copy"] * 200),
+        attributes_present=16, attributes_measured=True,
     )
     result = score_pdp(pdp)
-    attrs = next(d for d in result.dimensions if d.key == "attributes")
-    assert attrs.available is False
-    # Overall is computed over the other four dimensions only.
-    scored = [d for d in result.dimensions if d.available]
+    assert "attributes" not in {d.key for d in result.dimensions}
+    # Overall is the weighted average of the dimensions that ARE present.
     expected = round(
-        sum(d.score * d.weight for d in scored) / sum(d.weight for d in scored)
+        sum(d.score * d.weight for d in result.dimensions)
+        / sum(d.weight for d in result.dimensions)
     )
     assert result.overall == expected
-    assert result.overall >= 80  # a strong PDP isn't punished for the missing metric
 
 
 def test_video_does_not_affect_imagery_score():
