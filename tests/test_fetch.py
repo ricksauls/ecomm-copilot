@@ -4,7 +4,7 @@ Live fetching drives a real browser and isn't exercised here; the parsing that
 turns the page JSON into a scorable record is what these lock down.
 """
 
-from app.fetch import _count_spec_pairs, parse_product
+from app.fetch import _count_spec_pairs, _extract_idml_specs, parse_product
 from app.scoring import score_pdp
 
 # A trimmed product object shaped like Walmart's
@@ -79,15 +79,16 @@ def test_count_spec_pairs_ignores_blank_values():
     assert _count_spec_pairs(pairs) == 2
 
 
-def test_dom_spec_pairs_override_json_and_mark_measured():
-    """DOM-scraped specs are authoritative over any __NEXT_DATA__ specs.
+def test_idml_spec_pairs_override_product_json_and_mark_measured():
+    """idml specs are authoritative over any product-level __NEXT_DATA__ specs.
 
-    Live pages lazy-load the spec table into the DOM, so when we pass scraped
-    pairs they win and the dimension becomes measurable and scored.
+    The full attribute set lives on data.idml.specifications, so when we pass
+    those rows they win over the product node and the dimension becomes
+    measurable and scored.
     """
     pairs = [{"name": f"Attr {i}", "value": str(i)} for i in range(12)]
     pdp = parse_product(_PRODUCT, url="u", item_id="10294528", spec_pairs=pairs)
-    assert pdp.attributes_present == 12  # DOM count, not the 3 JSON specs
+    assert pdp.attributes_present == 12  # idml count, not the 3 product-JSON specs
     assert pdp.attributes_measured is True
 
     attributes = next(d for d in score_pdp(pdp).dimensions if d.key == "attributes")
@@ -95,8 +96,8 @@ def test_dom_spec_pairs_override_json_and_mark_measured():
     assert attributes.score > 0
 
 
-def test_empty_dom_specs_still_count_as_measured():
-    """Reaching an empty spec section is a real zero, not an 'unknown'."""
+def test_empty_idml_specs_still_count_as_measured():
+    """An idml node present but carrying no specs is a real zero, not 'unknown'."""
     pdp = parse_product({"name": "No specs here"}, url="u", spec_pairs=[])
     assert pdp.attributes_present == 0
     assert pdp.attributes_measured is True
@@ -104,3 +105,42 @@ def test_empty_dom_specs_still_count_as_measured():
     attributes = next(d for d in score_pdp(pdp).dimensions if d.key == "attributes")
     assert attributes.available is True  # counted toward the overall
     assert attributes.score == 0
+
+
+def test_extract_idml_specs_flat_list():
+    """The preferred shape: a flat list of {name, value} rows (live Walmart)."""
+    idml = {
+        "specifications": [
+            {"name": "Flavor", "value": "Chipotle"},
+            {"name": "Material", "value": "Glass"},
+            {"name": "Blank", "value": ""},  # kept here; blanks dropped by the counter
+            {"value": "orphan"},  # no name, dropped
+        ]
+    }
+    pairs = _extract_idml_specs(idml)
+    assert [p["name"] for p in pairs] == ["Flavor", "Material", "Blank"]
+    assert _count_spec_pairs(pairs) == 2  # blank value not counted
+
+
+def test_extract_idml_specs_v2_fallback():
+    """When only the grouped specificationsV2 shape exists, flatten it."""
+    idml = {
+        "specificationsV2": [
+            {
+                "groupName": "default",
+                "specificationGroup": [
+                    {"displayName": "Flavor", "attributeValue": ["Chipotle"]},
+                    {"displayName": "Sizes", "attributeValue": ["5 oz", "12 oz"]},
+                ],
+            }
+        ]
+    }
+    pairs = _extract_idml_specs(idml)
+    assert {"name": "Flavor", "value": "Chipotle"} in pairs
+    assert {"name": "Sizes", "value": "5 oz, 12 oz"} in pairs
+
+
+def test_extract_idml_specs_missing_node_is_unknown():
+    """No idml node -> None (unknown), so the caller leaves attributes unmeasured."""
+    assert _extract_idml_specs(None) is None
+    assert _extract_idml_specs({}) is None
