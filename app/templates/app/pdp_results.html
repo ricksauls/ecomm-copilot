@@ -57,9 +57,15 @@
       <div class="dim-row">
         <div class="dim-row-head">
           <span class="dim-row-name">{{ d.label }}</span>
+          {% if d.available %}
           <span class="dim-row-score">{{ d.score }}</span>
+          {% else %}
+          <span class="dim-row-score muted">not measured yet</span>
+          {% endif %}
         </div>
+        {% if d.available %}
         <div class="score-bar"><span style="width: {{ d.score }}%;"></span></div>
+        {% endif %}
         {% if d.recommendations %}
         <ul class="dim-recs">
           {% for rec in d.recommendations %}<li>{{ rec }}</li>{% endfor %}

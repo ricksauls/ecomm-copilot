@@ -970,3 +970,11 @@ a:focus-visible,
 .score-pending.warn {
   color: var(--signal-red);
 }
+
+.dim-row-score.muted {
+  font-weight: 400;
+  font-style: italic;
+  color: var(--cool-gray);
+  text-transform: none;
+  letter-spacing: 0;
+}

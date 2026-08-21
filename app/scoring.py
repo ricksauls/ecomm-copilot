@@ -48,6 +48,11 @@ class PdpRecord:
     bullets: list[str] = field(default_factory=list)
     description: str = ""
     attributes_present: int = 0
+    # Whether attribute completeness could actually be measured. Walmart lazy-
+    # loads the spec table, so until DOM extraction is built this is False and
+    # the attributes dimension is excluded from the overall rather than scored 0
+    # (which would unfairly depress every real score).
+    attributes_measured: bool = False
 
 
 @dataclass
@@ -60,6 +65,8 @@ class DimensionScore:
     weight: int
     findings: list[str] = field(default_factory=list)
     recommendations: list[str] = field(default_factory=list)
+    # False when the signal can't be measured yet; excluded from the overall.
+    available: bool = True
 
 
 @dataclass
@@ -130,6 +137,19 @@ def _score_attributes(pdp: PdpRecord) -> DimensionScore:
     findings: list[str] = []
     recs: list[str] = []
     n = pdp.attributes_present
+
+    # Walmart lazy-loads the spec table, so we can't measure this yet. Mark the
+    # dimension unavailable so score_pdp leaves it out of the overall.
+    if not pdp.attributes_measured:
+        return DimensionScore(
+            "attributes",
+            "Attributes",
+            0,
+            WEIGHTS["attributes"],
+            ["Attribute completeness not yet measured (spec extraction pending)"],
+            [],
+            available=False,
+        )
 
     if n >= 15:
         score = 100
@@ -280,8 +300,11 @@ def score_pdp(pdp: PdpRecord) -> ScoreResult:
         _score_key_features(pdp),
         _score_description(pdp),
     ]
-    total_weight = sum(d.weight for d in dimensions)
-    overall = round(sum(d.score * d.weight for d in dimensions) / total_weight)
+    # Only measurable dimensions count toward the overall, so an unmeasurable
+    # one (e.g. attributes today) doesn't unfairly drag the score down.
+    scored = [d for d in dimensions if d.available]
+    total_weight = sum(d.weight for d in scored) or 1
+    overall = round(sum(d.score * d.weight for d in scored) / total_weight)
     logger.info("Scored PDP item_id=%s overall=%d", pdp.item_id, overall)
     return ScoreResult(overall=overall, dimensions=dimensions)
 

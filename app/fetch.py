@@ -133,6 +133,7 @@ def parse_product(product: dict, *, url: str = "", item_id: str | None = None,
     does with Pillow). Left at 0 (unknown) it simply doesn't earn resolution
     points.
     """
+    attrs = _extract_attribute_count(product)
     return PdpRecord(
         url=url,
         item_id=item_id,
@@ -142,7 +143,10 @@ def parse_product(product: dict, *, url: str = "", item_id: str | None = None,
         has_video=_detect_video(product),
         bullets=_extract_bullets(product),
         description=_extract_description(product),
-        attributes_present=_extract_attribute_count(product),
+        attributes_present=attrs,
+        # Only treat attributes as measured if we actually found a spec value;
+        # Walmart lazy-loads the spec table, so this is usually False today.
+        attributes_measured=attrs > 0,
     )
 
 

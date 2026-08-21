@@ -20,6 +20,7 @@ def _strong_pdp() -> PdpRecord:
         ],
         description=" ".join(["water"] * 320),
         attributes_present=16,
+        attributes_measured=True,
     )
 
 
@@ -34,6 +35,7 @@ def _weak_pdp() -> PdpRecord:
         bullets=[],
         description="Water bottle.",
         attributes_present=2,
+        attributes_measured=True,
     )
 
 
@@ -65,6 +67,27 @@ def test_every_dimension_present_and_scored():
     assert keys == {"imagery", "attributes", "title", "key_features", "description"}
     # A weak PDP should generate recommendations to act on.
     assert any(d.recommendations for d in result.dimensions)
+
+
+def test_unmeasured_attributes_are_excluded_from_overall():
+    # Default attributes_measured=False -> attributes dimension is unavailable
+    # and must not drag the overall down.
+    pdp = PdpRecord(
+        url="u", title="A reasonable product title with enough words here",
+        image_count=6, max_image_px=2000, has_video=True,
+        bullets=["one benefit line here", "another benefit line", "third line ok"],
+        description=" ".join(["copy"] * 200),
+    )
+    result = score_pdp(pdp)
+    attrs = next(d for d in result.dimensions if d.key == "attributes")
+    assert attrs.available is False
+    # Overall is computed over the other four dimensions only.
+    scored = [d for d in result.dimensions if d.available]
+    expected = round(
+        sum(d.score * d.weight for d in scored) / sum(d.weight for d in scored)
+    )
+    assert result.overall == expected
+    assert result.overall >= 80  # a strong PDP isn't punished for the missing metric
 
 
 def test_all_caps_title_is_penalized():
