@@ -189,6 +189,12 @@ cd ~/Desktop/ClaudeStuff/ecomm-copilot-clean
 
 - **Strict CSP** (`script-src 'self'`): no inline scripts/handlers. Per-screen JS
   must be an external file under `/static/js` loaded via the `scripts` block.
+- **Static caching / cache-busting (2026-08-21):** nginx serves `/static` with
+  `expires 30d`. Reference assets in templates via `static_url('css/…')` (a
+  context-processor helper in `app/__init__.py`), never raw
+  `url_for('static', …)` — `static_url` appends `?v=<mtime>` so edited CSS/JS
+  reaches returning users. Symptom if you forget: a deployed CSS change doesn't
+  appear until a hard refresh (Cmd+Shift+R) or 30 days pass.
 - **CI was red for a reason:** CI installs the **pinned** `requirements-dev.txt`;
   don't let tool versions float. New deps must pass `pip-audit` or CI blocks the
   deploy.
