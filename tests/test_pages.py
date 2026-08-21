@@ -34,11 +34,17 @@ def test_pdp_scoring_page_renders(client, auth):
     auth.register()
     resp = client.get("/app/pdp-scoring")
     assert resp.status_code == 200
-    assert b"Score PDPs" in resp.data
+    assert b"Score PDPs (Product Detail Pages)" in resp.data
     # The eyebrow line is gone (the rail nav item keeps its own label).
     assert b"(Product Detail Page) Content Scoring" not in resp.data
     assert b"Search products, brands" not in resp.data
     assert b"Client view" not in resp.data
+    # "What we score" band reflects the paused dimensions: 4 cards, no Attributes
+    # card, no video mention.
+    assert resp.data.count(b'class="dim-name"') == 4
+    assert b"four dimensions" in resp.data
+    assert b">Attributes<" not in resp.data
+    assert b"video" not in resp.data
 
 
 def test_unknown_route_404(client):

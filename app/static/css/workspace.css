@@ -764,7 +764,9 @@ a:focus-visible,
 }
 .score-dims {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  /* One column per scored dimension (Imagery, Title, Key features,
+     Description). Update alongside the `dims` list in pdp_scoring.html. */
+  grid-template-columns: repeat(4, 1fr);
   gap: 1px;
   margin-top: 14px;
   background: var(--border);

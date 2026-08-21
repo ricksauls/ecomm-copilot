@@ -4,7 +4,7 @@
 {% block pane_content %}
 <div class="page-header">
   <div>
-    <h1>Score PDPs</h1>
+    <h1>Score PDPs (Product Detail Pages)</h1>
     <p class="subtitle">Add the Walmart items you want scored, or upload a CSV of them.</p>
   </div>
 </div>
@@ -74,9 +74,10 @@
 <div class="card card-pad score-band">
   <div class="label">What we score</div>
   <div class="score-dims">
+    {# Attributes and video are extracted but not currently scored (paused
+       2026-08-21), so they're left off this list. #}
     {% set dims = [
-      ('Imagery', 'Count, resolution, infographic & lifestyle, video'),
-      ('Attributes', 'Category specs & filters populated'),
+      ('Imagery', 'Count, resolution, infographic & lifestyle'),
       ('Title', 'Format, clarity, and keyword coverage'),
       ('Key features', 'Benefit-led bullets with the right terms'),
       ('Description', 'Depth, structure, and SEO'),
@@ -88,7 +89,7 @@
     </div>
     {% endfor %}
   </div>
-  <p class="score-band-foot">Each item earns a 0–100 score across these five dimensions, with the gap to the category leader and the ranked actions that close it.</p>
+  <p class="score-band-foot">Each item earns a 0–100 score across these four dimensions, with the ranked actions that close the gaps.</p>
 </div>
 {% endblock %}
 
