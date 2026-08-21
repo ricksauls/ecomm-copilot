@@ -100,6 +100,16 @@ def test_results_pdf_download(client, auth, app):
     assert "attachment" in resp.headers.get("Content-Disposition", "")
 
 
+def test_results_subtitle_flashes_while_pending(client, auth):
+    # A freshly enqueued (unscored) batch is pending, so the subtitle carries the
+    # flash class that CSS animates.
+    auth.register()
+    client.post("/app/pdp-scoring", data={"urls": "https://www.walmart.com/ip/12345"})
+    resp = client.get("/app/pdp-scoring/results")
+    assert b"subtitle-scoring" in resp.data
+    assert b"scoring in progress" in resp.data
+
+
 def test_results_pdf_requires_login(client):
     resp = client.get("/app/pdp-scoring/results.pdf")
     assert resp.status_code == 302

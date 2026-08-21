@@ -14,7 +14,7 @@
 <div class="page-header">
   <div>
     <h1>PDP (Product Detail Page) Scores</h1>
-    <p class="subtitle">
+    <p class="subtitle {{ 'subtitle-scoring' if pending else '' }}">
       {{ items | length }} item{{ '' if items | length == 1 else 's' }}
       {% if pending %}· scoring in progress…{% else %}· complete{% endif %}
     </p>

@@ -1118,3 +1118,19 @@ a:focus-visible,
   border-color: var(--signal-red);
   color: var(--signal-red);
 }
+
+/* Flash the results subtitle while items are still scoring, to draw the eye.
+   CSS-only (CSP-safe); the page's meta-refresh keeps it live until complete. */
+.subtitle-scoring {
+  color: var(--signal-red);
+  font-weight: 600;
+  animation: subtitle-flash 1.1s ease-in-out infinite;
+}
+@keyframes subtitle-flash {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+/* Honor reduced-motion: keep the emphasis colour, drop the blink. */
+@media (prefers-reduced-motion: reduce) {
+  .subtitle-scoring { animation: none; }
+}
