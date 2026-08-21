@@ -19,17 +19,14 @@ A working reference for picking up development. Read this first, then
   Google SSO), login-guarded workspace, and the **PDP Content Scoring** feature
   end-to-end (intake → queue → background fetch+score → results).
 
-### ⚠️ One pending action to make scoring self-serve
-The scoring **worker service is not installed on the droplet yet**. The web app
-enqueues items and the fetch+score logic is proven working, but nothing drains
-the queue until you run (as root, via the DigitalOcean **Console**):
-
-```bash
-bash /home/deploy/apps/ecomm-copilot/deploy/setup-droplet.sh
-```
-
-It's idempotent; it installs/starts `ecomm-copilot-worker` and expands the
-sudoers rule. Verify with `sudo systemctl status ecomm-copilot-worker`.
+### ✅ Worker installed — scoring is self-serve (2026-08-21)
+The scoring **worker is installed and running** on the droplet
+(`ecomm-copilot-worker.service`, active; unit installed 2026-08-21). The full
+loop works end-to-end: intake enqueues → the worker fetches + scores → the
+results screen polls. `deploy/setup-droplet.sh` (idempotent; installs/starts the
+worker and expands the sudoers rule) has been applied via the DigitalOcean
+Console. Re-run it the same way if the unit ever needs reinstalling; verify with
+`sudo systemctl status ecomm-copilot-worker`.
 
 ---
 
@@ -145,7 +142,8 @@ came back 0 for this item — bullets weren't extracted though
 
 ## 5. Known gaps / next-up roadmap
 
-1. **Install the worker** (§1) — required for the UI to score automatically.
+1. ~~**Install the worker**~~ — **DONE (2026-08-21):** `ecomm-copilot-worker`
+   installed and active; the UI scores automatically end-to-end (§1).
 2. ~~**Attribute (spec) extraction**~~ — **DONE (2026-08-21).** Specs are read
    from `data.idml.specifications` in `fetch.py`; `attributes_measured` is now
    True on live pages (13 specs on Tabasco). The category-schema **completeness
