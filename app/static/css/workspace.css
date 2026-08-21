@@ -1092,3 +1092,29 @@ a:focus-visible,
   color: var(--cool-gray);
   overflow-wrap: anywhere;
 }
+
+/* Delete action in the admin users table. */
+.admin-table .cell-action {
+  text-align: right;
+  white-space: nowrap;
+}
+.delete-user-form {
+  display: inline;
+  margin: 0;
+}
+.btn-delete {
+  font-size: 12px;
+  font-weight: 500;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  color: var(--mid-gray);
+  cursor: pointer;
+  font-family: inherit;
+  transition: border-color var(--fade) var(--ease), color var(--fade) var(--ease);
+}
+.btn-delete:hover {
+  border-color: var(--signal-red);
+  color: var(--signal-red);
+}

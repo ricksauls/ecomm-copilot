@@ -4,8 +4,15 @@ Authorization is the important part — the admin routes must fail closed for
 non-admins and the unauthenticated, regardless of whether the nav is shown.
 """
 
+from app import jobs
 from app.db import get_db
-from app.users import count_created_since, create_local_user, record_login
+from app.users import (
+    count_created_since,
+    create_local_user,
+    get_by_email,
+    get_by_id,
+    record_login,
+)
 
 _ADMIN = "admin@example.com"
 _PW = "password123"
@@ -48,6 +55,56 @@ def test_admin_nav_visibility(client, auth, app):
     auth.logout()
     auth.register(email="regular@example.com", password=_PW)
     assert b"/admin/users" not in client.get("/app").data
+
+
+def test_admin_can_delete_user_and_their_items(client, auth, app):
+    _as_admin(app)
+    auth.register(email=_ADMIN, password=_PW)
+    with app.app_context():
+        target = create_local_user("victim@example.com", _PW)
+        jobs.enqueue_items(
+            get_db(), target, [{"url": "https://www.walmart.com/ip/9", "item": "9"}]
+        )
+    resp = client.post(f"/admin/users/{target}/delete")
+    assert resp.status_code == 302
+    with app.app_context():
+        db = get_db()
+        assert get_by_id(target) is None
+        assert db.execute(
+            "SELECT COUNT(*) FROM scored_items WHERE user_id = ?", (target,)
+        ).fetchone()[0] == 0
+
+
+def test_admin_cannot_delete_own_account(client, auth, app):
+    _as_admin(app)
+    auth.register(email=_ADMIN, password=_PW)
+    with app.app_context():
+        me = get_by_email(_ADMIN)["id"]
+    resp = client.post(f"/admin/users/{me}/delete")
+    assert resp.status_code == 400
+    with app.app_context():
+        assert get_by_email(_ADMIN) is not None  # still there
+
+
+def test_delete_forbidden_for_non_admin(client, auth, app):
+    _as_admin(app)
+    auth.register(email="regular@example.com", password=_PW)
+    with app.app_context():
+        victim = create_local_user("v@example.com", _PW)
+    resp = client.post(f"/admin/users/{victim}/delete")
+    assert resp.status_code == 403
+    with app.app_context():
+        assert get_by_id(victim) is not None  # untouched
+
+
+def test_delete_button_shown_for_others_only(client, auth, app):
+    _as_admin(app)
+    auth.register(email=_ADMIN, password=_PW)
+    with app.app_context():
+        create_local_user("other@example.com", _PW)
+    resp = client.get("/admin/users")
+    # Two users (admin + other), but only the non-self row gets a Delete button.
+    assert resp.data.count(b"btn-delete") == 1
 
 
 def test_count_created_since_is_bounded_and_excludes_self(app):

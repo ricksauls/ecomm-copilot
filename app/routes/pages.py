@@ -13,6 +13,7 @@ import logging
 
 from flask import (
     Blueprint,
+    abort,
     g,
     jsonify,
     redirect,
@@ -149,6 +150,21 @@ def admin_users():
         active_nav="admin-users",
         users=users.list_users(),
     )
+
+
+@bp.route("/admin/users/<int:user_id>/delete", methods=["POST"])
+@admin_required
+def admin_delete_user(user_id):
+    """Delete a user (and their scored items). POST-only + CSRF + admin-guarded.
+
+    Blocks self-deletion so an admin can't remove their own account by accident.
+    """
+    if user_id == g.user["id"]:
+        logger.warning("Admin user_id=%s tried to delete their own account", g.user["id"])
+        abort(400, description="You can't delete your own account.")
+    users.delete_user(user_id)
+    logger.info("Admin user_id=%s deleted user_id=%s", g.user["id"], user_id)
+    return redirect(url_for("pages.admin_users"))
 
 
 @bp.route("/admin/items")

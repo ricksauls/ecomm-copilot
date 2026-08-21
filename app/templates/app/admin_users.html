@@ -21,6 +21,7 @@
           <th>Sign-in</th>
           <th>Registered</th>
           <th>Last login</th>
+          <th></th>
         </tr>
       </thead>
       <tbody>
@@ -31,6 +32,17 @@
           <td>{{ u.auth_provider }}</td>
           <td class="cell-muted">{{ u.created_at }}</td>
           <td class="cell-muted">{{ u.last_login_at or '—' }}</td>
+          <td class="cell-action">
+            {# No delete on your own row — guarded server-side too. #}
+            {% if current_user and u.id != current_user['id'] %}
+            <form method="post" class="delete-user-form"
+                  action="{{ url_for('pages.admin_delete_user', user_id=u.id) }}"
+                  data-email="{{ u.email }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+              <button type="submit" class="btn-delete">Delete</button>
+            </form>
+            {% endif %}
+          </td>
         </tr>
         {% endfor %}
       </tbody>
@@ -38,4 +50,8 @@
   </div>
   {% if not users %}<p class="results-count">No users yet.</p>{% endif %}
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ static_url('js/admin_users.js') }}"></script>
 {% endblock %}

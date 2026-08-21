@@ -97,6 +97,20 @@ def record_login(user_id: int) -> None:
     db.commit()
 
 
+def delete_user(user_id: int) -> None:
+    """Delete a user and their scored items. The caller must authorize (admin).
+
+    ``scored_items.user_id`` is a NOT NULL foreign key, so the user's items are
+    removed first (in the same transaction) to satisfy the constraint — deleting
+    a user takes their scoring history with them.
+    """
+    db = get_db()
+    db.execute("DELETE FROM scored_items WHERE user_id = ?", (user_id,))
+    db.execute("DELETE FROM users WHERE id = ?", (user_id,))
+    db.commit()
+    logger.info("Deleted user_id=%s and their scored items", user_id)
+
+
 def list_users() -> list[sqlite3.Row]:
     """Return all users, newest first, for the admin users table."""
     db = get_db()
