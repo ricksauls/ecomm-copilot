@@ -44,6 +44,25 @@ def get_items(conn: sqlite3.Connection, ids: list[int], user_id: int) -> list[sq
     return rows
 
 
+def count_items(conn: sqlite3.Connection) -> int:
+    """Total number of scored_items rows (all statuses) — an activity count."""
+    return int(conn.execute("SELECT COUNT(*) FROM scored_items").fetchone()[0])
+
+
+def list_items(conn: sqlite3.Connection, limit: int = 200) -> list[sqlite3.Row]:
+    """Return recent items across all users (with submitter email) for admin.
+
+    Newest first, capped at ``limit`` so the admin view stays bounded.
+    """
+    return conn.execute(
+        "SELECT si.id, si.item_id, si.url, si.title, si.status, si.overall, "
+        "si.created_at, si.updated_at, u.email AS user_email "
+        "FROM scored_items si JOIN users u ON u.id = si.user_id "
+        "ORDER BY si.id DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+
+
 def claim_next(conn: sqlite3.Connection) -> sqlite3.Row | None:
     """Atomically claim the oldest queued row, marking it ``scoring``.
 

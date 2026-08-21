@@ -53,6 +53,7 @@ def signup():
                 error = "That email is already registered. Try signing in."
             else:
                 security.login_user(user_id)
+                users.record_login(user_id)
                 logger.info("Sign-up complete, session started: user_id=%s", user_id)
                 return redirect(url_for("pages.dashboard"))
 
@@ -77,6 +78,7 @@ def signin():
         user = users.get_by_email(email)
         if user is not None and users.verify_password(user, password):
             security.login_user(int(user["id"]))
+            users.record_login(int(user["id"]))
             logger.info("Login success: user_id=%s", user["id"])
             return redirect(next_url or url_for("pages.dashboard"))
 
@@ -152,5 +154,6 @@ def google_callback():
 
     user_id = users.get_or_create_sso_user(email, "google")
     security.login_user(user_id)
+    users.record_login(user_id)
     logger.info("SSO login success: user_id=%s provider=google", user_id)
     return redirect(url_for("pages.dashboard"))

@@ -81,6 +81,52 @@ def get_or_create_sso_user(email: str, provider: str) -> int:
     return int(cursor.lastrowid)
 
 
+def record_login(user_id: int) -> None:
+    """Stamp a successful login: roll ``last_login_at`` into ``prev_login_at``.
+
+    Called on every sign-in path. ``prev_login_at`` (the time of the login before
+    this one) becomes the reference for the admin's "new users since your last
+    login" notification; ``last_login_at`` is shown in the admin users table.
+    """
+    db = get_db()
+    db.execute(
+        "UPDATE users SET prev_login_at = last_login_at, "
+        "last_login_at = datetime('now') WHERE id = ?",
+        (user_id,),
+    )
+    db.commit()
+
+
+def list_users() -> list[sqlite3.Row]:
+    """Return all users, newest first, for the admin users table."""
+    db = get_db()
+    return db.execute(
+        "SELECT id, email, auth_provider, created_at, last_login_at "
+        "FROM users ORDER BY id DESC"
+    ).fetchall()
+
+
+def count_users() -> int:
+    """Total number of registered users."""
+    return int(get_db().execute("SELECT COUNT(*) FROM users").fetchone()[0])
+
+
+def count_created_since(reference: str | None, exclude_id: int) -> int:
+    """Count users created strictly after ``reference`` (a datetime string).
+
+    Excludes ``exclude_id`` (the admin themselves). ``reference`` is the admin's
+    previous-login time; when it's None (their first-ever login) nothing is
+    counted as new — a fresh admin shouldn't see the whole roster flagged.
+    """
+    if reference is None:
+        return 0
+    row = get_db().execute(
+        "SELECT COUNT(*) FROM users WHERE created_at > ? AND id != ?",
+        (reference, exclude_id),
+    ).fetchone()
+    return int(row[0])
+
+
 def verify_password(user: sqlite3.Row, password: str) -> bool:
     """Check a plaintext password against a user's stored hash.
 

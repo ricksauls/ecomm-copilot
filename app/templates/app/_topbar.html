@@ -1,6 +1,19 @@
-{# Topbar: per-screen breadcrumb. The product/brand search and the Client View
-   toggle were removed 2026-08-21 (were presentational only). #}
+{# Topbar: per-screen breadcrumb, plus (admins only) a new-user notification on
+   the right. The product/brand search and Client View toggle were removed
+   2026-08-21 (were presentational only). #}
 <div class="topbar">
   <div class="breadcrumb">{{ breadcrumb }}</div>
   <div class="topbar-spacer"></div>
+  {% if is_admin and admin_new_user_count %}
+  <a href="{{ url_for('pages.admin_users') }}" class="topbar-notify"
+     title="New users since your last login">
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"
+         aria-hidden="true">
+      <path d="M10 3a4 4 0 0 0-4 4v2.5L4.5 12h11L14 9.5V7a4 4 0 0 0-4-4Z" />
+      <path d="M8 15a2 2 0 0 0 4 0" />
+    </svg>
+    <span class="notify-dot" aria-hidden="true"></span>
+    <span class="notify-text">{{ admin_new_user_count }} new user{{ '' if admin_new_user_count == 1 else 's' }}</span>
+  </a>
+  {% endif %}
 </div>

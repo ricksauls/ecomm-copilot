@@ -108,6 +108,15 @@ def create_app() -> Flask:
     app.config["GOOGLE_CLIENT_ID"] = os.environ.get("GOOGLE_CLIENT_ID")
     app.config["GOOGLE_CLIENT_SECRET"] = os.environ.get("GOOGLE_CLIENT_SECRET")
 
+    # Admin allowlist: emails (comma-separated in ADMIN_EMAILS) that may reach the
+    # admin screens. Server-side authorization only — kept out of code/repo, set
+    # per environment. Empty -> no admins.
+    app.config["ADMIN_EMAILS"] = {
+        e.strip().lower()
+        for e in os.environ.get("ADMIN_EMAILS", "").split(",")
+        if e.strip()
+    }
+
     _register_security_headers(app)
     _register_error_handlers(app)
 
@@ -157,6 +166,30 @@ def create_app() -> Flask:
             "csrf_token": security.csrf_token,
             "current_user": g.get("user"),
             "static_url": static_url,
+        }
+
+    # Admin nav context: exposes is_admin plus the rail counts and the "new users
+    # since your last login" badge, for every template that renders the shell.
+    # Skips all DB work for non-admins (public pages, regular users).
+    @app.context_processor
+    def _inject_admin_context():
+        from flask import g
+
+        user = g.get("user")
+        if not user or not security.is_admin(user):
+            return {"is_admin": False}
+
+        from app import jobs
+        from app import users as users_mod
+        from app.db import get_db
+
+        return {
+            "is_admin": True,
+            "admin_user_count": users_mod.count_users(),
+            "admin_item_count": jobs.count_items(get_db()),
+            "admin_new_user_count": users_mod.count_created_since(
+                user["prev_login_at"], user["id"]
+            ),
         }
 
     # Blueprints: public/workspace pages and the auth routes.

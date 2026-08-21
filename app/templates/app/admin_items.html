@@ -1,0 +1,49 @@
+{% extends "app/base.html" %}
+{% block title %}Items scored — ecomm-copilot{% endblock %}
+
+{% block pane_content %}
+<div class="page-header">
+  <div>
+    <h1>Items scored</h1>
+    <p class="subtitle">
+      {{ items | length }} most recent item{{ '' if items | length == 1 else 's' }}
+    </p>
+  </div>
+</div>
+
+<div class="card card-pad">
+  <div class="table-scroll">
+    <table class="admin-table">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Item #</th>
+          <th>Product</th>
+          <th>User</th>
+          <th>Status</th>
+          <th>Score</th>
+          <th>Updated</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for it in items %}
+        <tr>
+          <td class="cell-muted">{{ it.id }}</td>
+          <td>{{ it.item_id or '—' }}</td>
+          <td>
+            {% if it.title %}{{ it.title }}
+            {% else %}<a href="{{ it.url }}" target="_blank" rel="noopener noreferrer"
+                         class="cell-muted">{{ it.url }}</a>{% endif %}
+          </td>
+          <td class="cell-muted">{{ it.user_email }}</td>
+          <td><span class="status-badge status-{{ it.status }}">{{ it.status }}</span></td>
+          <td>{{ it.overall if it.overall is not none else '—' }}</td>
+          <td class="cell-muted">{{ it.updated_at }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if not items %}<p class="results-count">No items scored yet.</p>{% endif %}
+</div>
+{% endblock %}

@@ -24,7 +24,12 @@ CREATE TABLE IF NOT EXISTS users (
     email          TEXT    NOT NULL UNIQUE,
     password_hash  TEXT,
     auth_provider  TEXT    NOT NULL DEFAULT 'local',
-    created_at     TEXT    NOT NULL DEFAULT (datetime('now'))
+    created_at     TEXT    NOT NULL DEFAULT (datetime('now')),
+    -- Login tracking: last_login_at powers the admin's "users table", and
+    -- prev_login_at (the login before the current one) is the reference for the
+    -- "new users since your last login" notification.
+    last_login_at  TEXT,
+    prev_login_at  TEXT
 );
 
 -- One row per submitted PDP URL. The web app inserts rows as 'queued'; the
@@ -87,10 +92,16 @@ def _migrate(conn: sqlite3.Connection) -> None:
     are missing. Additive only — safe to run on every startup/deploy.
     """
     # PRAGMA rows are (cid, name, type, notnull, dflt, pk); name is index 1.
-    columns = {row[1] for row in conn.execute("PRAGMA table_info(scored_items)")}
-    if "title" not in columns:
+    item_cols = {row[1] for row in conn.execute("PRAGMA table_info(scored_items)")}
+    if "title" not in item_cols:
         conn.execute("ALTER TABLE scored_items ADD COLUMN title TEXT")
         logger.info("Migrated scored_items: added 'title' column")
+
+    user_cols = {row[1] for row in conn.execute("PRAGMA table_info(users)")}
+    for col in ("last_login_at", "prev_login_at"):
+        if col not in user_cols:
+            conn.execute(f"ALTER TABLE users ADD COLUMN {col} TEXT")
+            logger.info("Migrated users: added '%s' column", col)
 
 
 def init_db(app: Flask) -> None:

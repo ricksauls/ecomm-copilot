@@ -25,6 +25,24 @@
     {% endfor %}
   </div>
 
+  {# Admin section — only rendered for admins (server also enforces access on the
+     routes). Each sub-item shows a live count. #}
+  {% if is_admin %}
+  <div class="rail-nav rail-admin">
+    <div class="rail-section-label">Admin</div>
+    <a href="{{ url_for('pages.admin_users') }}"
+       class="nav-item {{ 'active' if active_nav == 'admin-users' else '' }}">
+      <span class="mark"></span>Users
+      <span class="nav-count">{{ admin_user_count }}</span>
+    </a>
+    <a href="{{ url_for('pages.admin_items') }}"
+       class="nav-item {{ 'active' if active_nav == 'admin-items' else '' }}">
+      <span class="mark"></span>Items scored
+      <span class="nav-count">{{ admin_item_count }}</span>
+    </a>
+  </div>
+  {% endif %}
+
   <div class="rail-spacer"></div>
 
   {# Signed-in account. #}

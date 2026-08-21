@@ -22,9 +22,9 @@ from flask import (
     url_for,
 )
 
-from app import fixtures, jobs, pdp
+from app import fixtures, jobs, pdp, users
 from app.db import get_db
-from app.security import login_required
+from app.security import admin_required, login_required
 
 logger = logging.getLogger(__name__)
 
@@ -136,6 +136,32 @@ def pdp_scoring_status():
     items = [_row_view(r) for r in rows]
     pending = any(r["status"] in ("queued", "scoring") for r in items)
     return jsonify({"pending": pending, "items": items})
+
+
+@bp.route("/admin/users")
+@admin_required
+def admin_users():
+    """Admin: table of all registered users."""
+    logger.info("Admin users view: admin_user_id=%s", g.user["id"])
+    return render_template(
+        "app/admin_users.html",
+        breadcrumb="Admin · Users",
+        active_nav="admin-users",
+        users=users.list_users(),
+    )
+
+
+@bp.route("/admin/items")
+@admin_required
+def admin_items():
+    """Admin: table of recent scored items across all users."""
+    logger.info("Admin items view: admin_user_id=%s", g.user["id"])
+    return render_template(
+        "app/admin_items.html",
+        breadcrumb="Admin · Items scored",
+        active_nav="admin-items",
+        items=jobs.list_items(get_db()),
+    )
 
 
 def _row_view(row) -> dict:

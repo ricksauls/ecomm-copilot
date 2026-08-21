@@ -129,6 +129,40 @@ def login_required(view):
     return wrapped
 
 
+def is_admin(user) -> bool:
+    """Whether ``user`` (a row or None) is an admin.
+
+    Admins are an email allowlist in ``ADMIN_EMAILS`` config (server-side only —
+    never trust a client flag). Emails are compared normalized (lowercased).
+    """
+    if not user:
+        return False
+    allowed = current_app.config.get("ADMIN_EMAILS", set())
+    return (user["email"] or "").strip().lower() in allowed
+
+
+def admin_required(view):
+    """Decorator: require an authenticated **admin**, else 403 (or sign-in).
+
+    Fails closed. Authorization is enforced here on the server, independent of
+    whether the admin nav is shown — hiding a link is not access control.
+    """
+
+    @functools.wraps(view)
+    def wrapped(*args, **kwargs):
+        if g.get("user") is None:
+            return redirect(url_for("auth.signin", next=request.path))
+        if not is_admin(g.user):
+            logger.warning(
+                "Non-admin user_id=%s attempted admin path %s",
+                g.user["id"], request.path,
+            )
+            abort(403)
+        return view(*args, **kwargs)
+
+    return wrapped
+
+
 def safe_next_url(candidate: str | None) -> str | None:
     """Return ``candidate`` only if it is a safe, local, relative path.
 

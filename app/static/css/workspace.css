@@ -990,3 +990,105 @@ a:focus-visible,
   text-transform: none;
   letter-spacing: 0;
 }
+
+/* ── Admin: rail section, count badges, notification, tables ─────────────────
+   Added 2026-08-21 for the admin screens (Users, Items scored). */
+
+/* Admin nav group sits directly under the main nav, set apart by a hairline. */
+.rail-admin {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--graphite);
+}
+.rail-section-label {
+  padding: 0 12px 4px;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--cool-gray);
+}
+/* Count pill trailing a sub-item (users total, items total). */
+.nav-item .nav-count {
+  margin-left: auto;
+  flex-shrink: 0;
+  min-width: 20px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--graphite);
+  color: var(--canvas);
+  font-size: 11px;
+  font-weight: 600;
+  text-align: center;
+}
+.nav-item.active .nav-count {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+/* Top-pane new-user notification (light surface). */
+.topbar-notify {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--mid-gray);
+  font-size: 12.5px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: border-color var(--fade) var(--ease), color var(--fade) var(--ease);
+}
+.topbar-notify:hover {
+  border-color: var(--cool-gray);
+  color: var(--black);
+}
+.topbar-notify svg {
+  width: 16px;
+  height: 16px;
+}
+.topbar-notify .notify-dot {
+  position: absolute;
+  top: 4px;
+  left: 20px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--signal-red);
+  border: 1.5px solid var(--surface);
+}
+
+/* Admin tables. */
+.table-scroll {
+  overflow-x: auto;
+}
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.admin-table th {
+  text-align: left;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--cool-gray);
+  white-space: nowrap;
+}
+.admin-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+.admin-table tr:last-child td {
+  border-bottom: none;
+}
+.admin-table .cell-muted {
+  color: var(--cool-gray);
+  overflow-wrap: anywhere;
+}
