@@ -77,6 +77,33 @@ def test_results_page_shows_product_title(client, auth, app):
     resp = client.get("/app/pdp-scoring/results")
     assert resp.status_code == 200
     assert b"Acme Widget Deluxe, 3-Pack" in resp.data
+    # A scored batch offers the PDF download.
+    assert b"Download PDF" in resp.data
+
+
+def test_results_pdf_download(client, auth, app):
+    auth.register()
+    client.post("/app/pdp-scoring", data={"urls": "https://www.walmart.com/ip/12345"})
+    with app.app_context():
+        from app import jobs
+        from app.db import get_db
+        db = get_db()
+        row = db.execute("SELECT id FROM scored_items ORDER BY id DESC LIMIT 1").fetchone()
+        jobs.save_result(db, row["id"], 80, {"overall": 80, "dimensions": [
+            {"key": "title", "label": "Title", "score": 80, "weight": 18,
+             "available": True, "findings": ["ok"], "recommendations": ["do x"]},
+        ]}, "Acme Widget")
+    resp = client.get("/app/pdp-scoring/results.pdf")
+    assert resp.status_code == 200
+    assert resp.mimetype == "application/pdf"
+    assert resp.data[:5] == b"%PDF-"  # real PDF, not an error page
+    assert "attachment" in resp.headers.get("Content-Disposition", "")
+
+
+def test_results_pdf_requires_login(client):
+    resp = client.get("/app/pdp-scoring/results.pdf")
+    assert resp.status_code == 302
+    assert "/signin" in resp.headers["Location"]
 
 
 def test_unknown_route_404(client):

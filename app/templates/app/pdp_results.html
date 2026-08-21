@@ -2,6 +2,7 @@
 {% block title %}PDP Scores — ecomm-copilot{% endblock %}
 
 {% set pending = items | selectattr('status', 'in', ['queued', 'scoring']) | list | length > 0 %}
+{% set has_scored = items | selectattr('status', 'equalto', 'scored') | list | length > 0 %}
 
 {% block head_extra %}
 {# While any item is still scoring, refresh so results appear as the worker
@@ -19,6 +20,9 @@
     </p>
   </div>
   <div class="header-buttons">
+    {% if has_scored %}
+    <a href="{{ url_for('pages.pdp_scoring_results_pdf') }}" class="wbtn wbtn-secondary">Download PDF</a>
+    {% endif %}
     <a href="{{ url_for('pages.pdp_scoring') }}" class="wbtn wbtn-primary">Score more</a>
   </div>
 </div>

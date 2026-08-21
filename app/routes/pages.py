@@ -129,6 +129,27 @@ def pdp_scoring_results():
     )
 
 
+@bp.route("/app/pdp-scoring/results.pdf")
+@login_required
+def pdp_scoring_results_pdf():
+    """Download the current batch's scores as a PDF."""
+    from datetime import date
+
+    from flask import Response
+
+    from app.pdf_export import build_results_pdf
+
+    items = [_row_view(r) for r in _batch_rows()]
+    pdf = build_results_pdf(items)
+    filename = f"pdp-scores-{date.today().isoformat()}.pdf"
+    logger.info("PDF export: %d item(s), user_id=%s", len(items), g.user["id"])
+    return Response(
+        pdf,
+        mimetype="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @bp.route("/app/pdp-scoring/status")
 @login_required
 def pdp_scoring_status():

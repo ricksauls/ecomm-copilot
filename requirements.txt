@@ -16,4 +16,8 @@ requests==2.34.2
 playwright==1.62.0
 Pillow==12.3.0
 
+# PDF export of scoring results. Pure-Python (no system libraries), so it runs in
+# a web request and deploys without extra apt packages on the droplet.
+reportlab==5.0.1
+
 # The CI workflow installs the dev/tooling pins from requirements-dev.txt.
