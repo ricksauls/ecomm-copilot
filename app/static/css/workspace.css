@@ -105,14 +105,17 @@ body.workspace {
   border: 1px solid var(--faint-gray);
   border-radius: var(--radius-card);
 }
+/* White label heads the card; the numbers below stay muted. */
 .credits .label {
-  color: var(--cool-gray);
+  color: var(--canvas);
 }
-/* Deliberately understated — small and unbolded so credits don't read as the
-   headline number of the rail. */
+/* The balance is deliberately understated: rendered identically to the "≈ $"
+   currency value beside it (same size, weight, and muted color) so neither
+   number reads as a headline. */
 .credits .balance {
-  font-size: 15px;
+  font-size: 10.5px;
   font-weight: 400;
+  color: var(--cool-gray);
   margin-top: 6px;
 }
 .credits .balance .approx {
@@ -174,10 +177,10 @@ body.workspace {
   /* Let long emails wrap fully rather than truncate. */
   overflow-wrap: anywhere;
 }
-/* Sign-out sits last in the rail, set apart with space above and left-aligned
-   (24px) with the nav items and the account chip. */
+/* Sign-out sits last in the rail, set well apart with generous space above and
+   left-aligned (30px) with the "Available credits" label. */
 .signout-form {
-  margin: 22px 24px 0;
+  margin: 66px 24px 0 30px;
 }
 /* A real POST button stripped of native chrome so it reads as the same quiet
    label it did before, with a clear hover affordance. */
