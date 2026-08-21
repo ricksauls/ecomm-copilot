@@ -74,6 +74,40 @@ def _detect_video(product: dict) -> bool:
     return bool(media.get("videos"))
 
 
+def _image_urls(product: dict) -> list[str]:
+    """Return the image URLs from imageInfo.allImages."""
+    images = product.get("imageInfo", {}).get("allImages", [])
+    return [img["url"] for img in images if isinstance(img, dict) and img.get("url")]
+
+
+def _measure_max_image_px(urls: list[str], *, limit: int = 8, timeout: int = 12) -> int:
+    """Return the largest image edge (px) across the first ``limit`` images.
+
+    Image dimensions aren't in __NEXT_DATA__, so we fetch the bytes and read the
+    size with Pillow (as the WM scraper does). Best-effort: any download/parse
+    failure is skipped, and 0 is returned if nothing could be measured, which
+    simply means the resolution points aren't earned.
+    """
+    try:
+        import io
+
+        import requests
+        from PIL import Image
+    except ImportError:  # pragma: no cover - Pillow/requests are runtime deps
+        return 0
+
+    max_px = 0
+    for url in urls[:limit]:
+        try:
+            resp = requests.get(url, timeout=timeout)
+            resp.raise_for_status()
+            with Image.open(io.BytesIO(resp.content)) as img:
+                max_px = max(max_px, img.width, img.height)
+        except Exception as e:  # noqa: BLE001 - best-effort measurement
+            logger.debug("Could not measure image %s: %s", url[:80], e)
+    return max_px
+
+
 def _extract_attribute_count(product: dict) -> int:
     """Count populated specification/attribute values.
 
@@ -168,4 +202,6 @@ def fetch_pdp(url: str, item_id: str | None = None, *, timeout_ms: int = 35000) 
     except Exception as e:
         raise FetchError(f"Failed to fetch {url}: {e}") from e
 
-    return parse_product(product, url=url, item_id=item_id)
+    # Image dimensions live outside __NEXT_DATA__; measure them from the bytes.
+    max_px = _measure_max_image_px(_image_urls(product))
+    return parse_product(product, url=url, item_id=item_id, max_image_px=max_px)

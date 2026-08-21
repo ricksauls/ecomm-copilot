@@ -9,4 +9,11 @@ python-dotenv==1.2.2
 Authlib==1.7.2
 requests==2.34.2
 
+# PDP scoring: Playwright drives real Chrome to fetch Walmart PDPs (bot-blocked
+# otherwise); Pillow measures image resolution. The Chrome binary and Xvfb
+# display are provided by the droplet (shared with the WM scraper), so only the
+# pip package is installed here.
+playwright==1.62.0
+Pillow==12.3.0
+
 # The CI workflow installs the dev/tooling pins from requirements-dev.txt.

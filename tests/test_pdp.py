@@ -70,24 +70,43 @@ def test_pdp_get_renders_form(client, auth):
     assert b"walmart.com/ip/10294528" in resp.data
 
 
-def test_pdp_post_accepts_urls_and_parses_item_number(client, auth):
+def test_pdp_post_enqueues_and_redirects(client, auth):
     auth.register()
     resp = client.post(
         "/app/pdp-scoring",
         data={"urls": ["https://www.walmart.com/ip/10294528", "not-a-url"]},
     )
-    assert resp.status_code == 200
-    assert b"1 item accepted" in resp.data
-    assert b"10294528" in resp.data
-    assert b"Skipped" in resp.data  # the invalid entry is surfaced
+    assert resp.status_code == 302
+    assert resp.headers["Location"].endswith("/app/pdp-scoring/results")
+    # The results page shows the enqueued item as queued (worker not running).
+    results = client.get("/app/pdp-scoring/results")
+    assert results.status_code == 200
+    assert b"10294528" in results.data
+    assert b"Queued" in results.data
 
 
-def test_pdp_post_accepts_csv_upload(client, auth):
+def test_pdp_post_csv_enqueues(client, auth):
     auth.register()
     resp = client.post(
         "/app/pdp-scoring",
         data={"csv": (io.BytesIO(b"https://www.walmart.com/ip/555\n"), "items.csv")},
         content_type="multipart/form-data",
     )
-    assert resp.status_code == 200
-    assert b"555" in resp.data
+    assert resp.status_code == 302
+    assert b"555" in client.get("/app/pdp-scoring/results").data
+
+
+def test_pdp_post_empty_is_rejected(client, auth):
+    auth.register()
+    resp = client.post("/app/pdp-scoring", data={"urls": ["not-a-url"]})
+    assert resp.status_code == 400
+    assert b"No valid item URLs" in resp.data
+
+
+def test_pdp_status_reports_pending(client, auth):
+    auth.register()
+    client.post("/app/pdp-scoring", data={"urls": ["https://www.walmart.com/ip/10294528"]})
+    status = client.get("/app/pdp-scoring/status").get_json()
+    assert status["pending"] is True
+    assert status["items"][0]["item_id"] == "10294528"
+    assert status["items"][0]["status"] == "queued"

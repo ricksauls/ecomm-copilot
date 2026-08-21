@@ -51,3 +51,7 @@ jobs:
             GIT_SSH_COMMAND="ssh -i ~/.ssh/ecomm_deploy" git pull --ff-only
             venv/bin/pip install -q -r requirements.txt
             sudo systemctl restart ecomm-copilot
+            # Restart the scoring worker too. Guarded with -n so the deploy
+            # doesn't fail before the worker's sudoers rule/unit exist (added by
+            # setup-droplet.sh); it becomes a no-op restart once they do.
+            sudo -n systemctl restart ecomm-copilot-worker || echo "worker restart skipped (run setup-droplet.sh to enable it)"

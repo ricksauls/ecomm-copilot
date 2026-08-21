@@ -11,12 +11,25 @@ guarded by ``login_required``, so it is no longer world-reachable.
 
 import logging
 
-from flask import Blueprint, render_template, request
+from flask import (
+    Blueprint,
+    g,
+    jsonify,
+    redirect,
+    render_template,
+    request,
+    session,
+    url_for,
+)
 
-from app import fixtures, pdp
+from app import fixtures, jobs, pdp
+from app.db import get_db
 from app.security import login_required
 
 logger = logging.getLogger(__name__)
+
+# Session key holding the ids of the most recent scoring batch.
+_BATCH_KEY = "pdp_batch_ids"
 
 bp = Blueprint("pages", __name__)
 
@@ -49,35 +62,42 @@ def dashboard():
 @bp.route("/app/pdp-scoring", methods=["GET", "POST"])
 @login_required
 def pdp_scoring():
-    """PDP Content Scoring intake: collect item URLs to score.
+    """PDP Content Scoring intake: collect item URLs and enqueue them to score.
 
-    Users add one or more Walmart item URLs via the repeatable fields and/or
-    upload a CSV of them. This screen validates and collects the items; the
-    scoring engine that consumes them is a follow-up, so a POST currently echoes
-    the parsed/validated list back as confirmation.
+    A POST validates the submitted URLs / CSV, enqueues the accepted items as
+    scoring jobs, and redirects to the results page (which polls for progress).
+    The background worker does the actual fetch + score.
     """
     if request.method == "POST":
         form_urls = request.form.getlist("urls")
         csv_file = request.files.get("csv")
         accepted, rejected = pdp.collect_items(form_urls, csv_file)
-        # Pair each accepted URL with its parsed Walmart item number (the
-        # trailing path segment) for display.
-        accepted_items = [
-            {"url": url, "item": pdp.item_number_from_url(url)} for url in accepted
-        ]
+
+        if not accepted:
+            # Nothing usable — re-render the form with a message instead of
+            # enqueuing an empty batch.
+            return (
+                render_template(
+                    "app/pdp_scoring.html",
+                    breadcrumb="PDP Content Scoring",
+                    active_nav="pdp-scoring",
+                    submitted=False,
+                    max_items=pdp.MAX_ITEMS,
+                    error="No valid item URLs were provided.",
+                ),
+                400,
+            )
+
+        items = [{"url": url, "item": pdp.item_number_from_url(url)} for url in accepted]
+        ids = jobs.enqueue_items(get_db(), g.user["id"], items)
+        session[_BATCH_KEY] = ids
         logger.info(
-            "PDP scoring intake submitted: %d accepted, %d rejected",
-            len(accepted),
+            "PDP scoring: enqueued %d item(s), %d rejected, user_id=%s",
+            len(ids),
             len(rejected),
+            g.user["id"],
         )
-        return render_template(
-            "app/pdp_scoring.html",
-            breadcrumb="PDP Content Scoring",
-            active_nav="pdp-scoring",
-            submitted=True,
-            accepted_items=accepted_items,
-            rejected=rejected,
-        )
+        return redirect(url_for("pages.pdp_scoring_results"))
 
     logger.info("Serving PDP Content Scoring intake")
     return render_template(
@@ -87,3 +107,48 @@ def pdp_scoring():
         submitted=False,
         max_items=pdp.MAX_ITEMS,
     )
+
+
+def _batch_rows():
+    """Fetch the current session batch's rows, scoped to the signed-in user."""
+    ids = session.get(_BATCH_KEY, [])
+    return jobs.get_items(get_db(), ids, g.user["id"])
+
+
+@bp.route("/app/pdp-scoring/results")
+@login_required
+def pdp_scoring_results():
+    """Show the most recent scoring batch and poll until every item finishes."""
+    rows = _batch_rows()
+    return render_template(
+        "app/pdp_results.html",
+        breadcrumb="PDP Content Scoring",
+        active_nav="pdp-scoring",
+        items=[_row_view(r) for r in rows],
+    )
+
+
+@bp.route("/app/pdp-scoring/status")
+@login_required
+def pdp_scoring_status():
+    """JSON status for the current batch, polled by the results page."""
+    rows = _batch_rows()
+    items = [_row_view(r) for r in rows]
+    pending = any(r["status"] in ("queued", "scoring") for r in items)
+    return jsonify({"pending": pending, "items": items})
+
+
+def _row_view(row) -> dict:
+    """Shape a scored_items row for templates / JSON (parses the result blob)."""
+    import json
+
+    result = json.loads(row["result_json"]) if row["result_json"] else None
+    return {
+        "id": row["id"],
+        "item_id": row["item_id"],
+        "url": row["url"],
+        "status": row["status"],
+        "overall": row["overall"],
+        "error": row["error"],
+        "result": result,
+    }

@@ -10,43 +10,9 @@
   </div>
 </div>
 
-{% if submitted %}
-{# Confirmation of what was parsed. The scoring engine that consumes these is a
-   follow-up; for now we show the validated items and any rejects. #}
-<div class="card card-pad results">
-  <div class="label">Items ready to score</div>
-  {% if accepted_items %}
-  <p class="results-count">{{ accepted_items | length }} item{{ '' if accepted_items | length == 1 else 's' }} accepted.</p>
-  <ul class="item-list">
-    {% for it in accepted_items %}
-    <li>
-      <span class="item-url">{{ it.url }}</span>
-      {% if it.item %}
-      <span class="item-no">Item #{{ it.item }}</span>
-      {% else %}
-      <span class="item-no warn">No item number found in URL</span>
-      {% endif %}
-    </li>
-    {% endfor %}
-  </ul>
-  {% else %}
-  <p class="results-count">No valid items were found.</p>
-  {% endif %}
-
-  {% if rejected %}
-  <div class="rejected">
-    <div class="label">Skipped ({{ rejected | length }})</div>
-    <ul class="item-list">
-      {% for bad in rejected %}
-      <li><span class="item-url">{{ bad }}</span><span class="item-no warn">Not a valid URL</span></li>
-      {% endfor %}
-    </ul>
-  </div>
-  {% endif %}
-
-  <a href="{{ url_for('pages.pdp_scoring') }}" class="wbtn wbtn-secondary">Add more items</a>
-</div>
-{% else %}
+{% if error %}
+<div class="form-error" role="alert">{{ error }}</div>
+{% endif %}
 <div class="card pdp-card">
   <form method="post" action="{{ url_for('pages.pdp_scoring') }}" enctype="multipart/form-data"
         class="pdp-form">
@@ -125,7 +91,6 @@
   </div>
   <p class="score-band-foot">Each item earns a 0–100 score across these five dimensions, with the gap to the category leader and the ranked actions that close it.</p>
 </div>
-{% endif %}
 {% endblock %}
 
 {% block scripts %}

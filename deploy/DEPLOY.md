@@ -88,6 +88,29 @@ After the secrets exist, every push to `main` that passes CI runs the deploy.
 
 ---
 
+## PDP scoring worker
+
+PDP scoring runs in a **separate background service** (`ecomm-copilot-worker`),
+not in the web workers, because it drives a real browser (~seconds per item).
+`setup-droplet.sh` installs and starts it alongside the web service.
+
+Requirements on the droplet:
+- **Playwright** (installed into the venv by `pip install -r requirements.txt`
+  on deploy) plus a real Chrome — it uses `channel="chrome"`, the same system
+  Chrome the WM scraper uses.
+- The **Xvfb `:99` virtual display** (from the WM scraper setup): the worker
+  runs headed Chrome via `Environment=DISPLAY=:99` and `Wants=xvfb.service`.
+
+Manage / inspect it:
+
+```bash
+sudo systemctl status ecomm-copilot-worker
+sudo journalctl -u ecomm-copilot-worker -n 50 --no-pager
+```
+
+The GitHub Actions deploy restarts the worker too (guarded, so it's a no-op
+until `setup-droplet.sh` has installed the unit + sudoers rule).
+
 ## Manual deploy / rollback
 
 ```bash

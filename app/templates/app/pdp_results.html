@@ -1,0 +1,81 @@
+{% extends "app/base.html" %}
+{% block title %}PDP Scores — ecomm-copilot{% endblock %}
+
+{% set pending = items | selectattr('status', 'in', ['queued', 'scoring']) | list | length > 0 %}
+
+{% block head_extra %}
+{# While any item is still scoring, refresh so results appear as the worker
+   completes them. No JS needed — CSP-safe. #}
+{% if pending %}<meta http-equiv="refresh" content="5" />{% endif %}
+{% endblock %}
+
+{% block pane_content %}
+<div class="page-header">
+  <div>
+    <p class="label eyebrow">PDP (Product Detail Page) Content Scoring</p>
+    <h1>PDP scores</h1>
+    <p class="subtitle">
+      {{ items | length }} item{{ '' if items | length == 1 else 's' }}
+      {% if pending %}· scoring in progress…{% else %}· complete{% endif %}
+    </p>
+  </div>
+  <div class="header-buttons">
+    <a href="{{ url_for('pages.pdp_scoring') }}" class="wbtn wbtn-primary">Score more</a>
+  </div>
+</div>
+
+{% if not items %}
+<div class="card card-pad">
+  <p class="results-count">No items in this batch. <a href="{{ url_for('pages.pdp_scoring') }}">Add some to score</a>.</p>
+</div>
+{% endif %}
+
+{% for it in items %}
+<div class="card card-pad score-card">
+  <div class="score-card-head">
+    <div class="score-id">
+      {% if it.item_id %}<span class="item-no">Item #{{ it.item_id }}</span>{% endif %}
+      <a href="{{ it.url }}" class="item-url" target="_blank" rel="noopener noreferrer">{{ it.url }}</a>
+    </div>
+    <span class="status-badge status-{{ it.status }}">
+      {% if it.status == 'queued' %}Queued
+      {% elif it.status == 'scoring' %}Scoring…
+      {% elif it.status == 'scored' %}Scored
+      {% elif it.status == 'blocked' %}Couldn’t fetch
+      {% else %}Error{% endif %}
+    </span>
+  </div>
+
+  {% if it.status == 'scored' and it.result %}
+  <div class="score-body">
+    <div class="overall">
+      <div class="overall-num">{{ it.overall }}</div>
+      <div class="overall-max">/ 100</div>
+    </div>
+    <div class="dims">
+      {% for d in it.result.dimensions %}
+      <div class="dim-row">
+        <div class="dim-row-head">
+          <span class="dim-row-name">{{ d.label }}</span>
+          <span class="dim-row-score">{{ d.score }}</span>
+        </div>
+        <div class="score-bar"><span style="width: {{ d.score }}%;"></span></div>
+        {% if d.recommendations %}
+        <ul class="dim-recs">
+          {% for rec in d.recommendations %}<li>{{ rec }}</li>{% endfor %}
+        </ul>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% elif it.status in ('queued', 'scoring') %}
+  <p class="score-pending">Fetching the PDP and scoring it — this can take a moment per item.</p>
+  {% elif it.status == 'blocked' %}
+  <p class="score-pending warn">Walmart blocked the fetch. Try again shortly.</p>
+  {% else %}
+  <p class="score-pending warn">Couldn’t score this item{% if it.error %}: {{ it.error }}{% endif %}.</p>
+  {% endif %}
+</div>
+{% endfor %}
+{% endblock %}

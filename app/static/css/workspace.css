@@ -832,3 +832,141 @@ a:focus-visible,
 .rejected {
   margin-top: 6px;
 }
+
+/* Workspace form error banner (light surface). */
+.form-error {
+  max-width: 1120px;
+  margin-bottom: 14px;
+  padding: 11px 14px;
+  border: 1px solid var(--signal-red);
+  border-radius: var(--radius-card);
+  background: rgba(255, 59, 48, 0.06);
+  color: var(--black);
+  font-size: 13px;
+}
+
+/* --- PDP score result cards --- */
+.score-card {
+  max-width: 1120px;
+  margin-bottom: 14px;
+}
+.score-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.score-id {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.score-id .item-url {
+  font-size: 12.5px;
+  color: var(--mid-gray);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+.score-id .item-url:hover {
+  color: var(--black);
+}
+.status-badge {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 4px 9px;
+  border-radius: var(--radius-chip);
+  border: 1px solid var(--border);
+  color: var(--mid-gray);
+}
+.status-badge.status-scoring,
+.status-badge.status-queued {
+  color: var(--mid-gray);
+}
+.status-badge.status-scored {
+  color: var(--black);
+  border-color: var(--black);
+}
+.status-badge.status-blocked,
+.status-badge.status-error {
+  color: var(--signal-red);
+  border-color: var(--signal-red);
+}
+.score-body {
+  display: flex;
+  gap: 28px;
+  margin-top: 18px;
+}
+.overall {
+  flex-shrink: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 120px;
+}
+.overall-num {
+  font-size: 46px;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  line-height: 1;
+  color: var(--black);
+}
+.overall-max {
+  font-size: 14px;
+  color: var(--cool-gray);
+}
+.dims {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.dim-row-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.dim-row-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--black);
+}
+.dim-row-score {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--mid-gray);
+}
+.score-bar {
+  margin-top: 6px;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--border);
+  overflow: hidden;
+}
+.score-bar span {
+  display: block;
+  height: 100%;
+  background: var(--black);
+}
+.dim-recs {
+  margin: 8px 0 0;
+  padding-left: 16px;
+}
+.dim-recs li {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--mid-gray);
+}
+.score-pending {
+  margin: 14px 0 0;
+  font-size: 13px;
+  color: var(--cool-gray);
+}
+.score-pending.warn {
+  color: var(--signal-red);
+}

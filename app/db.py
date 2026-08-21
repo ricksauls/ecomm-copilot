@@ -26,6 +26,23 @@ CREATE TABLE IF NOT EXISTS users (
     auth_provider  TEXT    NOT NULL DEFAULT 'local',
     created_at     TEXT    NOT NULL DEFAULT (datetime('now'))
 );
+
+-- One row per submitted PDP URL. The web app inserts rows as 'queued'; the
+-- background worker claims them, fetches + scores, and writes the result back.
+CREATE TABLE IF NOT EXISTS scored_items (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id      INTEGER NOT NULL REFERENCES users(id),
+    item_id      TEXT,
+    url          TEXT    NOT NULL,
+    status       TEXT    NOT NULL DEFAULT 'queued',  -- queued|scoring|scored|blocked|error
+    overall      INTEGER,
+    result_json  TEXT,
+    error        TEXT,
+    created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+    updated_at   TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_scored_items_status ON scored_items(status);
+CREATE INDEX IF NOT EXISTS idx_scored_items_user ON scored_items(user_id, id);
 """
 
 

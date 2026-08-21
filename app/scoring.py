@@ -14,7 +14,7 @@ rather than silently guessed.
 """
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 
 logger = logging.getLogger(__name__)
 
@@ -284,3 +284,8 @@ def score_pdp(pdp: PdpRecord) -> ScoreResult:
     overall = round(sum(d.score * d.weight for d in dimensions) / total_weight)
     logger.info("Scored PDP item_id=%s overall=%d", pdp.item_id, overall)
     return ScoreResult(overall=overall, dimensions=dimensions)
+
+
+def result_to_dict(result: ScoreResult) -> dict:
+    """Serialize a ScoreResult to a plain dict for JSON storage/rendering."""
+    return asdict(result)

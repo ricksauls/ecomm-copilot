@@ -1,0 +1,33 @@
+# systemd unit for the ecomm-copilot PDP scoring worker.
+#
+# Install on the droplet at /etc/systemd/system/ecomm-copilot-worker.service
+# (setup-droplet.sh does this), then it starts with the app.
+#
+# Runs as the same unprivileged `deploy` user. Unlike the web service it needs a
+# DISPLAY, because it drives *headed* Chrome (Walmart's bot defense is far more
+# aggressive against headless) via the droplet's existing Xvfb virtual display
+# on :99 — the same one the WM share-of-voice scraper uses.
+
+[Unit]
+Description=ecomm-copilot PDP scoring worker
+# Xvfb provides the :99 display; don't start scoring before it's up.
+After=network.target xvfb.service
+Wants=xvfb.service
+
+[Service]
+User=deploy
+Group=deploy
+WorkingDirectory=/home/deploy/apps/ecomm-copilot
+EnvironmentFile=/home/deploy/apps/ecomm-copilot/.env
+# Headed Chrome renders into the shared virtual display.
+Environment=DISPLAY=:99
+ExecStart=/home/deploy/apps/ecomm-copilot/venv/bin/python worker.py
+Restart=always
+RestartSec=5
+
+# Least-privilege hardening (matching the web unit).
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

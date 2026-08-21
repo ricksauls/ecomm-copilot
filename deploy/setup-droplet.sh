@@ -35,10 +35,19 @@ if [[ ! -f "$APP_DIR/.env" ]]; then
   exit 1
 fi
 
-echo "==> Installing systemd unit"
+echo "==> Installing systemd units (web + scoring worker)"
 install -m 644 "$APP_DIR/deploy/ecomm-copilot.service" \
   /etc/systemd/system/ecomm-copilot.service
+install -m 644 "$APP_DIR/deploy/ecomm-copilot-worker.service" \
+  /etc/systemd/system/ecomm-copilot-worker.service
 systemctl daemon-reload
+
+# The worker drives headed Chrome and needs the Xvfb :99 display. Warn (don't
+# fail) if xvfb.service isn't present — it ships with the WM scraper setup.
+if ! systemctl list-unit-files | grep -q '^xvfb.service'; then
+  echo "WARNING: xvfb.service not found. The scoring worker needs a virtual" >&2
+  echo "         display on :99 (see the WM scraper's xvfb.service)." >&2
+fi
 
 echo "==> Installing nginx site"
 install -m 644 "$APP_DIR/deploy/nginx.conf" \
@@ -59,9 +68,9 @@ echo "==> Installing scoped sudoers line for CI restart"
 SUDOERS_TMP="$(mktemp)"
 cat > "$SUDOERS_TMP" <<EOF
 # Allow the deploy user (used by the GitHub Actions deploy) to restart ONLY the
-# ecomm-copilot service without a password. Both paths are listed because sudo
-# matches the resolved binary path, which differs across setups.
-$DEPLOY_USER ALL=(root) NOPASSWD: /usr/bin/systemctl restart ecomm-copilot, /bin/systemctl restart ecomm-copilot
+# ecomm-copilot services without a password. Both binary paths are listed
+# because sudo matches the resolved path, which differs across setups.
+$DEPLOY_USER ALL=(root) NOPASSWD: /usr/bin/systemctl restart ecomm-copilot, /bin/systemctl restart ecomm-copilot, /usr/bin/systemctl restart ecomm-copilot-worker, /bin/systemctl restart ecomm-copilot-worker
 EOF
 visudo -cf "$SUDOERS_TMP"
 install -m 440 "$SUDOERS_TMP" /etc/sudoers.d/ecomm-copilot
@@ -72,11 +81,13 @@ nginx -t
 
 echo "==> Starting services"
 systemctl enable --now ecomm-copilot
+systemctl enable --now ecomm-copilot-worker
 systemctl reload nginx
 
 echo
 echo "Done. Service status:"
 systemctl --no-pager --lines=0 status ecomm-copilot || true
+systemctl --no-pager --lines=0 status ecomm-copilot-worker || true
 echo
 echo "Next: once DNS A records for ecomm-copilot.com and www point at this"
 echo "droplet, issue the certificate:"
