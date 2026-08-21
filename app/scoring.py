@@ -89,8 +89,8 @@ def _score_imagery(pdp: PdpRecord) -> DimensionScore:
     see the commented block below for how to re-enable it. The count/resolution
     tiers were rescaled from 50/30 to 60/40 so imagery still spans a full 0-100
     without the video points; restore the old tiers if video comes back.
-    Infographic / lifestyle detection needs vision, so it's flagged as a
-    follow-up rather than scored here.
+    Infographic / lifestyle detection needs vision (the future AI pass) and is
+    not scored or surfaced here.
     """
     findings: list[str] = []
     recs: list[str] = []
@@ -131,7 +131,6 @@ def _score_imagery(pdp: PdpRecord) -> DimensionScore:
     # else:
     #     recs.append("Add a short product video")
 
-    findings.append("Infographic/lifestyle mix scored in the AI vision pass")
     return DimensionScore("imagery", "Imagery", _clamp(points), WEIGHTS["imagery"], findings, recs)
 
 

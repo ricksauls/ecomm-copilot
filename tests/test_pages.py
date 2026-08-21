@@ -52,8 +52,10 @@ def test_pdp_scoring_page_renders(client, auth):
     assert b"four dimensions" in resp.data
     assert b">Attributes<" not in resp.data
     assert b"video" not in resp.data
-    # Infographic scoring is off, so it's not advertised; the length signals are.
+    # Infographic and lifestyle scoring are off, so they're not advertised; the
+    # length signals are.
     assert b"infographic" not in resp.data
+    assert b"lifestyle" not in resp.data
     # "&" is HTML-escaped to "&amp;" in the rendered output.
     assert b"Character &amp; word count" in resp.data
     assert b"Word count, depth" in resp.data
