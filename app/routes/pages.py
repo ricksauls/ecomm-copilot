@@ -11,9 +11,9 @@ guarded by ``login_required``, so it is no longer world-reachable.
 
 import logging
 
-from flask import Blueprint, render_template
+from flask import Blueprint, render_template, request
 
-from app import fixtures
+from app import fixtures, pdp
 from app.security import login_required
 
 logger = logging.getLogger(__name__)
@@ -43,4 +43,47 @@ def dashboard():
         breadcrumb="Meridian Commerce Group",
         active_nav="dashboard",
         **view_model,
+    )
+
+
+@bp.route("/app/pdp-scoring", methods=["GET", "POST"])
+@login_required
+def pdp_scoring():
+    """PDP Content Scoring intake: collect item URLs to score.
+
+    Users add one or more Walmart item URLs via the repeatable fields and/or
+    upload a CSV of them. This screen validates and collects the items; the
+    scoring engine that consumes them is a follow-up, so a POST currently echoes
+    the parsed/validated list back as confirmation.
+    """
+    if request.method == "POST":
+        form_urls = request.form.getlist("urls")
+        csv_file = request.files.get("csv")
+        accepted, rejected = pdp.collect_items(form_urls, csv_file)
+        # Pair each accepted URL with its parsed Walmart item number (the
+        # trailing path segment) for display.
+        accepted_items = [
+            {"url": url, "item": pdp.item_number_from_url(url)} for url in accepted
+        ]
+        logger.info(
+            "PDP scoring intake submitted: %d accepted, %d rejected",
+            len(accepted),
+            len(rejected),
+        )
+        return render_template(
+            "app/pdp_scoring.html",
+            breadcrumb="PDP Content Scoring",
+            active_nav="pdp-scoring",
+            submitted=True,
+            accepted_items=accepted_items,
+            rejected=rejected,
+        )
+
+    logger.info("Serving PDP Content Scoring intake")
+    return render_template(
+        "app/pdp_scoring.html",
+        breadcrumb="PDP Content Scoring",
+        active_nav="pdp-scoring",
+        submitted=False,
+        max_items=pdp.MAX_ITEMS,
     )

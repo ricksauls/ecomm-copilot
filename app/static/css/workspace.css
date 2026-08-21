@@ -564,3 +564,161 @@ a:focus-visible,
     grid-template-columns: 1fr;
   }
 }
+
+/* --- PDP Content Scoring intake --- */
+.pdp-form,
+.results {
+  max-width: 620px;
+}
+.field-label {
+  display: block;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--mid-gray);
+}
+.form-hint {
+  font-size: 12.5px;
+  color: var(--cool-gray);
+  line-height: 1.5;
+  margin: 6px 0 14px;
+}
+.form-hint code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  color: var(--mid-gray);
+  background: var(--canvas);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+.url-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.url-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.url-input,
+.csv-input {
+  flex: 1;
+  font-family: var(--font);
+  font-size: 13.5px;
+  color: var(--black);
+  background: var(--surface);
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-card);
+  padding: 10px 12px;
+  transition: border-color var(--fade) var(--ease);
+}
+.url-input:hover {
+  border-color: var(--mid-gray);
+}
+.url-input:focus,
+.csv-input:focus {
+  outline: none;
+  border-color: var(--black);
+}
+/* Square remove button sized to match the input height. */
+.row-remove {
+  flex-shrink: 0;
+  width: 38px;
+  height: 38px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  color: var(--cool-gray);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  transition: color var(--fade) var(--ease), border-color var(--fade) var(--ease);
+}
+.row-remove:hover {
+  color: var(--signal-red);
+  border-color: var(--signal-red);
+}
+.add-more {
+  margin-top: 12px;
+  font-family: var(--font);
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--black);
+  background: none;
+  border: 0;
+  padding: 4px 0;
+  cursor: pointer;
+  transition: color var(--fade) var(--ease);
+}
+.add-more:hover {
+  color: var(--signal-red);
+}
+.form-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 26px 0;
+}
+.form-divider::before,
+.form-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+.form-divider span {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--cool-gray);
+}
+.csv-input {
+  width: 100%;
+  padding: 9px 12px;
+}
+.pdp-form .wbtn-primary {
+  margin-top: 26px;
+}
+
+/* Results / confirmation */
+.results-count {
+  font-size: 14px;
+  color: var(--black);
+  margin: 10px 0 14px;
+}
+.item-list {
+  list-style: none;
+  margin: 0 0 18px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.item-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+}
+.item-url {
+  font-size: 13px;
+  color: var(--black);
+  overflow-wrap: anywhere;
+}
+.item-no {
+  flex-shrink: 0;
+  font-size: 11.5px;
+  color: var(--cool-gray);
+}
+.item-no.warn {
+  color: var(--signal-red);
+}
+.rejected {
+  margin-top: 6px;
+}

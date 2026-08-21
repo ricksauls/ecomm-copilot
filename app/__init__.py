@@ -91,6 +91,10 @@ def create_app() -> Flask:
         )
     app.config["SECRET_KEY"] = secret_key
 
+    # Cap request bodies (e.g. CSV uploads on the PDP scoring screen) so a large
+    # upload can't exhaust memory; oversized requests get a 413.
+    app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024
+
     # Session cookie hardening. Secure=True requires HTTPS; it can be relaxed
     # for local http development via SESSION_COOKIE_SECURE=false.
     app.config["SESSION_COOKIE_HTTPONLY"] = True

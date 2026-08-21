@@ -23,5 +23,8 @@
         </div>
       </div>
     </div>
+    {# Per-screen JavaScript. Must be an external file under /static — the CSP
+       is script-src 'self', so inline scripts are blocked by design. #}
+    {% block scripts %}{% endblock %}
   </body>
 </html>
