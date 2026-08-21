@@ -874,6 +874,16 @@ a:focus-visible,
 .score-id .item-url:hover {
   color: var(--black);
 }
+/* Product name on its own line under the URL — the primary way to tell items
+   apart, so it reads stronger than the URL above it. flex-basis:100% forces the
+   wrap within the flexed .score-id row. */
+.score-id .item-title {
+  flex-basis: 100%;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--black);
+  overflow-wrap: anywhere;
+}
 .status-badge {
   flex-shrink: 0;
   font-size: 10px;

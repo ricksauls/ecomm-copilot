@@ -61,7 +61,7 @@ def process_one(conn: sqlite3.Connection, row: sqlite3.Row) -> None:
         except Exception:  # noqa: BLE001 - discovery must never fail scoring
             log.exception("Keyword discovery failed id=%s; scoring without it", row_id)
         result = score_pdp(pdp)
-        jobs.save_result(conn, row_id, result.overall, result_to_dict(result))
+        jobs.save_result(conn, row_id, result.overall, result_to_dict(result), pdp.title)
         log.info("Scored id=%s item=%s overall=%s", row_id, row["item_id"], result.overall)
     except FetchBlocked as e:
         log.warning("Blocked id=%s: %s", row_id, e)

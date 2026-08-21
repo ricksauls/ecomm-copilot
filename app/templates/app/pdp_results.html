@@ -35,6 +35,9 @@
     <div class="score-id">
       {% if it.item_id %}<span class="item-no">Item #{{ it.item_id }}</span>{% endif %}
       <a href="{{ it.url }}" class="item-url" target="_blank" rel="noopener noreferrer">{{ it.url }}</a>
+      {# Product name (filled once scored) — identifies the item far better than
+         the URL alone. #}
+      {% if it.title %}<span class="item-title">{{ it.title }}</span>{% endif %}
     </div>
     <span class="status-badge status-{{ it.status }}">
       {% if it.status == 'queued' %}Queued

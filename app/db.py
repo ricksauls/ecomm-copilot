@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS scored_items (
     user_id      INTEGER NOT NULL REFERENCES users(id),
     item_id      TEXT,
     url          TEXT    NOT NULL,
+    title        TEXT,    -- product name, filled in by the worker once fetched
     status       TEXT    NOT NULL DEFAULT 'queued',  -- queued|scoring|scored|blocked|error
     overall      INTEGER,
     result_json  TEXT,
@@ -78,6 +79,20 @@ def _database_path() -> str:
     return os.environ.get("DATABASE_URL") or "app.db"
 
 
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Apply idempotent, additive schema migrations for pre-existing databases.
+
+    ``CREATE TABLE IF NOT EXISTS`` never alters an existing table, and SQLite has
+    no ``ADD COLUMN IF NOT EXISTS``, so we check the live columns and add any that
+    are missing. Additive only — safe to run on every startup/deploy.
+    """
+    # PRAGMA rows are (cid, name, type, notnull, dflt, pk); name is index 1.
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(scored_items)")}
+    if "title" not in columns:
+        conn.execute("ALTER TABLE scored_items ADD COLUMN title TEXT")
+        logger.info("Migrated scored_items: added 'title' column")
+
+
 def init_db(app: Flask) -> None:
     """Create the schema if absent and lock down the DB file's permissions.
 
@@ -89,6 +104,7 @@ def init_db(app: Flask) -> None:
     conn = sqlite3.connect(database)
     try:
         conn.executescript(_SCHEMA)
+        _migrate(conn)
         conn.commit()
     finally:
         conn.close()

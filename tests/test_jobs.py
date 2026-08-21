@@ -43,12 +43,14 @@ def test_save_result_and_mark_failed(app):
             {"url": "https://www.walmart.com/ip/1", "item": "1"},
             {"url": "https://www.walmart.com/ip/2", "item": "2"},
         ])
-        jobs.save_result(db, ids[0], 82, {"overall": 82, "dimensions": []})
+        jobs.save_result(db, ids[0], 82, {"overall": 82, "dimensions": []},
+                         "Tabasco Chipotle Pepper Sauce, 5 fl oz")
         jobs.mark_failed(db, ids[1], "blocked", "bot detection")
 
         rows = {r["id"]: r for r in jobs.get_items(db, ids, uid)}
         assert rows[ids[0]]["status"] == "scored"
         assert rows[ids[0]]["overall"] == 82
+        assert rows[ids[0]]["title"] == "Tabasco Chipotle Pepper Sauce, 5 fl oz"
         assert json.loads(rows[ids[0]]["result_json"])["overall"] == 82
         assert rows[ids[1]]["status"] == "blocked"
         assert rows[ids[1]]["error"] == "bot detection"

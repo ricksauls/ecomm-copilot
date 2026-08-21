@@ -69,12 +69,17 @@ def claim_next(conn: sqlite3.Connection) -> sqlite3.Row | None:
         # Lost the race; try the next queued row.
 
 
-def save_result(conn: sqlite3.Connection, row_id: int, overall: int, result: dict) -> None:
-    """Store a completed score for a row and mark it ``scored``."""
+def save_result(conn: sqlite3.Connection, row_id: int, overall: int, result: dict,
+                title: str | None = None) -> None:
+    """Store a completed score (and the fetched product title) and mark it scored.
+
+    ``title`` is captured so the results view can label each item by product name
+    rather than URL alone; it's unknown at enqueue time and filled in here.
+    """
     conn.execute(
         "UPDATE scored_items SET status = 'scored', overall = ?, result_json = ?, "
-        "error = NULL, updated_at = datetime('now') WHERE id = ?",
-        (overall, json.dumps(result), row_id),
+        "title = ?, error = NULL, updated_at = datetime('now') WHERE id = ?",
+        (overall, json.dumps(result), title, row_id),
     )
     conn.commit()
 
