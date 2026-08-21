@@ -141,14 +141,14 @@ def _score_imagery(pdp: PdpRecord) -> DimensionScore:
     elif n >= 4:
         points += 40
         findings.append(f"{n} images")
-        recs.append("Add images to reach 6+ (infographics, lifestyle, dimensions)")
+        recs.append("Add more product images to reach 6+")
     elif n >= 2:
         points += 20
         findings.append(f"Only {n} images")
         recs.append("Build out the gallery to 6+ images")
     else:
         findings.append("1 or no images")
-        recs.append("Add a full image set (6+): main, infographics, lifestyle, dimensions")
+        recs.append("Add a full image set (6+ product images)")
 
     if pdp.max_image_px >= 2000:
         points += 40
