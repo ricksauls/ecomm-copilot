@@ -566,35 +566,41 @@ a:focus-visible,
 }
 
 /* --- PDP Content Scoring intake --- */
-/* The intake form is wide so the URL field comfortably shows a full example
-   URL; the results list stays narrower for readability. */
-.pdp-form {
+/* The intake card is wide so the URL field shows a full example URL; the
+   results list stays narrower for readability. */
+.pdp-card {
   max-width: 1120px;
+  padding: 26px 28px 28px;
 }
 .results {
   max-width: 620px;
 }
 .field-label {
-  display: block;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.11em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--mid-gray);
+  color: var(--black);
 }
-.form-hint {
-  font-size: 12.5px;
-  color: var(--cool-gray);
-  line-height: 1.5;
-  margin: 6px 0 14px;
+/* Numbered step badge before each section label. */
+.section-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
 }
-.form-hint code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 12px;
-  color: var(--mid-gray);
-  background: var(--canvas);
-  padding: 1px 5px;
-  border-radius: 3px;
+.section-head .step {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  border-radius: var(--radius-chip);
+  background: var(--black);
+  color: var(--canvas);
+  font-size: 11px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .url-rows {
   display: flex;
@@ -606,31 +612,47 @@ a:focus-visible,
   align-items: center;
   gap: 8px;
 }
-.url-input,
-.csv-input {
+/* Icon and input share one bordered field; the input itself is borderless. */
+.url-field {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 12px;
+  background: var(--surface);
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-card);
+  transition: border-color var(--fade) var(--ease);
+}
+.url-field:hover {
+  border-color: var(--mid-gray);
+}
+.url-field:focus-within {
+  border-color: var(--black);
+}
+.url-icon {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  color: var(--cool-gray);
+}
+.url-input {
   flex: 1;
   font-family: var(--font);
   font-size: 13.5px;
   color: var(--black);
-  background: var(--surface);
-  border: 1px solid var(--control-border);
-  border-radius: var(--radius-card);
-  padding: 10px 12px;
-  transition: border-color var(--fade) var(--ease);
+  background: none;
+  border: 0;
+  padding: 11px 0;
 }
-.url-input:hover {
-  border-color: var(--mid-gray);
-}
-.url-input:focus,
-.csv-input:focus {
+.url-input:focus {
   outline: none;
-  border-color: var(--black);
 }
-/* Square remove button sized to match the input height. */
+/* Square remove button sized to match the field height. */
 .row-remove {
   flex-shrink: 0;
-  width: 38px;
-  height: 38px;
+  width: 40px;
+  height: 40px;
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
   background: var(--surface);
@@ -663,7 +685,7 @@ a:focus-visible,
   display: flex;
   align-items: center;
   gap: 12px;
-  margin: 26px 0;
+  margin: 24px 0;
 }
 .form-divider::before,
 .form-divider::after {
@@ -679,12 +701,96 @@ a:focus-visible,
   text-transform: uppercase;
   color: var(--cool-gray);
 }
-.csv-input {
-  width: 100%;
-  padding: 9px 12px;
+/* CSV drop zone: a dashed target that also click-to-browses via its label. */
+.csv-drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 6px;
+  padding: 26px 20px;
+  border: 1px dashed var(--control-border);
+  border-radius: var(--radius-card);
+  background: var(--canvas);
+  cursor: pointer;
+  transition: border-color var(--fade) var(--ease), background var(--fade) var(--ease);
 }
-.pdp-form .wbtn-primary {
+.csv-drop:hover,
+.csv-drop.is-dragging {
+  border-color: var(--black);
+  background: var(--surface);
+}
+.csv-icon {
+  width: 26px;
+  height: 26px;
+  color: var(--mid-gray);
+}
+.csv-drop-text {
+  font-size: 13.5px;
+  color: var(--black);
+}
+.csv-drop-text .link {
+  color: var(--signal-red);
+  font-weight: 500;
+}
+.csv-drop-hint {
+  font-size: 11.5px;
+  color: var(--cool-gray);
+}
+/* The real file input stays in the DOM (for submit + click-to-browse) but is
+   visually hidden behind the styled drop zone. */
+.csv-input-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+.csv-filename {
+  margin: 10px 0 0;
+  font-size: 12.5px;
+  color: var(--mid-gray);
+}
+.pdp-form .wbtn-lg {
   margin-top: 26px;
+  padding: 12px 22px;
+  font-size: 13px;
+}
+
+/* "What we score" band — reinforces the model on the intake screen. */
+.score-band {
+  max-width: 1120px;
+  margin-top: 14px;
+}
+.score-dims {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 1px;
+  margin-top: 14px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+}
+.dim {
+  background: var(--surface);
+  padding: 15px 16px 17px;
+}
+.dim-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--black);
+}
+.dim-desc {
+  margin-top: 5px;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--cool-gray);
+}
+.score-band-foot {
+  margin: 14px 0 0;
+  font-size: 12.5px;
+  color: var(--mid-gray);
 }
 
 /* Results / confirmation */

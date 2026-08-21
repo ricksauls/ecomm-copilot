@@ -47,19 +47,29 @@
   <a href="{{ url_for('pages.pdp_scoring') }}" class="wbtn wbtn-secondary">Add more items</a>
 </div>
 {% else %}
-<div class="card card-pad">
+<div class="card pdp-card">
   <form method="post" action="{{ url_for('pages.pdp_scoring') }}" enctype="multipart/form-data"
         class="pdp-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
 
     <div class="form-section">
-      <label class="field-label">Item URLs</label>
+      <div class="section-head">
+        <span class="step">1</span>
+        <label class="field-label">Add item URLs</label>
+      </div>
 
       {# JS clones a .url-row here; at least one always remains. #}
       <div id="url-rows" class="url-rows">
         <div class="url-row">
-          <input type="url" name="urls" class="url-input"
-                 placeholder="https://www.walmart.com/ip/10294528 (use this format)" />
+          <span class="url-field">
+            {# Link glyph, purely decorative. #}
+            <svg class="url-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+                 stroke-width="1.4" aria-hidden="true">
+              <path d="M6.5 9.5l3-3M7 4.5l.8-.8a2.5 2.5 0 013.5 3.5l-.8.8M9 11.5l-.8.8a2.5 2.5 0 01-3.5-3.5l.8-.8" />
+            </svg>
+            <input type="url" name="urls" class="url-input"
+                   placeholder="https://www.walmart.com/ip/10294528 (use this format)" />
+          </span>
           <button type="button" class="row-remove" aria-label="Remove this URL">&times;</button>
         </div>
       </div>
@@ -70,16 +80,50 @@
     <div class="form-divider"><span>or</span></div>
 
     <div class="form-section">
-      <label class="field-label" for="csv">Upload a CSV</label>
-      <p class="form-hint">
-        A CSV containing item URLs (one per row, or in any column). Up to
-        {{ max_items }} items.
-      </p>
-      <input type="file" id="csv" name="csv" accept=".csv,text/csv" class="csv-input" />
+      <div class="section-head">
+        <span class="step">2</span>
+        <label class="field-label" for="csv">Upload a CSV</label>
+      </div>
+
+      {# Styled drop zone. The real <input type="file"> is visually hidden but
+         still the label's target, so click-to-browse works with no JS; the JS
+         adds drag-and-drop and the filename readout as enhancement. #}
+      <label id="csv-drop" class="csv-drop" for="csv">
+        <svg class="csv-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="1.5" aria-hidden="true">
+          <path d="M12 15V4M8 8l4-4 4 4" />
+          <path d="M4 15v3a2 2 0 002 2h12a2 2 0 002-2v-3" />
+        </svg>
+        <span class="csv-drop-text">Drag a CSV here, or <span class="link">browse</span></span>
+        <span class="csv-drop-hint">Item URLs — one per row or in any column · up to {{ max_items }}</span>
+        <input type="file" id="csv" name="csv" accept=".csv,text/csv" class="csv-input-hidden" />
+      </label>
+      <p id="csv-filename" class="csv-filename" hidden></p>
     </div>
 
-    <button type="submit" class="wbtn wbtn-primary">Score items</button>
+    <button type="submit" class="wbtn wbtn-primary wbtn-lg">Score items</button>
   </form>
+</div>
+
+{# Reinforces the model and fills the page with something useful/branded. #}
+<div class="card card-pad score-band">
+  <div class="label">What we score</div>
+  <div class="score-dims">
+    {% set dims = [
+      ('Imagery', 'Count, resolution, infographic & lifestyle, video'),
+      ('Attributes', 'Category specs & filters populated'),
+      ('Title', 'Format, clarity, and keyword coverage'),
+      ('Key features', 'Benefit-led bullets with the right terms'),
+      ('Description', 'Depth, structure, and SEO'),
+    ] %}
+    {% for name, desc in dims %}
+    <div class="dim">
+      <div class="dim-name">{{ name }}</div>
+      <div class="dim-desc">{{ desc }}</div>
+    </div>
+    {% endfor %}
+  </div>
+  <p class="score-band-foot">Each item earns a 0–100 score across these five dimensions, with the gap to the category leader and the ranked actions that close it.</p>
 </div>
 {% endif %}
 {% endblock %}
