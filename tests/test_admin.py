@@ -90,6 +90,24 @@ def test_record_login_rolls_last_into_prev(app):
         assert second["prev_login_at"] == "2026-01-01 00:00:00"
 
 
+def test_notification_falls_back_to_created_at_on_first_login(client, auth, app):
+    # First tracked login (prev_login_at NULL) should still surface signups that
+    # happened after the admin's own account was created.
+    _as_admin(app)
+    auth.register(email=_ADMIN, password=_PW)
+    with app.app_context():
+        db = get_db()
+        db.execute(
+            "UPDATE users SET prev_login_at = NULL, created_at = '2026-01-01 00:00:00' "
+            "WHERE email = ?", (_ADMIN,),
+        )
+        db.execute(
+            "INSERT INTO users (email, created_at) VALUES ('late@x.com', '2026-06-01 00:00:00')"
+        )
+        db.commit()
+    assert b"1 new user" in client.get("/app").data
+
+
 def test_new_user_notification_renders_for_admin(client, auth, app):
     _as_admin(app)
     auth.register(email=_ADMIN, password=_PW)  # logs the admin in

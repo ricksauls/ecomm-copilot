@@ -183,12 +183,17 @@ def create_app() -> Flask:
         from app import users as users_mod
         from app.db import get_db
 
+        # "New since your last login" — but on the admin's first tracked login
+        # there is no previous login, so fall back to when their account was
+        # created (otherwise a genuine new signup wouldn't surface until the
+        # second login). Later logins use the real prev_login_at.
+        reference = user["prev_login_at"] or user["created_at"]
         return {
             "is_admin": True,
             "admin_user_count": users_mod.count_users(),
             "admin_item_count": jobs.count_items(get_db()),
             "admin_new_user_count": users_mod.count_created_since(
-                user["prev_login_at"], user["id"]
+                reference, user["id"]
             ),
         }
 
