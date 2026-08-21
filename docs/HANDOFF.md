@@ -111,9 +111,9 @@ meant to be recalibrated against real search-rank/conversion data):
 |---|---|---|---|
 | Imagery | 25 | count, max px (zoom) — video paused 2026-08-21 | infographic/lifestyle via vision |
 | Attributes | 20 | **scoring paused 2026-08-21** (still extracted, not scored) | category schema % |
-| Title | 18 | length band, ALL-CAPS, word count | keyword/SEO coverage |
+| Title | 18 | length band, ALL-CAPS, word count, **+ target-keyword coverage (blended 30%)** | keyword *quality*/placement via LLM |
 | Key features | 18 | count, bullet length | benefit-vs-feature, keywords |
-| Description | 19 | word count / depth | structure + SEO depth |
+| Description | 19 | word count / depth, **+ target-keyword coverage (blended 30%)** | structure + SEO depth via LLM |
 
 Each dimension returns findings + recommendations that map to a sellable fix.
 The overall is computed **only over measurable dimensions** — an unmeasurable one
@@ -148,11 +148,17 @@ and 6 key-feature bullets from `idml.longDescription` (Key features 100/100).
    True on live pages (13 specs on Tabasco). The category-schema **completeness
    %** is still future work — today it's a raw count proxy, so a listing with 5
    filled attributes scores the same regardless of how many its category expects.
-3. **AI pass** — the qualitative half: SEO keyword coverage (mine competitor
-   PDPs + Walmart autocomplete for the keyword set, score coverage, generate
-   rewritten copy) and vision for infographic/lifestyle image quality. This is
-   what pulls "mechanically complete but weak" listings down realistically.
-   **Use Claude** for this (see the `claude-api` skill for current model IDs).
+3. **AI pass** — the qualitative half. **Keyword coverage Phase 1 is BUILT
+   (2026-08-21):** `app/keywords.py` discovers a target keyword set (Walmart
+   autocomplete + competitor SERP title mining, ported from the WM tool's
+   `discover_keywords.py`), and the Title/Description dimensions blend in
+   coverage of that set (30%, via `target_keywords` on the record; runs in the
+   worker between fetch and score). **Still to do (needs Claude):** keyword
+   *quality*/placement judgment + generated rewritten copy, and vision for
+   infographic/lifestyle image quality — the parts a string-match can't do.
+   **Use Claude** for those (see the `claude-api` skill for current model IDs).
+   Future: a human "approved" gate on the discovered set (WM tool has one);
+   today the top-N are auto-approved. Seed derivation is heuristic (title-based).
 4. **Competitive benchmarking** — score top-N competitors for the item's head
    terms and show the gap to the category leader (the product's core promise).
 5. **Nice-to-haves:** retry `blocked` items, a scoring history view, export.

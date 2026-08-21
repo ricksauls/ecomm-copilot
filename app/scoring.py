@@ -53,6 +53,11 @@ class PdpRecord:
     # the attributes dimension is excluded from the overall rather than scored 0
     # (which would unfairly depress every real score).
     attributes_measured: bool = False
+    # The ranked target keyword set for this item (from app.keywords discovery).
+    # ``None`` means keyword coverage wasn't evaluated (e.g. discovery didn't run
+    # or is untested) and the title/description dimensions score on their other
+    # signals alone; a list (possibly empty) means it was measured.
+    target_keywords: list[str] | None = None
 
 
 @dataclass
@@ -80,6 +85,39 @@ class ScoreResult:
 def _clamp(value: int) -> int:
     """Clamp a raw points total into the 0-100 range."""
     return max(0, min(100, value))
+
+
+# Share of the Title and Description dimensions given to keyword coverage when a
+# target keyword set is available; the rest stays with the format/depth signals.
+# Blending (rather than adding raw points) keeps each dimension on a 0-100 range
+# whether or not keywords were measured.
+_KEYWORD_BLEND = 0.30
+
+
+def _keyword_hits(text: str, keywords: list[str]) -> list[str]:
+    """Return the target keywords that appear (case-insensitive) in ``text``."""
+    lowered = (text or "").lower()
+    return [kw for kw in keywords if kw.lower() in lowered]
+
+
+def _title_keyword_subscore(hit_count: int) -> int:
+    """0-100 keyword score for a title (few, high-value terms expected).
+
+    Tiers mirror the WM tool's SEO scorer: a title realistically holds 2-3 target
+    terms, so 3+ is full marks.
+    """
+    return {0: 0, 1: 45, 2: 75}.get(hit_count, 100)
+
+
+def _description_keyword_subscore(hit_count: int) -> int:
+    """0-100 keyword score for a description (room for broader coverage)."""
+    if hit_count >= 6:
+        return 100
+    if hit_count >= 3:
+        return 70
+    if hit_count >= 1:
+        return 35
+    return 0
 
 
 def _score_imagery(pdp: PdpRecord) -> DimensionScore:
@@ -221,8 +259,23 @@ def _score_title(pdp: PdpRecord) -> DimensionScore:
         findings.append(f"Only {words} words")
         recs.append("Add brand, key attributes, size/pack to the title")
 
-    findings.append("Keyword coverage scored in the AI/SEO pass")
-    return DimensionScore("title", "Title", _clamp(points), WEIGHTS["title"], findings, recs)
+    format_score = _clamp(points)
+
+    # Keyword coverage: blend in how many target search terms the title carries,
+    # when a keyword set was discovered. Absent one, the title scores on format
+    # alone (unit tests, or discovery skipped/failed).
+    if pdp.target_keywords is None:
+        return DimensionScore("title", "Title", format_score, WEIGHTS["title"], findings, recs)
+
+    hits = _keyword_hits(title, pdp.target_keywords)
+    score = round(format_score * (1 - _KEYWORD_BLEND)
+                  + _title_keyword_subscore(len(hits)) * _KEYWORD_BLEND)
+    if hits:
+        findings.append(f"{len(hits)} target keyword(s) in title: {', '.join(hits[:5])}")
+    else:
+        findings.append("No target keywords in the title")
+        recs.append("Work 2-3 high-value search terms into the title")
+    return DimensionScore("title", "Title", score, WEIGHTS["title"], findings, recs)
 
 
 def _score_key_features(pdp: PdpRecord) -> DimensionScore:
@@ -288,9 +341,25 @@ def _score_description(pdp: PdpRecord) -> DimensionScore:
     elif words >= 150:
         points += 15
 
-    findings.append("Structure and keyword/SEO depth scored in the AI pass")
+    depth_score = _clamp(points)
+
+    # SEO/keyword depth: blend in how many target search terms the description
+    # works in, when a keyword set was discovered. Absent one, score on depth.
+    if pdp.target_keywords is None:
+        return DimensionScore(
+            "description", "Description", depth_score, WEIGHTS["description"], findings, recs
+        )
+
+    hits = _keyword_hits(pdp.description, pdp.target_keywords)
+    score = round(depth_score * (1 - _KEYWORD_BLEND)
+                  + _description_keyword_subscore(len(hits)) * _KEYWORD_BLEND)
+    if hits:
+        findings.append(f"{len(hits)} target keyword(s) in the description")
+    else:
+        findings.append("No target keywords in the description")
+        recs.append("Weave the top search terms into the description naturally")
     return DimensionScore(
-        "description", "Description", _clamp(points), WEIGHTS["description"], findings, recs
+        "description", "Description", score, WEIGHTS["description"], findings, recs
     )
 
 

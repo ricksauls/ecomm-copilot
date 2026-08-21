@@ -22,6 +22,7 @@ load_dotenv()
 
 from app import jobs  # noqa: E402  (import after load_dotenv is intentional)
 from app.fetch import FetchBlocked, FetchError, fetch_pdp  # noqa: E402
+from app.keywords import discover_keywords  # noqa: E402
 from app.scoring import result_to_dict, score_pdp  # noqa: E402
 
 logging.basicConfig(
@@ -51,6 +52,14 @@ def process_one(conn: sqlite3.Connection, row: sqlite3.Row) -> None:
     row_id = row["id"]
     try:
         pdp = fetch_pdp(row["url"], row["item_id"])
+        # Discover the target keyword set (autocomplete + competitor SERP mining)
+        # so the title/description dimensions can score keyword coverage. Best-
+        # effort: on any failure we score without keywords rather than fail the
+        # item, and log it as a breadcrumb.
+        try:
+            pdp.target_keywords = discover_keywords(pdp)
+        except Exception:  # noqa: BLE001 - discovery must never fail scoring
+            log.exception("Keyword discovery failed id=%s; scoring without it", row_id)
         result = score_pdp(pdp)
         jobs.save_result(conn, row_id, result.overall, result_to_dict(result))
         log.info("Scored id=%s item=%s overall=%s", row_id, row["item_id"], result.overall)
