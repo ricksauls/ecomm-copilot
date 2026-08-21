@@ -80,8 +80,16 @@ def _is_content_token(token: str) -> bool:
 
 
 def _is_valid_ngram(tokens: list[str]) -> bool:
-    """An n-gram is useful if it has at least one content (non-stopword) token."""
-    return any(_is_content_token(t) for t in tokens)
+    """Whether a competitor-title n-gram is worth keeping as a keyword.
+
+    Needs at least one content (non-stopword) token, and every token must be a
+    real word — no bare numbers or stray single characters. That drops the
+    common title noise: sizes/counts ("sauce 4", "4 5") and split possessives
+    ("melinda s" from "Melinda's").
+    """
+    if not any(_is_content_token(t) for t in tokens):
+        return False
+    return all(len(t) > 1 and not t.isdigit() for t in tokens)
 
 
 def derive_seeds(record: PdpRecord) -> tuple[list[str], list[str], str]:

@@ -56,6 +56,19 @@ def test_extract_ngrams_filters_by_competitor_frequency():
     assert "chipotle hot sauce" not in grams  # appears once -> filtered out
 
 
+def test_extract_ngrams_drops_number_and_single_char_noise():
+    titles = [
+        {"title": "Melinda's Hot Sauce 5 oz", "organic_position": 1},
+        {"title": "Grace Hot Sauce 5 pack", "organic_position": 2},
+    ]
+    grams = {g["keyword"] for g in extract_ngrams(titles)}
+    assert "hot sauce" in grams
+    # No surviving gram contains a bare number or a stray single character.
+    assert not any(
+        any(tok.isdigit() or len(tok) == 1 for tok in g.split()) for g in grams
+    )
+
+
 def test_merge_and_rank_boosts_terms_in_both_sources():
     auto = [{
         "keyword": "hot sauce", "sources": ["autocomplete"],
