@@ -566,7 +566,11 @@ a:focus-visible,
 }
 
 /* --- PDP Content Scoring intake --- */
-.pdp-form,
+/* The intake form is wide so the URL field comfortably shows a full example
+   URL; the results list stays narrower for readability. */
+.pdp-form {
+  max-width: 1120px;
+}
 .results {
   max-width: 620px;
 }

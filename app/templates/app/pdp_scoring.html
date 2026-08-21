@@ -4,8 +4,8 @@
 {% block pane_content %}
 <div class="page-header">
   <div>
-    <p class="label eyebrow">PDP Content Scoring</p>
-    <h1>Score item PDPs</h1>
+    <p class="label eyebrow">PDP (Product Detail Page) Content Scoring</p>
+    <h1>Score PDPs</h1>
     <p class="subtitle">Add the Walmart items you want scored, or upload a CSV of them.</p>
   </div>
 </div>
@@ -54,22 +54,17 @@
 
     <div class="form-section">
       <label class="field-label">Item URLs</label>
-      <p class="form-hint">
-        Paste the full Walmart item URL — e.g.
-        <code>https://www.walmart.com/ip/10294528</code>. The item number is the
-        last part of the URL.
-      </p>
 
       {# JS clones a .url-row here; at least one always remains. #}
       <div id="url-rows" class="url-rows">
         <div class="url-row">
           <input type="url" name="urls" class="url-input"
-                 placeholder="https://www.walmart.com/ip/10294528" />
+                 placeholder="https://www.walmart.com/ip/10294528 (use this format)" />
           <button type="button" class="row-remove" aria-label="Remove this URL">&times;</button>
         </div>
       </div>
 
-      <button type="button" id="add-url" class="add-more">+ Add another</button>
+      <button type="button" id="add-url" class="add-more">+ Add another item</button>
     </div>
 
     <div class="form-divider"><span>or</span></div>

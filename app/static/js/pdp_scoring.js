@@ -25,7 +25,7 @@
     input.type = "url";
     input.name = "urls";
     input.className = "url-input";
-    input.placeholder = "https://www.walmart.com/ip/10294528";
+    input.placeholder = "https://www.walmart.com/ip/10294528 (use this format)";
 
     var remove = document.createElement("button");
     remove.type = "button";
