@@ -12,11 +12,10 @@
 
   {% set nav_items = [
     ('dashboard', 'Dashboard', url_for('pages.dashboard')),
-    ('products', 'Products', '#'),
-    ('competitive', 'Competitive', '#'),
-    ('creative', 'Creative', '#'),
-    ('shelf', 'Share of shelf', '#'),
-    ('billing', 'Billing', '#'),
+    ('pdp-scoring', 'PDP Content Scoring', '#'),
+    ('pdp-image-set', 'PDP Image Set Creation', '#'),
+    ('pdp-copy', 'PDP Copy Content Creation', '#'),
+    ('competitive-intel', 'Competitive Intelligence', '#'),
   ] %}
   <div class="rail-nav">
     {% for slug, label, href in nav_items %}
