@@ -12,7 +12,9 @@ this module never requires Playwright to be installed — the app runs fine
 without it, and the scoring feature degrades to a clear error.
 """
 
+import html
 import logging
+import re
 
 from app.scoring import PdpRecord
 
@@ -180,9 +182,45 @@ def _extract_idml_specs(idml: dict | None) -> list[dict] | None:
     return None
 
 
+# Match each <li>…</li> in an HTML fragment, then strip any inner markup.
+_LI_RE = re.compile(r"<li[^>]*>(.*?)</li>", re.IGNORECASE | re.DOTALL)
+_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def _html_list_items(markup: str) -> list[str]:
+    """Extract clean text for each ``<li>`` in an HTML fragment.
+
+    Walmart's ``idml.longDescription`` is an HTML ``<ul>`` of benefit bullets (the
+    "Key item features" shown on the PDP). Pull each item's text, drop inner
+    tags, unescape entities, normalize non-breaking spaces, and collapse
+    whitespace; empty items are discarded.
+    """
+    items: list[str] = []
+    for raw in _LI_RE.findall(markup or ""):
+        text = html.unescape(_TAG_RE.sub("", raw)).replace("\xa0", " ")
+        text = " ".join(text.split())
+        if text:
+            items.append(text)
+    return items
+
+
+def _extract_idml_bullets(idml: dict | None) -> list[str]:
+    """Pull key-feature bullets from the ``idml`` node of __NEXT_DATA__.
+
+    The product node's ``keyFeatures`` is empty on many live pages, but the same
+    benefit bullets are present as an HTML ``<ul>`` in ``idml.longDescription``.
+    Returns an empty list when no bulleted list is found (the item genuinely has
+    no key features, or they're plain prose rather than a list).
+    """
+    if not isinstance(idml, dict):
+        return []
+    return _html_list_items(idml.get("longDescription") or "")
+
+
 def parse_product(product: dict, *, url: str = "", item_id: str | None = None,
                    max_image_px: int = 0,
-                   spec_pairs: list[dict] | None = None) -> PdpRecord:
+                   spec_pairs: list[dict] | None = None,
+                   bullets: list[str] | None = None) -> PdpRecord:
     """Map a Walmart ``__NEXT_DATA__`` product object to a :class:`PdpRecord`.
 
     ``max_image_px`` is passed in because image dimensions aren't in the JSON —
@@ -197,6 +235,11 @@ def parse_product(product: dict, *, url: str = "", item_id: str | None = None,
     was absent, or the caller is a unit test) we fall back to any specs embedded
     on the product JSON, and treat attributes as unmeasured unless the JSON
     actually carried some.
+
+    ``bullets`` likewise lets the caller supply resolved key-feature bullets
+    (e.g. from ``idml.longDescription`` when the product node's ``keyFeatures`` is
+    empty — see :func:`_extract_idml_bullets`). ``None`` falls back to the
+    product node's own bullets.
     """
     if spec_pairs is not None:
         attrs = _count_spec_pairs(spec_pairs)
@@ -211,7 +254,7 @@ def parse_product(product: dict, *, url: str = "", item_id: str | None = None,
         image_count=_extract_image_count(product),
         max_image_px=max_image_px,
         has_video=_detect_video(product),
-        bullets=_extract_bullets(product),
+        bullets=bullets if bullets is not None else _extract_bullets(product),
         description=_extract_description(product),
         attributes_present=attrs,
         attributes_measured=attrs_measured,
@@ -240,6 +283,7 @@ def fetch_pdp(url: str, item_id: str | None = None, *, timeout_ms: int = 35000) 
 
     logger.info("Fetching PDP url=%s item_id=%s", url, item_id)
     spec_pairs: list[dict] | None = None
+    bullets: list[str] | None = None
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch(
@@ -269,8 +313,12 @@ def fetch_pdp(url: str, item_id: str | None = None, *, timeout_ms: int = 35000) 
 
                 data = json.loads(nd_raw)["props"]["pageProps"]["initialData"]["data"]
                 product = data["product"]
-                # Specs live on the sibling ``idml`` node, not on the product.
-                spec_pairs = _extract_idml_specs(data.get("idml"))
+                idml = data.get("idml")
+                # Specs and key-feature bullets both live on the sibling ``idml``
+                # node. Prefer the product node's keyFeatures when present, else
+                # fall back to idml.longDescription's bulleted list.
+                spec_pairs = _extract_idml_specs(idml)
+                bullets = _extract_bullets(product) or _extract_idml_bullets(idml)
             finally:
                 browser.close()
     except FetchError:
@@ -281,5 +329,6 @@ def fetch_pdp(url: str, item_id: str | None = None, *, timeout_ms: int = 35000) 
     # Image dimensions live outside __NEXT_DATA__; measure them from the bytes.
     max_px = _measure_max_image_px(_image_urls(product))
     return parse_product(
-        product, url=url, item_id=item_id, max_image_px=max_px, spec_pairs=spec_pairs
+        product, url=url, item_id=item_id, max_image_px=max_px,
+        spec_pairs=spec_pairs, bullets=bullets,
     )

@@ -4,7 +4,12 @@ Live fetching drives a real browser and isn't exercised here; the parsing that
 turns the page JSON into a scorable record is what these lock down.
 """
 
-from app.fetch import _count_spec_pairs, _extract_idml_specs, parse_product
+from app.fetch import (
+    _count_spec_pairs,
+    _extract_idml_bullets,
+    _extract_idml_specs,
+    parse_product,
+)
 from app.scoring import score_pdp
 
 # A trimmed product object shaped like Walmart's
@@ -144,3 +149,50 @@ def test_extract_idml_specs_missing_node_is_unknown():
     """No idml node -> None (unknown), so the caller leaves attributes unmeasured."""
     assert _extract_idml_specs(None) is None
     assert _extract_idml_specs({}) is None
+
+
+# The HTML <ul> shape Walmart ships in idml.longDescription (the PDP "Key item
+# features"), including inner markup, entities, and a non-breaking space.
+_LONG_DESC_HTML = (
+    "<ul>\n"
+    "  <li>Perfect balance of <b>smoke</b> and heat</li>\n"
+    "  <li>Scoville rating of 1500-2500&nbsp;SHU</li>\n"
+    "  <li>Gluten free, kosher &amp; non-GMO</li>\n"
+    "  <li></li>\n"  # empty item, dropped
+    "</ul>"
+)
+
+
+def test_extract_idml_bullets_from_long_description():
+    """idml.longDescription's <li> items become clean bullet strings."""
+    bullets = _extract_idml_bullets({"longDescription": _LONG_DESC_HTML})
+    assert bullets == [
+        "Perfect balance of smoke and heat",
+        "Scoville rating of 1500-2500 SHU",  # &nbsp; normalized to a space
+        "Gluten free, kosher & non-GMO",  # entity unescaped, empty <li> dropped
+    ]
+
+
+def test_extract_idml_bullets_absent_returns_empty():
+    """No idml node, or prose (not a <ul>), yields no bullets rather than erroring."""
+    assert _extract_idml_bullets(None) == []
+    assert _extract_idml_bullets({}) == []
+    assert _extract_idml_bullets({"longDescription": "Just a paragraph, no list."}) == []
+
+
+def test_bullets_override_feeds_key_features_scoring():
+    """Supplied bullets win over the (empty) product keyFeatures and get scored.
+
+    Reproduces the live gap: a product with no keyFeatures still has its "Key
+    item features" in idml.longDescription; passing those bullets should score
+    the key_features dimension above zero.
+    """
+    resolved = _extract_idml_bullets({"longDescription": _LONG_DESC_HTML})
+    pdp = parse_product({"name": "Sauce with no product.keyFeatures"},
+                        url="u", bullets=resolved)
+    assert len(pdp.bullets) == 3
+
+    key_features = next(
+        d for d in score_pdp(pdp).dimensions if d.key == "key_features"
+    )
+    assert key_features.score > 0
