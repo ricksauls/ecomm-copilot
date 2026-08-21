@@ -83,8 +83,12 @@ def _clamp(value: int) -> int:
 
 
 def _score_imagery(pdp: PdpRecord) -> DimensionScore:
-    """Image count, zoom-ready resolution, and video presence.
+    """Image count and zoom-ready resolution.
 
+    Video is intentionally NOT scored right now (product decision, 2026-08-21) —
+    see the commented block below for how to re-enable it. The count/resolution
+    tiers were rescaled from 50/30 to 60/40 so imagery still spans a full 0-100
+    without the video points; restore the old tiers if video comes back.
     Infographic / lifestyle detection needs vision, so it's flagged as a
     follow-up rather than scored here.
     """
@@ -94,14 +98,14 @@ def _score_imagery(pdp: PdpRecord) -> DimensionScore:
 
     n = pdp.image_count
     if n >= 6:
-        points += 50
+        points += 60
         findings.append(f"{n} images (rich gallery)")
     elif n >= 4:
-        points += 35
+        points += 40
         findings.append(f"{n} images")
         recs.append("Add images to reach 6+ (infographics, lifestyle, dimensions)")
     elif n >= 2:
-        points += 18
+        points += 20
         findings.append(f"Only {n} images")
         recs.append("Build out the gallery to 6+ images")
     else:
@@ -109,20 +113,23 @@ def _score_imagery(pdp: PdpRecord) -> DimensionScore:
         recs.append("Add a full image set (6+): main, infographics, lifestyle, dimensions")
 
     if pdp.max_image_px >= 2000:
-        points += 30
+        points += 40
         findings.append("Zoom-ready resolution (2000px+)")
     elif pdp.max_image_px >= 1000:
-        points += 15
+        points += 20
         findings.append("Images below the 2000px zoom recommendation")
         recs.append("Re-export images at 2000x2000 so Walmart zoom engages")
     else:
         recs.append("Provide 2000x2000 images for zoom")
 
-    if pdp.has_video:
-        points += 20
-        findings.append("Has video")
-    else:
-        recs.append("Add a short product video")
+    # Video scoring is paused for now. `pdp.has_video` is still detected in the
+    # fetch layer, so re-enabling is just uncommenting this and reverting the
+    # image/resolution tiers above to 50/35/18 and 30/15 (video was worth 20).
+    # if pdp.has_video:
+    #     points += 20
+    #     findings.append("Has video")
+    # else:
+    #     recs.append("Add a short product video")
 
     findings.append("Infographic/lifestyle mix scored in the AI vision pass")
     return DimensionScore("imagery", "Imagery", _clamp(points), WEIGHTS["imagery"], findings, recs)

@@ -90,6 +90,20 @@ def test_unmeasured_attributes_are_excluded_from_overall():
     assert result.overall >= 80  # a strong PDP isn't punished for the missing metric
 
 
+def test_video_does_not_affect_imagery_score():
+    """Video is not scored right now, so has_video must not change imagery.
+
+    A full gallery at zoom resolution should reach 100 with or without a video.
+    """
+    base = dict(url="u", image_count=6, max_image_px=2000)
+    with_video = score_pdp(PdpRecord(has_video=True, **base))
+    without_video = score_pdp(PdpRecord(has_video=False, **base))
+
+    img_with = next(d for d in with_video.dimensions if d.key == "imagery")
+    img_without = next(d for d in without_video.dimensions if d.key == "imagery")
+    assert img_with.score == img_without.score == 100
+
+
 def test_all_caps_title_is_penalized():
     caps = PdpRecord(url="u", title="THIS IS AN ALL CAPS PRODUCT TITLE HERE NOW")
     mixed = PdpRecord(url="u", title="This Is An All Caps Product Title Here Now")
