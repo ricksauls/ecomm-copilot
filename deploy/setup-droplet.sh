@@ -50,8 +50,19 @@ if ! systemctl list-unit-files | grep -q '^xvfb.service'; then
 fi
 
 echo "==> Installing nginx site"
-install -m 644 "$APP_DIR/deploy/nginx.conf" \
-  /etc/nginx/sites-available/ecomm-copilot
+NGINX_SITE=/etc/nginx/sites-available/ecomm-copilot
+# CRITICAL: certbot --nginx rewrites this same file in place to add the TLS (443)
+# server block. Overwriting it with the plain-HTTP template on a re-run would
+# silently drop HTTPS — nginx then serves the default server's cert for
+# ecomm-copilot.com and browsers show ERR_CERT_COMMON_NAME_INVALID. So only lay
+# down the template when no TLS block exists yet (first run); otherwise leave the
+# certbot-managed config untouched. This is what makes the script truly
+# idempotent post-certbot.
+if [[ -f "$NGINX_SITE" ]] && grep -qE 'listen[^;]*443' "$NGINX_SITE"; then
+  echo "    TLS (443) block already present — leaving nginx site untouched."
+else
+  install -m 644 "$APP_DIR/deploy/nginx.conf" "$NGINX_SITE"
+fi
 ln -sf /etc/nginx/sites-available/ecomm-copilot \
   /etc/nginx/sites-enabled/ecomm-copilot
 
@@ -89,6 +100,13 @@ echo "Done. Service status:"
 systemctl --no-pager --lines=0 status ecomm-copilot || true
 systemctl --no-pager --lines=0 status ecomm-copilot-worker || true
 echo
-echo "Next: once DNS A records for ecomm-copilot.com and www point at this"
-echo "droplet, issue the certificate:"
-echo "  sudo certbot --nginx -d ecomm-copilot.com -d www.ecomm-copilot.com"
+# Only prompt for certbot when TLS isn't wired up yet. If the site already has a
+# 443 block (guarded above), the cert is in place and re-issuing is unnecessary;
+# certbot's own timer handles renewal.
+if ! grep -qE 'listen[^;]*443' "$NGINX_SITE"; then
+  echo "Next: once DNS A records for ecomm-copilot.com and www point at this"
+  echo "droplet, issue the certificate (this rewrites the nginx site to add TLS):"
+  echo "  sudo certbot --nginx -d ecomm-copilot.com -d www.ecomm-copilot.com"
+else
+  echo "TLS is already configured for ecomm-copilot.com (443 block present)."
+fi

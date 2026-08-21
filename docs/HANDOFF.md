@@ -200,6 +200,15 @@ cd ~/Desktop/ClaudeStuff/ecomm-copilot-clean
   for root steps (`passwd deploy` there to reset if desired).
 - **Concurrent sessions:** avoid two chats committing in this folder at once —
   they race (seen once already).
+- **`setup-droplet.sh` vs TLS (fixed 2026-08-21):** certbot writes the 443 block
+  into `/etc/nginx/sites-available/ecomm-copilot` in place. The script used to
+  overwrite that file with the plain-HTTP template every run, so re-running it
+  (e.g. to install the worker) silently dropped HTTPS → nginx served the default
+  server's `7bcrfp.ricksauls.com` cert → `ERR_CERT_COMMON_NAME_INVALID`. The
+  script now skips the overwrite when a 443 block is already present. If you hit
+  the cert error, the fix (root, DO Console — the cert still exists) is:
+  `sudo certbot --nginx -d ecomm-copilot.com -d www.ecomm-copilot.com`
+  then `sudo nginx -t && sudo systemctl reload nginx`.
 
 ---
 
