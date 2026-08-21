@@ -77,10 +77,10 @@
     {# Attributes and video are extracted but not currently scored (paused
        2026-08-21), so they're left off this list. #}
     {% set dims = [
-      ('Imagery', 'Count, resolution, infographic & lifestyle'),
-      ('Title', 'Format, clarity, and keyword coverage'),
-      ('Key features', 'Benefit-led bullets with the right terms'),
-      ('Description', 'Depth, structure, and SEO'),
+      ('Imagery', 'Count, resolution, and lifestyle'),
+      ('Title', 'Character & word count, format, keyword coverage'),
+      ('Key features', 'Benefit-led bullets — count and length'),
+      ('Description', 'Word count, depth, structure, and SEO'),
     ] %}
     {% for name, desc in dims %}
     <div class="dim">
@@ -94,5 +94,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/pdp_scoring.js') }}"></script>
+<script src="{{ static_url('js/pdp_scoring.js') }}"></script>
 {% endblock %}

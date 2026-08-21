@@ -12,6 +12,13 @@ def test_landing_renders(client):
     assert b"Your eCommerce Team, Amplified." in resp.data
 
 
+def test_static_assets_are_cache_busted(client):
+    # static_url() appends a ?v=<mtime> so edited CSS/JS reaches returning users
+    # despite the long Expires header on /static.
+    resp = client.get("/")
+    assert b"css/tokens.css?v=" in resp.data
+
+
 def test_signin_renders(client):
     resp = client.get("/signin")
     assert resp.status_code == 200
@@ -45,6 +52,11 @@ def test_pdp_scoring_page_renders(client, auth):
     assert b"four dimensions" in resp.data
     assert b">Attributes<" not in resp.data
     assert b"video" not in resp.data
+    # Infographic scoring is off, so it's not advertised; the length signals are.
+    assert b"infographic" not in resp.data
+    # "&" is HTML-escaped to "&amp;" in the rendered output.
+    assert b"Character &amp; word count" in resp.data
+    assert b"Word count, depth" in resp.data
 
 
 def test_unknown_route_404(client):

@@ -11,7 +11,7 @@
 <header class="site-header">
   <div class="public-wrap">
     <a href="{{ url_for('pages.landing') }}" class="wordmark" aria-label="ecomm-copilot home">
-      <img src="{{ url_for('static', filename='img/ecomm-copilot-logo.png') }}"
+      <img src="{{ static_url('img/ecomm-copilot-logo.png') }}"
            alt="ecomm-copilot" class="brand-logo" />
     </a>
     <nav class="site-nav">
@@ -52,7 +52,7 @@
            below it on narrow ones (layout lives in .hero-inner in public.css). #}
         <div class="hero-media">
           <img class="hero-image"
-               src="{{ url_for('static', filename='img/team-workspace.png') }}"
+               src="{{ static_url('img/team-workspace.png') }}"
                alt="eCommerce team working at their desks" />
         </div>
       </div>
@@ -189,7 +189,7 @@
 <footer class="site-footer">
   <div class="public-wrap">
     <span class="wordmark">
-      <img src="{{ url_for('static', filename='img/ecomm-copilot-logo.png') }}"
+      <img src="{{ static_url('img/ecomm-copilot-logo.png') }}"
            alt="ecomm-copilot" class="brand-logo brand-logo-sm" />
     </span>
     <span class="footer-tag">Your eCommerce Team, Amplified.</span>

@@ -128,12 +128,36 @@ def create_app() -> Flask:
     app.before_request(security.load_current_user)
     app.before_request(security.verify_csrf)
 
-    # Expose the CSRF token and current user to every template.
+    # Expose the CSRF token, current user, and a cache-busting static_url() to
+    # every template.
     @app.context_processor
     def _inject_auth_context():
-        from flask import g
+        from flask import g, url_for
 
-        return {"csrf_token": security.csrf_token, "current_user": g.get("user")}
+        def static_url(filename: str) -> str:
+            """``url_for('static')`` with a ``?v=<mtime>`` cache-buster.
+
+            nginx serves /static with a 30-day Expires header, so without a
+            version marker an edited CSS/JS file wouldn't reach returning users
+            until their cache expired. Keying the query on the file's mtime means
+            any deploy that changes a file changes its URL (forcing a refetch),
+            while unchanged files keep their URL and stay cached.
+            """
+            url = url_for("static", filename=filename)
+            try:
+                mtime = int(os.path.getmtime(os.path.join(app.static_folder, filename)))
+            except OSError:
+                # Missing/unreadable file: fall back to the unversioned URL
+                # rather than raising during template render.
+                logger.warning("static_url: could not stat %s", filename)
+                return url
+            return f"{url}?v={mtime}"
+
+        return {
+            "csrf_token": security.csrf_token,
+            "current_user": g.get("user"),
+            "static_url": static_url,
+        }
 
     # Blueprints: public/workspace pages and the auth routes.
     from app import auth
