@@ -25,24 +25,6 @@
     {% endfor %}
   </div>
 
-  {# Admin section — only rendered for admins (server also enforces access on the
-     routes). Each sub-item shows a live count. #}
-  {% if is_admin %}
-  <div class="rail-nav rail-admin">
-    <div class="rail-section-label">Admin</div>
-    <a href="{{ url_for('pages.admin_users') }}"
-       class="nav-item {{ 'active' if active_nav == 'admin-users' else '' }}">
-      <span class="mark"></span>Users
-      <span class="nav-count">{{ admin_user_count }}</span>
-    </a>
-    <a href="{{ url_for('pages.admin_items') }}"
-       class="nav-item {{ 'active' if active_nav == 'admin-items' else '' }}">
-      <span class="mark"></span>Items scored
-      <span class="nav-count">{{ admin_item_count }}</span>
-    </a>
-  </div>
-  {% endif %}
-
   <div class="rail-spacer"></div>
 
   {# Signed-in account. #}
@@ -61,6 +43,25 @@
     <div class="balance">4,250<span class="approx">≈ $4,250</span></div>
     <div class="divider"></div>
     <a href="#" class="add">Add credits</a>
+  </div>
+  {% endif %}
+
+  {# Admin section — sits below Credits, above Sign Out. Only rendered for admins
+     (the routes enforce access server-side regardless). Each sub-item shows a
+     live count. #}
+  {% if is_admin %}
+  <div class="rail-nav rail-admin">
+    <div class="rail-section-label">Admin</div>
+    <a href="{{ url_for('pages.admin_users') }}"
+       class="nav-item {{ 'active' if active_nav == 'admin-users' else '' }}">
+      <span class="mark"></span>Users
+      <span class="nav-count">{{ admin_user_count }}</span>
+    </a>
+    <a href="{{ url_for('pages.admin_items') }}"
+       class="nav-item {{ 'active' if active_nav == 'admin-items' else '' }}">
+      <span class="mark"></span>Items scored
+      <span class="nav-count">{{ admin_item_count }}</span>
+    </a>
   </div>
   {% endif %}
 
