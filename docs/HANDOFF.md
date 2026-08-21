@@ -1,6 +1,6 @@
 # ecomm-copilot — Session Handoff
 
-_Last updated: 2026-08-20._
+_Last updated: 2026-08-21._
 
 A working reference for picking up development. Read this first, then
 `CLAUDE.md` (coding standards) and `deploy/DEPLOY.md` (infra).
@@ -113,7 +113,7 @@ meant to be recalibrated against real search-rank/conversion data):
 | Dimension | Weight | Rule-based signals today | AI-pass (not built) |
 |---|---|---|---|
 | Imagery | 25 | count, max px (zoom), video | infographic/lifestyle via vision |
-| Attributes | 20 | **not measured yet** (see gap) | category schema % |
+| Attributes | 20 | spec count from `data.idml.specifications` | category schema % |
 | Title | 18 | length band, ALL-CAPS, word count | keyword/SEO coverage |
 | Key features | 18 | count, bullet length | benefit-vs-feature, keywords |
 | Description | 19 | word count / depth | structure + SEO depth |
@@ -128,21 +128,29 @@ Walmart blocks plain requests. `fetch.py` drives **headed Chrome via Playwright*
 `:99`, reads `__NEXT_DATA__` →
 `props.pageProps.initialData.data.product`, and maps: `name`→title,
 `keyFeatures`→bullets, `shortDescription/longDescription`→description,
-`imageInfo.allImages`→images, `contentLayout.modules`→video. Image dimensions
-aren't in the JSON, so Pillow fetches the bytes to measure. Browser work is slow
-and serial → it runs in the **worker**, never in a request.
+`imageInfo.allImages`→images, `contentLayout.modules`→video. Attributes come
+from the **sibling `data.idml.specifications`** node (a flat name/value list;
+`specificationsV2` is the grouped fallback) — *not* `data.product`, where they
+aren't, and *not* the on-page spec table, which Walmart A/B-gates off
+(`enableSpecificationsTable=false`) and doesn't even render when off. Image
+dimensions aren't in the JSON, so Pillow fetches the bytes to measure. Browser
+work is slow and serial → it runs in the **worker**, never in a request.
 
-**Proven:** on the droplet, fetching item 10294528 (Tabasco) scored **54/100**.
+**Proven:** on the droplet, fetching item 10294528 (Tabasco) scores **58/100**
+with 13 attributes measured (Attributes dimension 75/100). Note `key_features`
+came back 0 for this item — bullets weren't extracted though
+`idml.productHighlights` had 6 rows; see gap #7.
 
 ---
 
 ## 5. Known gaps / next-up roadmap
 
 1. **Install the worker** (§1) — required for the UI to score automatically.
-2. **Attribute (spec) extraction** — Walmart lazy-loads the spec table; it is
-   NOT in `__NEXT_DATA__.product` (confirmed on a live page). Needs DOM scraping
-   of the rendered "Specifications" section in `fetch.py`, then set
-   `attributes_measured=True`. Until then Attributes shows "not measured".
+2. ~~**Attribute (spec) extraction**~~ — **DONE (2026-08-21).** Specs are read
+   from `data.idml.specifications` in `fetch.py`; `attributes_measured` is now
+   True on live pages (13 specs on Tabasco). The category-schema **completeness
+   %** is still future work — today it's a raw count proxy, so a listing with 5
+   filled attributes scores the same regardless of how many its category expects.
 3. **AI pass** — the qualitative half: SEO keyword coverage (mine competitor
    PDPs + Walmart autocomplete for the keyword set, score coverage, generate
    rewritten copy) and vision for infographic/lifestyle image quality. This is
@@ -153,6 +161,11 @@ and serial → it runs in the **worker**, never in a request.
 5. **Nice-to-haves:** retry `blocked` items, a scoring history view, export.
 6. **Other nav screens** — PDP Image Set Creation, PDP Copy Content Creation,
    Competitive Intelligence are still placeholders.
+7. **Key-features extraction gap** — `key_features` scored 0 on Tabasco
+   (10294528): `fetch.py` only reads `product.keyFeatures`, which was empty,
+   even though `data.idml.productHighlights` carried 6 name/value rows. Add
+   `idml.productHighlights` (and/or the WM scraper's `highlights` /
+   shortDescription-bullet fallbacks) as bullet sources in `_extract_bullets`.
 
 ---
 
