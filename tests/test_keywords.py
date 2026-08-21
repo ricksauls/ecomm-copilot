@@ -5,7 +5,10 @@ requests/Chrome and aren't exercised here — like app.fetch, the parsing and
 ranking that turn raw responses into a keyword set are what these lock down.
 """
 
+from app.db import get_db
+from app.jobs import get_cached_keywords, put_cached_keywords
 from app.keywords import (
+    cache_key,
     derive_seeds,
     discover_keywords,
     extract_ngrams,
@@ -90,6 +93,34 @@ def test_merge_and_rank_boosts_terms_in_both_sources():
 def test_discover_keywords_without_seeds_is_empty():
     # No title -> no seeds -> no network calls, empty set (scorer then skips it).
     assert discover_keywords(PdpRecord(url="u", title="")) == []
+
+
+def test_cache_key_groups_by_category_not_brand():
+    # Same product type, different brands -> same key (reuse the discovery).
+    tabasco = PdpRecord(url="u", title="Tabasco Chipotle Pepper Sauce, 5 fl oz")
+    cholula = PdpRecord(url="u", title="Cholula Chipotle Pepper Sauce, 5 fl oz")
+    cumin = PdpRecord(url="u", title="Great Value Ground Cumin, 4.5 oz")
+    assert cache_key(tabasco) == cache_key(cholula)
+    assert cache_key(tabasco) != cache_key(cumin)
+    assert cache_key(PdpRecord(url="u", title="")) == ""
+
+
+def test_keyword_cache_roundtrip_and_staleness(app):
+    with app.app_context():
+        db = get_db()
+        assert get_cached_keywords(db, "hot sauce") is None  # empty cache
+        put_cached_keywords(db, "hot sauce", ["hot sauce", "pepper sauce"])
+        assert get_cached_keywords(db, "hot sauce") == ["hot sauce", "pepper sauce"]
+        # An empty key never caches or reads.
+        put_cached_keywords(db, "", ["x"])
+        assert get_cached_keywords(db, "") is None
+        # Backdate the entry beyond the freshness window -> treated as a miss.
+        db.execute(
+            "UPDATE keyword_cache SET created_at = datetime('now', '-30 days') "
+            "WHERE cache_key = 'hot sauce'"
+        )
+        db.commit()
+        assert get_cached_keywords(db, "hot sauce", max_age_days=7) is None
 
 
 # --- keyword-coverage scoring -------------------------------------------------

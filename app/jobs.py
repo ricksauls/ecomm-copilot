@@ -44,6 +44,38 @@ def get_items(conn: sqlite3.Connection, ids: list[int], user_id: int) -> list[sq
     return rows
 
 
+# Discovered keyword sets go stale slowly (search demand drifts over weeks), so
+# a week-long cache is a good balance of freshness and reuse.
+KEYWORD_CACHE_MAX_AGE_DAYS = 7
+
+
+def get_cached_keywords(conn: sqlite3.Connection, key: str,
+                        max_age_days: int = KEYWORD_CACHE_MAX_AGE_DAYS) -> list[str] | None:
+    """Return a cached keyword set for ``key`` if present and fresh, else None."""
+    if not key:
+        return None
+    row = conn.execute(
+        "SELECT keywords FROM keyword_cache WHERE cache_key = ? "
+        "AND created_at > datetime('now', ?)",
+        (key, f"-{int(max_age_days)} days"),
+    ).fetchone()
+    return json.loads(row["keywords"]) if row else None
+
+
+def put_cached_keywords(conn: sqlite3.Connection, key: str, keywords: list[str]) -> None:
+    """Store (or refresh) a discovered keyword set. No-op for an empty key."""
+    if not key:
+        return
+    conn.execute(
+        "INSERT INTO keyword_cache (cache_key, keywords, created_at) "
+        "VALUES (?, ?, datetime('now')) "
+        "ON CONFLICT(cache_key) DO UPDATE SET "
+        "keywords = excluded.keywords, created_at = excluded.created_at",
+        (key, json.dumps(keywords)),
+    )
+    conn.commit()
+
+
 def count_items(conn: sqlite3.Connection) -> int:
     """Total number of scored_items rows (all statuses) — an activity count."""
     return int(conn.execute("SELECT COUNT(*) FROM scored_items").fetchone()[0])

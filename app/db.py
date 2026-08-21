@@ -49,6 +49,15 @@ CREATE TABLE IF NOT EXISTS scored_items (
 );
 CREATE INDEX IF NOT EXISTS idx_scored_items_status ON scored_items(status);
 CREATE INDEX IF NOT EXISTS idx_scored_items_user ON scored_items(user_id, id);
+
+-- Discovered keyword sets, keyed by an item's derived seeds so same-category
+-- items reuse one discovery instead of re-mining competitors each time. Shared
+-- across worker processes; entries expire (staleness handled by the reader).
+CREATE TABLE IF NOT EXISTS keyword_cache (
+    cache_key   TEXT PRIMARY KEY,
+    keywords    TEXT NOT NULL,  -- JSON array of keyword strings
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
 """
 
 

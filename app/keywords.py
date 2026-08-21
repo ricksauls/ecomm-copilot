@@ -133,6 +133,19 @@ def derive_seeds(record: PdpRecord) -> tuple[list[str], list[str], str]:
     return seeds, serp_terms, brand
 
 
+def cache_key(record: PdpRecord) -> str:
+    """A stable, category-level cache key for a record's keyword set.
+
+    Keyed on the generic SERP terms (the product-type head phrases), *not* the
+    brand, so same-category items across brands reuse one discovery — the slow
+    competitor-mining is category-level, and the score just checks whether a
+    listing's copy contains those terms. Empty when no terms derive (the caller
+    then skips the cache and discovery alike).
+    """
+    _seeds, serp_terms, _brand = derive_seeds(record)
+    return "|".join(sorted(set(serp_terms)))
+
+
 def parse_autocomplete(data: dict) -> list[str]:
     """Extract query suggestions from a Walmart typeahead response.
 
