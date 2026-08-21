@@ -61,6 +61,24 @@ def test_pdp_scoring_page_renders(client, auth):
     assert b"Word count, depth" in resp.data
 
 
+def test_results_page_shows_product_title(client, auth, app):
+    # End-to-end through the real route (not just the template): enqueue an item,
+    # score it with a title, and confirm the results page renders that title.
+    # Guards against the route's row-view dropping the title column.
+    auth.register()
+    client.post("/app/pdp-scoring", data={"urls": "https://www.walmart.com/ip/12345"})
+    with app.app_context():
+        from app import jobs
+        from app.db import get_db
+        db = get_db()
+        row = db.execute("SELECT id FROM scored_items ORDER BY id DESC LIMIT 1").fetchone()
+        jobs.save_result(db, row["id"], 80, {"overall": 80, "dimensions": []},
+                         "Acme Widget Deluxe, 3-Pack")
+    resp = client.get("/app/pdp-scoring/results")
+    assert resp.status_code == 200
+    assert b"Acme Widget Deluxe, 3-Pack" in resp.data
+
+
 def test_unknown_route_404(client):
     resp = client.get("/does-not-exist")
     assert resp.status_code == 404
