@@ -109,12 +109,13 @@ def _measure_max_image_px(urls: list[str], *, limit: int = 8, timeout: int = 12)
 
 
 def _extract_attribute_count(product: dict) -> int:
-    """Count populated specification/attribute values.
+    """Count populated specification/attribute values from ``__NEXT_DATA__``.
 
     Walmart exposes these under a few shapes; count non-empty values wherever we
-    find them. Absent a reliable path this returns 0, which the scorer treats as
-    "no attributes" rather than crashing — a real path can be added once
-    validated against live pages.
+    find them. On most live pages the spec table isn't in ``__NEXT_DATA__`` at
+    all (it lazy-loads into the DOM — see :func:`_extract_spec_pairs`), so this
+    typically returns 0 and is only a fallback for the categories that do embed
+    specs in the JSON (and for the unit-test fixtures).
     """
     specs = product.get("specifications")
     if isinstance(specs, list):
@@ -124,16 +125,142 @@ def _extract_attribute_count(product: dict) -> int:
     return 0
 
 
+def _count_spec_pairs(pairs: list[dict]) -> int:
+    """Count spec rows that carry a non-empty value.
+
+    A row with a name but a blank value is an *unfilled* attribute — it doesn't
+    count toward completeness, matching how :func:`_extract_attribute_count`
+    treats empty JSON spec values.
+    """
+    return len(
+        [p for p in pairs if isinstance(p, dict) and str(p.get("value", "")).strip()]
+    )
+
+
+# Browser-side scrape of the rendered Specifications table into {name, value}
+# rows. Walmart obfuscates class names and doesn't ship the table in
+# __NEXT_DATA__, so we anchor on the heading text and the table's row/cell
+# structure rather than any CSS class. Returns ``null`` when the section can't
+# be located at all — the caller keeps attributes *unmeasured* in that case,
+# which is distinct from an empty ``[]`` (section rendered, but no rows).
+_SPEC_SCRAPE_JS = """
+() => {
+  const headings = Array.from(document.querySelectorAll('h2, h3'));
+  const heading = headings.find(
+    (h) => /^(specifications|product details)$/i.test((h.textContent || '').trim())
+  );
+  if (!heading) return null;
+
+  // Prefer a table inside the heading's section; fall back to the nearest
+  // table that follows the heading in document order.
+  const container = heading.closest('section') || heading.parentElement;
+  let table = container ? container.querySelector('table') : null;
+  if (!table) {
+    table = Array.from(document.querySelectorAll('table')).find(
+      (t) => heading.compareDocumentPosition(t) & Node.DOCUMENT_POSITION_FOLLOWING
+    );
+  }
+  if (!table) return [];
+
+  const pairs = [];
+  for (const row of Array.from(table.querySelectorAll('tr'))) {
+    const cells = Array.from(row.querySelectorAll('th, td'));
+    if (cells.length >= 2) {
+      const name = (cells[0].textContent || '').trim();
+      const value = (cells[1].textContent || '').trim();
+      if (name) pairs.push({ name, value });
+    }
+  }
+  return pairs;
+}
+"""
+
+
+def _expand_specifications(page) -> None:
+    """Best-effort: click a "See more" control so the full spec list renders.
+
+    Some Walmart layouts truncate the spec table behind an expander. This is
+    layout-specific and can't be validated against live Walmart from the Mac, so
+    every failure is swallowed — a missing or unclicked expander just means we
+    read whatever rows are already present.
+    """
+    for name in ("See more", "View more", "Show more"):
+        try:
+            button = page.get_by_role("button", name=name, exact=False)
+            if button.count() and button.first.is_visible():
+                button.first.click(timeout=1500)
+                page.wait_for_timeout(500)
+                return
+        except Exception as e:  # noqa: BLE001 - expander is optional
+            logger.debug("Spec expander '%s' not clickable: %s", name, e)
+
+
+def _extract_spec_pairs(page, *, settle_ms: int = 1200) -> list[dict] | None:
+    """Scrape the lazy-loaded Specifications table from the rendered DOM.
+
+    Walmart doesn't ship the spec table in ``__NEXT_DATA__``; it renders it in
+    the DOM and lazy-loads it on scroll. We scroll the section into view to
+    trigger the load, expand any "See more" control, then read the name/value
+    rows via :data:`_SPEC_SCRAPE_JS`.
+
+    Returns a list of ``{name, value}`` dicts when the section is found (possibly
+    empty), or ``None`` when it can't be located at all — the caller keeps the
+    attributes dimension *unmeasured* in that case rather than scoring a false
+    zero. Best-effort throughout: any browser error is logged and downgraded to
+    ``None`` so a scrape failure never aborts the whole fetch.
+    """
+    try:
+        # Scroll the spec heading into view (or the page bottom) to trip the
+        # lazy load, then let the network/render settle.
+        page.evaluate(
+            """() => {
+                const h = Array.from(document.querySelectorAll('h2, h3')).find(
+                    (e) => /^(specifications|product details)$/i.test(
+                        (e.textContent || '').trim()
+                    )
+                );
+                (h || document.body).scrollIntoView({block: h ? 'center' : 'end'});
+            }"""
+        )
+        page.wait_for_timeout(settle_ms)
+        _expand_specifications(page)
+        pairs = page.evaluate(_SPEC_SCRAPE_JS)
+    except Exception as e:  # noqa: BLE001 - best-effort; never fail the fetch
+        logger.warning("Spec DOM extraction failed: %s", e)
+        return None
+
+    if pairs is None:
+        logger.info("Specifications section not found in DOM")
+        return None
+    logger.info("Extracted %d spec pairs from DOM", len(pairs))
+    return pairs
+
+
 def parse_product(product: dict, *, url: str = "", item_id: str | None = None,
-                   max_image_px: int = 0) -> PdpRecord:
+                   max_image_px: int = 0,
+                   spec_pairs: list[dict] | None = None) -> PdpRecord:
     """Map a Walmart ``__NEXT_DATA__`` product object to a :class:`PdpRecord`.
 
     ``max_image_px`` is passed in because image dimensions aren't in the JSON —
     they're measured separately by fetching the image bytes (as the WM scraper
     does with Pillow). Left at 0 (unknown) it simply doesn't earn resolution
     points.
+
+    ``spec_pairs`` carries the DOM-scraped Specifications rows (see
+    :func:`_extract_spec_pairs`). When provided it is authoritative: Walmart
+    lazy-loads the spec table into the DOM and usually omits it from
+    ``__NEXT_DATA__``, so reaching that section — even if it turns out empty —
+    counts as a real measurement and the attributes dimension is scored. When
+    ``None`` (e.g. the section wasn't found, or the caller is a unit test) we
+    fall back to any specs embedded in the product JSON, and treat attributes as
+    unmeasured unless the JSON actually carried some.
     """
-    attrs = _extract_attribute_count(product)
+    if spec_pairs is not None:
+        attrs = _count_spec_pairs(spec_pairs)
+        attrs_measured = True
+    else:
+        attrs = _extract_attribute_count(product)
+        attrs_measured = attrs > 0
     return PdpRecord(
         url=url,
         item_id=item_id,
@@ -144,9 +271,7 @@ def parse_product(product: dict, *, url: str = "", item_id: str | None = None,
         bullets=_extract_bullets(product),
         description=_extract_description(product),
         attributes_present=attrs,
-        # Only treat attributes as measured if we actually found a spec value;
-        # Walmart lazy-loads the spec table, so this is usually False today.
-        attributes_measured=attrs > 0,
+        attributes_measured=attrs_measured,
     )
 
 
@@ -171,6 +296,7 @@ def fetch_pdp(url: str, item_id: str | None = None, *, timeout_ms: int = 35000) 
     import json
 
     logger.info("Fetching PDP url=%s item_id=%s", url, item_id)
+    spec_pairs: list[dict] | None = None
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch(
@@ -199,6 +325,10 @@ def fetch_pdp(url: str, item_id: str | None = None, *, timeout_ms: int = 35000) 
                     raise FetchError("__NEXT_DATA__ not found on the page")
 
                 product = json.loads(nd_raw)["props"]["pageProps"]["initialData"]["data"]["product"]
+
+                # Specs lazy-load into the DOM (not __NEXT_DATA__), so read them
+                # while the page is still open, before we tear the browser down.
+                spec_pairs = _extract_spec_pairs(page)
             finally:
                 browser.close()
     except FetchError:
@@ -208,4 +338,6 @@ def fetch_pdp(url: str, item_id: str | None = None, *, timeout_ms: int = 35000) 
 
     # Image dimensions live outside __NEXT_DATA__; measure them from the bytes.
     max_px = _measure_max_image_px(_image_urls(product))
-    return parse_product(product, url=url, item_id=item_id, max_image_px=max_px)
+    return parse_product(
+        product, url=url, item_id=item_id, max_image_px=max_px, spec_pairs=spec_pairs
+    )

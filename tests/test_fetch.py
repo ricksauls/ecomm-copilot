@@ -4,7 +4,7 @@ Live fetching drives a real browser and isn't exercised here; the parsing that
 turns the page JSON into a scorable record is what these lock down.
 """
 
-from app.fetch import parse_product
+from app.fetch import _count_spec_pairs, parse_product
 from app.scoring import score_pdp
 
 # A trimmed product object shaped like Walmart's
@@ -66,3 +66,41 @@ def test_parse_handles_empty_product():
     assert pdp.has_video is False
     # A completely empty PDP still scores (very low) without raising.
     assert score_pdp(pdp).overall >= 0
+
+
+def test_count_spec_pairs_ignores_blank_values():
+    pairs = [
+        {"name": "Brand", "value": "Tabasco"},
+        {"name": "Heat", "value": "Medium"},
+        {"name": "Missing", "value": ""},  # unfilled attribute, not counted
+        {"name": "Whitespace", "value": "   "},  # effectively blank
+        "junk",  # non-dict, ignored
+    ]
+    assert _count_spec_pairs(pairs) == 2
+
+
+def test_dom_spec_pairs_override_json_and_mark_measured():
+    """DOM-scraped specs are authoritative over any __NEXT_DATA__ specs.
+
+    Live pages lazy-load the spec table into the DOM, so when we pass scraped
+    pairs they win and the dimension becomes measurable and scored.
+    """
+    pairs = [{"name": f"Attr {i}", "value": str(i)} for i in range(12)]
+    pdp = parse_product(_PRODUCT, url="u", item_id="10294528", spec_pairs=pairs)
+    assert pdp.attributes_present == 12  # DOM count, not the 3 JSON specs
+    assert pdp.attributes_measured is True
+
+    attributes = next(d for d in score_pdp(pdp).dimensions if d.key == "attributes")
+    assert attributes.available is True
+    assert attributes.score > 0
+
+
+def test_empty_dom_specs_still_count_as_measured():
+    """Reaching an empty spec section is a real zero, not an 'unknown'."""
+    pdp = parse_product({"name": "No specs here"}, url="u", spec_pairs=[])
+    assert pdp.attributes_present == 0
+    assert pdp.attributes_measured is True
+
+    attributes = next(d for d in score_pdp(pdp).dimensions if d.key == "attributes")
+    assert attributes.available is True  # counted toward the overall
+    assert attributes.score == 0
