@@ -10,17 +10,6 @@
     <div class="tagline">Your eCommerce Team, Amplified.</div>
   </div>
 
-  {# Brand switcher: a dropdown affordance. The picker itself is not built. #}
-  <div class="brand-switcher" role="button" tabindex="0" aria-haspopup="true">
-    <div class="brand-chip">MC</div>
-    <div class="meta">
-      <div class="brand-name">Meridian Commerce Group</div>
-      <div class="brand-count">148 products</div>
-    </div>
-    <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="#8c8c8c"
-         stroke-width="1.2" aria-hidden="true"><path d="M3 5l3 3 3-3" /></svg>
-  </div>
-
   {% set nav_items = [
     ('dashboard', 'Dashboard', url_for('pages.dashboard')),
     ('products', 'Products', '#'),
@@ -39,7 +28,16 @@
 
   <div class="rail-spacer"></div>
 
-  {# Credits read as operational convenience, not currency. Hidden in Client View. #}
+  {# Signed-in account. #}
+  <div class="user-block">
+    <div class="user-chip">{{ (current_user['email'][0] | upper) if current_user else '?' }}</div>
+    <div class="user-meta">
+      <div class="who">{{ current_user['email'] if current_user else '' }}</div>
+    </div>
+  </div>
+
+  {# Credits sit below the account, deliberately understated (operational
+     convenience, not currency). Hidden in Client View. #}
   {% if not client_mode %}
   <div class="credits">
     <div class="label">Available credits</div>
@@ -49,16 +47,9 @@
   </div>
   {% endif %}
 
-  {# User block: the signed-in account and a CSRF-protected sign-out. In
-     production this likely becomes a small menu (Account, Billing, Sign out). #}
-  <div class="user-block">
-    <div class="user-chip">{{ (current_user['email'][0] | upper) if current_user else '?' }}</div>
-    <div class="user-meta">
-      <div class="who">{{ current_user['email'] if current_user else '' }}</div>
-      <form method="post" action="{{ url_for('auth.signout') }}" class="signout-form">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-        <button type="submit" class="signout">Sign out</button>
-      </form>
-    </div>
-  </div>
+  {# Sign-out sits last, set apart, left-aligned with the nav items. #}
+  <form method="post" action="{{ url_for('auth.signout') }}" class="signout-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+    <button type="submit" class="signout">Sign out</button>
+  </form>
 </nav>

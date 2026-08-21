@@ -56,50 +56,6 @@ body.workspace {
   color: var(--cool-gray);
 }
 
-/* Brand switcher (dropdown affordance; picker not built) */
-.brand-switcher {
-  margin: 0 16px 22px;
-  padding: 11px 13px;
-  background: var(--graphite);
-  border: 1px solid var(--faint-gray);
-  border-radius: var(--radius-card);
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  cursor: pointer;
-  transition: border-color var(--fade) var(--ease);
-}
-.brand-switcher:hover {
-  border-color: var(--mid-gray);
-}
-.brand-chip {
-  width: 22px;
-  height: 22px;
-  flex-shrink: 0;
-  border: 1px solid var(--mid-gray);
-  border-radius: var(--radius-chip);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 9px;
-  font-weight: 600;
-}
-.brand-switcher .meta {
-  flex: 1;
-  min-width: 0;
-}
-.brand-switcher .brand-name {
-  font-size: 12.5px;
-  font-weight: 500;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.brand-switcher .brand-count {
-  font-size: 10px;
-  color: var(--cool-gray);
-}
-
 /* Nav items */
 .rail-nav {
   padding: 0 12px;
@@ -141,9 +97,9 @@ body.workspace {
   flex: 1;
 }
 
-/* Credits card (hidden entirely in Client View) */
+/* Credits card (sits below the account; hidden entirely in Client View) */
 .credits {
-  margin: 0 16px 14px;
+  margin: 14px 16px 0;
   padding: 14px 14px 13px;
   background: var(--graphite);
   border: 1px solid var(--faint-gray);
@@ -152,11 +108,12 @@ body.workspace {
 .credits .label {
   color: var(--cool-gray);
 }
+/* Deliberately understated — small and unbolded so credits don't read as the
+   headline number of the rail. */
 .credits .balance {
-  font-size: 26px;
-  font-weight: 700;
-  letter-spacing: -0.03em;
-  margin-top: 8px;
+  font-size: 15px;
+  font-weight: 400;
+  margin-top: 6px;
 }
 .credits .balance .approx {
   font-size: 10.5px;
@@ -191,15 +148,11 @@ body.workspace {
   gap: 10px;
   text-decoration: none;
 }
-/* Stack the email over the sign-out so the full address gets the rail's width
-   and wraps instead of truncating. */
+/* Give the email the rail's width so the full address wraps instead of
+   truncating. */
 .user-meta {
   flex: 1;
   min-width: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
 }
 .user-chip {
   width: 24px;
@@ -221,9 +174,14 @@ body.workspace {
   /* Let long emails wrap fully rather than truncate. */
   overflow-wrap: anywhere;
 }
-/* Sign-out is a real POST button; strip the native button chrome so it reads
-   as the same quiet label it did before, and give it a clear hover affordance. */
-.user-block .signout {
+/* Sign-out sits last in the rail, set apart with space above and left-aligned
+   (24px) with the nav items and the account chip. */
+.signout-form {
+  margin: 22px 24px 0;
+}
+/* A real POST button stripped of native chrome so it reads as the same quiet
+   label it did before, with a clear hover affordance. */
+.signout {
   font-size: 10px;
   font-weight: 500;
   letter-spacing: 0.09em;
@@ -236,7 +194,7 @@ body.workspace {
   font-family: inherit;
   transition: color var(--fade) var(--ease);
 }
-.user-block .signout:hover {
+.signout:hover {
   color: var(--canvas);
 }
 
