@@ -145,6 +145,21 @@ def _migrate(conn: sqlite3.Connection) -> None:
             logger.info("Migrated users: added '%s' column", col)
 
 
+def ensure_schema(conn: sqlite3.Connection) -> None:
+    """Create the schema if absent and apply additive migrations. Idempotent.
+
+    Shared by the web app (:func:`init_db`) and the background worker
+    (``worker.connect``) so each guarantees its own tables exist rather than
+    depending on the other having initialized the DB first. Without this the
+    worker can restart ahead of the web app on a deploy that adds a table and
+    crash on the missing table until the web app catches up (a real race we hit
+    when ``copy_items`` was added).
+    """
+    conn.executescript(_SCHEMA)
+    _migrate(conn)
+    conn.commit()
+
+
 def init_db(app: Flask) -> None:
     """Create the schema if absent and lock down the DB file's permissions.
 
@@ -155,9 +170,7 @@ def init_db(app: Flask) -> None:
     database = app.config["DATABASE"]
     conn = sqlite3.connect(database)
     try:
-        conn.executescript(_SCHEMA)
-        _migrate(conn)
-        conn.commit()
+        ensure_schema(conn)
     finally:
         conn.close()
 
