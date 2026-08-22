@@ -1,0 +1,24 @@
+# Templated oneshot that enqueues a monitoring CI run for every opted-in group.
+# The instance name (%i) is the slot: morning | afternoon | night. Triggered by
+# the three ecomm-copilot-ci-*.timer units (7AM/3PM/11PM CST). This only writes
+# queued rows — the ecomm-copilot-worker does the actual scraping — so it needs
+# no DISPLAY and finishes in milliseconds.
+#
+# Install at /etc/systemd/system/ecomm-copilot-ci-monitor@.service
+# (setup-droplet.sh does this).
+
+[Unit]
+Description=ecomm-copilot CI monitoring enqueue (%i)
+After=network.target
+
+[Service]
+Type=oneshot
+User=deploy
+Group=deploy
+WorkingDirectory=/home/deploy/apps/ecomm-copilot
+EnvironmentFile=/home/deploy/apps/ecomm-copilot/.env
+ExecStart=/home/deploy/apps/ecomm-copilot/venv/bin/python -m app.enqueue_monitoring %i
+
+# Least-privilege hardening (matching the other units).
+NoNewPrivileges=true
+PrivateTmp=true

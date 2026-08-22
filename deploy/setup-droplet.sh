@@ -35,11 +35,20 @@ if [[ ! -f "$APP_DIR/.env" ]]; then
   exit 1
 fi
 
-echo "==> Installing systemd units (web + scoring worker)"
+echo "==> Installing systemd units (web + scoring worker + CI monitoring timers)"
 install -m 644 "$APP_DIR/deploy/ecomm-copilot.service" \
   /etc/systemd/system/ecomm-copilot.service
 install -m 644 "$APP_DIR/deploy/ecomm-copilot-worker.service" \
   /etc/systemd/system/ecomm-copilot-worker.service
+# Competitive Intelligence monitoring: a templated oneshot + three timers that
+# enqueue a monitoring run at 7AM/3PM/11PM CST. The worker (above) does the
+# actual scraping, so no extra always-on process or display is needed.
+install -m 644 "$APP_DIR/deploy/ecomm-copilot-ci-monitor@.service" \
+  /etc/systemd/system/ecomm-copilot-ci-monitor@.service
+for slot in morning afternoon night; do
+  install -m 644 "$APP_DIR/deploy/ecomm-copilot-ci-$slot.timer" \
+    "/etc/systemd/system/ecomm-copilot-ci-$slot.timer"
+done
 systemctl daemon-reload
 
 # The worker drives headed Chrome and needs the Xvfb :99 display. Warn (don't
@@ -93,12 +102,17 @@ nginx -t
 echo "==> Starting services"
 systemctl enable --now ecomm-copilot
 systemctl enable --now ecomm-copilot-worker
+# CI monitoring timers (the templated service is started by the timers, not enabled itself).
+for slot in morning afternoon night; do
+  systemctl enable --now "ecomm-copilot-ci-$slot.timer"
+done
 systemctl reload nginx
 
 echo
 echo "Done. Service status:"
 systemctl --no-pager --lines=0 status ecomm-copilot || true
 systemctl --no-pager --lines=0 status ecomm-copilot-worker || true
+systemctl --no-pager list-timers 'ecomm-copilot-ci-*' || true
 echo
 # Only prompt for certbot when TLS isn't wired up yet. If the site already has a
 # 443 block (guarded above), the cert is in place and re-issuing is unnecessary;

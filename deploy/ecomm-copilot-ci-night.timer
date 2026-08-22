@@ -1,0 +1,16 @@
+# Fires the night monitoring sweep at 11:00 PM Central. Timezone in OnCalendar
+# handles CST/CDT automatically (droplet clock is UTC).
+#
+# Install at /etc/systemd/system/ecomm-copilot-ci-night.timer, then
+# `systemctl enable --now ecomm-copilot-ci-night.timer`.
+
+[Unit]
+Description=ecomm-copilot CI monitoring — night (11:00 PM CST)
+
+[Timer]
+OnCalendar=*-*-* 23:00:00 America/Chicago
+Persistent=true
+Unit=ecomm-copilot-ci-monitor@night.service
+
+[Install]
+WantedBy=timers.target

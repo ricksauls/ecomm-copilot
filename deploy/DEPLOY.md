@@ -111,6 +111,46 @@ sudo journalctl -u ecomm-copilot-worker -n 50 --no-pager
 The GitHub Actions deploy restarts the worker too (guarded, so it's a no-op
 until `setup-droplet.sh` has installed the unit + sudoers rule).
 
+## Competitive Intelligence monitoring timers
+
+CI "monitoring" runs are enqueued **3×/day at 7:00 AM / 3:00 PM / 11:00 PM CST**
+by three systemd timers driving a templated oneshot
+(`ecomm-copilot-ci-monitor@<slot>.service`). The timers only enqueue `queued`
+runs; the existing `ecomm-copilot-worker` does the scraping, so there's no extra
+long-running process. `OnCalendar` carries an explicit `America/Chicago`
+timezone, so systemd tracks CST/CDT automatically (the droplet clock is UTC).
+
+`setup-droplet.sh` installs and enables all of this. If you're adding it to an
+already-provisioned droplet **without** re-running the full script, do the
+privileged install once (root via the DO web Console — the `deploy` sudo password
+is lost; see the handoff):
+
+```bash
+cd /home/deploy/apps/ecomm-copilot
+install -m 644 deploy/ecomm-copilot-ci-monitor@.service \
+  /etc/systemd/system/ecomm-copilot-ci-monitor@.service
+for slot in morning afternoon night; do
+  install -m 644 "deploy/ecomm-copilot-ci-$slot.timer" \
+    "/etc/systemd/system/ecomm-copilot-ci-$slot.timer"
+done
+systemctl daemon-reload
+for slot in morning afternoon night; do
+  systemctl enable --now "ecomm-copilot-ci-$slot.timer"
+done
+```
+
+Inspect / verify:
+
+```bash
+systemctl list-timers 'ecomm-copilot-ci-*' --all       # next fire times
+journalctl -u 'ecomm-copilot-ci-monitor@*' -n 50 --no-pager
+# Trigger one immediately for a smoke test (enqueues a run for opted-in groups):
+sudo systemctl start ecomm-copilot-ci-monitor@morning.service
+```
+
+A group is only swept when its owner has toggled **monitoring on** for it in the
+app (`ci_groups.monitoring_enabled`).
+
 ## Manual deploy / rollback
 
 ```bash

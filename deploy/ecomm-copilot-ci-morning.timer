@@ -1,0 +1,17 @@
+# Fires the morning monitoring sweep at 7:00 AM Central. The explicit timezone
+# in OnCalendar makes systemd handle CST/CDT automatically (the droplet clock is
+# UTC), so no manual offset upkeep — unlike the WM scraper's UTC cron.
+#
+# Install at /etc/systemd/system/ecomm-copilot-ci-morning.timer, then
+# `systemctl enable --now ecomm-copilot-ci-morning.timer`.
+
+[Unit]
+Description=ecomm-copilot CI monitoring — morning (7:00 AM CST)
+
+[Timer]
+OnCalendar=*-*-* 07:00:00 America/Chicago
+Persistent=true
+Unit=ecomm-copilot-ci-monitor@morning.service
+
+[Install]
+WantedBy=timers.target
