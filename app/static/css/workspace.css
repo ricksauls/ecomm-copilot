@@ -1069,7 +1069,7 @@ a:focus-visible,
   border-collapse: collapse;
   /* Compact type so dense admin rows (email, product title, timestamp) fit
      without wrapping; header stays a step smaller as an uppercase label. */
-  font-size: 11px;
+  font-size: 8px;
 }
 .admin-table th {
   text-align: left;
@@ -1092,6 +1092,17 @@ a:focus-visible,
 .admin-table th:first-child,
 .admin-table td:first-child {
   white-space: nowrap;
+}
+/* Product titles are the longest field and dominate table width. Pin the
+   column to ~60% of its natural single-line sprawl (measured ~340px at this
+   font, so ~205px) and wrap long titles inside it, giving the other columns
+   their space back. `width` (not just max-width) is needed here: with free
+   wrapping, auto table-layout would otherwise collapse the column far below
+   the target. Tune to taste. */
+.admin-table .col-product {
+  width: 205px;
+  max-width: 205px;
+  overflow-wrap: anywhere;
 }
 .admin-table tr:last-child td {
   border-bottom: none;

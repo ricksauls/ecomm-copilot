@@ -18,7 +18,7 @@
         <tr>
           <th>ID</th>
           <th>Item #</th>
-          <th>Product</th>
+          <th class="col-product">Product</th>
           <th>User</th>
           <th>Status</th>
           <th>Current</th>
@@ -31,7 +31,7 @@
         <tr>
           <td class="cell-muted">{{ it.id }}</td>
           <td>{{ it.item_id or '—' }}</td>
-          <td>
+          <td class="col-product">
             {% if it.title %}{{ it.title }}
             {% else %}<a href="{{ it.url }}" target="_blank" rel="noopener noreferrer"
                          class="cell-muted">{{ it.url }}</a>{% endif %}
