@@ -1,6 +1,6 @@
 # ecomm-copilot — Session Handoff
 
-_Last updated: 2026-08-21._
+_Last updated: 2026-08-22._
 
 A working reference for picking up development. Read this first, then
 `CLAUDE.md` (coding standards) and `deploy/DEPLOY.md` (infra).
@@ -14,47 +14,50 @@ A working reference for picking up development. Read this first, then
   `~/Desktop/ClaudeStuff/ecomm-copilot-clean`.
 - **Stack:** Python / Flask, SQLite, server-rendered Jinja templates, deployed
   by GitHub Actions to a DigitalOcean droplet.
-- **Tests:** 40 passing (`ruff` clean, `pip-audit` clean).
-- **What works today:** marketing landing, self-service auth (email/password +
-  Google SSO), login-guarded workspace, and the **PDP Content Scoring** feature
-  end-to-end (intake → queue → background fetch+score → results).
+- **Tests:** 86 passing (`ruff` clean, `pip-audit` clean).
+- **Worker:** installed and running — scoring is self-serve end-to-end (intake →
+  queue → background fetch+score → results). One worker only (see §6, parallelism).
 
-### ✅ Worker installed — scoring is self-serve (2026-08-21)
-The scoring **worker is installed and running** on the droplet
-(`ecomm-copilot-worker.service`, active; unit installed 2026-08-21). The full
-loop works end-to-end: intake enqueues → the worker fetches + scores → the
-results screen polls. `deploy/setup-droplet.sh` (idempotent; installs/starts the
-worker and expands the sudoers rule) has been applied via the DigitalOcean
-Console. Re-run it the same way if the unit ever needs reinstalling; verify with
-`sudo systemctl status ecomm-copilot-worker`.
+**What works today:**
+- Marketing **landing** page (dark), self-service **auth** (email/password +
+  Google SSO), login-guarded **workspace**.
+- **PDP Content Scoring** end-to-end: intake (multi-URL or CSV, up to 200), queue,
+  background fetch+score, results page (flashes while scoring, shows product
+  title), and a **PDF export** of a batch.
+- **Admin screens** (Users, Items scored) for the two admin emails, with a
+  new-user notification and per-user delete.
 
 ---
 
 ## 2. Infrastructure
 
 - **Droplet:** `wm-content-tools`, `142.93.244.23`, Ubuntu 24.04 — **shared**
-  with the WM share-of-voice app, so don't disrupt the other services.
+  with the WM share-of-voice app. **Only ~2 GB RAM** — this constrains worker
+  parallelism (see §6). Don't disrupt the other services.
 - **App dir:** `/home/deploy/apps/ecomm-copilot`, runs as user `deploy`.
 - **Web:** `ecomm-copilot.service` → gunicorn on `127.0.0.1:8001` behind nginx
   (site `ecomm-copilot.com` + `www`). Ports 8000/8002 belong to other apps.
-- **Worker:** `ecomm-copilot-worker.service` (once installed) runs `worker.py`
-  under `DISPLAY=:99`.
-- **Xvfb:** `xvfb.service` on `:99` already runs (from the WM scraper) — the
-  worker reuses it for headed Chrome.
-- **DB:** SQLite at `DATABASE_URL` (`/home/deploy/apps/ecomm-copilot/app.db` on
-  the droplet), file chmod 600. Tables: `users`, `scored_items`.
-- **Secrets:** in `/home/deploy/apps/ecomm-copilot/.env` (chmod 600) — never
-  committed. Includes `SECRET_KEY`, `DATABASE_URL`, `APP_URL`,
-  `GOOGLE_CLIENT_ID/SECRET`.
-- **SSH from the Mac:** `ssh droplet-deploy` (key `~/.ssh/deploy_wm_ci`). Root is
-  only reachable via the DO web Console (the `deploy` sudo password was lost;
-  reset with `passwd deploy` while in as root if wanted). The scoped sudoers
-  rule lets `deploy` restart the two ecomm services without a password.
+- **Worker:** `ecomm-copilot-worker.service` runs `worker.py` under `DISPLAY=:99`
+  (headed Chrome). Installed and active.
+- **Xvfb:** `xvfb.service` on `:99` (from the WM scraper) — the worker reuses it.
+- **DB:** SQLite at `DATABASE_URL` (`/home/deploy/apps/ecomm-copilot/app.db`),
+  chmod 600. Tables: `users`, `scored_items`, `keyword_cache`. Schema is created
+  + migrated idempotently at web startup (`db.init_db` / `db._migrate`).
+- **Secrets / config** in `/home/deploy/apps/ecomm-copilot/.env` (chmod 600,
+  never committed): `SECRET_KEY`, `DATABASE_URL`, `APP_URL`,
+  `GOOGLE_CLIENT_ID/SECRET`, and **`ADMIN_EMAILS`** (comma-separated allowlist =
+  `ricksauls@cox.net,ricksauls1@gmail.com`).
+- **SSH from the Mac:** `ssh droplet-deploy` (key `~/.ssh/deploy_wm_ci`, **no
+  passphrase**). Passwordless — that's the way in; you can drive the droplet
+  directly. Root is only via the DO web Console (the `deploy` **sudo** password
+  was lost — `passwd deploy` there to reset). The scoped sudoers rule lets
+  `deploy` restart the two ecomm services without a password.
 
 ### Deploy pipeline (how shipping works)
 `git push origin main` → **CI** (ruff, pip-audit, pytest) → on success the
-**Deploy** workflow (`workflow_run`) SSHes in, `git pull`, `pip install`,
-restarts `ecomm-copilot` (and `ecomm-copilot-worker`, guarded). Everyday loop:
+**Deploy** workflow (`workflow_run`) SSHes in, `git pull`, `pip install -r
+requirements.txt`, restarts `ecomm-copilot` (and `ecomm-copilot-worker`, guarded).
+Everyday loop:
 
 ```bash
 git -C ~/Desktop/ClaudeStuff/ecomm-copilot-clean add -A
@@ -64,8 +67,7 @@ gh run watch -R ricksauls/ecomm-copilot   # optional
 ```
 
 Actions secrets (already set): `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY`,
-`DEPLOY_FINGERPRINT` (**ECDSA** host key — the SSH action negotiates ecdsa, not
-ed25519).
+`DEPLOY_FINGERPRINT` (**ECDSA** host key — the SSH action negotiates ecdsa).
 
 ---
 
@@ -73,159 +75,219 @@ ed25519).
 
 ```
 app/
-  __init__.py        app factory: logging, security headers (strict CSP),
-                     session hardening, MAX_CONTENT_LENGTH, blueprints, DB +
-                     OAuth init, CSRF + current-user before_request hooks
-  db.py              SQLite: schema (users, scored_items), per-request conn
-  users.py           user CRUD, Werkzeug password hashing
-  security.py        CSRF, login_required, current_user, input validation
-  auth.py            /signup /signin /signout + Google SSO (gated)
+  __init__.py        app factory: logging, strict-CSP headers, session
+                     hardening, MAX_CONTENT_LENGTH, ADMIN_EMAILS config,
+                     blueprints, DB + OAuth init, before_request hooks, and two
+                     context processors (static_url + admin nav counts)
+  db.py              SQLite schema + idempotent _migrate; per-request conn
+  users.py           user CRUD, password hashing, record_login, list/count,
+                     delete_user, count_created_since (new-user notification)
+  security.py        CSRF, login_required, current_user, input validation,
+                     is_admin + admin_required (ADMIN_EMAILS allowlist)
+  auth.py            /signup /signin /signout + Google SSO; records login times
   oauth.py           Authlib Google client (gated on GOOGLE_CLIENT_ID/SECRET)
   pdp.py             intake parsing: URL validation, CSV parse, item-number
-  scoring.py         rule-based scorer: PdpRecord -> ScoreResult (5 dims)
-  fetch.py           Playwright fetch + __NEXT_DATA__ parse -> PdpRecord;
-                     Pillow image-resolution measurement
-  jobs.py            scored_items queue: enqueue / claim / save result
-  routes/pages.py    landing, dashboard (guarded), PDP scoring routes
+  scoring.py         rule-based scorer: PdpRecord -> ScoreResult (see §4)
+  fetch.py           Playwright fetch + __NEXT_DATA__ parse -> PdpRecord; Pillow
+                     resolution + main-image white-background check; idml specs
+                     + longDescription bullets
+  keywords.py        keyword discovery: Walmart autocomplete + competitor SERP
+                     mining -> ranked target set; cache_key (category-level)
+  jobs.py            scored_items queue (enqueue/claim/save), admin list/count,
+                     keyword_cache get/put
+  pdf_export.py      reportlab PDF of a scored batch
+  routes/pages.py    landing, dashboard, PDP scoring + results + results.pdf,
+                     admin users/items + delete
   fixtures.py        demo data for the dashboard
-  templates/…        public_base + landing/signin/signup; app/base + rail,
-                     topbar, dashboard, pdp_scoring, pdp_results
-  static/            tokens.css, public.css, workspace.css, js/pdp_scoring.js
-worker.py            standalone background scoring worker (systemd)
+  templates/…        public_base + landing/signin/signup; app/base + _rail,
+                     _topbar, dashboard, pdp_scoring, pdp_results,
+                     admin_users, admin_items
+  static/            css/{tokens,public,workspace}.css,
+                     js/{pdp_scoring,admin_users}.js, img/{logo,favicon,...}
+worker.py            background scoring worker (systemd): fetch -> resolve
+                     keywords (cache-first) -> score -> save
 deploy/              DEPLOY.md, *.service units, nginx.conf, setup-droplet.sh
-tests/               40 tests (auth, jobs, pdp intake, scoring, parser, pages)
+tests/               86 tests (auth, jobs, pdp, scoring, fetch, pages, keywords,
+                     admin)
 ```
 
 **Nav (rail):** Dashboard, **PDP Content Scoring** (built), PDP Image Set
 Creation, PDP Copy Content Creation, Competitive Intelligence (placeholders,
-`href="#"`).
+`href="#"`). **Admin** section (below Credits, admins only): Users, Items scored,
+each with a live count.
 
 ---
 
 ## 4. The PDP scoring model
 
-Five weighted dimensions → 0–100 overall (weights in `app/scoring.py:WEIGHTS`,
-meant to be recalibrated against real search-rank/conversion data):
+Weighted dimensions → 0–100 overall (weights in `app/scoring.py:WEIGHTS`). The
+overall is computed **only over available dimensions** — an unmeasured/paused one
+is excluded (weights renormalize), not scored 0. Each dimension returns findings
++ recommendations that map to a sellable fix.
 
-| Dimension | Weight | Rule-based signals today | AI-pass (not built) |
+| Dimension | Weight | Scored today | Deferred (AI/vision pass) |
 |---|---|---|---|
-| Imagery | 25 | count, max px (zoom) — video paused 2026-08-21 | infographic/lifestyle via vision |
-| Attributes | 20 | **scoring paused 2026-08-21** (still extracted, not scored) | category schema % |
-| Title | 18 | length band, ALL-CAPS, word count, **+ target-keyword coverage (blended 30%)** | keyword *quality*/placement via LLM |
-| Key features | 18 | count, bullet length | benefit-vs-feature, keywords |
-| Description | 19 | word count / depth, **+ target-keyword coverage (blended 30%)** | structure + SEO depth via LLM |
+| Imagery | 25 | count, max px (zoom), **main-image white background (blended 20%)**. Video **paused**. | infographic/lifestyle quality via vision |
+| Attributes | 20 | **scoring paused** (still extracted onto the record, just not in `score_pdp`) | category-schema completeness % |
+| Title | 18 | length band, ALL-CAPS, word count, **+ keyword coverage (blended 30%)** | keyword *quality*/placement via LLM |
+| Key features | 18 | bullet count + length | benefit-vs-feature, keywords |
+| Description | 19 | word count / depth, **+ keyword coverage (blended 30%)** | structure + SEO depth via LLM |
 
-Each dimension returns findings + recommendations that map to a sellable fix.
-The overall is computed **only over measurable dimensions** — an unmeasurable one
-is excluded, not scored 0.
+Currently **four** dimensions score (Attributes paused). "Blended X%" = the
+signal is mixed into the dimension only when measured, so the dimension still
+spans 0–100 when it isn't (same pattern for keyword coverage and white-bg).
+Paused signals (video, attributes) are commented/guarded, not deleted — easy to
+re-enable (search `WHITE_BG_BLEND`, `KEYWORD_BLEND`, "paused" in `scoring.py`).
 
-### Fetch method (reused from the WM scraper)
-Walmart blocks plain requests. `fetch.py` drives **headed Chrome via Playwright**
-(`channel="chrome"`, `--disable-blink-features=AutomationControlled`) under Xvfb
-`:99`, reads `__NEXT_DATA__` →
-`props.pageProps.initialData.data.product`, and maps: `name`→title,
-`keyFeatures`→bullets, `shortDescription/longDescription`→description,
-`imageInfo.allImages`→images, `contentLayout.modules`→video. Attributes come
-from the **sibling `data.idml.specifications`** node (a flat name/value list;
-`specificationsV2` is the grouped fallback) — *not* `data.product`, where they
-aren't, and *not* the on-page spec table, which Walmart A/B-gates off
-(`enableSpecificationsTable=false`) and doesn't even render when off. Image
-dimensions aren't in the JSON, so Pillow fetches the bytes to measure. Browser
-work is slow and serial → it runs in the **worker**, never in a request.
+### Fetch method (`fetch.py`, reused from the WM scraper)
+Walmart blocks plain requests, so `fetch.py` drives **headed Chrome via
+Playwright** (`channel="chrome"`, `--disable-blink-features=AutomationControlled`)
+under Xvfb `:99`, reads `__NEXT_DATA__` →
+`props.pageProps.initialData.data`, and maps:
+- `product.name`→title; `contentLayout.modules`→video; `imageInfo.allImages`→images.
+- **Attributes** ← the sibling **`data.idml.specifications`** (flat name/value;
+  `specificationsV2` fallback) — *not* `data.product` (absent there) and *not*
+  the on-page spec table (Walmart A/B-gates it off via
+  `enableSpecificationsTable=false`).
+- **Key-feature bullets** ← `product.keyFeatures`, falling back to the `<li>`s in
+  **`data.idml.longDescription`** (usually where they live).
+- **Resolution** ← Pillow measures image bytes (dims aren't in the JSON).
+- **Main-image white background** ← `_is_white_background`: downsize the first
+  image, sample the outer border band (product is centered), pass if ≥90%
+  near-white (transparency flattened onto white). Deterministic, no vision.
 
-**Proven:** on the droplet, fetching item 10294528 (Tabasco) scores **76/100**
-with all five dimensions scoring — 13 attributes measured (Attributes 75/100)
-and 6 key-feature bullets from `idml.longDescription` (Key features 100/100).
+Browser work is slow + serial → runs in the **worker**, never in a request.
 
----
+### Keyword coverage (`keywords.py`, the AI-pass Phase 1, rule-based)
+Per item the worker builds a **target keyword set** = Walmart **autocomplete**
+(typeahead API, HTTP) + **competitor SERP title mining** (headed Chrome) →
+n-gram merge/rank (ported from the WM tool's `discover_keywords.py`, generalized
+to derive seeds from the title). Title/Description then score how much of that set
+the copy covers. **Cached** in `keyword_cache` keyed on the item's generic SERP
+terms (category-level, 7-day TTL) — discovery is ~54 s/item cold vs ~0 ms warm,
+so same-category batches are much faster (first item warms it, the rest fly).
 
-## 5. Known gaps / next-up roadmap
-
-1. ~~**Install the worker**~~ — **DONE (2026-08-21):** `ecomm-copilot-worker`
-   installed and active; the UI scores automatically end-to-end (§1).
-2. ~~**Attribute (spec) extraction**~~ — **DONE (2026-08-21).** Specs are read
-   from `data.idml.specifications` in `fetch.py`; `attributes_measured` is now
-   True on live pages (13 specs on Tabasco). The category-schema **completeness
-   %** is still future work — today it's a raw count proxy, so a listing with 5
-   filled attributes scores the same regardless of how many its category expects.
-3. **AI pass** — the qualitative half. **Keyword coverage Phase 1 is BUILT
-   (2026-08-21):** `app/keywords.py` discovers a target keyword set (Walmart
-   autocomplete + competitor SERP title mining, ported from the WM tool's
-   `discover_keywords.py`), and the Title/Description dimensions blend in
-   coverage of that set (30%, via `target_keywords` on the record; runs in the
-   worker between fetch and score). **Still to do (needs Claude):** keyword
-   *quality*/placement judgment + generated rewritten copy, and vision for
-   infographic/lifestyle image quality — the parts a string-match can't do.
-   **Use Claude** for those (see the `claude-api` skill for current model IDs).
-   Future: a human "approved" gate on the discovered set (WM tool has one);
-   today the top-N are auto-approved. Seed derivation is heuristic (title-based).
-4. **Competitive benchmarking** — score top-N competitors for the item's head
-   terms and show the gap to the category leader (the product's core promise).
-5. **Nice-to-haves:** retry `blocked` items, a scoring history view, export.
-6. **Other nav screens** — PDP Image Set Creation, PDP Copy Content Creation,
-   Competitive Intelligence are still placeholders.
-7. ~~**Key-features extraction gap**~~ — **DONE (2026-08-21):** `fetch.py` now
-   falls back to the `<li>` bullets in `data.idml.longDescription` when
-   `product.keyFeatures` is empty (`_extract_idml_bullets`). Tabasco went from
-   key_features 0 → 100. (`idml.productHighlights` was a red herring — those are
-   spec attributes, already counted under Attributes.)
+**Proven live:** Tabasco (10294528) — main image white (imagery 100), 13
+attributes extracted (not scored), 6 key-feature bullets, keyword coverage on
+title/description. All-in overall ≈ 80s (varies as competitor SERPs drift).
 
 ---
 
-## 6. Local development
+## 5. Admin
+
+- **Who:** the `ADMIN_EMAILS` allowlist in `.env` (server-side; `security.is_admin`
+  / `admin_required` fail closed → 403 / sign-in redirect). Both `ricksauls@cox.net`
+  and `ricksauls1@gmail.com` are admins.
+- **Rail Admin section** (below Credits, admins only): **Users** and **Items
+  scored**, each with a live count (via the `_inject_admin_context` context
+  processor, which skips all DB work for non-admins).
+- **Users screen** (`/admin/users`): table of all users; per-row **Delete**
+  (POST + CSRF, blocks self-delete, cascades the user's scored items; confirm
+  dialog via `static/js/admin_users.js`).
+- **Items scored** (`/admin/items`): recent items across all users (item, product
+  title, submitter email, status, score, "Ran" time).
+- **New-user notification** (topbar, admins only): counts users who signed up
+  since the admin's **previous login** (`users.last_login_at` / `prev_login_at`,
+  stamped on every sign-in). First-ever login falls back to account-creation time.
+
+---
+
+## 6. Parallelism (measured; important)
+
+The droplet has **~2 GB RAM total, ~1.1 GB free**, shared with the WM app. Each
+headed-Chrome worker uses ~300–500 MB. **Measured 2026-08-21:** 2 workers dropped
+free RAM to ~89 MB; **5 would OOM** the shared services — do **not** run 5 here.
+The 2-worker throughput gain was modest (~1.3–1.5×) because the per-worker 8–16 s
+fetch delay caps the rate. **Decision: keep the single worker + the keyword
+cache** (the cache is the real, safe speedup). For genuine parallelism, **resize
+the droplet to ~4 GB first**, then wire a systemd worker-pool (template unit) sized
+to the RAM. The queue claim (`jobs.claim_next`) is already concurrency-safe.
+
+---
+
+## 7. Known gaps / next-up roadmap
+
+Done this cycle (kept for context): worker install; attribute extraction;
+key-feature extraction; keyword coverage Phase 1 + category cache; main-image
+white-bg check; admin screens; PDF export; HTTPS/cache-busting fixes.
+
+1. **AI pass — the qualitative half (needs Claude + `ANTHROPIC_API_KEY`).**
+   Keyword *quality*/placement judgment + generated rewritten copy, and **vision**
+   for infographic/lifestyle image quality. Use Claude (see the `claude-api`
+   skill for current model IDs). Runs in the worker; temp 0 + cache for
+   determinism. Also: a human "approved" gate on the discovered keyword set
+   (today top-N auto-approved); smarter seed derivation (heuristic today).
+2. **Attribute completeness %** — today it's a raw count proxy; wire a
+   per-category expected-attribute schema to make it a true % (and re-enable the
+   Attributes dimension when ready — it's paused, not removed).
+3. **Competitive benchmarking** — score top-N competitors for the item's head
+   terms and show the gap to the category leader.
+4. **Other nav screens** — PDP Image Set Creation, PDP Copy Content Creation,
+   Competitive Intelligence are still placeholders (`href="#"`).
+5. **Nice-to-haves:** retry `blocked` items, a scoring history view.
+
+---
+
+## 8. Local development
 
 ```bash
 cd ~/Desktop/ClaudeStuff/ecomm-copilot-clean
-.venv/bin/pip install -r requirements-dev.txt   # includes playwright, Pillow
+.venv/bin/pip install -r requirements-dev.txt   # playwright, Pillow, reportlab
 .venv/bin/ruff check . && .venv/bin/python -m pytest -q
 ```
 
-- Local `.env` has `SESSION_COOKIE_SECURE=false` so the session cookie works
-  over `http://localhost`. `DATABASE_URL` empty → local `app.db` (gitignored).
-- Preview server: use the Browser-pane `preview_start` with config
-  `ecomm-copilot-preview` (port 5050). **Templates are cached — restart the
-  preview server after editing a `.html`.** CSS/JS are static (no restart).
-- Live browser fetch can't be tested from the Mac (Walmart blocks it and there's
-  no local Xvfb); test parsing with fixtures, and validate live fetch on the
-  droplet (`env DISPLAY=:99 venv/bin/python -c "from app.fetch import fetch_pdp…"`).
+- Local `.env`: `SESSION_COOKIE_SECURE=false` (session cookie over
+  `http://localhost`); `DATABASE_URL` empty → local `app.db` (gitignored);
+  `ADMIN_EMAILS` unset locally → no admins (set it in a test to exercise admin).
+- Preview server: Browser-pane `preview_start` with config `ecomm-copilot-preview`
+  (port 5050). **Templates are cached — restart the preview server after editing
+  a `.html`.** CSS/JS are static. (Note: the public surface is near-black, so
+  screenshots of dark sections can look blank — verify via `read_page`/text.)
+- Live browser fetch / keyword mining / white-bg can't run from the Mac (Walmart
+  blocks it, no local Xvfb). Test parsing/scoring with fixtures; validate live on
+  the droplet over SSH, e.g.:
+  `ssh droplet-deploy 'cd /home/deploy/apps/ecomm-copilot && env DISPLAY=:99 venv/bin/python -c "from app.fetch import fetch_pdp; r=fetch_pdp(\"https://www.walmart.com/ip/10294528\",\"10294528\"); print(r.title, r.main_image_white_bg)"'`
 
 ---
 
-## 7. Gotchas learned (save yourself the debugging)
+## 9. Gotchas learned (save yourself the debugging)
 
 - **Strict CSP** (`script-src 'self'`): no inline scripts/handlers. Per-screen JS
-  must be an external file under `/static/js` loaded via the `scripts` block.
-- **Static caching / cache-busting (2026-08-21):** nginx serves `/static` with
-  `expires 30d`. Reference assets in templates via `static_url('css/…')` (a
-  context-processor helper in `app/__init__.py`), never raw
-  `url_for('static', …)` — `static_url` appends `?v=<mtime>` so edited CSS/JS
-  reaches returning users. Symptom if you forget: a deployed CSS change doesn't
-  appear until a hard refresh (Cmd+Shift+R) or 30 days pass.
-- **CI was red for a reason:** CI installs the **pinned** `requirements-dev.txt`;
-  don't let tool versions float. New deps must pass `pip-audit` or CI blocks the
-  deploy.
-- **Walmart bot block:** direct `requests` → 307 to a block page. Only headed
-  Chrome under Xvfb gets through.
+  is an external file under `/static/js`, loaded via the `scripts` block.
+- **Static cache-busting:** nginx serves `/static` with `expires 30d`. Reference
+  assets in templates via `static_url('…')` (context-processor helper), **never**
+  raw `url_for('static', …)` — `static_url` appends `?v=<mtime>` so edits reach
+  users. Symptom if you forget: a deployed CSS change needs a hard refresh.
+  (Favicons are cached even more aggressively — expect a hard refresh there.)
+- **CI installs pinned `requirements-dev.txt`** — don't let tool versions float;
+  new deps must pass `pip-audit` or CI blocks the deploy.
+- **Walmart bot block:** direct `requests` → block page; only headed Chrome under
+  Xvfb gets through. Autocomplete (typeahead API) is plain HTTP and works.
 - **Deploy host key:** pin the **ECDSA** fingerprint, not ed25519.
-- **Root on the droplet:** deploy sudo password is lost — use the DO web Console
-  for root steps (`passwd deploy` there to reset if desired).
+- **Root on the droplet:** deploy sudo password is lost — DO web Console for root
+  steps (`passwd deploy` there to reset if desired). SSH as `deploy` is
+  passwordless (key), so day-to-day droplet work doesn't need root.
+- **`setup-droplet.sh` vs TLS (fixed):** certbot writes the 443 block into the
+  nginx site file in place; the script used to overwrite it every run and drop
+  HTTPS (→ `ERR_CERT_COMMON_NAME_INVALID`, serving the default `7bcrfp` cert). It
+  now skips the overwrite when a 443 block exists. If you hit the cert error, fix
+  (root, DO Console — cert still exists):
+  `certbot install --cert-name ecomm-copilot.com --nginx` then
+  `nginx -t && systemctl reload nginx`.
+- **DB migrations:** `CREATE TABLE IF NOT EXISTS` won't alter an existing table
+  and SQLite has no `ADD COLUMN IF NOT EXISTS` — add new columns in `db._migrate`
+  (checks `PRAGMA table_info`). New *tables* can go straight in `_SCHEMA`.
+- **`_row_view` in `routes/pages.py`** shapes scored_items rows for the
+  results template/JSON — add any new column there too, or it won't render
+  (bit us with `title`).
 - **Concurrent sessions:** avoid two chats committing in this folder at once —
-  they race (seen once already).
-- **`setup-droplet.sh` vs TLS (fixed 2026-08-21):** certbot writes the 443 block
-  into `/etc/nginx/sites-available/ecomm-copilot` in place. The script used to
-  overwrite that file with the plain-HTTP template every run, so re-running it
-  (e.g. to install the worker) silently dropped HTTPS → nginx served the default
-  server's `7bcrfp.ricksauls.com` cert → `ERR_CERT_COMMON_NAME_INVALID`. The
-  script now skips the overwrite when a 443 block is already present. If you hit
-  the cert error, the fix (root, DO Console — the cert still exists) is:
-  `sudo certbot --nginx -d ecomm-copilot.com -d www.ecomm-copilot.com`
-  then `sudo nginx -t && sudo systemctl reload nginx`.
+  they race.
 
 ---
 
-## 8. References
+## 10. References
 
 - Memory: `project_ecomm_copilot` (auto-loaded) tracks live status.
-- WM scraper (fetch method + Xvfb setup precedent):
-  `~/Desktop/ClaudeStuff/WM Dot Com Update` — `pdp_scraper.py`, its `README.md`
-  (xvfb.service unit), and `score_content.py`.
+- WM scraper (fetch method + Xvfb precedent + keyword discovery source):
+  `~/Desktop/ClaudeStuff/WM Dot Com Update` — `pdp_scraper.py`,
+  `discover_keywords.py`, `score_content.py`, and its `README.md` (xvfb unit).
