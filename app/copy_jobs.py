@@ -161,6 +161,26 @@ def request_generation(conn: sqlite3.Connection, ids: list[int], user_id: int) -
     return updated.rowcount
 
 
+def count_copy_items(conn: sqlite3.Connection) -> int:
+    """Total number of copy_items rows (all statuses) — an activity count."""
+    return int(conn.execute("SELECT COUNT(*) FROM copy_items").fetchone()[0])
+
+
+def list_copy_items(conn: sqlite3.Connection, limit: int = 200) -> list[sqlite3.Row]:
+    """Return recent copy items across all users (with submitter email) for admin.
+
+    Newest first, capped at ``limit`` so the admin view stays bounded. Carries both
+    the current and projected scores so the admin table can show the copy lift.
+    """
+    return conn.execute(
+        "SELECT ci.id, ci.item_id, ci.url, ci.title, ci.status, ci.current_overall, "
+        "ci.projected_overall, ci.created_at, ci.updated_at, u.email AS user_email "
+        "FROM copy_items ci JOIN users u ON u.id = ci.user_id "
+        "ORDER BY ci.id DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+
+
 def mark_copy_failed(conn: sqlite3.Connection, row_id: int, status: str, message: str) -> None:
     """Mark a copy row ``blocked`` or ``error`` with a short message."""
     conn.execute(

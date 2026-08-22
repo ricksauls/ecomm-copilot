@@ -365,6 +365,19 @@ def admin_items():
     )
 
 
+@bp.route("/admin/copy")
+@admin_required
+def admin_copy():
+    """Admin: table of recent copy-content items across all users."""
+    logger.info("Admin copy view: admin_user_id=%s", g.user["id"])
+    return render_template(
+        "app/admin_copy.html",
+        breadcrumb="Admin · Copy created",
+        active_nav="admin-copy",
+        items=copy_jobs.list_copy_items(get_db()),
+    )
+
+
 def _row_view(row) -> dict:
     """Shape a scored_items row for templates / JSON (parses the result blob)."""
     result = json.loads(row["result_json"]) if row["result_json"] else None

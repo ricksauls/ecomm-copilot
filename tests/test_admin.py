@@ -4,7 +4,7 @@ Authorization is the important part — the admin routes must fail closed for
 non-admins and the unauthenticated, regardless of whether the nav is shown.
 """
 
-from app import jobs
+from app import copy_jobs, jobs
 from app.db import get_db
 from app.users import (
     count_created_since,
@@ -28,13 +28,15 @@ def test_admin_routes_forbidden_for_regular_user(client, auth, app):
     auth.register(email="regular@example.com", password=_PW)  # not in the allowlist
     assert client.get("/admin/users").status_code == 403
     assert client.get("/admin/items").status_code == 403
+    assert client.get("/admin/copy").status_code == 403
 
 
 def test_admin_routes_redirect_when_unauthenticated(client, app):
     _as_admin(app)
-    resp = client.get("/admin/users")
-    assert resp.status_code == 302
-    assert "/signin" in resp.headers["Location"]
+    for path in ("/admin/users", "/admin/items", "/admin/copy"):
+        resp = client.get(path)
+        assert resp.status_code == 302
+        assert "/signin" in resp.headers["Location"]
 
 
 def test_admin_can_view_users_and_items(client, auth, app):
@@ -44,17 +46,46 @@ def test_admin_can_view_users_and_items(client, auth, app):
     assert users_resp.status_code == 200
     assert _ADMIN.encode() in users_resp.data
     assert client.get("/admin/items").status_code == 200
+    assert client.get("/admin/copy").status_code == 200
+
+
+def test_admin_copy_lists_items_with_scores(client, auth, app):
+    _as_admin(app)
+    auth.register(email=_ADMIN, password=_PW)
+    with app.app_context():
+        db = get_db()
+        uid = get_by_email(_ADMIN)["id"]
+        ids = copy_jobs.enqueue_copy_items(
+            db, uid, [{"url": "https://www.walmart.com/ip/7", "item": "7"}]
+        )
+        copy_jobs.save_current_copy(
+            db, ids[0], title="Zesty Widget",
+            current={"record": {"url": "u"}}, current_overall=61, keywords=[],
+            next_status="fetched",
+        )
+        copy_jobs.save_generated_copy(
+            db, ids[0], new={"title": "N", "bullets": ["b"], "description": "d"},
+            projected_overall=90,
+        )
+    resp = client.get("/admin/copy")
+    assert resp.status_code == 200
+    assert b"Zesty Widget" in resp.data  # product name shown
+    assert b"90" in resp.data            # projected score shown
+    assert _ADMIN.encode() in resp.data  # submitter email shown
 
 
 def test_admin_nav_visibility(client, auth, app):
-    # Admin sees the Admin nav links; a regular user does not.
+    # Admin sees the Admin nav links (incl. the new copy screen); a regular user
+    # does not.
     _as_admin(app)
     auth.register(email=_ADMIN, password=_PW)
-    assert b"/admin/users" in client.get("/app").data
+    dash = client.get("/app").data
+    assert b"/admin/users" in dash
+    assert b"/admin/copy" in dash
 
     auth.logout()
     auth.register(email="regular@example.com", password=_PW)
-    assert b"/admin/users" not in client.get("/app").data
+    assert b"/admin/copy" not in client.get("/app").data
 
 
 def test_admin_can_delete_user_and_their_items(client, auth, app):
