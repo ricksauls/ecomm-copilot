@@ -7,6 +7,7 @@ from app.db import get_db
 def test_copy_routes_require_login(client):
     assert client.get("/app/pdp-copy").status_code == 302
     assert client.get("/app/pdp-copy/results").status_code == 302
+    assert client.get("/app/pdp-copy/results.pdf").status_code == 302
     assert client.post("/app/pdp-copy/generate").status_code == 302
     assert client.post("/app/pdp-scoring/create-copy").status_code == 302
 
@@ -70,6 +71,53 @@ def test_generate_advances_fetched_items(client, auth, app):
     with app.app_context():
         status = get_db().execute("SELECT status FROM copy_items").fetchone()["status"]
         assert status == "gen_queued"
+
+
+def test_copy_results_pdf_download(client, auth, app):
+    auth.register()
+    client.post("/app/pdp-copy", data={"urls": "https://www.walmart.com/ip/1"})
+    # Simulate a completed item (current + new copy + scores).
+    with app.app_context():
+        db = get_db()
+        row = db.execute("SELECT id FROM copy_items ORDER BY id DESC LIMIT 1").fetchone()
+        copy_jobs.save_current_copy(
+            db, row["id"], title="Acme Widget",
+            current={"title": "OLD", "bullets": ["a"], "description": "old desc",
+                     "record": {"url": "u"}},
+            current_overall=60, keywords=[], next_status="fetched",
+        )
+        copy_jobs.save_generated_copy(
+            db, row["id"],
+            new={"title": "NEW", "bullets": ["b1", "b2"], "description": "new desc"},
+            projected_overall=88,
+        )
+    resp = client.get("/app/pdp-copy/results.pdf")
+    assert resp.status_code == 200
+    assert resp.mimetype == "application/pdf"
+    assert resp.data[:5] == b"%PDF-"  # real PDF, not an error page
+    assert "attachment" in resp.headers.get("Content-Disposition", "")
+
+
+def test_copy_results_shows_download_only_when_done(client, auth, app):
+    auth.register()
+    client.post("/app/pdp-copy", data={"urls": "https://www.walmart.com/ip/1"})
+    # Still fetching -> no Download PDF button yet.
+    assert b"Download PDF" not in client.get("/app/pdp-copy/results").data
+    with app.app_context():
+        db = get_db()
+        row = db.execute("SELECT id FROM copy_items ORDER BY id DESC LIMIT 1").fetchone()
+        copy_jobs.save_current_copy(
+            db, row["id"], title="P",
+            current={"title": "OLD", "bullets": ["a"], "description": "d",
+                     "record": {"url": "u"}},
+            current_overall=60, keywords=[], next_status="fetched",
+        )
+        copy_jobs.save_generated_copy(
+            db, row["id"], new={"title": "NEW", "bullets": ["b"], "description": "d"},
+            projected_overall=88,
+        )
+    # Now done -> the button appears.
+    assert b"Download PDF" in client.get("/app/pdp-copy/results").data
 
 
 def test_scoring_cross_link_creates_auto_generate_copy_jobs(client, auth, app):
