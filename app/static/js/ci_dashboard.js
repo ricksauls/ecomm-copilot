@@ -6,6 +6,15 @@
 (function () {
   "use strict";
 
+  // Group picker: auto-submit the GET form when the selection changes (the Go
+  // button remains as the no-JS fallback).
+  var groupSelect = document.getElementById("ci-group-select");
+  var groupForm = document.getElementById("ci-group-form");
+  if (groupSelect && groupForm) {
+    groupSelect.addEventListener("change", function () { groupForm.submit(); });
+  }
+
+  // Brand filter for the Search Ranking table.
   var select = document.getElementById("rank-brand-filter");
   var table = document.getElementById("rank-table");
   if (!select || !table) return;

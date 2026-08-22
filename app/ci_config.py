@@ -29,6 +29,8 @@ MAX_PRODUCTS_PER_GROUP = 500
 MAX_KEYWORDS_PER_GROUP = 200
 
 BRAND_TYPES = ("mine", "competitor")
+# A group is either a one-time snapshot or an ongoing monitoring group.
+GROUP_MODES = ("snapshot", "monitoring")
 
 
 class ConfigError(ValueError):
@@ -75,10 +77,12 @@ def _count(conn: sqlite3.Connection, table: str, group_id: int) -> int:
 # ── groups ──────────────────────────────────────────────────────────────────────
 
 def create_group(conn: sqlite3.Connection, user_id: int, name: str,
-                 description: str | None = None) -> int:
-    """Create a group for ``user_id``; return its id."""
+                 description: str | None = None, mode: str = "snapshot") -> int:
+    """Create a group for ``user_id`` in the given mode; return its id."""
     name = _clean_text(name, max_len=MAX_NAME_LEN, field="Group name")
     description = _clean_text(description, max_len=MAX_DESC_LEN, field="Description", required=False)
+    if mode not in GROUP_MODES:
+        raise ConfigError("Group mode must be 'snapshot' or 'monitoring'.")
 
     existing = conn.execute(
         "SELECT COUNT(*) FROM ci_groups WHERE user_id = ?", (user_id,)
@@ -87,25 +91,35 @@ def create_group(conn: sqlite3.Connection, user_id: int, name: str,
         raise ConfigError(f"You can have at most {MAX_GROUPS_PER_USER} groups.")
 
     cur = conn.execute(
-        "INSERT INTO ci_groups (user_id, name, description) VALUES (?, ?, ?)",
-        (user_id, name, description),
+        "INSERT INTO ci_groups (user_id, name, description, mode) VALUES (?, ?, ?, ?)",
+        (user_id, name, description, mode),
     )
     conn.commit()
     group_id = int(cur.lastrowid)
-    logger.info("CI group created id=%s user_id=%s", group_id, user_id)
+    logger.info("CI group created id=%s user_id=%s mode=%s", group_id, user_id, mode)
     return group_id
 
 
-def list_groups(conn: sqlite3.Connection, user_id: int) -> list[sqlite3.Row]:
-    """Return the user's groups (newest first) with child counts for the list view."""
-    return conn.execute(
+def list_groups(conn: sqlite3.Connection, user_id: int,
+                mode: str | None = None) -> list[sqlite3.Row]:
+    """Return the user's groups (newest first) with child counts for the list view.
+
+    ``mode`` optionally restricts to 'snapshot' or 'monitoring' groups (the two
+    setup menus each show their own).
+    """
+    sql = (
         "SELECT g.*, "
         "  (SELECT COUNT(*) FROM ci_brands   b WHERE b.group_id = g.id) AS brand_count, "
         "  (SELECT COUNT(*) FROM ci_products p WHERE p.group_id = g.id) AS product_count, "
         "  (SELECT COUNT(*) FROM ci_keywords k WHERE k.group_id = g.id) AS keyword_count "
-        "FROM ci_groups g WHERE g.user_id = ? ORDER BY g.id DESC",
-        (user_id,),
-    ).fetchall()
+        "FROM ci_groups g WHERE g.user_id = ?"
+    )
+    params: list = [user_id]
+    if mode is not None:
+        sql += " AND g.mode = ?"
+        params.append(mode)
+    sql += " ORDER BY g.id DESC"
+    return conn.execute(sql, params).fetchall()
 
 
 def get_group(conn: sqlite3.Connection, group_id: int, user_id: int) -> sqlite3.Row | None:
@@ -323,7 +337,8 @@ def load_group_config(conn: sqlite3.Connection, group_id: int) -> tuple[list, di
 
 
 def groups_with_monitoring(conn: sqlite3.Connection) -> list[sqlite3.Row]:
-    """Return active groups opted into monitoring (used by the scheduler)."""
+    """Return active monitoring groups opted into the sweep (used by the scheduler)."""
     return conn.execute(
-        "SELECT * FROM ci_groups WHERE monitoring_enabled = 1 AND active = 1 ORDER BY id"
+        "SELECT * FROM ci_groups "
+        "WHERE monitoring_enabled = 1 AND active = 1 AND mode = 'monitoring' ORDER BY id"
     ).fetchall()

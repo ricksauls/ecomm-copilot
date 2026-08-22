@@ -1,14 +1,21 @@
 {% extends "app/base.html" %}
-{% block title %}{{ group.name }} · Configure — ecomm-copilot{% endblock %}
+{% block title %}{{ group.name }} · Set up — ecomm-copilot{% endblock %}
 
 {% block pane_content %}
 <div class="page-header">
   <div>
     <h1>{{ group.name }}</h1>
-    <p class="subtitle">Brands, products, and keywords to track for this group.</p>
+    <p class="subtitle">
+      {% if group.mode == 'monitoring' %}Monitoring group — brands, products, and keywords to track over time.
+      {% else %}Snapshot group — brands, products, and keywords for a one-time read.{% endif %}
+    </p>
   </div>
   <div class="ci-periods">
-    <a href="{{ url_for('pages.ci_dashboard', group_id=group.id) }}" class="wbtn wbtn-primary">View dashboard</a>
+    {% if group.mode == 'monitoring' %}
+    <a href="{{ url_for('pages.ci_view', group_id=group.id) }}" class="wbtn wbtn-primary">View results</a>
+    {% else %}
+    <a href="{{ url_for('pages.ci_snapshot_results', group_id=group.id) }}" class="wbtn wbtn-primary">View results</a>
+    {% endif %}
   </div>
 </div>
 
@@ -18,31 +25,40 @@
   {% endfor %}
 {% endwith %}
 
-{# Run controls: one-time scrape + monitoring toggle + live status. #}
-<div class="card card-pad">
+{% include "app/_ci_help.html" %}
+
+{# Run controls — the action differs by mode. #}
+<div class="ci-section card card-pad">
   <div class="ci-inline-form" style="margin-top:0; justify-content:space-between">
     <div>
-      <div class="ci-section-title">Data collection</div>
+      <div class="ci-section-title">
+        {% if group.mode == 'monitoring' %}Schedule &amp; run{% else %}Run snapshot{% endif %}
+      </div>
       <p class="ci-section-hint" style="margin-bottom:0">
-        Run a one-time scrape now, or turn on monitoring to scrape automatically
-        at 7 AM, 3 PM, and 11 PM CST.
+        {% if group.mode == 'monitoring' %}
+          Turns on automatic checks (7 AM / 3 PM / 11 PM CST) and runs a baseline now.
+          Next scheduled check: <strong>{{ next_run.strftime('%a %b %-d, %-I:%M %p') }} CST</strong>.
+        {% else %}
+          Scrapes Walmart search once and shows the current-state results.
+        {% endif %}
       </p>
     </div>
-    <div class="ci-inline-form" style="margin-top:0">
-      <form method="post" action="{{ url_for('pages.ci_run_now', group_id=group.id) }}">
+    <div>
+      {% if group.mode == 'monitoring' %}
+      <form method="post" action="{{ url_for('pages.ci_schedule_run', group_id=group.id) }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-        <button type="submit" class="wbtn wbtn-primary">Run once now</button>
-      </form>
-      <form method="post" action="{{ url_for('pages.ci_toggle_monitoring', group_id=group.id) }}">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-        <input type="hidden" name="enabled" value="{{ 0 if group.monitoring_enabled else 1 }}" />
-        <button type="submit" class="wbtn wbtn-secondary">
-          {{ 'Turn monitoring off' if group.monitoring_enabled else 'Turn monitoring on' }}
+        <button type="submit" class="wbtn wbtn-primary">
+          {{ 'Run now' if group.monitoring_enabled else 'Schedule & Run' }}
         </button>
       </form>
+      {% else %}
+      <form method="post" action="{{ url_for('pages.ci_run_snapshot', group_id=group.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+        <button type="submit" class="wbtn wbtn-primary">Run snapshot</button>
+      </form>
+      {% endif %}
     </div>
   </div>
-  {# Latest run status; ci_config.js polls the status endpoint while it's active. #}
   <p class="ci-section-hint" id="ci-run-status"
      data-status-url="{{ url_for('pages.ci_run_status', group_id=group.id) }}"
      style="margin-top:12px; margin-bottom:0">
@@ -71,7 +87,7 @@
           <td><span class="ci-type {{ 'mine' if b.type == 'mine' else '' }}">{{ b.type }}</span></td>
           <td class="cell-muted">{{ b.product_count }}</td>
           <td class="cell-action">
-            <form method="post" action="{{ url_for('pages.ci_delete_brand', brand_id=b.id) }}" class="ci-delete-form">
+            <form method="post" action="{{ url_for('pages.ci_delete_brand', brand_id=b.id) }}">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
               <input type="hidden" name="group_id" value="{{ group.id }}" />
               <button type="submit" class="btn-delete" data-confirm="Delete brand '{{ b.name }}' and its products?">Delete</button>
@@ -97,7 +113,7 @@
 <div class="ci-section card card-pad">
   <div class="ci-section-title">Products</div>
   <p class="ci-section-hint">
-    Walmart product URLs, each assigned to a brand. Used to match your and rivals'
+    Walmart product URLs, each assigned to a brand — used to match your and rivals'
     items in the search results.
   </p>
   {% if products %}
@@ -116,7 +132,7 @@
             <span class="ci-type {{ 'mine' if p.brand_type == 'mine' else '' }}">{{ p.brand_type }}</span>
           </td>
           <td class="cell-action">
-            <form method="post" action="{{ url_for('pages.ci_delete_product', product_id=p.id) }}" class="ci-delete-form">
+            <form method="post" action="{{ url_for('pages.ci_delete_product', product_id=p.id) }}">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
               <input type="hidden" name="group_id" value="{{ group.id }}" />
               <button type="submit" class="btn-delete" data-confirm="Delete this product?">Delete</button>

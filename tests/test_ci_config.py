@@ -110,13 +110,34 @@ def test_monitoring_toggle_and_groups_with_monitoring(app):
     with app.app_context():
         uid = create_local_user("m@example.com", "password123")
         db = get_db()
-        gid = ci_config.create_group(db, uid, "G")
+        gid = ci_config.create_group(db, uid, "G", mode="monitoring")
         assert ci_config.groups_with_monitoring(db) == []
         ci_config.set_monitoring(db, gid, uid, True)
         mon = ci_config.groups_with_monitoring(db)
         assert [g["id"] for g in mon] == [gid]
         ci_config.set_monitoring(db, gid, uid, False)
         assert ci_config.groups_with_monitoring(db) == []
+
+
+def test_snapshot_group_never_swept_even_if_monitoring_flag_set(app):
+    # groups_with_monitoring is mode-scoped: a snapshot group is never returned.
+    with app.app_context():
+        uid = create_local_user("s2@example.com", "password123")
+        db = get_db()
+        gid = ci_config.create_group(db, uid, "Snap", mode="snapshot")
+        ci_config.set_monitoring(db, gid, uid, True)
+        assert ci_config.groups_with_monitoring(db) == []
+
+
+def test_list_groups_filters_by_mode(app):
+    with app.app_context():
+        uid = create_local_user("mode@example.com", "password123")
+        db = get_db()
+        s = ci_config.create_group(db, uid, "Snap", mode="snapshot")
+        m = ci_config.create_group(db, uid, "Mon", mode="monitoring")
+        assert [g["id"] for g in ci_config.list_groups(db, uid, mode="snapshot")] == [s]
+        assert [g["id"] for g in ci_config.list_groups(db, uid, mode="monitoring")] == [m]
+        assert {g["id"] for g in ci_config.list_groups(db, uid)} == {s, m}
 
 
 def test_delete_group_cascades(app):

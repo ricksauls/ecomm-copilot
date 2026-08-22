@@ -108,6 +108,10 @@ CREATE TABLE IF NOT EXISTS ci_groups (
     user_id             INTEGER NOT NULL REFERENCES users(id),
     name                TEXT    NOT NULL,
     description         TEXT,
+    -- 'snapshot' (one-time, current-state) or 'monitoring' (scheduled 3x/day
+    -- over time). A group belongs to exactly one mode; the two setup menus each
+    -- manage their own.
+    mode                TEXT    NOT NULL DEFAULT 'snapshot',
     -- 1 => include this group in the scheduled 3x/day monitoring sweep.
     monitoring_enabled  INTEGER NOT NULL DEFAULT 0,
     active              INTEGER NOT NULL DEFAULT 1,
@@ -252,6 +256,13 @@ def _migrate(conn: sqlite3.Connection) -> None:
         if col not in user_cols:
             conn.execute(f"ALTER TABLE users ADD COLUMN {col} TEXT")
             logger.info("Migrated users: added '%s' column", col)
+
+    # ci_groups.mode distinguishes one-time snapshot groups from monitoring
+    # groups (added when the CI feature split into separate setup menus).
+    ci_group_cols = {row[1] for row in conn.execute("PRAGMA table_info(ci_groups)")}
+    if ci_group_cols and "mode" not in ci_group_cols:
+        conn.execute("ALTER TABLE ci_groups ADD COLUMN mode TEXT NOT NULL DEFAULT 'snapshot'")
+        logger.info("Migrated ci_groups: added 'mode' column")
 
 
 def ensure_schema(conn: sqlite3.Connection) -> None:

@@ -995,7 +995,8 @@ a:focus-visible,
    Added 2026-08-21 for the admin screens (Users, Items scored). */
 
 /* Admin nav group sits directly under the main nav, set apart by a hairline. */
-.rail-admin {
+.rail-admin,
+.rail-ci {
   margin-top: 14px;
   padding-top: 12px;
   border-top: 1px solid var(--graphite);
@@ -1462,3 +1463,13 @@ a:focus-visible,
   color: var(--cool-gray);
   font-size: 13px;
 }
+
+/* CI help panel (config screen). */
+.ci-help-steps {
+  margin: 6px 0 10px;
+  padding-left: 20px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--mid-gray);
+}
+.ci-help-steps strong { color: var(--black); }

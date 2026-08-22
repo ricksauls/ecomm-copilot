@@ -10,8 +10,8 @@ def test_enqueues_only_monitoring_enabled_groups(app):
     with app.app_context():
         db = get_db()
         uid = create_local_user("m@example.com", "password123")
-        on = ci_config.create_group(db, uid, "On")
-        ci_config.create_group(db, uid, "Off")  # monitoring off by default
+        on = ci_config.create_group(db, uid, "On", mode="monitoring")
+        ci_config.create_group(db, uid, "Off", mode="monitoring")  # monitoring off by default
         ci_config.set_monitoring(db, on, uid, True)
 
         n = enqueue_all(db, "morning")
@@ -25,7 +25,7 @@ def test_skips_group_with_active_run(app):
     with app.app_context():
         db = get_db()
         uid = create_local_user("s@example.com", "password123")
-        gid = ci_config.create_group(db, uid, "G")
+        gid = ci_config.create_group(db, uid, "G", mode="monitoring")
         ci_config.set_monitoring(db, gid, uid, True)
         # A run is already queued — the next sweep should not pile on a duplicate.
         ci_jobs.enqueue_run(db, gid, "monitoring", "morning")

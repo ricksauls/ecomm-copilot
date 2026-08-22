@@ -1,0 +1,66 @@
+{% extends "app/base.html" %}
+{% block title %}One-Time Snapshot — ecomm-copilot{% endblock %}
+
+{% block pane_content %}
+<div class="page-header">
+  <div>
+    <h1>One-Time Snapshot</h1>
+    <p class="subtitle">
+      A current-state read of Search Ranking &amp; Share of Digital Shelf — run once,
+      download a PDF. No ongoing tracking.
+    </p>
+  </div>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% for category, message in messages %}
+  <div class="ci-flash {{ category }}" role="alert">{{ message }}</div>
+  {% endfor %}
+{% endwith %}
+
+<div class="card card-pad">
+  <div class="ci-section-title">New snapshot</div>
+  <p class="ci-section-hint">Name the competitive set you want a one-time read on.</p>
+  <form method="post" action="{{ url_for('pages.ci_create_snapshot_group') }}" class="ci-inline-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+    <input type="text" name="name" class="ci-input grow" placeholder="Name (e.g. Hot Sauce)"
+           maxlength="255" required />
+    <input type="text" name="description" class="ci-input grow" placeholder="Description (optional)"
+           maxlength="1000" />
+    <button type="submit" class="wbtn wbtn-primary">Create</button>
+  </form>
+</div>
+
+{% if groups %}
+<div class="ci-group-grid">
+  {% for gr in groups %}
+  <div class="card card-pad ci-group-card">
+    <div>
+      <div class="name">{{ gr.name }}</div>
+      {% if gr.description %}<div class="meta">{{ gr.description }}</div>{% endif %}
+    </div>
+    <div class="meta">
+      {{ gr.brand_count }} brand{{ '' if gr.brand_count == 1 else 's' }} ·
+      {{ gr.product_count }} product{{ '' if gr.product_count == 1 else 's' }} ·
+      {{ gr.keyword_count }} keyword{{ '' if gr.keyword_count == 1 else 's' }}
+    </div>
+    <div class="actions">
+      <a href="{{ url_for('pages.ci_group_config', group_id=gr.id) }}" class="wbtn wbtn-primary">Set up &amp; run</a>
+      <a href="{{ url_for('pages.ci_snapshot_results', group_id=gr.id) }}" class="wbtn wbtn-secondary">Results</a>
+      <form method="post" action="{{ url_for('pages.ci_delete_group', group_id=gr.id) }}"
+            style="margin-left:auto">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+        <button type="submit" class="btn-delete" data-confirm="Delete this snapshot and all its data?">Delete</button>
+      </form>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card card-pad ci-empty">No snapshots yet. Create one above to start.</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ static_url('js/ci_config.js') }}"></script>
+{% endblock %}

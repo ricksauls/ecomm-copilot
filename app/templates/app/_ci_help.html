@@ -1,0 +1,27 @@
+{# Short in-app help panel for the CI config screen. Explains the setup flow so
+   users know the order (brands before products) and what each piece drives.
+   Included by ci_group_config.html. #}
+<div class="card card-pad ci-help">
+  <div class="ci-section-title">How setup works</div>
+  <ol class="ci-help-steps">
+    <li><strong>Add brands</strong> — mark your own as <em>mine</em> and rivals as
+      <em>competitor</em>. (Brands come first — products attach to one.)</li>
+    <li><strong>Add products</strong> — paste each Walmart product URL and pick its
+      brand. This is how results get attributed to the right brand.</li>
+    <li><strong>Add keywords</strong> — the search terms to track on Walmart.com.</li>
+    <li><strong>Run it</strong> —
+      {% if group.mode == 'monitoring' %}
+        <em>Schedule &amp; Run</em> turns on the 3×/day checks (7 AM / 3 PM / 11 PM CST)
+        and kicks off a baseline now. View results under <em>View Monitoring</em>.
+      {% else %}
+        <em>Run snapshot</em> scrapes once and shows the current-state results, which
+        you can download as a PDF.
+      {% endif %}
+    </li>
+  </ol>
+  <p class="ci-section-hint" style="margin-bottom:0">
+    <strong>Search Ranking</strong> tracks where your products land; <strong>Share of
+    Digital Shelf</strong> shows each brand's slice of page-1 slots (organic vs
+    sponsored).
+  </p>
+</div>

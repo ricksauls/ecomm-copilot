@@ -1,0 +1,71 @@
+{% extends "app/base.html" %}
+{% block title %}Monitoring Setup — ecomm-copilot{% endblock %}
+
+{% block pane_content %}
+<div class="page-header">
+  <div>
+    <h1>Monitoring Setup</h1>
+    <p class="subtitle">
+      Track Search Ranking &amp; Share of Digital Shelf over time — automatic checks
+      3×/day (7 AM / 3 PM / 11 PM CST).
+    </p>
+  </div>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% for category, message in messages %}
+  <div class="ci-flash {{ category }}" role="alert">{{ message }}</div>
+  {% endfor %}
+{% endwith %}
+
+<div class="card card-pad">
+  <div class="ci-section-title">New monitoring group</div>
+  <p class="ci-section-hint">
+    Next scheduled check:
+    <strong>{{ next_run.strftime('%a %b %-d, %-I:%M %p') }} CST</strong>.
+  </p>
+  <form method="post" action="{{ url_for('pages.ci_create_monitoring_group') }}" class="ci-inline-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+    <input type="text" name="name" class="ci-input grow" placeholder="Name (e.g. Hot Sauce)"
+           maxlength="255" required />
+    <input type="text" name="description" class="ci-input grow" placeholder="Description (optional)"
+           maxlength="1000" />
+    <button type="submit" class="wbtn wbtn-primary">Create</button>
+  </form>
+</div>
+
+{% if groups %}
+<div class="ci-group-grid">
+  {% for gr in groups %}
+  <div class="card card-pad ci-group-card">
+    <div>
+      <div class="name">{{ gr.name }}
+        {% if gr.monitoring_enabled %}<span class="ci-type mine">Monitoring on</span>{% endif %}
+      </div>
+      {% if gr.description %}<div class="meta">{{ gr.description }}</div>{% endif %}
+    </div>
+    <div class="meta">
+      {{ gr.brand_count }} brand{{ '' if gr.brand_count == 1 else 's' }} ·
+      {{ gr.product_count }} product{{ '' if gr.product_count == 1 else 's' }} ·
+      {{ gr.keyword_count }} keyword{{ '' if gr.keyword_count == 1 else 's' }}
+    </div>
+    <div class="actions">
+      <a href="{{ url_for('pages.ci_group_config', group_id=gr.id) }}" class="wbtn wbtn-primary">Set up</a>
+      <a href="{{ url_for('pages.ci_view', group_id=gr.id) }}" class="wbtn wbtn-secondary">View</a>
+      <form method="post" action="{{ url_for('pages.ci_delete_group', group_id=gr.id) }}"
+            style="margin-left:auto">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+        <button type="submit" class="btn-delete" data-confirm="Delete this monitoring group and all its data?">Delete</button>
+      </form>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card card-pad ci-empty">No monitoring groups yet. Create one above to start.</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ static_url('js/ci_config.js') }}"></script>
+{% endblock %}

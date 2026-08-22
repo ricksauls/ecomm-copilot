@@ -14,13 +14,35 @@ delta is ``prior - current`` — positive means the product moved *up*.
 import logging
 import sqlite3
 from collections import defaultdict
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
 
 # Rolling period windows (days), ending today. Mirrors the reference periods.
 PERIOD_DAYS = {"wow": 7, "mom": 30, "qoq": 90, "yoy": 365}
 DEFAULT_PERIOD = "wow"
+
+# The three daily monitoring slots, in Central time (matches the systemd timers).
+CST = ZoneInfo("America/Chicago")
+MONITORING_HOURS = (7, 15, 23)  # 7 AM, 3 PM, 11 PM CST
+
+
+def next_monitoring_run(now: datetime | None = None) -> datetime:
+    """Return the next 7 AM / 3 PM / 11 PM Central run strictly after ``now``.
+
+    Timezone-aware (DST handled by zoneinfo) so the monitoring screens can show
+    the same wall-clock time the systemd timers fire at.
+    """
+    now = now.astimezone(CST) if now else datetime.now(CST)
+    for day_offset in (0, 1):
+        day = (now + timedelta(days=day_offset)).date()
+        for hour in MONITORING_HOURS:
+            candidate = datetime(day.year, day.month, day.day, hour, 0, tzinfo=CST)
+            if candidate > now:
+                return candidate
+    # Unreachable (tomorrow's 7 AM always qualifies), but keep the type total.
+    return datetime(now.year, now.month, now.day, MONITORING_HOURS[0], 0, tzinfo=CST)
 
 
 def get_date_range(period: str, today: date | None = None) -> tuple[str, str]:
@@ -149,6 +171,66 @@ def _sos_totals_by_brand(conn: sqlite3.Connection, group_id: int,
         r["brand_id"]: {"organic": r["o"] or 0, "sponsored": r["s"] or 0, "total": r["t"] or 0}
         for r in rows
     }
+
+
+def snapshot_share_of_shelf(conn: sqlite3.Connection, group_id: int, run_id: int) -> list[dict]:
+    """Per-brand share of shelf for a single run (current-state, no deltas/trends).
+
+    Used by the One-Time Snapshot results — one run, so trend/delta are meaningless.
+    """
+    rows = conn.execute(
+        "SELECT brand_id, SUM(organic_count) AS o, SUM(sponsored_count) AS s, "
+        "SUM(total_count) AS t FROM ci_share_of_search "
+        "WHERE group_id = ? AND run_id = ? GROUP BY brand_id",
+        (group_id, run_id),
+    ).fetchall()
+    counts = {r["brand_id"]: {"organic": r["o"] or 0, "sponsored": r["s"] or 0,
+                              "total": r["t"] or 0} for r in rows}
+    grand = {k: sum(b[k] for b in counts.values()) for k in ("organic", "sponsored", "total")}
+
+    brand_meta = _brand_meta(conn, group_id)
+    out = []
+    for brand_id, c in counts.items():
+        meta = brand_meta.get(brand_id)
+        out.append({
+            "brand_id": brand_id,
+            "brand_name": meta["name"] if meta else "Other",
+            "type": meta["type"] if meta else "other",
+            "organic": c["organic"],
+            "sponsored": c["sponsored"],
+            "total": c["total"],
+            "organic_share": _pct(c["organic"], grand["organic"]),
+            "sponsored_share": _pct(c["sponsored"], grand["sponsored"]),
+            "total_share": _pct(c["total"], grand["total"]),
+        })
+    out.sort(key=lambda r: ({"mine": 0, "competitor": 1}.get(r["type"], 2), -r["total_share"]))
+    return out
+
+
+def snapshot_rank(conn: sqlite3.Connection, group_id: int, run_id: int) -> list[dict]:
+    """Best position of each my-product per keyword within a single run (no trend).
+
+    Used by the One-Time Snapshot results.
+    """
+    rows = conn.execute(
+        "SELECT k.keyword AS keyword, p.name AS product_name, b.name AS brand_name, "
+        "  p.walmart_item_id AS item_id, MIN(sr.position) AS position "
+        "FROM ci_search_results sr "
+        "JOIN ci_keywords k ON k.id = sr.keyword_id "
+        "JOIN ci_products p ON p.walmart_item_id = sr.item_id AND p.group_id = sr.group_id "
+        "JOIN ci_brands b ON b.id = p.brand_id "
+        "WHERE sr.group_id = ? AND sr.run_id = ? AND b.type = 'mine' "
+        "GROUP BY k.id, p.id "
+        "ORDER BY b.name COLLATE NOCASE, p.name COLLATE NOCASE, k.keyword COLLATE NOCASE",
+        (group_id, run_id),
+    ).fetchall()
+    return [{
+        "keyword": r["keyword"],
+        "product_name": r["product_name"] or r["item_id"],
+        "brand_name": r["brand_name"],
+        "item_id": r["item_id"],
+        "current_position": r["position"],
+    } for r in rows]
 
 
 def _brand_meta(conn: sqlite3.Connection, group_id: int) -> dict[int, dict]:

@@ -15,10 +15,25 @@
     ('pdp-scoring', 'PDP Content Scoring', url_for('pages.pdp_scoring')),
     ('pdp-image-set', 'PDP Image Set Creation', '#'),
     ('pdp-copy', 'PDP Copy Content Creation', url_for('pages.pdp_copy')),
-    ('competitive-intel', 'Competitive Intelligence', url_for('pages.ci_groups')),
   ] %}
   <div class="rail-nav">
     {% for slug, label, href in nav_items %}
+    <a href="{{ href }}" class="nav-item {{ 'active' if active_nav == slug else '' }}">
+      <span class="mark"></span>{{ label }}
+    </a>
+    {% endfor %}
+  </div>
+
+  {# Competitive Intelligence is a section with three task-oriented flows, using
+     the same labelled-group pattern as the Admin section below. #}
+  {% set ci_items = [
+    ('ci-snapshot', 'One-Time Snapshot', url_for('pages.ci_snapshot_home')),
+    ('ci-monitoring', 'Monitoring Setup', url_for('pages.ci_monitoring_home')),
+    ('ci-view', 'View Monitoring', url_for('pages.ci_view')),
+  ] %}
+  <div class="rail-nav rail-ci">
+    <div class="rail-section-label">Competitive Intelligence</div>
+    {% for slug, label, href in ci_items %}
     <a href="{{ href }}" class="nav-item {{ 'active' if active_nav == slug else '' }}">
       <span class="mark"></span>{{ label }}
     </a>
