@@ -1069,7 +1069,7 @@ a:focus-visible,
   border-collapse: collapse;
   /* Compact type so dense admin rows (email, product title, timestamp) fit
      without wrapping; header stays a step smaller as an uppercase label. */
-  font-size: 12px;
+  font-size: 11px;
 }
 .admin-table th {
   text-align: left;
@@ -1086,6 +1086,12 @@ a:focus-visible,
   padding: 8px 10px;
   border-bottom: 1px solid var(--border);
   vertical-align: top;
+}
+/* The ID column is a short numeric key — keep it on one line so it never
+   wraps and steals width from the content columns. */
+.admin-table th:first-child,
+.admin-table td:first-child {
+  white-space: nowrap;
 }
 .admin-table tr:last-child td {
   border-bottom: none;
