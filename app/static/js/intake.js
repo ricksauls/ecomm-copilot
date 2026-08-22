@@ -1,5 +1,7 @@
-// PDP Content Scoring intake — repeatable URL fields + CSV drag-and-drop.
+// Shared PDP intake enhancement — repeatable URL fields + CSV drag-and-drop.
 //
+// Used by both the PDP Content Scoring and PDP Copy Content Creation intake
+// pages (identical markup: #url-rows/#add-url and #csv-drop/#csv/#csv-filename).
 // Loaded as an external file because the app's CSP is script-src 'self', so
 // inline scripts and inline event handlers are blocked. Everything here is
 // progressive enhancement: without JS the first URL field and click-to-browse
@@ -8,7 +10,7 @@
 (function () {
   "use strict";
 
-  var MAX_ROWS = 200; // Mirror of app.pdp.MAX_ITEMS; the server enforces the real cap.
+  var MAX_ROWS = 100; // Mirror of app.pdp.MAX_ITEMS; the server enforces the real cap.
   var PLACEHOLDER = "https://www.walmart.com/ip/10294528 (use this format)";
 
   // --- Repeatable URL rows -------------------------------------------------

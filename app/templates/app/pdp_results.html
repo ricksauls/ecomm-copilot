@@ -21,9 +21,12 @@
   </div>
   <div class="header-buttons">
     {% if has_scored %}
+    {# Submits the selection form below (associated via the form= attribute) so
+       the checked items are sent to Copy Content Creation. #}
+    <button type="submit" form="copy-select-form" class="wbtn wbtn-primary">Create new copy content</button>
     <a href="{{ url_for('pages.pdp_scoring_results_pdf') }}" class="wbtn wbtn-secondary">Download PDF</a>
     {% endif %}
-    <a href="{{ url_for('pages.pdp_scoring') }}" class="wbtn wbtn-primary">Score more</a>
+    <a href="{{ url_for('pages.pdp_scoring') }}" class="wbtn wbtn-secondary">Score more</a>
   </div>
 </div>
 
@@ -33,10 +36,24 @@
 </div>
 {% endif %}
 
+{% if has_scored %}
+<p class="copy-select-hint">Tick items and choose <strong>Create new copy content</strong> to rewrite their Title, Description, and Key Features.</p>
+{% endif %}
+
+{# Selection form: the per-item checkboxes below post together to the copy flow.
+   The submit button lives in the header and targets this form by id. #}
+<form id="copy-select-form" method="post" action="{{ url_for('pages.pdp_scoring_create_copy') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+
 {% for it in items %}
 <div class="card card-pad score-card">
   <div class="score-card-head">
     <div class="score-id">
+      {% if it.status == 'scored' %}
+      <label class="copy-select" title="Select for copy rewrite">
+        <input type="checkbox" name="item_ids" value="{{ it.id }}" />
+      </label>
+      {% endif %}
       {% if it.item_id %}<span class="item-no">Item #{{ it.item_id }}</span>{% endif %}
       <a href="{{ it.url }}" class="item-url" target="_blank" rel="noopener noreferrer">{{ it.url }}</a>
       {# Product name (filled once scored) — identifies the item far better than
@@ -90,4 +107,5 @@
   {% endif %}
 </div>
 {% endfor %}
+</form>
 {% endblock %}

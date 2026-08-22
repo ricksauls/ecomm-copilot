@@ -58,6 +58,38 @@ CREATE TABLE IF NOT EXISTS keyword_cache (
     keywords    TEXT NOT NULL,  -- JSON array of keyword strings
     created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- One row per submitted PDP URL for the Copy Content Creation feature. Distinct
+-- from scored_items because the lifecycle is two-phase: the worker first fetches
+-- the CURRENT copy (Title/Description/Key Features), then — on the user's "Create
+-- new copy content" action, or immediately when auto_generate is set (the flow
+-- that starts from the scoring screen) — generates NEW copy with the AI. Both the
+-- current and generated copy (and each one's rule-based score) are stored so the
+-- results screen can show them side by side.
+CREATE TABLE IF NOT EXISTS copy_items (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id            INTEGER NOT NULL REFERENCES users(id),
+    item_id            TEXT,
+    url                TEXT    NOT NULL,
+    -- queued -> fetching -> fetched -> gen_queued -> generating -> done
+    -- (plus blocked|error). "fetched" is the resting state after the current
+    -- copy is retrieved; the user (or auto_generate) advances it to gen_queued.
+    status             TEXT    NOT NULL DEFAULT 'queued',
+    -- 1 => generate immediately after the fetch, without waiting for a second
+    -- click. Set when the batch originates from the scoring screen.
+    auto_generate      INTEGER NOT NULL DEFAULT 0,
+    title              TEXT,           -- product name, filled by the worker on fetch
+    current_json       TEXT,           -- JSON: {title, bullets[], description, score}
+    new_json           TEXT,           -- JSON: {title, bullets[], description, score}
+    current_overall    INTEGER,        -- rule-based score of the current copy
+    projected_overall  INTEGER,        -- rule-based score of the generated copy
+    keywords_json      TEXT,           -- target keyword set resolved at fetch, reused at generation
+    error              TEXT,
+    created_at         TEXT    NOT NULL DEFAULT (datetime('now')),
+    updated_at         TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_copy_items_status ON copy_items(status);
+CREATE INDEX IF NOT EXISTS idx_copy_items_user ON copy_items(user_id, id);
 """
 
 

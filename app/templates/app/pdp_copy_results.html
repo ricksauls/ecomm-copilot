@@ -1,0 +1,115 @@
+{% extends "app/base.html" %}
+{% block title %}PDP Copy — ecomm-copilot{% endblock %}
+
+{# Pending while any item is still fetching or generating. #}
+{% set pending = items | selectattr('status', 'in', ['queued', 'fetching', 'gen_queued', 'generating']) | list | length > 0 %}
+{# Any item resting at "fetched" can be sent to generation via the batch button. #}
+{% set has_fetched = items | selectattr('status', 'equalto', 'fetched') | list | length > 0 %}
+
+{% block head_extra %}
+{# While anything is in flight, refresh so current/new copy appears as the worker
+   completes each phase. No JS needed — CSP-safe. #}
+{% if pending %}<meta http-equiv="refresh" content="5" />{% endif %}
+{% endblock %}
+
+{# Render one copy column (Title / Key Features / Description) with copy buttons. #}
+{% macro copy_column(copy, kind) %}
+<div class="copy-col copy-col-{{ kind }}">
+  <div class="copy-col-head">{{ 'Current copy' if kind == 'current' else 'New copy' }}</div>
+  <div class="copy-field">
+    <div class="copy-field-label">Title</div>
+    <p class="copy-field-value">{{ copy.title }}</p>
+  </div>
+  <div class="copy-field">
+    <div class="copy-field-label">Key Item Features</div>
+    <ul class="copy-bullets">
+      {% for b in copy.bullets %}<li>{{ b }}</li>{% endfor %}
+    </ul>
+  </div>
+  <div class="copy-field">
+    <div class="copy-field-label">Description</div>
+    <p class="copy-field-value copy-desc">{{ copy.description }}</p>
+  </div>
+</div>
+{% endmacro %}
+
+{% block pane_content %}
+<div class="page-header">
+  <div>
+    <h1>PDP Copy Content</h1>
+    <p class="subtitle {{ 'subtitle-scoring' if pending else '' }}">
+      {{ items | length }} item{{ '' if items | length == 1 else 's' }}
+      {% if pending %}· working…{% else %}· ready{% endif %}
+    </p>
+  </div>
+  <div class="header-buttons">
+    {% if has_fetched %}
+    {# One action for the whole batch: generate new copy for every fetched item. #}
+    <form method="post" action="{{ url_for('pages.pdp_copy_generate') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+      <button type="submit" class="wbtn wbtn-primary">Create new copy content</button>
+    </form>
+    {% endif %}
+    <a href="{{ url_for('pages.pdp_copy') }}" class="wbtn wbtn-secondary">New batch</a>
+  </div>
+</div>
+
+{% if not items %}
+<div class="card card-pad">
+  <p class="results-count">No items in this batch. <a href="{{ url_for('pages.pdp_copy') }}">Add some</a>.</p>
+</div>
+{% endif %}
+
+{% for it in items %}
+<div class="card card-pad copy-card">
+  <div class="copy-card-head">
+    <div class="score-id">
+      {% if it.item_id %}<span class="item-no">Item #{{ it.item_id }}</span>{% endif %}
+      <a href="{{ it.url }}" class="item-url" target="_blank" rel="noopener noreferrer">{{ it.url }}</a>
+      {% if it.title %}<span class="item-title">{{ it.title }}</span>{% endif %}
+    </div>
+    <span class="status-badge status-{{ it.status }}">
+      {% if it.status in ('queued', 'fetching') %}Fetching…
+      {% elif it.status == 'fetched' %}Ready to rewrite
+      {% elif it.status in ('gen_queued', 'generating') %}Generating…
+      {% elif it.status == 'done' %}Done
+      {% elif it.status == 'blocked' %}Couldn’t fetch
+      {% else %}Error{% endif %}
+    </span>
+  </div>
+
+  {% if it.status in ('queued', 'fetching') %}
+  <p class="score-pending">Fetching the current Title, Description, and Key Features…</p>
+  {% elif it.status == 'blocked' %}
+  <p class="score-pending warn">Walmart blocked the fetch. Try again shortly.</p>
+  {% elif it.status == 'error' %}
+  <p class="score-pending warn">Something went wrong{% if it.error %}: {{ it.error }}{% endif %}.</p>
+  {% elif it.current %}
+  {# Current copy is available. Show it, plus the new copy (or a placeholder while
+     it generates) side by side. #}
+  <div class="copy-scoreline">
+    <span class="copy-score-chip">Current score <strong>{{ it.current_overall }}</strong>/100</span>
+    {% if it.status == 'done' and it.projected_overall is not none %}
+    <span class="copy-score-arrow" aria-hidden="true">→</span>
+    <span class="copy-score-chip copy-score-projected">Projected <strong>{{ it.projected_overall }}</strong>/100</span>
+    {% set delta = it.projected_overall - it.current_overall %}
+    <span class="copy-score-delta {{ 'up' if delta > 0 else ('down' if delta < 0 else '') }}">
+      {{ '+' if delta > 0 else '' }}{{ delta }}
+    </span>
+    {% endif %}
+  </div>
+  <div class="copy-cols {{ 'copy-cols-one' if it.status != 'done' else '' }}">
+    {{ copy_column(it.current, 'current') }}
+    {% if it.status == 'done' and it.new %}
+    {{ copy_column(it.new, 'new') }}
+    {% elif it.status in ('gen_queued', 'generating') %}
+    <div class="copy-col copy-col-pending">
+      <div class="copy-col-head">New copy</div>
+      <p class="score-pending">Generating improved copy…</p>
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+{% endfor %}
+{% endblock %}

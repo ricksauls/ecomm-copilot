@@ -14,16 +14,22 @@ A working reference for picking up development. Read this first, then
   `~/Desktop/ClaudeStuff/ecomm-copilot-clean`.
 - **Stack:** Python / Flask, SQLite, server-rendered Jinja templates, deployed
   by GitHub Actions to a DigitalOcean droplet.
-- **Tests:** 86 passing (`ruff` clean, `pip-audit` clean).
+- **Tests:** 107 passing (`ruff` clean, `pip-audit` clean).
 - **Worker:** installed and running — scoring is self-serve end-to-end (intake →
   queue → background fetch+score → results). One worker only (see §6, parallelism).
 
 **What works today:**
 - Marketing **landing** page (dark), self-service **auth** (email/password +
   Google SSO), login-guarded **workspace**.
-- **PDP Content Scoring** end-to-end: intake (multi-URL or CSV, up to 200), queue,
+- **PDP Content Scoring** end-to-end: intake (multi-URL or CSV, up to 100), queue,
   background fetch+score, results page (flashes while scoring, shows product
   title), and a **PDF export** of a batch.
+- **PDP Copy Content Creation** end-to-end: intake (same URL/CSV, up to 100) →
+  "Get Current Copy Content" (worker fetches current Title/Description/Key
+  Features) → "Create new copy content" (AI rewrite via Claude) → results screen
+  showing current vs new copy **side by side** with a current→projected score
+  delta. Also reachable by ticking items on the scoring results and clicking
+  "Create new copy content" (that path fetches **and** generates in one pass).
 - **Admin screens** (Users, Items scored) for the two admin emails, with a
   new-user notification and per-user delete.
 
@@ -41,12 +47,16 @@ A working reference for picking up development. Read this first, then
   (headed Chrome). Installed and active.
 - **Xvfb:** `xvfb.service` on `:99` (from the WM scraper) — the worker reuses it.
 - **DB:** SQLite at `DATABASE_URL` (`/home/deploy/apps/ecomm-copilot/app.db`),
-  chmod 600. Tables: `users`, `scored_items`, `keyword_cache`. Schema is created
-  + migrated idempotently at web startup (`db.init_db` / `db._migrate`).
+  chmod 600. Tables: `users`, `scored_items`, `keyword_cache`, `copy_items`
+  (Copy Content Creation). Schema is created + migrated idempotently at web
+  startup (`db.init_db` / `db._migrate`).
 - **Secrets / config** in `/home/deploy/apps/ecomm-copilot/.env` (chmod 600,
   never committed): `SECRET_KEY`, `DATABASE_URL`, `APP_URL`,
-  `GOOGLE_CLIENT_ID/SECRET`, and **`ADMIN_EMAILS`** (comma-separated allowlist =
-  `ricksauls@cox.net,ricksauls1@gmail.com`).
+  `GOOGLE_CLIENT_ID/SECRET`, **`ADMIN_EMAILS`** (comma-separated allowlist =
+  `ricksauls@cox.net,ricksauls1@gmail.com`), and — for Copy Content Creation —
+  **`ANTHROPIC_API_KEY`** (the AI copy generator; the worker fails those items
+  loudly if it's unset) and optional **`COPYGEN_MODEL`** (defaults to
+  `claude-opus-5`; set it to switch models, e.g. a cheaper one for big batches).
 - **SSH from the Mac:** `ssh droplet-deploy` (key `~/.ssh/deploy_wm_ci`, **no
   passphrase**). Passwordless — that's the way in; you can drive the droplet
   directly. Root is only via the DO web Console (the `deploy` **sudo** password
@@ -95,26 +105,33 @@ app/
                      mining -> ranked target set; cache_key (category-level)
   jobs.py            scored_items queue (enqueue/claim/save), admin list/count,
                      keyword_cache get/put
+  copygen.py         AI copy rewrite: PdpRecord + keywords -> Claude (structured
+                     output) -> GeneratedCopy. COPYGEN_MODEL, lazy SDK import
+  copy_jobs.py       copy_items queue: two-phase fetch->generate lifecycle
+                     (enqueue/claim/save_current/save_generated/request_generation)
   pdf_export.py      reportlab PDF of a scored batch
   routes/pages.py    landing, dashboard, PDP scoring + results + results.pdf,
-                     admin users/items + delete
+                     PDP copy (intake/results/generate/status) + scoring
+                     create-copy cross-link, admin users/items + delete
   fixtures.py        demo data for the dashboard
   templates/…        public_base + landing/signin/signup; app/base + _rail,
-                     _topbar, dashboard, pdp_scoring, pdp_results,
-                     admin_users, admin_items
+                     _topbar, dashboard, pdp_scoring, pdp_results, pdp_copy,
+                     pdp_copy_results, admin_users, admin_items
   static/            css/{tokens,public,workspace}.css,
-                     js/{pdp_scoring,admin_users}.js, img/{logo,favicon,...}
-worker.py            background scoring worker (systemd): fetch -> resolve
-                     keywords (cache-first) -> score -> save
+                     js/{intake,admin_users}.js  (intake.js is shared by the
+                     scoring + copy intake pages), img/{logo,favicon,...}
+worker.py            background worker (systemd): drains BOTH queues — scoring
+                     (fetch -> keywords -> score -> save) and copy (fetch current
+                     copy, then AI-generate new copy + projected score)
 deploy/              DEPLOY.md, *.service units, nginx.conf, setup-droplet.sh
-tests/               86 tests (auth, jobs, pdp, scoring, fetch, pages, keywords,
-                     admin)
+tests/               107 tests (auth, jobs, pdp, scoring, fetch, pages, keywords,
+                     admin, copygen, copy_jobs, copy)
 ```
 
 **Nav (rail):** Dashboard, **PDP Content Scoring** (built), PDP Image Set
-Creation, PDP Copy Content Creation, Competitive Intelligence (placeholders,
-`href="#"`). **Admin** section (below Credits, admins only): Users, Items scored,
-each with a live count.
+Creation (placeholder), **PDP Copy Content Creation** (built), Competitive
+Intelligence (placeholder, `href="#"`). **Admin** section (below Credits, admins
+only): Users, Items scored, each with a live count.
 
 ---
 
@@ -209,21 +226,28 @@ to the RAM. The queue claim (`jobs.claim_next`) is already concurrency-safe.
 
 Done this cycle (kept for context): worker install; attribute extraction;
 key-feature extraction; keyword coverage Phase 1 + category cache; main-image
-white-bg check; admin screens; PDF export; HTTPS/cache-busting fixes.
+white-bg check; admin screens; PDF export; HTTPS/cache-busting fixes;
+**PDP Copy Content Creation** (AI copy rewrite — the generation half of the AI
+pass; `app/copygen.py`, `app/copy_jobs.py`, `copy_items` table, worker two-phase
+fetch→generate, results with projected-score delta, scoring cross-link).
 
-1. **AI pass — the qualitative half (needs Claude + `ANTHROPIC_API_KEY`).**
-   Keyword *quality*/placement judgment + generated rewritten copy, and **vision**
-   for infographic/lifestyle image quality. Use Claude (see the `claude-api`
-   skill for current model IDs). Runs in the worker; temp 0 + cache for
-   determinism. Also: a human "approved" gate on the discovered keyword set
-   (today top-N auto-approved); smarter seed derivation (heuristic today).
+1. **AI pass — remaining qualitative half (needs Claude + `ANTHROPIC_API_KEY`).**
+   The **copy rewrite** half now ships (see above). Still open: keyword
+   *quality*/placement judgment folded back into *scoring*, and **vision** for
+   infographic/lifestyle image quality. Use Claude (see the `claude-api` skill for
+   current model IDs; note `temperature` is removed on Opus 5/4.8 — get
+   determinism from output caching, not temp). Also: a human "approved" gate on
+   the discovered keyword set (today top-N auto-approved); smarter seed derivation.
+   **Copy-gen Phase 2 next-ups:** cache generated copy by content hash +
+   "Regenerate"; prompt-cache the stable prefix; PDF/export of the rewrite;
+   optional inline editing of the generated copy.
 2. **Attribute completeness %** — today it's a raw count proxy; wire a
    per-category expected-attribute schema to make it a true % (and re-enable the
    Attributes dimension when ready — it's paused, not removed).
 3. **Competitive benchmarking** — score top-N competitors for the item's head
    terms and show the gap to the category leader.
-4. **Other nav screens** — PDP Image Set Creation, PDP Copy Content Creation,
-   Competitive Intelligence are still placeholders (`href="#"`).
+4. **Other nav screens** — PDP Image Set Creation and Competitive Intelligence
+   are still placeholders (`href="#"`). (PDP Copy Content Creation is now built.)
 5. **Nice-to-haves:** retry `blocked` items, a scoring history view.
 
 ---

@@ -1,11 +1,11 @@
 {% extends "app/base.html" %}
-{% block title %}PDP Content Scoring — ecomm-copilot{% endblock %}
+{% block title %}PDP Copy Content Creation — ecomm-copilot{% endblock %}
 
 {% block pane_content %}
 <div class="page-header">
   <div>
-    <h1>Score PDPs (Product Detail Pages)</h1>
-    <p class="subtitle">Add the Walmart items you want scored, or upload a CSV of them.</p>
+    <h1>Create PDP Copy Content</h1>
+    <p class="subtitle">Add the Walmart items you want to rewrite, or upload a CSV. We’ll pull the current Title, Description, and Key Features so you can generate improved copy.</p>
   </div>
 </div>
 
@@ -13,7 +13,7 @@
 <div class="form-error" role="alert">{{ error }}</div>
 {% endif %}
 <div class="card pdp-card">
-  <form method="post" action="{{ url_for('pages.pdp_scoring') }}" enctype="multipart/form-data"
+  <form method="post" action="{{ url_for('pages.pdp_copy') }}" enctype="multipart/form-data"
         class="pdp-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
 
@@ -66,30 +66,8 @@
       <p id="csv-filename" class="csv-filename" hidden></p>
     </div>
 
-    <button type="submit" class="wbtn wbtn-primary wbtn-lg">Score items</button>
+    <button type="submit" class="wbtn wbtn-primary wbtn-lg">Get Current Copy Content</button>
   </form>
-</div>
-
-{# Reinforces the model and fills the page with something useful/branded. #}
-<div class="card card-pad score-band">
-  <div class="label">What we score</div>
-  <div class="score-dims">
-    {# Attributes and video are extracted but not currently scored (paused
-       2026-08-21), so they're left off this list. #}
-    {% set dims = [
-      ('Imagery', 'Count, resolution, and main-image white background'),
-      ('Title', 'Character & word count, format, keyword coverage'),
-      ('Key features', 'Benefit-led bullets — count and length'),
-      ('Description', 'Word count, depth, structure, and SEO'),
-    ] %}
-    {% for name, desc in dims %}
-    <div class="dim">
-      <div class="dim-name">{{ name }}</div>
-      <div class="dim-desc">{{ desc }}</div>
-    </div>
-    {% endfor %}
-  </div>
-  <p class="score-band-foot">Each item earns a 0–100 score across these four dimensions, with the ranked actions that close the gaps.</p>
 </div>
 {% endblock %}
 
