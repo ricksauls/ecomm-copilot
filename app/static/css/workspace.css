@@ -1067,13 +1067,15 @@ a:focus-visible,
 .admin-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  /* Compact type so dense admin rows (email, product title, timestamp) fit
+     without wrapping; header stays a step smaller as an uppercase label. */
+  font-size: 12px;
 }
 .admin-table th {
   text-align: left;
-  padding: 8px 12px;
+  padding: 7px 10px;
   border-bottom: 1px solid var(--border);
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -1081,7 +1083,7 @@ a:focus-visible,
   white-space: nowrap;
 }
 .admin-table td {
-  padding: 10px 12px;
+  padding: 8px 10px;
   border-bottom: 1px solid var(--border);
   vertical-align: top;
 }
