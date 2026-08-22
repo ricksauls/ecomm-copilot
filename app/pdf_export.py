@@ -144,3 +144,95 @@ def build_results_pdf(items: list[dict]) -> bytes:
     doc.build(flow)
     logger.info("Built results PDF: %d scored item(s)", len(scored))
     return buffer.getvalue()
+
+
+def _copy_cell(copy: dict, key: str, style: ParagraphStyle) -> Paragraph:
+    """Render one copy field (title/description as text, bullets as a list)."""
+    if key == "bullets":
+        bullets = copy.get("bullets") or []
+        text = "<br/>".join("&#8226; " + escape(b) for b in bullets) or "—"
+    else:
+        text = escape(copy.get(key) or "—")
+    return Paragraph(text, style)
+
+
+def build_copy_pdf(items: list[dict]) -> bytes:
+    """Return a PDF (bytes) of the generated copy in a batch.
+
+    Only ``done`` items (current + new copy both present) are included; rows still
+    fetching/generating or errored are skipped. Each item shows the current and
+    new copy side by side with the current -> projected score, mirroring the
+    on-screen results.
+    """
+    styles = _styles()
+    done = [
+        it for it in items
+        if it.get("status") == "done" and it.get("current") and it.get("new")
+    ]
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer, pagesize=letter, title="PDP Copy Content",
+        leftMargin=0.75 * inch, rightMargin=0.75 * inch,
+        topMargin=0.7 * inch, bottomMargin=0.7 * inch,
+    )
+
+    flow = [
+        Paragraph("PDP Copy Content", styles["h1"]),
+        Paragraph(
+            "Generated " + datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+            + f" · {len(done)} item{'' if len(done) == 1 else 's'}",
+            styles["meta"],
+        ),
+        HRFlowable(width="100%", thickness=1, color=_RULE, spaceBefore=6, spaceAfter=2),
+    ]
+
+    if not done:
+        flow.append(Paragraph("No generated copy in this batch yet.", styles["overall"]))
+
+    for it in done:
+        title = it.get("title") or it["url"]
+        flow.append(Paragraph(escape(title), styles["item"]))
+        flow.append(Paragraph(
+            "Item #" + escape(str(it.get("item_id") or "—")) + " &#183; "
+            + escape(it["url"]),
+            styles["meta"],
+        ))
+
+        # Current -> projected score line (delta helps the reader see the lift).
+        cur, proj = it.get("current_overall"), it.get("projected_overall")
+        if cur is not None and proj is not None:
+            flow.append(Paragraph(
+                f"<b>Current: {cur}</b> / 100 &#8594; <b>Projected: {proj}</b> / 100 "
+                f"({proj - cur:+d})",
+                styles["overall"],
+            ))
+
+        rows = [["", "Current copy", "New copy"]]
+        for label, field in (("Title", "title"), ("Key Features", "bullets"),
+                             ("Description", "description")):
+            rows.append([
+                Paragraph(f"<b>{label}</b>", styles["cell"]),
+                _copy_cell(it["current"], field, styles["cell"]),
+                _copy_cell(it["new"], field, styles["cell"]),
+            ])
+
+        table = Table(rows, colWidths=[1.0 * inch, 3.0 * inch, 3.0 * inch], hAlign="LEFT")
+        table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), _HEADER_BG),
+            ("TEXTCOLOR", (0, 0), (-1, 0), _MUTED),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, 0), 8),
+            ("LINEBELOW", (0, 0), (-1, -1), 0.5, _RULE),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("TOPPADDING", (0, 0), (-1, -1), 5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ("LEFTPADDING", (0, 0), (-1, -1), 6),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ]))
+        flow.append(table)
+        flow.append(Spacer(1, 6))
+
+    doc.build(flow)
+    logger.info("Built copy PDF: %d generated item(s)", len(done))
+    return buffer.getvalue()

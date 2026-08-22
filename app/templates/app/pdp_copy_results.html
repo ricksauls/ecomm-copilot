@@ -5,6 +5,8 @@
 {% set pending = items | selectattr('status', 'in', ['queued', 'fetching', 'gen_queued', 'generating']) | list | length > 0 %}
 {# Any item resting at "fetched" can be sent to generation via the batch button. #}
 {% set has_fetched = items | selectattr('status', 'equalto', 'fetched') | list | length > 0 %}
+{# Any item with generated copy can be exported to PDF. #}
+{% set has_done = items | selectattr('status', 'equalto', 'done') | list | length > 0 %}
 
 {% block head_extra %}
 {# While anything is in flight, refresh so current/new copy appears as the worker
@@ -49,6 +51,9 @@
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
       <button type="submit" class="wbtn wbtn-primary">Create new copy content</button>
     </form>
+    {% endif %}
+    {% if has_done %}
+    <a href="{{ url_for('pages.pdp_copy_results_pdf') }}" class="wbtn wbtn-secondary">Download PDF</a>
     {% endif %}
     <a href="{{ url_for('pages.pdp_copy') }}" class="wbtn wbtn-secondary">New batch</a>
   </div>

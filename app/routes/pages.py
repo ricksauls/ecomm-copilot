@@ -252,6 +252,27 @@ def pdp_copy_results():
     )
 
 
+@bp.route("/app/pdp-copy/results.pdf")
+@login_required
+def pdp_copy_results_pdf():
+    """Download the current copy batch's generated copy as a PDF."""
+    from datetime import date
+
+    from flask import Response
+
+    from app.pdf_export import build_copy_pdf
+
+    items = [_copy_row_view(r) for r in _copy_batch_rows()]
+    pdf = build_copy_pdf(items)
+    filename = f"pdp-copy-{date.today().isoformat()}.pdf"
+    logger.info("Copy PDF export: %d item(s), user_id=%s", len(items), g.user["id"])
+    return Response(
+        pdf,
+        mimetype="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @bp.route("/app/pdp-copy/generate", methods=["POST"])
 @login_required
 def pdp_copy_generate():
