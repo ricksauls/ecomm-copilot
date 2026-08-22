@@ -10,14 +10,24 @@
     <div class="tagline">Your eCommerce Team, Amplified.</div>
   </div>
 
-  {% set nav_items = [
-    ('dashboard', 'Dashboard', url_for('pages.dashboard')),
+  {# Dashboard sits on its own at the top (no sub-menu). #}
+  <div class="rail-nav">
+    <a href="{{ url_for('pages.dashboard') }}"
+       class="nav-item {{ 'active' if active_nav == 'dashboard' else '' }}">
+      <span class="mark"></span>Dashboard
+    </a>
+  </div>
+
+  {# Content Studio groups the PDP tools, using the same labelled-group pattern
+     as the Competitive Intelligence and Admin sections. #}
+  {% set studio_items = [
     ('pdp-scoring', 'PDP Content Scoring', url_for('pages.pdp_scoring')),
     ('pdp-image-set', 'PDP Image Set Creation', '#'),
     ('pdp-copy', 'PDP Copy Content Creation', url_for('pages.pdp_copy')),
   ] %}
-  <div class="rail-nav">
-    {% for slug, label, href in nav_items %}
+  <div class="rail-nav rail-studio">
+    <div class="rail-section-label">Content Studio</div>
+    {% for slug, label, href in studio_items %}
     <a href="{{ href }}" class="nav-item {{ 'active' if active_nav == slug else '' }}">
       <span class="mark"></span>{{ label }}
     </a>

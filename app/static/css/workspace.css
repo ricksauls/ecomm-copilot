@@ -994,7 +994,8 @@ a:focus-visible,
 /* ── Admin: rail section, count badges, notification, tables ─────────────────
    Added 2026-08-21 for the admin screens (Users, Items scored). */
 
-/* Admin nav group sits directly under the main nav, set apart by a hairline. */
+/* Labelled nav sections sit under the main nav, each set apart by a hairline. */
+.rail-studio,
 .rail-admin,
 .rail-ci {
   margin-top: 14px;
