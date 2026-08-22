@@ -58,6 +58,10 @@ class PdpRecord:
     # or is untested) and the title/description dimensions score on their other
     # signals alone; a list (possibly empty) means it was measured.
     target_keywords: list[str] | None = None
+    # Whether the main image is a product on a pure white background (Walmart's
+    # main-image requirement), measured by border-pixel analysis in the fetch
+    # layer. ``None`` means it wasn't measured, so imagery scores without it.
+    main_image_white_bg: bool | None = None
 
 
 @dataclass
@@ -92,6 +96,11 @@ def _clamp(value: int) -> int:
 # Blending (rather than adding raw points) keeps each dimension on a 0-100 range
 # whether or not keywords were measured.
 _KEYWORD_BLEND = 0.30
+
+# Share of the Imagery dimension given to the white-background check on the main
+# image (a Walmart main-image requirement) when it's been measured; blended so
+# imagery stays 0-100 whether or not it was checked.
+_WHITE_BG_BLEND = 0.20
 
 
 def _keyword_hits(text: str, keywords: list[str]) -> list[str]:
@@ -169,7 +178,25 @@ def _score_imagery(pdp: PdpRecord) -> DimensionScore:
     # else:
     #     recs.append("Add a short product video")
 
-    return DimensionScore("imagery", "Imagery", _clamp(points), WEIGHTS["imagery"], findings, recs)
+    base_score = _clamp(points)
+
+    # Main-image white background: blend it in when measured, so a non-compliant
+    # main image is penalized against a Walmart requirement. Absent the check
+    # (unit tests, or the image couldn't be fetched), imagery scores on
+    # count/resolution alone and still reaches 100.
+    if pdp.main_image_white_bg is None:
+        return DimensionScore("imagery", "Imagery", base_score, WEIGHTS["imagery"], findings, recs)
+
+    white_score = 100 if pdp.main_image_white_bg else 0
+    score = round(base_score * (1 - _WHITE_BG_BLEND) + white_score * _WHITE_BG_BLEND)
+    if pdp.main_image_white_bg:
+        findings.append("Main image on a clean white background")
+    else:
+        recs.append(
+            "Set the main image to the product on a pure white background "
+            "(a Walmart main-image requirement)"
+        )
+    return DimensionScore("imagery", "Imagery", score, WEIGHTS["imagery"], findings, recs)
 
 
 def _score_attributes(pdp: PdpRecord) -> DimensionScore:

@@ -110,6 +110,67 @@ def _measure_max_image_px(urls: list[str], *, limit: int = 8, timeout: int = 12)
     return max_px
 
 
+def _is_white_background(img, *, sample: int = 160, border_frac: float = 0.08,
+                        white: int = 245, min_ratio: float = 0.90) -> bool:
+    """Whether an image's border is predominantly near-white.
+
+    Walmart's main image must be the product on a pure white background. The
+    product is centered, so the background is at the edges — we sample the outer
+    border band and pass when nearly all of it is near-white. The image is
+    downsized first (the background is uniform, so fine detail isn't needed),
+    which keeps the pixel scan fast, and any transparency is flattened onto white
+    (Walmart treats transparent as white). Pure and unit-tested.
+    """
+    from PIL import Image
+
+    # Flatten alpha onto white so transparent PNGs read as white-background.
+    if img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info):
+        rgba = img.convert("RGBA")
+        base = Image.new("RGB", rgba.size, (255, 255, 255))
+        base.paste(rgba, mask=rgba.split()[-1])
+        img = base
+    else:
+        img = img.convert("RGB")
+
+    img = img.resize((sample, sample))
+    pixels = img.load()
+    band = max(1, int(sample * border_frac))
+    total = near = 0
+    for y in range(sample):
+        for x in range(sample):
+            # Skip the interior (where the product sits); score only the border.
+            if band <= x < sample - band and band <= y < sample - band:
+                continue
+            r, g, b = pixels[x, y]
+            total += 1
+            if r >= white and g >= white and b >= white:
+                near += 1
+    return total > 0 and (near / total) >= min_ratio
+
+
+def _detect_main_white_background(url: str, *, timeout: int = 12) -> bool | None:
+    """Fetch the main image and report whether it's on a white background.
+
+    Best-effort: returns ``None`` when the image can't be fetched or opened, so a
+    hiccup leaves imagery scored without this signal rather than failing.
+    """
+    try:
+        import io
+
+        import requests
+        from PIL import Image
+    except ImportError:  # pragma: no cover - Pillow/requests are runtime deps
+        return None
+    try:
+        resp = requests.get(url, timeout=timeout)
+        resp.raise_for_status()
+        with Image.open(io.BytesIO(resp.content)) as img:
+            return _is_white_background(img)
+    except Exception as e:  # noqa: BLE001 - best-effort
+        logger.debug("Could not check white background for %s: %s", url[:80], e)
+        return None
+
+
 def _extract_attribute_count(product: dict) -> int:
     """Count populated specs embedded on the ``product`` node itself.
 
@@ -220,7 +281,8 @@ def _extract_idml_bullets(idml: dict | None) -> list[str]:
 def parse_product(product: dict, *, url: str = "", item_id: str | None = None,
                    max_image_px: int = 0,
                    spec_pairs: list[dict] | None = None,
-                   bullets: list[str] | None = None) -> PdpRecord:
+                   bullets: list[str] | None = None,
+                   main_image_white_bg: bool | None = None) -> PdpRecord:
     """Map a Walmart ``__NEXT_DATA__`` product object to a :class:`PdpRecord`.
 
     ``max_image_px`` is passed in because image dimensions aren't in the JSON —
@@ -258,6 +320,7 @@ def parse_product(product: dict, *, url: str = "", item_id: str | None = None,
         description=_extract_description(product),
         attributes_present=attrs,
         attributes_measured=attrs_measured,
+        main_image_white_bg=main_image_white_bg,
     )
 
 
@@ -326,9 +389,12 @@ def fetch_pdp(url: str, item_id: str | None = None, *, timeout_ms: int = 35000) 
     except Exception as e:
         raise FetchError(f"Failed to fetch {url}: {e}") from e
 
-    # Image dimensions live outside __NEXT_DATA__; measure them from the bytes.
-    max_px = _measure_max_image_px(_image_urls(product))
+    # Image dimensions and the main-image background live outside __NEXT_DATA__;
+    # both are read from the image bytes (the main image is the first).
+    image_urls = _image_urls(product)
+    max_px = _measure_max_image_px(image_urls)
+    white_bg = _detect_main_white_background(image_urls[0]) if image_urls else None
     return parse_product(
         product, url=url, item_id=item_id, max_image_px=max_px,
-        spec_pairs=spec_pairs, bullets=bullets,
+        spec_pairs=spec_pairs, bullets=bullets, main_image_white_bg=white_bg,
     )

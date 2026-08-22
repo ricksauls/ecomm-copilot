@@ -4,10 +4,13 @@ Live fetching drives a real browser and isn't exercised here; the parsing that
 turns the page JSON into a scorable record is what these lock down.
 """
 
+from PIL import Image
+
 from app.fetch import (
     _count_spec_pairs,
     _extract_idml_bullets,
     _extract_idml_specs,
+    _is_white_background,
     parse_product,
 )
 from app.scoring import score_pdp
@@ -138,6 +141,32 @@ def test_extract_idml_specs_v2_fallback():
     pairs = _extract_idml_specs(idml)
     assert {"name": "Flavor", "value": "Chipotle"} in pairs
     assert {"name": "Sizes", "value": "5 oz, 12 oz"} in pairs
+
+
+def _image(bg, center=None, mode="RGB"):
+    """A 200x200 test image: solid ``bg`` border with an optional center block."""
+    img = Image.new(mode, (200, 200), bg)
+    if center:
+        for y in range(70, 130):
+            for x in range(70, 130):
+                img.putpixel((x, y), center)
+    return img
+
+
+def test_white_background_detected():
+    # Product (red block) centered on a white border -> white background.
+    assert _is_white_background(_image((255, 255, 255), (200, 20, 20))) is True
+
+
+def test_non_white_background_rejected():
+    # Colored border -> not a white background, even with a white center.
+    assert _is_white_background(_image((30, 60, 90), (255, 255, 255))) is False
+
+
+def test_transparent_background_treated_as_white():
+    # Walmart treats transparency as white; a transparent border should pass.
+    img = _image((0, 0, 0, 0), (200, 20, 20, 255), mode="RGBA")
+    assert _is_white_background(img) is True
 
 
 def test_extract_idml_specs_missing_node_is_unknown():

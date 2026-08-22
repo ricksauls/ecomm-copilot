@@ -104,6 +104,25 @@ def test_video_does_not_affect_imagery_score():
     assert img_with.score == img_without.score == 100
 
 
+def test_white_background_blends_into_imagery():
+    # Full gallery at zoom resolution -> base imagery 100. White-bg blends at 20%.
+    base = dict(url="u", image_count=6, max_image_px=2000)
+
+    def imagery(white_bg):
+        pdp = PdpRecord(main_image_white_bg=white_bg, **base)
+        return next(d for d in score_pdp(pdp).dimensions if d.key == "imagery").score
+
+    assert imagery(None) == 100   # not measured -> count/resolution only
+    assert imagery(True) == 100   # 100*0.8 + 100*0.2
+    assert imagery(False) == 80   # 100*0.8 + 0*0.2
+
+
+def test_non_white_main_image_recommends_fix():
+    pdp = PdpRecord(url="u", image_count=6, max_image_px=2000, main_image_white_bg=False)
+    imagery = next(d for d in score_pdp(pdp).dimensions if d.key == "imagery")
+    assert any("white background" in rec for rec in imagery.recommendations)
+
+
 def test_all_caps_title_is_penalized():
     caps = PdpRecord(url="u", title="THIS IS AN ALL CAPS PRODUCT TITLE HERE NOW")
     mixed = PdpRecord(url="u", title="This Is An All Caps Product Title Here Now")
