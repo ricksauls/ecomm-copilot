@@ -399,7 +399,10 @@ body.public {
   gap: 22px;
   margin-left: auto;
 }
-.footer-links a {
+/* Real links and the non-clickable spans (Privacy/Terms) share the base look;
+   only the anchors get the hover treatment. */
+.footer-links a,
+.footer-links span {
   font-size: 11.5px;
   color: var(--cool-gray);
   text-decoration: none;
