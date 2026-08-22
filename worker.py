@@ -23,7 +23,7 @@ load_dotenv()
 
 from dataclasses import replace  # noqa: E402
 
-from app import copy_jobs, copygen, jobs, keywords  # noqa: E402  (after load_dotenv is intentional)
+from app import copy_jobs, copygen, db, jobs, keywords  # noqa: E402  (after load_dotenv is intentional)
 from app.fetch import FetchBlocked, FetchError, fetch_pdp  # noqa: E402
 from app.scoring import PdpRecord, result_to_dict, score_pdp  # noqa: E402
 
@@ -41,11 +41,18 @@ FETCH_DELAY_RANGE_S = (8, 16)
 
 
 def connect() -> sqlite3.Connection:
-    """Open the worker's own SQLite connection (separate from the Flask app)."""
+    """Open the worker's own SQLite connection (separate from the Flask app).
+
+    Ensures the schema exists before returning, so the worker never depends on
+    the web app having initialized the DB first — on a deploy that adds a table,
+    the worker can restart ahead of the web app and would otherwise crash on the
+    missing table (see ``db.ensure_schema``).
+    """
     database = os.environ.get("DATABASE_URL") or "app.db"
     conn = sqlite3.connect(database)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    db.ensure_schema(conn)
     return conn
 
 
