@@ -187,7 +187,7 @@ def create_app() -> Flask:
         if not user or not security.is_admin(user):
             return {"is_admin": False}
 
-        from app import jobs
+        from app import copy_jobs, jobs
         from app import users as users_mod
         from app.db import get_db
 
@@ -200,6 +200,7 @@ def create_app() -> Flask:
             "is_admin": True,
             "admin_user_count": users_mod.count_users(),
             "admin_item_count": jobs.count_items(get_db()),
+            "admin_copy_count": copy_jobs.count_copy_items(get_db()),
             "admin_new_user_count": users_mod.count_created_since(
                 reference, user["id"]
             ),

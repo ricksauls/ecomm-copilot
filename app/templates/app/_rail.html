@@ -62,6 +62,11 @@
       <span class="mark"></span>Items scored
       <span class="nav-count">{{ admin_item_count }}</span>
     </a>
+    <a href="{{ url_for('pages.admin_copy') }}"
+       class="nav-item {{ 'active' if active_nav == 'admin-copy' else '' }}">
+      <span class="mark"></span>Copy created
+      <span class="nav-count">{{ admin_copy_count }}</span>
+    </a>
   </div>
   {% endif %}
 
