@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 # Bounds. Unbounded input is a DoS vector, so cap both the per-URL length and
 # the total number of items accepted in one submission.
 MAX_URL_LEN = 2048
-MAX_ITEMS = 200
+MAX_ITEMS = 100
 # Read at most this many bytes from an uploaded CSV, regardless of the app-wide
 # MAX_CONTENT_LENGTH, as a second belt-and-braces cap.
 MAX_CSV_BYTES = 2 * 1024 * 1024
