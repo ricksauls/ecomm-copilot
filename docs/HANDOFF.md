@@ -32,6 +32,16 @@ A working reference for picking up development. Read this first, then
   reachable by ticking items on the scoring results and clicking "Create new copy
   content" (that path fetches **and** generates in one pass). **Live + verified**
   on the droplet (Tabasco Chipotle: current 82 → projected 96).
+- **Competitive Intelligence** end-to-end: per-user **groups** (organized by
+  Brand — mine vs competitor — with Products and Keywords), a **One-Time run**
+  ("Run once now") and a **Monitoring** mode that scrapes **3×/day at 7 AM / 3 PM
+  / 11 PM CST**. The worker scrapes page-1 Walmart search results per keyword,
+  records each card's position + organic/sponsored type, matches cards to tracked
+  products/brands, and rolls up per-brand share-of-search. Dashboards show
+  **Search Ranking** (current best position + Δ vs prior window + trend
+  sparkline, filterable by brand) and **Share of Digital Shelf** (organic vs
+  sponsored share per brand + a trend chart). One caveat: the monitoring
+  **systemd timers are not yet installed on the droplet** — see §2.
 - **Admin screens** (Users, Items scored, **Copy created**) for the two admin
   emails, with a new-user notification and per-user delete.
 
@@ -46,7 +56,17 @@ A working reference for picking up development. Read this first, then
 - **Web:** `ecomm-copilot.service` → gunicorn on `127.0.0.1:8001` behind nginx
   (site `ecomm-copilot.com` + `www`). Ports 8000/8002 belong to other apps.
 - **Worker:** `ecomm-copilot-worker.service` runs `worker.py` under `DISPLAY=:99`
-  (headed Chrome). Installed and active.
+  (headed Chrome). Installed and active. Drains three queues now: scoring, copy,
+  and **Competitive Intelligence runs** (a CI run scrapes a group's keywords).
+- **CI monitoring timers (ACTION NEEDED):** three systemd timers
+  (`ecomm-copilot-ci-{morning,afternoon,night}.timer`) enqueue monitoring runs at
+  7 AM / 3 PM / 11 PM CST via `ecomm-copilot-ci-monitor@.service`
+  (`python -m app.enqueue_monitoring <slot>`). `setup-droplet.sh` installs them,
+  but a normal git-pull deploy does **not** run that script — so on the live
+  droplet the timers are **not installed yet**. Install once as root (DO Console;
+  deploy sudo password is lost): see the copy-paste block in `deploy/DEPLOY.md`
+  ("Competitive Intelligence monitoring timers"). Until then, One-Time "Run once
+  now" works but the 3×/day monitoring does not fire.
 - **Xvfb:** `xvfb.service` on `:99` (from the WM scraper) — the worker reuses it.
 - **DB:** SQLite at `DATABASE_URL` (`/home/deploy/apps/ecomm-copilot/app.db`),
   chmod 600. Tables: `users`, `scored_items`, `keyword_cache`, `copy_items`
@@ -132,9 +152,20 @@ tests/               107 tests (auth, jobs, pdp, scoring, fetch, pages, keywords
 ```
 
 **Nav (rail):** Dashboard, **PDP Content Scoring** (built), PDP Image Set
-Creation (placeholder), **PDP Copy Content Creation** (built), Competitive
-Intelligence (placeholder, `href="#"`). **Admin** section (below Credits, admins
-only): Users, Items scored, each with a live count.
+Creation (placeholder), **PDP Copy Content Creation** (built), **Competitive
+Intelligence** (built). **Admin** section (below Credits, admins only): Users,
+Items scored, each with a live count.
+
+**Competitive Intelligence modules** (`app/`): `ci_config.py` (groups/brands/
+products/keywords CRUD, all user-scoped/IDOR-checked), `ci_jobs.py` (run queue +
+result writers + SoS rollup), `ci_scraper.py` (search-page card extraction + pure
+row builder), `ci_analysis.py` (period windows + rank/SoS summaries & trends),
+`enqueue_monitoring.py` (timer entry point). Worker drains CI runs in
+`worker.process_ci_run`. Routes/templates: `pages.ci_*` +
+`templates/app/ci_{groups,group_config,dashboard}.html`; static
+`js/ci_{config,charts,dashboard}.js`. Tables: `ci_groups`, `ci_brands`,
+`ci_products`, `ci_keywords`, `ci_runs`, `ci_search_results`,
+`ci_share_of_search`. Deploy: `deploy/ecomm-copilot-ci-*.{service,timer}`.
 
 ---
 
@@ -256,8 +287,13 @@ results PDF export**; **admin "Copy created" screen** (`/admin/copy`).
    Attributes dimension when ready — it's paused, not removed).
 3. **Competitive benchmarking** — score top-N competitors for the item's head
    terms and show the gap to the category leader.
-4. **Other nav screens** — PDP Image Set Creation and Competitive Intelligence
-   are still placeholders (`href="#"`). (PDP Copy Content Creation is now built.)
+4. **Other nav screens** — PDP Image Set Creation is still a placeholder
+   (`href="#"`). (PDP Copy Content Creation and Competitive Intelligence are now
+   built.) **CI next-ups:** install the monitoring timers on the droplet (§2);
+   competitive benchmarking on the CI data (gap to category leader); surface the
+   `is_new_sku` flag (already captured) as a new-competitor-SKU alert; CSV/PDF
+   export of the CI dashboards; and richer rank trends once monitoring has
+   accumulated multi-day history.
 5. **Nice-to-haves:** retry `blocked` items, a scoring history view.
 
 ---
