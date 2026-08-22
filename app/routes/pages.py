@@ -15,6 +15,7 @@ import logging
 from flask import (
     Blueprint,
     abort,
+    flash,
     g,
     jsonify,
     redirect,
@@ -24,7 +25,16 @@ from flask import (
     url_for,
 )
 
-from app import copy_jobs, fixtures, jobs, pdp, users
+from app import (
+    ci_analysis,
+    ci_config,
+    ci_jobs,
+    copy_jobs,
+    fixtures,
+    jobs,
+    pdp,
+    users,
+)
 from app.db import get_db
 from app.security import admin_required, login_required
 
@@ -391,3 +401,231 @@ def _row_view(row) -> dict:
         "error": row["error"],
         "result": result,
     }
+
+
+# --- Competitive Intelligence ---------------------------------------------
+#
+# Search Ranking + Share of Digital Shelf. A user manages one or more groups
+# (brands -> products, plus keywords), triggers a one-time scrape or opts a group
+# into the 3x/day monitoring sweep, and views the dashboards. Every route resolves
+# ownership through ci_config (which raises ConfigError / returns None for another
+# user's ids), so IDOR is enforced server-side regardless of the ids posted.
+
+
+def _owned_group_or_404(group_id: int):
+    """Return the group row if the signed-in user owns it, else 404."""
+    group = ci_config.get_group(get_db(), group_id, g.user["id"])
+    if group is None:
+        abort(404)
+    return group
+
+
+def _run_status_view(run) -> dict:
+    """Shape a ci_runs row for the status JSON polled by the config page."""
+    if run is None:
+        return {"status": None}
+    return {
+        "id": run["id"],
+        "run_type": run["run_type"],
+        "status": run["status"],
+        "started_at": run["started_at"],
+        "finished_at": run["finished_at"],
+        "error": run["error"],
+    }
+
+
+@bp.route("/app/competitive-intel")
+@login_required
+def ci_groups():
+    """Competitive Intelligence home: the user's groups, plus a create form."""
+    logger.info("Serving CI groups list user_id=%s", g.user["id"])
+    return render_template(
+        "app/ci_groups.html",
+        breadcrumb="Competitive Intelligence",
+        active_nav="competitive-intel",
+        groups=ci_config.list_groups(get_db(), g.user["id"]),
+    )
+
+
+@bp.route("/app/competitive-intel/groups", methods=["POST"])
+@login_required
+def ci_create_group():
+    """Create a group and jump to its config screen."""
+    try:
+        gid = ci_config.create_group(
+            get_db(), g.user["id"],
+            request.form.get("name", ""), request.form.get("description"),
+        )
+    except ci_config.ConfigError as e:
+        flash(str(e), "error")
+        return redirect(url_for("pages.ci_groups"))
+    return redirect(url_for("pages.ci_group_config", group_id=gid))
+
+
+@bp.route("/app/competitive-intel/groups/<int:group_id>/delete", methods=["POST"])
+@login_required
+def ci_delete_group(group_id):
+    """Delete a group and all its children."""
+    try:
+        ci_config.delete_group(get_db(), group_id, g.user["id"])
+    except ci_config.ConfigError:
+        abort(404)
+    return redirect(url_for("pages.ci_groups"))
+
+
+@bp.route("/app/competitive-intel/groups/<int:group_id>")
+@login_required
+def ci_group_config(group_id):
+    """Config screen: brands, products, keywords, monitoring toggle, run button."""
+    group = _owned_group_or_404(group_id)
+    db = get_db()
+    return render_template(
+        "app/ci_group_config.html",
+        breadcrumb=f"Competitive Intelligence · {group['name']}",
+        active_nav="competitive-intel",
+        group=group,
+        brands=ci_config.list_brands(db, group_id, g.user["id"]),
+        products=ci_config.list_products(db, group_id, g.user["id"]),
+        keywords=ci_config.list_keywords(db, group_id, g.user["id"]),
+        latest_run=ci_jobs.latest_run(db, group_id),
+        brand_types=ci_config.BRAND_TYPES,
+    )
+
+
+def _config_redirect(group_id):
+    """Redirect back to a group's config screen (the common post-mutation target)."""
+    return redirect(url_for("pages.ci_group_config", group_id=group_id))
+
+
+@bp.route("/app/competitive-intel/groups/<int:group_id>/brands", methods=["POST"])
+@login_required
+def ci_add_brand(group_id):
+    """Add a brand (mine|competitor) to a group."""
+    try:
+        ci_config.add_brand(get_db(), group_id, g.user["id"],
+                            request.form.get("name", ""), request.form.get("type", ""))
+    except ci_config.ConfigError as e:
+        flash(str(e), "error")
+    return _config_redirect(group_id)
+
+
+@bp.route("/app/competitive-intel/brands/<int:brand_id>/delete", methods=["POST"])
+@login_required
+def ci_delete_brand(brand_id):
+    """Delete a brand (and its products). group_id posted for the redirect target."""
+    try:
+        ci_config.delete_brand(get_db(), brand_id, g.user["id"])
+    except ci_config.ConfigError as e:
+        flash(str(e), "error")
+    return _config_redirect(request.form.get("group_id", type=int))
+
+
+@bp.route("/app/competitive-intel/groups/<int:group_id>/products", methods=["POST"])
+@login_required
+def ci_add_product(group_id):
+    """Add a product under a brand (validates the Walmart URL)."""
+    try:
+        ci_config.add_product(
+            get_db(), group_id, request.form.get("brand_id", type=int), g.user["id"],
+            request.form.get("url", ""), request.form.get("name"),
+        )
+    except ci_config.ConfigError as e:
+        flash(str(e), "error")
+    return _config_redirect(group_id)
+
+
+@bp.route("/app/competitive-intel/products/<int:product_id>/delete", methods=["POST"])
+@login_required
+def ci_delete_product(product_id):
+    """Delete a product. group_id posted for the redirect target."""
+    try:
+        ci_config.delete_product(get_db(), product_id, g.user["id"])
+    except ci_config.ConfigError as e:
+        flash(str(e), "error")
+    return _config_redirect(request.form.get("group_id", type=int))
+
+
+@bp.route("/app/competitive-intel/groups/<int:group_id>/keywords", methods=["POST"])
+@login_required
+def ci_add_keyword(group_id):
+    """Add a search keyword to a group."""
+    try:
+        ci_config.add_keyword(get_db(), group_id, g.user["id"], request.form.get("keyword", ""))
+    except ci_config.ConfigError as e:
+        flash(str(e), "error")
+    return _config_redirect(group_id)
+
+
+@bp.route("/app/competitive-intel/keywords/<int:keyword_id>/delete", methods=["POST"])
+@login_required
+def ci_delete_keyword(keyword_id):
+    """Delete a keyword. group_id posted for the redirect target."""
+    try:
+        ci_config.delete_keyword(get_db(), keyword_id, g.user["id"])
+    except ci_config.ConfigError as e:
+        flash(str(e), "error")
+    return _config_redirect(request.form.get("group_id", type=int))
+
+
+@bp.route("/app/competitive-intel/groups/<int:group_id>/monitoring", methods=["POST"])
+@login_required
+def ci_toggle_monitoring(group_id):
+    """Turn the 3x/day monitoring sweep on/off for a group."""
+    enabled = request.form.get("enabled") == "1"
+    try:
+        ci_config.set_monitoring(get_db(), group_id, g.user["id"], enabled)
+    except ci_config.ConfigError:
+        abort(404)
+    return _config_redirect(group_id)
+
+
+@bp.route("/app/competitive-intel/groups/<int:group_id>/run", methods=["POST"])
+@login_required
+def ci_run_now(group_id):
+    """Enqueue a one-time scrape for a group (the worker picks it up)."""
+    _owned_group_or_404(group_id)
+    db = get_db()
+    if ci_jobs.has_active_run(db, group_id):
+        flash("A run is already in progress for this group.", "error")
+    else:
+        ci_jobs.enqueue_run(db, group_id, run_type="one_time")
+        flash("Scrape queued — results will appear as the worker finishes.", "ok")
+    return _config_redirect(group_id)
+
+
+@bp.route("/app/competitive-intel/groups/<int:group_id>/status")
+@login_required
+def ci_run_status(group_id):
+    """JSON status of the group's latest run, polled by the config page."""
+    _owned_group_or_404(group_id)
+    return jsonify(_run_status_view(ci_jobs.latest_run(get_db(), group_id)))
+
+
+@bp.route("/app/competitive-intel/groups/<int:group_id>/dashboard")
+@login_required
+def ci_dashboard(group_id):
+    """Search Ranking + Share of Digital Shelf dashboard for a group."""
+    group = _owned_group_or_404(group_id)
+    db = get_db()
+    period = request.args.get("period", ci_analysis.DEFAULT_PERIOD)
+    if period not in ci_analysis.PERIOD_DAYS:
+        period = ci_analysis.DEFAULT_PERIOD
+
+    sos_summary = ci_analysis.share_of_shelf_summary(db, group_id, period)
+    sos_trend = ci_analysis.share_of_shelf_trend(db, group_id, period)
+    ranks = ci_analysis.rank_summary(db, group_id, period)
+    logger.info("CI dashboard group_id=%s period=%s user_id=%s", group_id, period, g.user["id"])
+    return render_template(
+        "app/ci_dashboard.html",
+        breadcrumb=f"Competitive Intelligence · {group['name']}",
+        active_nav="competitive-intel",
+        group=group,
+        period=period,
+        periods=list(ci_analysis.PERIOD_DAYS.keys()),
+        sos_summary=sos_summary,
+        ranks=ranks,
+        # Chart payloads are serialized to JSON for the external chart script to
+        # read from a data attribute (strict CSP forbids inline scripts/data).
+        sos_trend_json=json.dumps(sos_trend),
+        latest_run=ci_jobs.latest_run(db, group_id),
+    )

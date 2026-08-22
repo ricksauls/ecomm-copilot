@@ -1,0 +1,138 @@
+{% extends "app/base.html" %}
+{% block title %}{{ group.name }} · Dashboard — ecomm-copilot{% endblock %}
+
+{% block pane_content %}
+<div class="page-header">
+  <div>
+    <h1>{{ group.name }}</h1>
+    <p class="subtitle">Search Ranking &amp; Share of Digital Shelf</p>
+  </div>
+  <div style="display:flex; gap:12px; align-items:center">
+    <div class="ci-periods">
+      {% for p in periods %}
+      <a href="{{ url_for('pages.ci_dashboard', group_id=group.id, period=p) }}"
+         class="{{ 'active' if p == period else '' }}">{{ p }}</a>
+      {% endfor %}
+    </div>
+    <a href="{{ url_for('pages.ci_group_config', group_id=group.id) }}" class="wbtn wbtn-secondary">Configure</a>
+  </div>
+</div>
+
+{% if not sos_summary and not ranks %}
+<div class="card card-pad ci-empty">
+  No data yet for this window. Run a scrape from the
+  <a href="{{ url_for('pages.ci_group_config', group_id=group.id) }}">config screen</a>,
+  or widen the period once monitoring has collected a few days.
+</div>
+{% endif %}
+
+{# ── Share of Digital Shelf ─────────────────────────────────────────────── #}
+{% if sos_summary %}
+<div class="ci-section card card-pad">
+  <div class="ci-section-title">Share of Digital Shelf</div>
+  <p class="ci-section-hint">
+    Share of page-1 slots across all tracked keywords, split organic vs sponsored.
+    Delta compares to the prior {{ period | upper }} window.
+  </p>
+  <div class="table-scroll">
+    <table class="admin-table">
+      <thead>
+        <tr>
+          <th>Brand</th><th>Type</th>
+          <th>Organic</th><th>Sponsored</th><th>Total share</th><th></th><th>Δ vs prior</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in sos_summary %}
+        <tr>
+          <td>{{ r.brand_name }}</td>
+          <td><span class="ci-type {{ 'mine' if r.type == 'mine' else '' }}">{{ r.type }}</span></td>
+          <td class="cell-muted">{{ r.organic_share }}%</td>
+          <td class="cell-muted">{{ r.sponsored_share }}%</td>
+          <td>{{ r.total_share }}%</td>
+          <td style="width:120px">
+            <span class="ci-bar-track">
+              <span class="ci-bar-fill {{ 'mine' if r.type == 'mine' else '' }}"
+                    style="width: {{ r.total_share }}%"></span>
+            </span>
+          </td>
+          <td>
+            {% if r.total_share_delta > 0 %}
+              <span class="ci-delta up">▲ {{ r.total_share_delta }}</span>
+            {% elif r.total_share_delta < 0 %}
+              <span class="ci-delta down">▼ {{ r.total_share_delta | abs }}</span>
+            {% else %}
+              <span class="ci-delta flat">—</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {# Trend chart: total share % per brand over the window (drawn by ci_charts.js
+     from the JSON in data-series — strict CSP forbids inline data/scripts). #}
+  <div class="ci-chart" data-ci-chart data-series='{{ sos_trend_json }}'
+       data-y-label="Total share %"></div>
+  <div class="ci-legend" data-ci-legend></div>
+</div>
+{% endif %}
+
+{# ── Search Ranking ─────────────────────────────────────────────────────── #}
+{% if ranks %}
+<div class="ci-section card card-pad">
+  <div class="ci-section-title">Search Ranking</div>
+  <p class="ci-section-hint">
+    Best page-1 position of each of your products per keyword. Lower is better;
+    Δ vs the prior {{ period | upper }} window (positive = moved up).
+  </p>
+
+  {# Brand filter (search/sort by brand). #}
+  <div class="ci-inline-form" style="margin-top:0">
+    <label class="field-label" for="rank-brand-filter">Brand</label>
+    <select id="rank-brand-filter" class="ci-select">
+      <option value="">All brands</option>
+      {% for b in ranks | map(attribute='brand_name') | unique | sort %}
+      <option value="{{ b }}">{{ b }}</option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <div class="table-scroll" style="margin-top:12px">
+    <table class="admin-table" id="rank-table">
+      <thead>
+        <tr><th>Brand</th><th>Product</th><th>Keyword</th><th>Position</th><th>Δ</th><th>Trend</th></tr>
+      </thead>
+      <tbody>
+        {% for r in ranks %}
+        <tr data-brand="{{ r.brand_name }}">
+          <td>{{ r.brand_name }}</td>
+          <td class="col-product">{{ r.product_name }}</td>
+          <td>{{ r.keyword }}</td>
+          <td>#{{ r.current_position }}</td>
+          <td>
+            {% if r.delta is none %}
+              <span class="ci-delta flat">new</span>
+            {% elif r.delta > 0 %}
+              <span class="ci-delta up">▲ {{ r.delta }}</span>
+            {% elif r.delta < 0 %}
+              <span class="ci-delta down">▼ {{ r.delta | abs }}</span>
+            {% else %}
+              <span class="ci-delta flat">—</span>
+            {% endif %}
+          </td>
+          <td><span class="ci-spark" data-points='{{ r.positions | tojson }}'></span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ static_url('js/ci_charts.js') }}"></script>
+<script src="{{ static_url('js/ci_dashboard.js') }}"></script>
+{% endblock %}

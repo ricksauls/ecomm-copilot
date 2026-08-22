@@ -1,0 +1,175 @@
+{% extends "app/base.html" %}
+{% block title %}{{ group.name }} · Configure — ecomm-copilot{% endblock %}
+
+{% block pane_content %}
+<div class="page-header">
+  <div>
+    <h1>{{ group.name }}</h1>
+    <p class="subtitle">Brands, products, and keywords to track for this group.</p>
+  </div>
+  <div class="ci-periods">
+    <a href="{{ url_for('pages.ci_dashboard', group_id=group.id) }}" class="wbtn wbtn-primary">View dashboard</a>
+  </div>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% for category, message in messages %}
+  <div class="ci-flash {{ category }}" role="alert">{{ message }}</div>
+  {% endfor %}
+{% endwith %}
+
+{# Run controls: one-time scrape + monitoring toggle + live status. #}
+<div class="card card-pad">
+  <div class="ci-inline-form" style="margin-top:0; justify-content:space-between">
+    <div>
+      <div class="ci-section-title">Data collection</div>
+      <p class="ci-section-hint" style="margin-bottom:0">
+        Run a one-time scrape now, or turn on monitoring to scrape automatically
+        at 7 AM, 3 PM, and 11 PM CST.
+      </p>
+    </div>
+    <div class="ci-inline-form" style="margin-top:0">
+      <form method="post" action="{{ url_for('pages.ci_run_now', group_id=group.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+        <button type="submit" class="wbtn wbtn-primary">Run once now</button>
+      </form>
+      <form method="post" action="{{ url_for('pages.ci_toggle_monitoring', group_id=group.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+        <input type="hidden" name="enabled" value="{{ 0 if group.monitoring_enabled else 1 }}" />
+        <button type="submit" class="wbtn wbtn-secondary">
+          {{ 'Turn monitoring off' if group.monitoring_enabled else 'Turn monitoring on' }}
+        </button>
+      </form>
+    </div>
+  </div>
+  {# Latest run status; ci_config.js polls the status endpoint while it's active. #}
+  <p class="ci-section-hint" id="ci-run-status"
+     data-status-url="{{ url_for('pages.ci_run_status', group_id=group.id) }}"
+     style="margin-top:12px; margin-bottom:0">
+    {% if latest_run %}
+      Latest run:
+      <span class="status-badge status-{{ latest_run.status }}">{{ latest_run.status }}</span>
+      <span class="js-run-when">{{ latest_run.finished_at or latest_run.started_at or latest_run.created_at }}</span>
+    {% else %}
+      No runs yet.
+    {% endif %}
+  </p>
+</div>
+
+{# Brands. #}
+<div class="ci-section card card-pad">
+  <div class="ci-section-title">Brands</div>
+  <p class="ci-section-hint">Mark your own brand(s) as "mine" and rivals as "competitor".</p>
+  {% if brands %}
+  <div class="table-scroll">
+    <table class="admin-table">
+      <thead><tr><th>Brand</th><th>Type</th><th>Products</th><th></th></tr></thead>
+      <tbody>
+        {% for b in brands %}
+        <tr>
+          <td>{{ b.name }}</td>
+          <td><span class="ci-type {{ 'mine' if b.type == 'mine' else '' }}">{{ b.type }}</span></td>
+          <td class="cell-muted">{{ b.product_count }}</td>
+          <td class="cell-action">
+            <form method="post" action="{{ url_for('pages.ci_delete_brand', brand_id=b.id) }}" class="ci-delete-form">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+              <input type="hidden" name="group_id" value="{{ group.id }}" />
+              <button type="submit" class="btn-delete" data-confirm="Delete brand '{{ b.name }}' and its products?">Delete</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+  <form method="post" action="{{ url_for('pages.ci_add_brand', group_id=group.id) }}" class="ci-inline-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+    <input type="text" name="name" class="ci-input grow" placeholder="Brand name" maxlength="255" required />
+    <select name="type" class="ci-select">
+      {% for t in brand_types %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
+    </select>
+    <button type="submit" class="wbtn wbtn-secondary">Add brand</button>
+  </form>
+</div>
+
+{# Products. #}
+<div class="ci-section card card-pad">
+  <div class="ci-section-title">Products</div>
+  <p class="ci-section-hint">
+    Walmart product URLs, each assigned to a brand. Used to match your and rivals'
+    items in the search results.
+  </p>
+  {% if products %}
+  <div class="table-scroll">
+    <table class="admin-table">
+      <thead><tr><th>Item #</th><th>Product</th><th>Brand</th><th></th></tr></thead>
+      <tbody>
+        {% for p in products %}
+        <tr>
+          <td>{{ p.walmart_item_id }}</td>
+          <td class="col-product">
+            {% if p.name %}{{ p.name }}{% else %}<a href="{{ p.walmart_url }}" target="_blank"
+               rel="noopener noreferrer" class="cell-muted">{{ p.walmart_url }}</a>{% endif %}
+          </td>
+          <td>{{ p.brand_name }}
+            <span class="ci-type {{ 'mine' if p.brand_type == 'mine' else '' }}">{{ p.brand_type }}</span>
+          </td>
+          <td class="cell-action">
+            <form method="post" action="{{ url_for('pages.ci_delete_product', product_id=p.id) }}" class="ci-delete-form">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+              <input type="hidden" name="group_id" value="{{ group.id }}" />
+              <button type="submit" class="btn-delete" data-confirm="Delete this product?">Delete</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+  {% if brands %}
+  <form method="post" action="{{ url_for('pages.ci_add_product', group_id=group.id) }}" class="ci-inline-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+    <select name="brand_id" class="ci-select" required>
+      <option value="" disabled selected>Brand…</option>
+      {% for b in brands %}<option value="{{ b.id }}">{{ b.name }} ({{ b.type }})</option>{% endfor %}
+    </select>
+    <input type="url" name="url" class="ci-input grow"
+           placeholder="https://www.walmart.com/ip/…/10294528" maxlength="2048" required />
+    <input type="text" name="name" class="ci-input grow" placeholder="Label (optional)" maxlength="255" />
+    <button type="submit" class="wbtn wbtn-secondary">Add product</button>
+  </form>
+  {% else %}
+  <p class="ci-section-hint">Add a brand first, then you can add products under it.</p>
+  {% endif %}
+</div>
+
+{# Keywords. #}
+<div class="ci-section card card-pad">
+  <div class="ci-section-title">Keywords</div>
+  <p class="ci-section-hint">Search terms to track on Walmart.com.</p>
+  {% if keywords %}
+  <div class="ci-chips">
+    {% for k in keywords %}
+    <span class="ci-chip">{{ k.keyword }}
+      <form method="post" action="{{ url_for('pages.ci_delete_keyword', keyword_id=k.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+        <input type="hidden" name="group_id" value="{{ group.id }}" />
+        <button type="submit" aria-label="Remove keyword">&times;</button>
+      </form>
+    </span>
+    {% endfor %}
+  </div>
+  {% endif %}
+  <form method="post" action="{{ url_for('pages.ci_add_keyword', group_id=group.id) }}" class="ci-inline-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+    <input type="text" name="keyword" class="ci-input grow" placeholder="e.g. hot sauce" maxlength="255" required />
+    <button type="submit" class="wbtn wbtn-secondary">Add keyword</button>
+  </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ static_url('js/ci_config.js') }}"></script>
+{% endblock %}

@@ -15,7 +15,7 @@
     ('pdp-scoring', 'PDP Content Scoring', url_for('pages.pdp_scoring')),
     ('pdp-image-set', 'PDP Image Set Creation', '#'),
     ('pdp-copy', 'PDP Copy Content Creation', url_for('pages.pdp_copy')),
-    ('competitive-intel', 'Competitive Intelligence', '#'),
+    ('competitive-intel', 'Competitive Intelligence', url_for('pages.ci_groups')),
   ] %}
   <div class="rail-nav">
     {% for slug, label, href in nav_items %}

@@ -1312,3 +1312,153 @@ a:focus-visible,
     padding-top: 18px;
   }
 }
+
+/* ── Competitive Intelligence ────────────────────────────────────────────────
+   Reuses the shared card / admin-table / status-badge / wbtn styles; these add
+   the config forms, group cards, the flash banner, and the dashboard bars +
+   sparklines. Palette stays monochrome (black = "mine", cool-gray = competitor)
+   with signal-red reserved for a dropped rank. */
+
+/* Flash banner (config actions post-redirect). */
+.ci-flash {
+  padding: 10px 14px;
+  border-radius: var(--radius-card);
+  font-size: 13px;
+  margin-bottom: 16px;
+  border: 1px solid var(--border);
+}
+.ci-flash.error { border-color: var(--signal-red); color: var(--signal-red); }
+.ci-flash.ok { border-color: var(--black); color: var(--black); }
+
+/* Shared form controls (no generic input style existed before CI). */
+.ci-input,
+.ci-select {
+  font: inherit;
+  font-size: 13px;
+  padding: 8px 10px;
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  color: var(--black);
+}
+.ci-input:focus,
+.ci-select:focus { outline: 2px solid var(--black); outline-offset: -1px; }
+.ci-input.grow { flex: 1; min-width: 12ch; }
+
+/* Inline "label + fields + button" add forms. */
+.ci-inline-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 12px;
+}
+
+/* Config sections. */
+.ci-section { margin-top: 22px; }
+.ci-section-title {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  margin: 0 0 6px;
+}
+.ci-section-hint { font-size: 12px; color: var(--cool-gray); margin: 0 0 8px; }
+
+/* Group list as cards. */
+.ci-group-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
+  margin-top: 16px;
+}
+.ci-group-card { display: flex; flex-direction: column; gap: 10px; }
+.ci-group-card .name { font-size: 16px; font-weight: 600; }
+.ci-group-card .meta { font-size: 12px; color: var(--cool-gray); }
+.ci-group-card .actions { display: flex; gap: 8px; margin-top: auto; align-items: center; }
+
+/* Small type pill for brand type (mine|competitor) — reuses chip radius. */
+.ci-type {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 7px;
+  border-radius: var(--radius-chip);
+  border: 1px solid var(--control-border);
+  color: var(--mid-gray);
+}
+.ci-type.mine { border-color: var(--black); color: var(--black); }
+
+/* Keyword chips. */
+.ci-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.ci-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  padding: 4px 6px 4px 10px;
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-chip);
+}
+.ci-chip form { display: inline; margin: 0; }
+.ci-chip button {
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--cool-gray);
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 2px;
+}
+.ci-chip button:hover { color: var(--signal-red); }
+
+/* Period selector on the dashboard. */
+.ci-periods { display: inline-flex; gap: 4px; }
+.ci-periods a {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 4px 10px;
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-chip);
+  color: var(--mid-gray);
+  text-decoration: none;
+}
+.ci-periods a.active { border-color: var(--black); color: var(--black); font-weight: 600; }
+
+/* Share-of-shelf bar (share % rendered as a filled track). */
+.ci-bar-track {
+  position: relative;
+  height: 8px;
+  background: var(--placeholder);
+  border-radius: 2px;
+  min-width: 80px;
+}
+.ci-bar-fill { position: absolute; inset: 0 auto 0 0; background: var(--cool-gray); border-radius: 2px; }
+.ci-bar-fill.mine { background: var(--black); }
+
+/* Rank delta arrows. */
+.ci-delta { font-size: 12px; font-weight: 600; }
+.ci-delta.up { color: var(--black); }
+.ci-delta.down { color: var(--signal-red); }
+.ci-delta.flat { color: var(--cool-gray); }
+
+/* Sparkline cell. */
+.ci-spark { display: inline-block; vertical-align: middle; }
+.ci-spark svg { display: block; }
+
+/* Trend chart container. */
+.ci-chart { width: 100%; overflow-x: auto; }
+.ci-chart svg { display: block; max-width: 100%; }
+.ci-legend { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px; font-size: 12px; }
+.ci-legend .item { display: inline-flex; align-items: center; gap: 6px; color: var(--mid-gray); }
+.ci-legend .swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+
+/* Empty-state block. */
+.ci-empty {
+  padding: 28px;
+  text-align: center;
+  color: var(--cool-gray);
+  font-size: 13px;
+}
