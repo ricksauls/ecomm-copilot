@@ -117,6 +117,14 @@ def create_app() -> Flask:
         if e.strip()
     }
 
+    # AI copy generation (PDP Copy Content Creation). The model is configurable
+    # via COPYGEN_MODEL so it can be switched (e.g. to a cheaper model for large
+    # batches) without a code change; it defaults to the most capable Claude
+    # model. The API key itself is read from ANTHROPIC_API_KEY by the SDK in the
+    # worker — it is intentionally NOT loaded into app.config so it can't leak
+    # into a template or error page.
+    app.config["COPYGEN_MODEL"] = os.environ.get("COPYGEN_MODEL", "claude-opus-5")
+
     _register_security_headers(app)
     _register_error_handlers(app)
 

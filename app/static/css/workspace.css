@@ -1134,3 +1134,156 @@ a:focus-visible,
 @media (prefers-reduced-motion: reduce) {
   .subtitle-scoring { animation: none; }
 }
+
+/* --- PDP Copy Content Creation ------------------------------------------- */
+
+/* Extra status-badge states used by the copy flow (the base .status-badge and
+   the blocked/error rules above already cover the rest). */
+.status-badge.status-fetching,
+.status-badge.status-queued,
+.status-badge.status-gen_queued,
+.status-badge.status-generating {
+  color: var(--mid-gray);
+}
+.status-badge.status-fetched {
+  color: var(--black);
+  border-color: var(--control-border);
+}
+.status-badge.status-done {
+  color: var(--black);
+  border-color: var(--black);
+}
+
+/* Prompt above the scoring results when selecting items to rewrite. */
+.copy-select-hint {
+  max-width: 1120px;
+  margin: 0 0 14px;
+  font-size: 13px;
+  color: var(--mid-gray);
+}
+.copy-select {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+}
+.copy-select input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--black);
+  cursor: pointer;
+}
+
+.copy-card {
+  max-width: 1120px;
+  margin-bottom: var(--space-14);
+}
+.copy-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+/* Score line: current → projected, with a signed delta. */
+.copy-scoreline {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+.copy-score-chip {
+  font-size: 12.5px;
+  color: var(--mid-gray);
+}
+.copy-score-chip strong {
+  font-size: 15px;
+  color: var(--black);
+}
+.copy-score-arrow {
+  color: var(--cool-gray);
+}
+.copy-score-delta {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--cool-gray);
+}
+/* The single accent: a genuine improvement reads strong-black; a regression is
+   the one place red earns its use on this view. */
+.copy-score-delta.up {
+  color: var(--black);
+}
+.copy-score-delta.down {
+  color: var(--signal-red);
+}
+
+/* Current vs new copy, side by side. Collapses to one column while only the
+   current copy exists (and on narrow viewports). */
+.copy-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin-top: 18px;
+}
+.copy-cols.copy-cols-one {
+  grid-template-columns: 1fr;
+}
+.copy-col {
+  min-width: 0;
+}
+/* The new-copy column is set apart with a hairline so old vs new is legible. */
+.copy-col-new {
+  border-left: 1px solid var(--border);
+  padding-left: 24px;
+}
+.copy-col-head {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--cool-gray);
+  margin-bottom: 12px;
+}
+.copy-field {
+  margin-bottom: 14px;
+}
+.copy-field-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--mid-gray);
+  margin-bottom: 4px;
+}
+.copy-field-value {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--black);
+  overflow-wrap: anywhere;
+}
+.copy-desc {
+  color: var(--mid-gray);
+}
+.copy-bullets {
+  margin: 0;
+  padding-left: 16px;
+}
+.copy-bullets li {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--black);
+  margin-bottom: 3px;
+  overflow-wrap: anywhere;
+}
+
+/* Stack the two copy columns on narrow viewports. */
+@media (max-width: 900px) {
+  .copy-cols {
+    grid-template-columns: 1fr;
+  }
+  .copy-col-new {
+    border-left: none;
+    padding-left: 0;
+    border-top: 1px solid var(--border);
+    padding-top: 18px;
+  }
+}

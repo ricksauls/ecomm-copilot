@@ -20,4 +20,10 @@ Pillow==12.3.0
 # a web request and deploys without extra apt packages on the droplet.
 reportlab==5.0.1
 
+# PDP Copy Content Creation: the Anthropic SDK powers the AI copy generator
+# (Title / Description / Key Features rewrite). Runs in the worker, never in a
+# request. The API key comes from ANTHROPIC_API_KEY in the environment (.env on
+# the droplet); it is never hardcoded or logged (see security-standards).
+anthropic==1.0.0
+
 # The CI workflow installs the dev/tooling pins from requirements-dev.txt.
