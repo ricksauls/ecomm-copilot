@@ -1069,7 +1069,7 @@ a:focus-visible,
   border-collapse: collapse;
   /* Compact type so dense admin rows (email, product title, timestamp) fit
      without wrapping; header stays a step smaller as an uppercase label. */
-  font-size: 8px;
+  font-size: 9px;
 }
 .admin-table th {
   text-align: left;
@@ -1103,6 +1103,12 @@ a:focus-visible,
   width: 205px;
   max-width: 205px;
   overflow-wrap: anywhere;
+}
+/* The status badge is a shared chip with its own (larger) type. In the dense
+   admin tables, size it to the surrounding column so the Status cell matches
+   every other column instead of standing out. */
+.admin-table .status-badge {
+  font-size: inherit;
 }
 .admin-table tr:last-child td {
   border-bottom: none;
