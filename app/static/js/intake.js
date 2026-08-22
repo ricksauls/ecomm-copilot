@@ -11,7 +11,7 @@
   "use strict";
 
   var MAX_ROWS = 100; // Mirror of app.pdp.MAX_ITEMS; the server enforces the real cap.
-  var PLACEHOLDER = "https://www.walmart.com/ip/10294528 (use this format)";
+  var PLACEHOLDER = "https://www.walmart.com/ip/10294528 (use this format, with item number at the end)";
 
   // --- Repeatable URL rows -------------------------------------------------
 
