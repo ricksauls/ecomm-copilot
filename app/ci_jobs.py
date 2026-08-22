@@ -162,6 +162,24 @@ def write_share_of_search(conn: sqlite3.Connection, run_id: int, group_id: int,
 
 # ── admin helpers (mirror jobs.list_items / count_items) ─────────────────────────
 
+def seen_item_ids_by_brand(conn: sqlite3.Connection, group_id: int) -> dict[int, set]:
+    """Return {brand_id: set(item_ids)} ever recorded for a group's brands.
+
+    Used by the scraper to flag brand-new competitor SKUs: any item id not in this
+    set on a run is "new". Preloading from prior runs makes the flag mean "not
+    seen before", so re-appearances aren't re-flagged.
+    """
+    rows = conn.execute(
+        "SELECT DISTINCT brand_id, item_id FROM ci_search_results "
+        "WHERE group_id = ? AND brand_id IS NOT NULL AND item_id IS NOT NULL",
+        (group_id,),
+    ).fetchall()
+    seen: dict[int, set] = {}
+    for r in rows:
+        seen.setdefault(r["brand_id"], set()).add(r["item_id"])
+    return seen
+
+
 def count_runs(conn: sqlite3.Connection) -> int:
     """Total number of CI runs across all users (an activity count for admin)."""
     return int(conn.execute("SELECT COUNT(*) FROM ci_runs").fetchone()[0])

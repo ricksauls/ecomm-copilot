@@ -22,10 +22,16 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from dataclasses import replace  # noqa: E402
+from datetime import datetime  # noqa: E402
+from zoneinfo import ZoneInfo  # noqa: E402
 
-from app import copy_jobs, copygen, db, jobs, keywords  # noqa: E402  (after load_dotenv is intentional)
+from app import ci_config, ci_jobs, ci_scraper, copy_jobs, copygen, db, jobs, keywords  # noqa: E402  (after load_dotenv is intentional)
 from app.fetch import FetchBlocked, FetchError, fetch_pdp  # noqa: E402
 from app.scoring import PdpRecord, result_to_dict, score_pdp  # noqa: E402
+
+# Scrape dates are stamped in Central time so a monitoring run near midnight lands
+# on the day the user expects (the droplet clock is UTC).
+CST = ZoneInfo("America/Chicago")
 
 logging.basicConfig(
     level=os.environ.get("LOG_LEVEL", "INFO").upper(),
@@ -184,16 +190,74 @@ def process_copy_one(conn: sqlite3.Connection, row: sqlite3.Row) -> bool:
     return False
 
 
+def process_ci_run(conn: sqlite3.Connection, run: sqlite3.Row) -> None:
+    """Scrape every active keyword for a claimed Competitive Intelligence run.
+
+    Each keyword is scraped in its own browser (anti-detection) with a polite
+    delay between keywords. A per-keyword failure (block/layout change) is logged
+    and skipped so one bad keyword doesn't sink the whole sweep; the run is marked
+    ``done`` if any keyword succeeded, else ``error``. Never raises.
+    """
+    run_id = run["id"]
+    group_id = run["group_id"]
+    slot = run["slot"]
+    try:
+        keyword_rows, item_map, brand_map = ci_config.load_group_config(conn, group_id)
+        if not keyword_rows:
+            log.info("CI run id=%s group=%s has no active keywords — nothing to scrape",
+                     run_id, group_id)
+            ci_jobs.finish_run(conn, run_id)
+            return
+
+        scrape_date = datetime.now(CST).date().isoformat()
+        seen = ci_jobs.seen_item_ids_by_brand(conn, group_id)
+        log.info("CI run id=%s group=%s starting — %d keyword(s)",
+                 run_id, group_id, len(keyword_rows))
+
+        succeeded = failed = 0
+        for i, kw in enumerate(keyword_rows):
+            try:
+                cards = ci_scraper.scrape_keyword_cards(kw["keyword"])
+                rows = ci_scraper.build_result_rows(
+                    cards, run_id=run_id, group_id=group_id, keyword_id=kw["id"],
+                    item_map=item_map, brand_map=brand_map,
+                    seen_ids_by_brand=seen, scrape_date=scrape_date,
+                )
+                ci_jobs.write_search_results(conn, rows)
+                ci_jobs.write_share_of_search(conn, run_id, group_id, kw["id"],
+                                              scrape_date, slot, rows)
+                succeeded += 1
+                log.info("CI run id=%s keyword=%r ok — %d cards", run_id, kw["keyword"], len(rows))
+            except (FetchBlocked, FetchError) as e:
+                failed += 1
+                log.warning("CI run id=%s keyword=%r failed: %s", run_id, kw["keyword"], e)
+            except Exception:  # noqa: BLE001 - one bad keyword must not kill the run
+                failed += 1
+                log.exception("CI run id=%s keyword=%r unexpected error", run_id, kw["keyword"])
+            # Polite pause before the next keyword (skip after the last one).
+            if i < len(keyword_rows) - 1:
+                time.sleep(random.uniform(*ci_scraper.INTER_KEYWORD_DELAY_S))
+
+        if succeeded == 0:
+            ci_jobs.fail_run(conn, run_id, f"All {failed} keyword(s) failed to scrape")
+        else:
+            ci_jobs.finish_run(conn, run_id)
+            log.info("CI run id=%s complete — %d ok, %d failed", run_id, succeeded, failed)
+    except Exception as e:  # noqa: BLE001 - a bad run must not kill the worker
+        log.exception("Unexpected error on CI run id=%s", run_id)
+        ci_jobs.fail_run(conn, run_id, f"Unexpected error: {e}")
+
+
 def main() -> None:
     """Claim-and-process loop. Runs until the process is stopped.
 
-    Drains the scoring queue first, then the copy queue, then idles. Scoring is
-    given priority simply because it's the older, higher-volume feature; both
-    queues share this single worker (the droplet's RAM caps parallelism — see the
-    handoff).
+    Drains the scoring queue first, then copy, then Competitive Intelligence runs,
+    then idles. Scoring/copy are per-item and take priority; a CI run is a whole
+    keyword sweep and does its own inter-keyword pacing. All queues share this
+    single worker (the droplet's RAM caps parallelism — see the handoff).
     """
     conn = connect()
-    log.info("PDP worker started (scoring + copy)")
+    log.info("PDP worker started (scoring + copy + competitive intelligence)")
     while True:
         row = jobs.claim_next(conn)
         if row is not None:
@@ -206,6 +270,11 @@ def main() -> None:
             did_fetch = process_copy_one(conn, copy_row)
             if did_fetch:
                 time.sleep(random.uniform(*FETCH_DELAY_RANGE_S))
+            continue
+
+        ci_run = ci_jobs.claim_next_run(conn)
+        if ci_run is not None:
+            process_ci_run(conn, ci_run)
             continue
 
         time.sleep(POLL_INTERVAL_S)
