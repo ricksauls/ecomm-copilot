@@ -90,6 +90,115 @@ CREATE TABLE IF NOT EXISTS copy_items (
 );
 CREATE INDEX IF NOT EXISTS idx_copy_items_status ON copy_items(status);
 CREATE INDEX IF NOT EXISTS idx_copy_items_user ON copy_items(user_id, id);
+
+-- ── Competitive Intelligence ────────────────────────────────────────────────
+-- Search Ranking + Share of Digital Shelf tracking. A user sets up one or more
+-- "groups" (e.g. a hot-sauce line, a cookie line); within a group they define
+-- Brands (their own vs competitors), the Products under each brand, and the
+-- Keywords to track. A "run" scrapes page-1 Walmart search results for every
+-- active keyword in a group and records each card's position + organic/sponsored
+-- type, then rolls those up into per-brand share-of-search. Runs are either
+-- one-time (user-triggered) or monitoring (3x/day scheduled). Model ported from
+-- the reference wm-dot-com-competitive-intelligence project (SQLAlchemy -> raw
+-- SQLite). Every top-level row carries user_id for ownership/IDOR checks, and
+-- child rows cascade-delete with their group.
+
+CREATE TABLE IF NOT EXISTS ci_groups (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id             INTEGER NOT NULL REFERENCES users(id),
+    name                TEXT    NOT NULL,
+    description         TEXT,
+    -- 1 => include this group in the scheduled 3x/day monitoring sweep.
+    monitoring_enabled  INTEGER NOT NULL DEFAULT 0,
+    active              INTEGER NOT NULL DEFAULT 1,
+    created_at          TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_ci_groups_user ON ci_groups(user_id, id);
+
+CREATE TABLE IF NOT EXISTS ci_brands (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id    INTEGER NOT NULL REFERENCES ci_groups(id) ON DELETE CASCADE,
+    name        TEXT    NOT NULL,
+    type        TEXT    NOT NULL DEFAULT 'competitor',  -- mine|competitor
+    tracked     INTEGER NOT NULL DEFAULT 1,
+    created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_ci_brands_group ON ci_brands(group_id);
+
+CREATE TABLE IF NOT EXISTS ci_products (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id          INTEGER NOT NULL REFERENCES ci_groups(id) ON DELETE CASCADE,
+    brand_id          INTEGER NOT NULL REFERENCES ci_brands(id) ON DELETE CASCADE,
+    name              TEXT,
+    walmart_item_id   TEXT    NOT NULL,
+    walmart_url       TEXT    NOT NULL,
+    active            INTEGER NOT NULL DEFAULT 1,
+    created_at        TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_ci_products_group ON ci_products(group_id);
+CREATE INDEX IF NOT EXISTS idx_ci_products_item ON ci_products(walmart_item_id);
+
+CREATE TABLE IF NOT EXISTS ci_keywords (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id    INTEGER NOT NULL REFERENCES ci_groups(id) ON DELETE CASCADE,
+    keyword     TEXT    NOT NULL,
+    active      INTEGER NOT NULL DEFAULT 1,
+    created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_ci_keywords_group ON ci_keywords(group_id);
+
+-- One row per scrape sweep of a group. The web app / scheduler inserts 'queued'
+-- rows; the worker claims one, marks it 'running', scrapes every active keyword,
+-- then marks it 'done' (or 'error'). slot identifies which monitoring window a
+-- scheduled run belongs to (NULL for one-time runs).
+CREATE TABLE IF NOT EXISTS ci_runs (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id     INTEGER NOT NULL REFERENCES ci_groups(id) ON DELETE CASCADE,
+    run_type     TEXT    NOT NULL DEFAULT 'one_time',   -- one_time|monitoring
+    slot         TEXT,                                   -- morning|afternoon|night|NULL
+    status       TEXT    NOT NULL DEFAULT 'queued',      -- queued|running|done|error
+    started_at   TEXT,
+    finished_at  TEXT,
+    error        TEXT,
+    created_at   TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_ci_runs_status ON ci_runs(status);
+CREATE INDEX IF NOT EXISTS idx_ci_runs_group ON ci_runs(group_id, id);
+
+-- Raw page-1 search results: one row per card per keyword per run. brand_id is
+-- set when the card's item_id/URL matches a tracked product, else NULL ("other").
+CREATE TABLE IF NOT EXISTS ci_search_results (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id         INTEGER NOT NULL REFERENCES ci_runs(id) ON DELETE CASCADE,
+    group_id       INTEGER NOT NULL REFERENCES ci_groups(id) ON DELETE CASCADE,
+    keyword_id     INTEGER NOT NULL REFERENCES ci_keywords(id) ON DELETE CASCADE,
+    scraped_at     TEXT    NOT NULL,                     -- date (YYYY-MM-DD)
+    position       INTEGER NOT NULL,                     -- overall slot on page 1
+    position_type  TEXT    NOT NULL,                     -- organic|sponsored
+    item_id        TEXT,
+    brand_id       INTEGER REFERENCES ci_brands(id) ON DELETE SET NULL,
+    is_new_sku     INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_ci_results_group_kw_date
+    ON ci_search_results(group_id, keyword_id, scraped_at);
+CREATE INDEX IF NOT EXISTS idx_ci_results_run ON ci_search_results(run_id);
+
+-- Per-brand share-of-search rollup, one row per brand per keyword per run.
+CREATE TABLE IF NOT EXISTS ci_share_of_search (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id           INTEGER NOT NULL REFERENCES ci_runs(id) ON DELETE CASCADE,
+    group_id         INTEGER NOT NULL REFERENCES ci_groups(id) ON DELETE CASCADE,
+    keyword_id       INTEGER NOT NULL REFERENCES ci_keywords(id) ON DELETE CASCADE,
+    date             TEXT    NOT NULL,                   -- date (YYYY-MM-DD)
+    slot             TEXT,                               -- monitoring window or NULL
+    brand_id         INTEGER REFERENCES ci_brands(id) ON DELETE SET NULL,
+    organic_count    INTEGER NOT NULL DEFAULT 0,
+    sponsored_count  INTEGER NOT NULL DEFAULT 0,
+    total_count      INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_ci_sos_group_brand_date
+    ON ci_share_of_search(group_id, brand_id, date);
+CREATE INDEX IF NOT EXISTS idx_ci_sos_run ON ci_share_of_search(run_id);
 """
 
 
