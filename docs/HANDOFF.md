@@ -32,16 +32,23 @@ A working reference for picking up development. Read this first, then
   reachable by ticking items on the scoring results and clicking "Create new copy
   content" (that path fetches **and** generates in one pass). **Live + verified**
   on the droplet (Tabasco Chipotle: current 82 → projected 96).
-- **Competitive Intelligence** end-to-end: per-user **groups** (organized by
-  Brand — mine vs competitor — with Products and Keywords), a **One-Time run**
-  ("Run once now") and a **Monitoring** mode that scrapes **3×/day at 7 AM / 3 PM
-  / 11 PM CST**. The worker scrapes page-1 Walmart search results per keyword,
-  records each card's position + organic/sponsored type, matches cards to tracked
-  products/brands, and rolls up per-brand share-of-search. Dashboards show
-  **Search Ranking** (current best position + Δ vs prior window + trend
-  sparkline, filterable by brand) and **Share of Digital Shelf** (organic vs
-  sponsored share per brand + a trend chart). One caveat: the monitoring
-  **systemd timers are not yet installed on the droplet** — see §2.
+- **Competitive Intelligence** end-to-end, organized into **three rail menus**
+  (groups are tagged by `mode`, each menu manages only its own):
+  1. **One-Time Snapshot** — configure a group (Brands mine/competitor →
+     Products → Keywords), **Run**, see **current-state results only (no
+     trends)**, download a **snapshot PDF**.
+  2. **Monitoring Setup** — configure, **Schedule & Run** (turns on the 3×/day
+     sweep at 7 AM / 3 PM / 11 PM CST **and** runs an immediate baseline), shows
+     the **next scheduled run time**.
+  3. **View Monitoring** — pick a monitoring group from a **dropdown**, see the
+     **trend** dashboard (Search Ranking with Δ + sparkline, filterable by brand;
+     Share of Digital Shelf organic/sponsored + trend chart), download a
+     **monitoring PDF**.
+  The worker scrapes page-1 Walmart search per keyword, records each card's
+  position + organic/sponsored type, matches cards to tracked products/brands,
+  and rolls up per-brand share-of-search. The config screen carries a help panel.
+  One caveat: the monitoring **systemd timers still need installing on the
+  droplet** — see §2.
 - **Admin screens** (Users, Items scored, **Copy created**) for the two admin
   emails, with a new-user notification and per-user delete.
 
@@ -157,14 +164,17 @@ Intelligence** (built). **Admin** section (below Credits, admins only): Users,
 Items scored, each with a live count.
 
 **Competitive Intelligence modules** (`app/`): `ci_config.py` (groups/brands/
-products/keywords CRUD, all user-scoped/IDOR-checked), `ci_jobs.py` (run queue +
-result writers + SoS rollup), `ci_scraper.py` (search-page card extraction + pure
-row builder), `ci_analysis.py` (period windows + rank/SoS summaries & trends),
-`enqueue_monitoring.py` (timer entry point). Worker drains CI runs in
-`worker.process_ci_run`. Routes/templates: `pages.ci_*` +
-`templates/app/ci_{groups,group_config,dashboard}.html`; static
-`js/ci_{config,charts,dashboard}.js`. Tables: `ci_groups`, `ci_brands`,
-`ci_products`, `ci_keywords`, `ci_runs`, `ci_search_results`,
+products/keywords CRUD, user-scoped/IDOR-checked; groups carry a `mode` =
+snapshot|monitoring), `ci_jobs.py` (run queue + result writers + SoS rollup),
+`ci_scraper.py` (search-page card extraction + pure row builder), `ci_analysis.py`
+(period windows, rank/SoS summaries & trends, `next_monitoring_run`, run-scoped
+`snapshot_*` aggregations), `enqueue_monitoring.py` (timer entry point).
+Worker drains CI runs in `worker.process_ci_run`. Routes `pages.ci_*` (three
+flows: snapshot/monitoring/view) + templates `templates/app/ci_{snapshot_home,
+monitoring_home,group_config,snapshot_results,view}.html` + `_ci_help.html`;
+static `js/ci_{config,charts,dashboard}.js`; PDFs via
+`pdf_export.build_ci_{snapshot,monitoring}_pdf`. Tables: `ci_groups` (+`mode`),
+`ci_brands`, `ci_products`, `ci_keywords`, `ci_runs`, `ci_search_results`,
 `ci_share_of_search`. Deploy: `deploy/ecomm-copilot-ci-*.{service,timer}`.
 
 ---
