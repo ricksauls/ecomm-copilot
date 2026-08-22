@@ -14,7 +14,7 @@ A working reference for picking up development. Read this first, then
   `~/Desktop/ClaudeStuff/ecomm-copilot-clean`.
 - **Stack:** Python / Flask, SQLite, server-rendered Jinja templates, deployed
   by GitHub Actions to a DigitalOcean droplet.
-- **Tests:** 107 passing (`ruff` clean, `pip-audit` clean).
+- **Tests:** 112 passing (`ruff` clean, `pip-audit` clean).
 - **Worker:** installed and running — scoring is self-serve end-to-end (intake →
   queue → background fetch+score → results). One worker only (see §6, parallelism).
 
@@ -28,10 +28,12 @@ A working reference for picking up development. Read this first, then
   "Get Current Copy Content" (worker fetches current Title/Description/Key
   Features) → "Create new copy content" (AI rewrite via Claude) → results screen
   showing current vs new copy **side by side** with a current→projected score
-  delta. Also reachable by ticking items on the scoring results and clicking
-  "Create new copy content" (that path fetches **and** generates in one pass).
-- **Admin screens** (Users, Items scored) for the two admin emails, with a
-  new-user notification and per-user delete.
+  delta, plus a **PDF export** (Download PDF, `/app/pdp-copy/results.pdf`). Also
+  reachable by ticking items on the scoring results and clicking "Create new copy
+  content" (that path fetches **and** generates in one pass). **Live + verified**
+  on the droplet (Tabasco Chipotle: current 82 → projected 96).
+- **Admin screens** (Users, Items scored, **Copy created**) for the two admin
+  emails, with a new-user notification and per-user delete.
 
 ---
 
@@ -109,14 +111,15 @@ app/
                      output) -> GeneratedCopy. COPYGEN_MODEL, lazy SDK import
   copy_jobs.py       copy_items queue: two-phase fetch->generate lifecycle
                      (enqueue/claim/save_current/save_generated/request_generation)
-  pdf_export.py      reportlab PDF of a scored batch
+  pdf_export.py      reportlab PDFs: build_results_pdf (scored batch) +
+                     build_copy_pdf (copy batch, current vs new side by side)
   routes/pages.py    landing, dashboard, PDP scoring + results + results.pdf,
-                     PDP copy (intake/results/generate/status) + scoring
-                     create-copy cross-link, admin users/items + delete
+                     PDP copy (intake/results/generate/status/results.pdf) +
+                     scoring create-copy cross-link, admin users/items/copy + delete
   fixtures.py        demo data for the dashboard
   templates/…        public_base + landing/signin/signup; app/base + _rail,
                      _topbar, dashboard, pdp_scoring, pdp_results, pdp_copy,
-                     pdp_copy_results, admin_users, admin_items
+                     pdp_copy_results, admin_users, admin_items, admin_copy
   static/            css/{tokens,public,workspace}.css,
                      js/{intake,admin_users}.js  (intake.js is shared by the
                      scoring + copy intake pages), img/{logo,favicon,...}
@@ -195,14 +198,18 @@ title/description. All-in overall ≈ 80s (varies as competitor SERPs drift).
 - **Who:** the `ADMIN_EMAILS` allowlist in `.env` (server-side; `security.is_admin`
   / `admin_required` fail closed → 403 / sign-in redirect). Both `ricksauls@cox.net`
   and `ricksauls1@gmail.com` are admins.
-- **Rail Admin section** (below Credits, admins only): **Users** and **Items
-  scored**, each with a live count (via the `_inject_admin_context` context
-  processor, which skips all DB work for non-admins).
+- **Rail Admin section** (below Credits, admins only): **Users**, **Items
+  scored**, and **Copy created**, each with a live count (via the
+  `_inject_admin_context` context processor, which skips all DB work for
+  non-admins).
 - **Users screen** (`/admin/users`): table of all users; per-row **Delete**
   (POST + CSRF, blocks self-delete, cascades the user's scored items; confirm
   dialog via `static/js/admin_users.js`).
 - **Items scored** (`/admin/items`): recent items across all users (item, product
   title, submitter email, status, score, "Ran" time).
+- **Copy created** (`/admin/copy`): recent copy items across all users (item,
+  product title, submitter email, status, current + projected score, "Ran"
+  time). Backed by `copy_jobs.count_copy_items` / `list_copy_items`.
 - **New-user notification** (topbar, admins only): counts users who signed up
   since the admin's **previous login** (`users.last_login_at` / `prev_login_at`,
   stamped on every sign-in). First-ever login falls back to account-creation time.
@@ -230,6 +237,9 @@ white-bg check; admin screens; PDF export; HTTPS/cache-busting fixes;
 **PDP Copy Content Creation** (AI copy rewrite — the generation half of the AI
 pass; `app/copygen.py`, `app/copy_jobs.py`, `copy_items` table, worker two-phase
 fetch→generate, results with projected-score delta, scoring cross-link).
+Also this cycle (2026-08-22, all live on main): **copy CSV cap 200→100** +
+Imagery card copy; **worker schema-race fix** (`db.ensure_schema`, see §9); **copy
+results PDF export**; **admin "Copy created" screen** (`/admin/copy`).
 
 1. **AI pass — remaining qualitative half (needs Claude + `ANTHROPIC_API_KEY`).**
    The **copy rewrite** half now ships (see above). Still open: keyword
@@ -301,6 +311,12 @@ cd ~/Desktop/ClaudeStuff/ecomm-copilot-clean
 - **DB migrations:** `CREATE TABLE IF NOT EXISTS` won't alter an existing table
   and SQLite has no `ADD COLUMN IF NOT EXISTS` — add new columns in `db._migrate`
   (checks `PRAGMA table_info`). New *tables* can go straight in `_SCHEMA`.
+- **Worker ensures its own schema:** `db.ensure_schema(conn)` (idempotent
+  `_SCHEMA` + `_migrate`) is called by BOTH `init_db` (web) and `worker.connect()`.
+  This exists because on the copy_items deploy the worker restarted **before** the
+  web app created the table and crashed with `no such table: copy_items` (it
+  self-healed after one systemd restart). Don't reintroduce a dependence on the
+  web app initializing the DB first — new tables are safe for the worker now.
 - **`_row_view` in `routes/pages.py`** shapes scored_items rows for the
   results template/JSON — add any new column there too, or it won't render
   (bit us with `title`).
