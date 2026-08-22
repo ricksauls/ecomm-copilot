@@ -350,6 +350,14 @@ body.public {
   font-size: 11.5px;
   color: var(--mid-gray);
 }
+/* Scope/limits line at the very bottom of a card, below the price row. Slightly
+   smaller than the turn label and muted, so it reads as a footnote. */
+.deliverable-scope {
+  margin: 10px 0 0;
+  font-size: 10.5px;
+  line-height: 1.4;
+  color: var(--mid-gray);
+}
 
 /* --- Closing CTA --- */
 .closing {
