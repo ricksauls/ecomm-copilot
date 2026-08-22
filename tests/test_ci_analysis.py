@@ -1,0 +1,118 @@
+"""Tests for the CI dashboard aggregations (share of shelf + search rank)."""
+
+from datetime import date, timedelta
+
+from app import ci_analysis, ci_config, ci_jobs
+from app.db import get_db
+from app.users import create_local_user
+
+
+def _iso(days_ago: int) -> str:
+    return (date.today() - timedelta(days=days_ago)).isoformat()
+
+
+def _sos(db, run_id, gid, kid, d, brand_id, organic, sponsored):
+    db.execute(
+        "INSERT INTO ci_share_of_search "
+        "(run_id, group_id, keyword_id, date, slot, brand_id, organic_count, sponsored_count, total_count) "
+        "VALUES (?,?,?,?,?,?,?,?,?)",
+        (run_id, gid, kid, d, None, brand_id, organic, sponsored, organic + sponsored),
+    )
+
+
+def _result(db, run_id, gid, kid, d, position, item_id, brand_id, ptype="organic"):
+    db.execute(
+        "INSERT INTO ci_search_results "
+        "(run_id, group_id, keyword_id, scraped_at, position, position_type, item_id, brand_id, is_new_sku) "
+        "VALUES (?,?,?,?,?,?,?,?,0)",
+        (run_id, gid, kid, d, position, ptype, item_id, brand_id),
+    )
+
+
+def _setup(db):
+    uid = create_local_user("an@example.com", "password123")
+    gid = ci_config.create_group(db, uid, "Hot Sauce")
+    mine = ci_config.add_brand(db, gid, uid, "Tabasco", "mine")
+    comp = ci_config.add_brand(db, gid, uid, "Frank's", "competitor")
+    pid = ci_config.add_product(db, gid, mine, uid, "https://www.walmart.com/ip/x/10294528")
+    kid = ci_config.add_keyword(db, gid, uid, "hot sauce")
+    rid = ci_jobs.enqueue_run(db, gid)
+    return uid, gid, mine, comp, pid, kid, rid
+
+
+def test_share_of_shelf_summary_shares_ordering_and_delta(app):
+    with app.app_context():
+        db = get_db()
+        _, gid, mine, comp, _, kid, rid = _setup(db)
+        # Current window (today): mine 6 slots (4 org + 2 spon), comp 3 org, other 1 org => 10 total.
+        _sos(db, rid, gid, kid, _iso(0), mine, 4, 2)
+        _sos(db, rid, gid, kid, _iso(0), comp, 3, 0)
+        _sos(db, rid, gid, kid, _iso(0), None, 1, 0)
+        # Prior window (~10 days ago, inside wow's prior 7-day window): mine 2 of 10.
+        _sos(db, rid, gid, kid, _iso(10), mine, 2, 0)
+        _sos(db, rid, gid, kid, _iso(10), None, 8, 0)
+        db.commit()
+
+        rows = ci_analysis.share_of_shelf_summary(db, gid, "wow")
+        by_id = {r["brand_id"]: r for r in rows}
+        assert by_id[mine]["total_share"] == 60.0   # 6/10
+        assert by_id[mine]["organic_share"] == 50.0  # 4 of 8 organic slots
+        assert by_id[comp]["total_share"] == 30.0
+        assert by_id[None]["brand_name"] == "Other"
+        # Delta: mine was 20% prior -> +40.0
+        assert by_id[mine]["total_share_delta"] == 40.0
+        # Ordering: mine first, then competitor, then Other last.
+        assert [r["type"] for r in rows] == ["mine", "competitor", "other"]
+
+
+def test_share_of_shelf_trend_series(app):
+    with app.app_context():
+        db = get_db()
+        _, gid, mine, comp, _, kid, rid = _setup(db)
+        _sos(db, rid, gid, kid, _iso(1), mine, 5, 0)   # day A: mine 5 of 10 = 50%
+        _sos(db, rid, gid, kid, _iso(1), comp, 5, 0)
+        _sos(db, rid, gid, kid, _iso(0), mine, 8, 0)   # day B: mine 8 of 10 = 80%
+        _sos(db, rid, gid, kid, _iso(0), comp, 2, 0)
+        db.commit()
+
+        trend = ci_analysis.share_of_shelf_trend(db, gid, "wow")
+        assert trend["dates"] == [_iso(1), _iso(0)]
+        mine_series = next(b for b in trend["brands"] if b["brand_id"] == mine)
+        assert mine_series["share"] == [50.0, 80.0]
+
+
+def test_rank_summary_current_prior_and_sparkline(app):
+    with app.app_context():
+        db = get_db()
+        _, gid, mine, comp, _, kid, rid = _setup(db)
+        item = "10294528"
+        # In-window sightings: pos 5 three days ago, pos 3 today (improved).
+        _result(db, rid, gid, kid, _iso(3), 5, item, mine)
+        _result(db, rid, gid, kid, _iso(0), 3, item, mine)
+        # Prior window sighting: best pos 8.
+        _result(db, rid, gid, kid, _iso(10), 8, item, mine)
+        db.commit()
+
+        rows = ci_analysis.rank_summary(db, gid, "wow")
+        assert len(rows) == 1
+        r = rows[0]
+        assert r["current_position"] == 3
+        assert r["prior_position"] == 8
+        assert r["delta"] == 5           # 8 - 3, moved up 5 slots
+        assert r["positions"] == [5, 3]  # sparkline oldest->newest
+        assert r["keyword"] == "hot sauce"
+        assert r["brand_name"] == "Tabasco"
+
+
+def test_rank_summary_omits_products_with_no_sightings(app):
+    with app.app_context():
+        db = get_db()
+        _, gid, *_ = _setup(db)
+        assert ci_analysis.rank_summary(db, gid, "wow") == []
+
+
+def test_period_windows_do_not_overlap():
+    start, end = ci_analysis.get_date_range("wow", today=date(2026, 8, 22))
+    p_start, p_end = ci_analysis.get_prior_date_range("wow", today=date(2026, 8, 22))
+    assert end == "2026-08-22" and start == "2026-08-15"
+    assert p_end == "2026-08-15" and p_start == "2026-08-08"
