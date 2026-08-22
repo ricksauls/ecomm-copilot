@@ -43,6 +43,30 @@ def test_brand_match_by_item_id():
     assert rows[0]["is_new_sku"] == 0  # 'mine' brands never flagged new
 
 
+def test_match_by_numeric_from_url_when_data_item_id_is_opaque():
+    # Real Walmart cards carry an opaque data-item-id (e.g. '3K2RMCS1KI5D') but a
+    # /ip/<slug>/<number> URL. Match + store must use the numeric item number so
+    # brand attribution AND the ranking join work.
+    url = "https://www.walmart.com/ip/tabasco-original-5-oz/10294527"
+    item_map = {"10294527": _product("10294527", brand_id=1, url="https://www.walmart.com/ip/10294527")}
+    brand_map = {1: _brand(1, "mine")}
+    rows = ci_scraper.build_result_rows(
+        [_card("Tabasco", "3K2RMCS1KI5D", product_url=url + "?classType=0")],
+        run_id=1, group_id=1, keyword_id=1, item_map=item_map, brand_map=brand_map,
+    )
+    assert rows[0]["brand_id"] == 1
+    assert rows[0]["item_id"] == "10294527"  # numeric stored, not the opaque code
+
+
+def test_opaque_id_with_no_url_is_stored_as_is_and_unmatched():
+    rows = ci_scraper.build_result_rows(
+        [_card("Mystery", "3K2RMCS1KI5D")], run_id=1, group_id=1, keyword_id=1,
+        item_map={}, brand_map={},
+    )
+    assert rows[0]["brand_id"] is None
+    assert rows[0]["item_id"] == "3K2RMCS1KI5D"
+
+
 def test_brand_match_by_url_fallback_when_item_id_missing():
     url = "https://www.walmart.com/ip/frank/55512340"
     item_map = {"55512340": _product("55512340", brand_id=9, url=url)}

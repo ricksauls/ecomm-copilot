@@ -23,6 +23,7 @@ import random
 from datetime import date
 
 from app.fetch import _BLOCK_MARKERS, FetchBlocked, FetchError
+from app.pdp import item_number_from_url
 
 logger = logging.getLogger(__name__)
 
@@ -113,11 +114,16 @@ def build_result_rows(cards: list[dict], *, run_id: int, group_id: int, keyword_
                       scrape_date: str | None = None) -> list[dict]:
     """Turn ordered card dicts into ci_search_results row dicts (pure).
 
-    Each card is ``{name, item_id, listing_type, product_url}``. Matching mirrors
-    the reference daily.scrape_keyword: item id first, then a cleaned-URL fallback
-    against the group's products. ``seen_ids_by_brand`` (brand_id -> set of item
-    ids already seen) drives new-SKU detection for tracked competitor brands; it
-    is mutated in place so a caller can carry it across keywords in one run.
+    Each card is ``{name, item_id, listing_type, product_url}``. The card's raw
+    ``item_id`` (Walmart's ``data-item-id``) is an *opaque* code (e.g.
+    ``3K2RMCS1KI5D``), NOT the numeric item number tracked products are keyed by,
+    so matching is driven by the numeric item number parsed from the card's
+    ``/ip/<slug>/<number>`` URL (same rule as intake, :func:`pdp.item_number_from_url`).
+    That numeric id is also what we store, so the ranking join
+    (``ci_search_results.item_id = ci_products.walmart_item_id``) lines up.
+    A cleaned-URL match is kept as a last-resort fallback. ``seen_ids_by_brand``
+    (brand_id -> set of item ids seen) drives new-SKU detection for tracked
+    competitor brands; it is mutated in place so a caller can carry it across a run.
     """
     scrape_date = scrape_date or date.today().isoformat()
     seen_ids_by_brand = seen_ids_by_brand if seen_ids_by_brand is not None else {}
@@ -131,11 +137,19 @@ def build_result_rows(cards: list[dict], *, run_id: int, group_id: int, keyword_
     rows: list[dict] = []
     for position, card in enumerate(cards, start=1):
         listing_type = "sponsored" if card.get("listing_type") == "sponsored" else "organic"
-        item_id = card.get("item_id") or ""
+        raw_id = card.get("item_id") or ""
+        product_url = card.get("product_url") or ""
 
-        matched = item_map.get(item_id)
-        if not matched and card.get("product_url"):
-            matched = url_map.get(_clean_url(card["product_url"]))
+        # The numeric item number from the card URL is the reliable match/join key;
+        # fall back to the raw card id only if the URL has none.
+        numeric_id = item_number_from_url(product_url) if product_url else None
+        item_id = numeric_id or raw_id or None
+
+        matched = item_map.get(numeric_id) if numeric_id else None
+        if not matched and raw_id:
+            matched = item_map.get(raw_id)
+        if not matched and product_url:
+            matched = url_map.get(_clean_url(product_url))
         brand_id = matched["brand_id"] if matched else None
 
         is_new_sku = False
