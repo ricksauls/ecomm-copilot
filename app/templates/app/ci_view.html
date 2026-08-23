@@ -8,7 +8,7 @@
     <p class="subtitle">Search Ranking &amp; Share of Digital Shelf over time.</p>
   </div>
   {% if selected %}
-  <div style="display:flex; gap:12px; align-items:center">
+  <div class="header-actions">
     <div class="ci-periods">
       {% for p in periods %}
       <a href="{{ url_for('pages.ci_view', group_id=selected.id, period=p) }}"
