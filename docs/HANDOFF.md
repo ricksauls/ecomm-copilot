@@ -45,10 +45,29 @@ A working reference for picking up development. Read this first, then
      Share of Digital Shelf organic/sponsored + trend chart), download a
      **monitoring PDF**.
   The worker scrapes page-1 Walmart search per keyword, records each card's
-  position + organic/sponsored type, matches cards to tracked products/brands,
-  and rolls up per-brand share-of-search. The config screen carries a help panel.
-  One caveat: the monitoring **systemd timers still need installing on the
-  droplet** — see §2.
+  position + organic/sponsored type, attributes each card to a brand, and rolls up
+  per-brand share-of-search. The config screen carries a help panel. Monitoring
+  systemd timers are **installed and active** on the droplet (§2).
+  - **Brand attribution (important, learned the hard way):** Walmart search cards
+    expose an **opaque `data-item-id`** (e.g. `3K2RMCS1KI5D`), *not* the numeric
+    item number. So matching parses the **numeric id from the card's `/ip/<slug>/
+    <number>` URL** and matches that to tracked products (and stores it as the row
+    `item_id`, so the ranking join lines up). **Sponsored** slots get a *different*
+    id **and** a tracking URL with no `/ip/<number>`, so they can only be matched
+    by a **brand-name fallback** (the brand name found in the card title). See
+    `app/ci_scraper.py:build_result_rows` — order is numeric-id → raw-id → URL →
+    brand-name. This also counts a brand's untracked SKUs toward its share.
+  - **Search Ranking is brand-level and includes competitors** (mine + competitor)
+    so users compare standings. Snapshot shows an organic/sponsored best-position
+    split; monitoring shows Best + Δ vs prior window + a sparkline.
+  - **Share % denominator = all page-1 placements** (branded + "Other"); the
+    placement count is shown on-screen. **PDF export** works for both snapshot and
+    monitoring (`.../results.pdf`, `.../view/<id>/results.pdf`).
+  - **Verified live** (Tabasco Original Hot Sauce group, run 2): organic cards
+    attribute to Tabasco/Frank's/Louisiana/Cholula and rank (e.g. "tabasco" #5).
+    The sponsored name-match fix landed after run 2, so a fresh re-scrape (run 3)
+    was launched to verify sponsored attribution — check that run's results next
+    session (sponsored attribution logic itself is covered by unit tests).
 - **Admin screens** (Users, Items scored, **Copy created**) for the two admin
   emails, with a new-user notification and per-user delete.
 
@@ -65,20 +84,24 @@ A working reference for picking up development. Read this first, then
 - **Worker:** `ecomm-copilot-worker.service` runs `worker.py` under `DISPLAY=:99`
   (headed Chrome). Installed and active. Drains three queues now: scoring, copy,
   and **Competitive Intelligence runs** (a CI run scrapes a group's keywords).
-- **CI monitoring timers (ACTION NEEDED):** three systemd timers
+- **CI monitoring timers (installed + active):** three systemd timers
   (`ecomm-copilot-ci-{morning,afternoon,night}.timer`) enqueue monitoring runs at
   7 AM / 3 PM / 11 PM CST via `ecomm-copilot-ci-monitor@.service`
-  (`python -m app.enqueue_monitoring <slot>`). `setup-droplet.sh` installs them,
-  but a normal git-pull deploy does **not** run that script — so on the live
-  droplet the timers are **not installed yet**. Install once as root (DO Console;
-  deploy sudo password is lost): see the copy-paste block in `deploy/DEPLOY.md`
-  ("Competitive Intelligence monitoring timers"). Until then, One-Time "Run once
-  now" works but the 3×/day monitoring does not fire.
+  (`python -m app.enqueue_monitoring <slot>`). Installed manually as root on
+  2026-08-22 (DO Console; deploy sudo password is lost) and enabled — verified via
+  `systemctl list-timers 'ecomm-copilot-ci-*'` (next fires 12:00/20:00/04:00 UTC =
+  7 AM/3 PM/11 PM CST). A group only gets swept when its owner turns **monitoring
+  on** for it. Re-installing after a fresh `setup-droplet.sh` is idempotent; the
+  copy-paste block is in `deploy/DEPLOY.md` ("Competitive Intelligence monitoring
+  timers") if the droplet is ever rebuilt (a normal git-pull deploy does not run
+  setup-droplet.sh, so the timers persist untouched across deploys).
 - **Xvfb:** `xvfb.service` on `:99` (from the WM scraper) — the worker reuses it.
 - **DB:** SQLite at `DATABASE_URL` (`/home/deploy/apps/ecomm-copilot/app.db`),
   chmod 600. Tables: `users`, `scored_items`, `keyword_cache`, `copy_items`
-  (Copy Content Creation). Schema is created + migrated idempotently at web
-  startup (`db.init_db` / `db._migrate`).
+  (Copy Content Creation), and the CI set `ci_groups` (+`mode`), `ci_brands`,
+  `ci_products`, `ci_keywords`, `ci_runs`, `ci_search_results`,
+  `ci_share_of_search`. Schema is created + migrated idempotently at web **and**
+  worker startup (`db.ensure_schema` = `_SCHEMA` + `_migrate`).
 - **Secrets / config** in `/home/deploy/apps/ecomm-copilot/.env` (chmod 600,
   never committed): `SECRET_KEY`, `DATABASE_URL`, `APP_URL`,
   `GOOGLE_CLIENT_ID/SECRET`, **`ADMIN_EMAILS`** (comma-separated allowlist =
@@ -154,14 +177,16 @@ worker.py            background worker (systemd): drains BOTH queues — scoring
                      (fetch -> keywords -> score -> save) and copy (fetch current
                      copy, then AI-generate new copy + projected score)
 deploy/              DEPLOY.md, *.service units, nginx.conf, setup-droplet.sh
-tests/               107 tests (auth, jobs, pdp, scoring, fetch, pages, keywords,
-                     admin, copygen, copy_jobs, copy)
+tests/               162 tests (auth, jobs, pdp, scoring, fetch, pages, keywords,
+                     admin, copygen, copy_jobs, copy, ci_config/jobs/scraper/
+                     analysis/worker/monitoring/pages)
 ```
 
-**Nav (rail):** Dashboard, **PDP Content Scoring** (built), PDP Image Set
-Creation (placeholder), **PDP Copy Content Creation** (built), **Competitive
-Intelligence** (built). **Admin** section (below Credits, admins only): Users,
-Items scored, each with a live count.
+**Nav (rail):** **Dashboard** (top-level, no sub-menu); **Content Studio**
+section — PDP Content Scoring (built), PDP Image Set Creation (placeholder), PDP
+Copy Content Creation (built); **Competitive Intelligence** section — One-Time
+Snapshot, Monitoring Setup, View Monitoring (all built). **Admin** section (below
+Credits, admins only): Users, Items scored, Copy created, each with a live count.
 
 **Competitive Intelligence modules** (`app/`): `ci_config.py` (groups/brands/
 products/keywords CRUD, user-scoped/IDOR-checked; groups carry a `mode` =
@@ -281,6 +306,15 @@ fetch→generate, results with projected-score delta, scoring cross-link).
 Also this cycle (2026-08-22, all live on main): **copy CSV cap 200→100** +
 Imagery card copy; **worker schema-race fix** (`db.ensure_schema`, see §9); **copy
 results PDF export**; **admin "Copy created" screen** (`/admin/copy`).
+**Competitive Intelligence** shipped end-to-end this cycle: built the whole
+feature (7 `ci_*` tables, config CRUD, search scraper, worker CI queue, 3×/day
+monitoring timers, analysis + dashboards); then **restructured into 3 menus**
+(One-Time Snapshot / Monitoring Setup / View Monitoring) with per-mode groups and
+two CI PDF exports; **reorganized the rail** (Dashboard / Content Studio / CI);
+and fixed brand attribution — **numeric item id parsed from the card URL** (the
+`data-item-id` is opaque) plus a **brand-name fallback so sponsored slots attribute**,
+with **brand-level Search Ranking incl. competitors** and the page-1 placement
+count shown. Also tweaked URL-field hint copy ("…with item number at the end").
 
 1. **AI pass — remaining qualitative half (needs Claude + `ANTHROPIC_API_KEY`).**
    The **copy rewrite** half now ships (see above). Still open: keyword
@@ -297,13 +331,14 @@ results PDF export**; **admin "Copy created" screen** (`/admin/copy`).
    Attributes dimension when ready — it's paused, not removed).
 3. **Competitive benchmarking** — score top-N competitors for the item's head
    terms and show the gap to the category leader.
-4. **Other nav screens** — PDP Image Set Creation is still a placeholder
-   (`href="#"`). (PDP Copy Content Creation and Competitive Intelligence are now
-   built.) **CI next-ups:** install the monitoring timers on the droplet (§2);
-   competitive benchmarking on the CI data (gap to category leader); surface the
-   `is_new_sku` flag (already captured) as a new-competitor-SKU alert; CSV/PDF
-   export of the CI dashboards; and richer rank trends once monitoring has
-   accumulated multi-day history.
+4. **Other nav screens** — PDP Image Set Creation is the only remaining
+   placeholder (`href="#"`) under Content Studio. (PDP Copy Content Creation and
+   all three Competitive Intelligence flows are built; PDF export is done for CI.)
+   **CI next-ups:** surface the `is_new_sku` flag (already captured) as a
+   new-competitor-SKU alert; competitive benchmarking on the CI data (gap to the
+   category leader per keyword); optional CSV export; richer rank trends as
+   monitoring accumulates multi-day history; consider a per-keyword page-1 depth
+   cap (today the scraper takes all cards the item-stack yields, ~50/keyword).
 5. **Nice-to-haves:** retry `blocked` items, a scoring history view.
 
 ---
