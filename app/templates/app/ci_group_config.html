@@ -10,7 +10,7 @@
       {% else %}Snapshot group — brands, products, and keywords for a one-time read.{% endif %}
     </p>
   </div>
-  <div class="ci-periods">
+  <div class="header-actions">
     {% if group.mode == 'monitoring' %}
     <a href="{{ url_for('pages.ci_view', group_id=group.id) }}" class="wbtn wbtn-primary">View results</a>
     {% else %}
