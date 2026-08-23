@@ -170,6 +170,7 @@
          aria-label="Stacked bar chart of each brand's organic and sponsored share of the page-1 shelf.">
       {% for r in sos_summary %}
       <div class="sos-col">
+        <div class="sos-col-value">{{ r.total_share }}%</div>
         <div class="sos-bar">
           {% if r.sponsored_share %}<span class="sos-seg sos-seg-sponsored"
             style="height: {{ (r.sponsored_share / scale * 180) | round(1) }}px"

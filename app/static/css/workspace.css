@@ -1435,7 +1435,8 @@ a:focus-visible,
    don't produce absurdly wide bars. */
 .sos-plot { display: flex; align-items: flex-end; gap: 12px; padding-bottom: 4px; }
 .sos-col { display: flex; flex-direction: column; align-items: center; flex: 1 1 0; min-width: 0; }
-.sos-bar { display: flex; flex-direction: column; justify-content: flex-end; width: 100%; max-width: 64px; }
+.sos-col-value { font-size: 11px; color: var(--mid-gray); margin-bottom: 5px; }  /* total share, above the bar */
+.sos-bar { display: flex; flex-direction: column; justify-content: flex-end; width: 100%; max-width: 128px; }
 .sos-seg { width: 100%; display: block; }
 .sos-bar .sos-seg:first-child { border-radius: 3px 3px 0 0; }  /* round the top of the stack */
 .sos-seg-organic { background: var(--black); }
