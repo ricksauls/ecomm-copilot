@@ -212,9 +212,8 @@ def snapshot_share_by_keyword(conn: sqlite3.Connection, group_id: int, run_id: i
 
     Like :func:`snapshot_share_of_shelf` but broken out by keyword: shares are of
     that keyword's own page-1 slots (so each keyword's total shares sum to ~100%,
-    including the untracked "Other" bucket). Ordered by keyword, then — within a
-    keyword — mine-first, competitors by total share descending, "Other" last,
-    matching the overall table's ordering.
+    including the untracked "Other" bucket). Ordered by keyword, then by total
+    share descending within each keyword (largest shelf holder first).
     """
     rows = conn.execute(
         "SELECT k.keyword AS keyword, sos.brand_id AS brand_id, "
@@ -249,8 +248,7 @@ def snapshot_share_by_keyword(conn: sqlite3.Connection, group_id: int, run_id: i
                 "sponsored_share": _pct(r["s"] or 0, grand["sponsored"]),
                 "total_share": _pct(r["t"] or 0, grand["total"]),
             })
-        entries.sort(key=lambda e: ({"mine": 0, "competitor": 1}.get(e["type"], 2),
-                                    -e["total_share"]))
+        entries.sort(key=lambda e: -e["total_share"])
         out.extend(entries)
     return out
 
