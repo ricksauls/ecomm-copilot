@@ -170,14 +170,18 @@
          aria-label="Stacked bar chart of each brand's organic and sponsored share of the page-1 shelf.">
       {% for r in sos_summary %}
       <div class="sos-col">
-        <div class="sos-col-value">{{ r.total_share }}%</div>
-        <div class="sos-bar">
-          {% if r.sponsored_share %}<span class="sos-seg sos-seg-sponsored"
-            style="height: {{ (r.sponsored_share / scale * 180) | round(1) }}px"
-            title="{{ r.brand_name }} — sponsored share {{ r.sponsored_share }}%"></span>{% endif %}
-          {% if r.organic_share %}<span class="sos-seg sos-seg-organic"
-            style="height: {{ (r.organic_share / scale * 180) | round(1) }}px"
-            title="{{ r.brand_name }} — organic share {{ r.organic_share }}%"></span>{% endif %}
+        {# Fixed-height plot area so every bar shares one baseline; the label sits
+           below it and tops-align, so a wrapping brand name can't lift the bar. #}
+        <div class="sos-col-plot">
+          <div class="sos-col-value">{{ r.total_share }}%</div>
+          <div class="sos-bar">
+            {% if r.sponsored_share %}<span class="sos-seg sos-seg-sponsored"
+              style="height: {{ (r.sponsored_share / scale * 180) | round(1) }}px"
+              title="{{ r.brand_name }} — sponsored share {{ r.sponsored_share }}%"></span>{% endif %}
+            {% if r.organic_share %}<span class="sos-seg sos-seg-organic"
+              style="height: {{ (r.organic_share / scale * 180) | round(1) }}px"
+              title="{{ r.brand_name }} — organic share {{ r.organic_share }}%"></span>{% endif %}
+          </div>
         </div>
         <div class="sos-col-label">{{ r.brand_name }}</div>
       </div>

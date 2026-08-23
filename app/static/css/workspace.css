@@ -1433,8 +1433,11 @@ a:focus-visible,
 /* Bars share the full plot width (flex:1 columns) so the chart lines up with
    the table above it; each bar is centered in its column, capped so few brands
    don't produce absurdly wide bars. */
-.sos-plot { display: flex; align-items: flex-end; gap: 12px; padding-bottom: 4px; }
+.sos-plot { display: flex; align-items: flex-start; gap: 12px; padding-bottom: 4px; }
 .sos-col { display: flex; flex-direction: column; align-items: center; flex: 1 1 0; min-width: 0; }
+/* Fixed height (max bar 180px + room for the value label) so bars bottom-align
+   on one baseline and the labels below all start at the same top. */
+.sos-col-plot { display: flex; flex-direction: column; justify-content: flex-end; align-items: center; width: 100%; height: 210px; }
 .sos-col-value { font-size: 11px; color: var(--mid-gray); margin-bottom: 5px; }  /* total share, above the bar */
 .sos-bar { display: flex; flex-direction: column; justify-content: flex-end; width: 100%; max-width: 128px; }
 .sos-seg { width: 100%; display: block; }
