@@ -668,7 +668,9 @@ def ci_snapshot_results(group_id):
     """Current-state snapshot results (no trends); polls while a run is active."""
     group = _owned_group_or_404(group_id)
     db = get_db()
-    run, sos_summary, ranks = _snapshot_view(db, group_id)
+    # _snapshot_view also yields snapshot_rank rows (used by the PDF export); the
+    # page renders its own keyword/brand average table instead, so ignore them here.
+    run, sos_summary, _ = _snapshot_view(db, group_id)
 
     # Top-of-page config summary: what this group tracks (mine/competitor brands,
     # items, terms). Config is user-scoped/IDOR-checked inside ci_config.
@@ -681,14 +683,14 @@ def ci_snapshot_results(group_id):
     }
 
     # Ranking rollups only exist once a run has produced results.
-    avg_ranks, rank_by_term = [], []
+    avg_ranks, rank_rows = [], []
     if run and run["status"] == "done":
         avg_ranks = ci_analysis.snapshot_brand_avg_rank(db, group_id, run["id"])
-        rank_by_term = ci_analysis.snapshot_rank_by_term(db, group_id, run["id"])
+        rank_rows = ci_analysis.snapshot_rank_by_keyword_brand(db, group_id, run["id"])
 
-    logger.info("CI snapshot results: group_id=%s user_id=%s run_id=%s terms=%d",
+    logger.info("CI snapshot results: group_id=%s user_id=%s run_id=%s rank_rows=%d",
                 group_id, g.user["id"], run["id"] if run else None,
-                len(rank_by_term))
+                len(rank_rows))
     return render_template(
         "app/ci_snapshot_results.html",
         breadcrumb=f"Competitive Intelligence · {group['name']}",
@@ -696,10 +698,9 @@ def ci_snapshot_results(group_id):
         group=group,
         run=run,
         sos_summary=sos_summary,
-        ranks=ranks,
         config_summary=config_summary,
         avg_ranks=avg_ranks,
-        rank_by_term=rank_by_term,
+        rank_rows=rank_rows,
     )
 
 

@@ -1427,6 +1427,22 @@ a:focus-visible,
 .ci-summary-item dd { font-size: 13.5px; margin: 0; }
 .ci-summary-sub { font-size: 12px; color: var(--mid-gray); margin-top: 3px; }
 
+/* Share-of-shelf stacked bar chart: one bar per brand, split organic/sponsored.
+   Bars bottom-align in a fixed plot; segment heights are set inline (px). */
+.sos-chart { margin-top: 20px; }
+.sos-plot { display: flex; align-items: flex-end; gap: 20px; overflow-x: auto; padding-bottom: 4px; }
+.sos-col { display: flex; flex-direction: column; align-items: center; flex: 0 0 auto; }
+.sos-col-value { font-size: 11px; color: var(--mid-gray); margin-bottom: 5px; }
+.sos-bar { display: flex; flex-direction: column; justify-content: flex-end; width: 44px; }
+.sos-seg { width: 100%; display: block; }
+.sos-bar .sos-seg:first-child { border-radius: 3px 3px 0 0; }  /* round the top of the stack */
+.sos-seg-organic { background: var(--black); }
+.sos-seg-sponsored { background: var(--cool-gray); }
+.sos-col-label { font-size: 11px; color: var(--mid-gray); margin-top: 7px; text-align: center; max-width: 64px; word-break: break-word; }
+.sos-legend { display: flex; gap: 18px; margin-top: 14px; font-size: 12px; color: var(--mid-gray); }
+.sos-legend-item { display: inline-flex; align-items: center; gap: 6px; }
+.sos-swatch { width: 12px; height: 12px; border-radius: 2px; display: inline-block; }
+
 .ci-periods { display: inline-flex; gap: 4px; }
 .ci-periods a {
   font-size: 12px;

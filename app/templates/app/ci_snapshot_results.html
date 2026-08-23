@@ -8,7 +8,7 @@
     <p class="subtitle">One-Time Snapshot — current state</p>
   </div>
   <div class="header-actions">
-    {% if run and run.status == 'done' and (sos_summary or ranks) %}
+    {% if run and run.status == 'done' and (sos_summary or avg_ranks) %}
     <a href="{{ url_for('pages.ci_snapshot_results_pdf', group_id=group.id) }}" class="wbtn wbtn-primary">Download PDF</a>
     {% endif %}
     <a href="{{ url_for('pages.ci_group_config', group_id=group.id) }}" class="wbtn wbtn-secondary">Set up &amp; run</a>
@@ -73,27 +73,28 @@
 <div class="card card-pad ci-empty">That run didn't complete{% if run.error %}: {{ run.error }}{% endif %}. Try running it again.</div>
 {% elif not run %}
 {# handled by the status line above #}
-{% elif not sos_summary and not ranks %}
+{% elif not sos_summary and not avg_ranks and not rank_rows %}
 <div class="card card-pad ci-empty">The run finished but returned no data (possible block or empty keywords).</div>
 {% else %}
 
-{# Overall (average) search ranking — one figure per brand, mine vs competitors. #}
+{# Overall search ranking — one average figure per brand (mine vs competitors),
+   over only the terms the brand placed on. See snapshot_brand_avg_rank. #}
 {% if avg_ranks %}
 <div class="ci-section card card-pad">
   <div class="ci-section-title">Overall Search Ranking</div>
   <p class="ci-section-hint">
-    Average best page-1 position per brand across all tracked terms. Lower is better.
+    Average page-1 ranking per brand across the terms it appears on (terms with no
+    page-1 placement are excluded). Lower is better.
   </p>
   <div class="table-scroll">
     <table class="admin-table">
-      <thead><tr><th>Brand</th><th>Type</th><th>Avg rank</th><th>Terms</th></tr></thead>
+      <thead><tr><th>Brand</th><th>Type</th><th>Avg ranking</th></tr></thead>
       <tbody>
         {% for r in avg_ranks %}
         <tr>
           <td>{{ r.brand_name }}</td>
           <td><span class="ci-type {{ 'mine' if r.type == 'mine' else '' }}">{{ r.type }}</span></td>
           <td>{{ ('#%s' % r.avg_position) if r.avg_position is not none else '—' }}</td>
-          <td class="cell-muted">{{ r.keyword_count }}</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -102,32 +103,24 @@
 </div>
 {% endif %}
 
-{# Ranking by term — my best slot vs the best competitor slot, each tagged with
-   the slot type (organic/sponsored) that achieved it. #}
-{% if rank_by_term %}
+{# Search Ranking — one row per keyword+brand, ordered by keyword then average
+   ranking (best first). Average is over that brand's page-1 slots for the term. #}
+{% if rank_rows %}
 <div class="ci-section card card-pad">
-  <div class="ci-section-title">Ranking by Term</div>
+  <div class="ci-section-title">Search Ranking</div>
   <p class="ci-section-hint">
-    Your best page-1 position vs the best competitor position for each term, with
-    the slot type in parentheses. Lower is better.
+    Average page-1 ranking per brand for each keyword. Lower is better.
   </p>
   <div class="table-scroll">
     <table class="admin-table">
-      <thead><tr><th>Term</th><th>My best rank</th><th>Competitor best rank</th></tr></thead>
+      <thead><tr><th>Keyword</th><th>Brand</th><th>Type</th><th>Avg ranking</th></tr></thead>
       <tbody>
-        {% for r in rank_by_term %}
+        {% for r in rank_rows %}
         <tr>
           <td>{{ r.keyword }}</td>
-          <td>
-            {% if r.mine_position is not none %}#{{ r.mine_position }}
-              <span class="cell-muted">({{ r.mine_type }})</span>
-            {% else %}—{% endif %}
-          </td>
-          <td>
-            {% if r.competitor_position is not none %}#{{ r.competitor_position }}
-              <span class="cell-muted">({{ r.competitor_type }})</span>
-            {% else %}—{% endif %}
-          </td>
+          <td>{{ r.brand_name }}</td>
+          <td><span class="ci-type {{ 'mine' if r.type == 'mine' else '' }}">{{ r.type }}</span></td>
+          <td>#{{ r.avg_ranking }}</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -136,7 +129,8 @@
 </div>
 {% endif %}
 
-{# Share of Digital Shelf — current state, no trend. #}
+{# Share of Digital Shelf — current state, no trend. Table plus a stacked-bar
+   view: one bar per brand, split into organic + sponsored page-1 placements. #}
 <div class="ci-section card card-pad">
   <div class="ci-section-title">Share of Digital Shelf</div>
   <p class="ci-section-hint">
@@ -164,36 +158,35 @@
       </tbody>
     </table>
   </div>
-</div>
 
-{# Search Ranking — brand-level (you vs competitors), current state only.
-   "Best" is the top slot the brand holds for the keyword; Organic/Sponsored show
-   each channel's best (— when the brand had no slot of that type). #}
-{% if ranks %}
-<div class="ci-section card card-pad">
-  <div class="ci-section-title">Search Ranking</div>
-  <p class="ci-section-hint">
-    Best page-1 position per brand per keyword — yours vs competitors. Lower is better.
-  </p>
-  <div class="table-scroll">
-    <table class="admin-table">
-      <thead><tr><th>Brand</th><th>Type</th><th>Keyword</th><th>Best</th><th>Organic</th><th>Sponsored</th></tr></thead>
-      <tbody>
-        {% for r in ranks %}
-        <tr>
-          <td>{{ r.brand_name }}</td>
-          <td><span class="ci-type {{ 'mine' if r.type == 'mine' else '' }}">{{ r.type }}</span></td>
-          <td>{{ r.keyword }}</td>
-          <td>#{{ r.current_position }}</td>
-          <td class="cell-muted">{{ '#' ~ r.organic_position if r.organic_position is not none else '—' }}</td>
-          <td class="cell-muted">{{ '#' ~ r.sponsored_position if r.sponsored_position is not none else '—' }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+  {# Stacked bar chart. Segment heights are scaled to the tallest brand's total
+     placement count so the chart fills the plot; each bar's total-share % sits
+     above it. Pure CSS/HTML (strict CSP: no chart library, no inline scripts). #}
+  {% set max_total = (sos_summary | map(attribute='total') | max) or 1 %}
+  <div class="sos-chart">
+    <div class="sos-plot" role="img"
+         aria-label="Stacked bar chart of each brand's page-1 share of shelf, split into organic and sponsored placements.">
+      {% for r in sos_summary %}
+      <div class="sos-col">
+        <div class="sos-col-value">{{ r.total_share }}%</div>
+        <div class="sos-bar">
+          {% if r.sponsored %}<span class="sos-seg sos-seg-sponsored"
+            style="height: {{ (r.sponsored / max_total * 180) | round(1) }}px"
+            title="{{ r.brand_name }} — sponsored: {{ r.sponsored }}"></span>{% endif %}
+          {% if r.organic %}<span class="sos-seg sos-seg-organic"
+            style="height: {{ (r.organic / max_total * 180) | round(1) }}px"
+            title="{{ r.brand_name }} — organic: {{ r.organic }}"></span>{% endif %}
+        </div>
+        <div class="sos-col-label">{{ r.brand_name }}</div>
+      </div>
+      {% endfor %}
+    </div>
+    <div class="sos-legend">
+      <span class="sos-legend-item"><span class="sos-swatch sos-seg-organic"></span> Organic</span>
+      <span class="sos-legend-item"><span class="sos-swatch sos-seg-sponsored"></span> Sponsored</span>
+    </div>
   </div>
 </div>
-{% endif %}
 {% endif %}
 {% endblock %}
 

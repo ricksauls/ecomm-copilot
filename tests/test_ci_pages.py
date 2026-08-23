@@ -84,12 +84,13 @@ def test_snapshot_results_render_without_trend_markup(client, auth):
     assert resp.status_code == 200
     assert b"Share of Digital Shelf" in resp.data
     assert b"Search Ranking" in resp.data
-    # New headline sections: config summary + the two ranking rollups.
+    # Headline sections: config summary, overall ranking, per-keyword ranking.
     assert b"What this group tracks" in resp.data
     assert b"Overall Search Ranking" in resp.data
-    assert b"Ranking by Term" in resp.data
-    # Ranking-by-term shows the slot type in parentheses.
-    assert b"(organic)" in resp.data
+    # The old head-to-head "Ranking by Term" section was removed.
+    assert b"Ranking by Term" not in resp.data
+    # Share of shelf carries a stacked-bar view alongside the table.
+    assert b"sos-chart" in resp.data
     # No trend affordances on a snapshot: no chart container, sparkline, or delta col.
     assert b"data-ci-chart" not in resp.data
     assert b"ci-spark" not in resp.data

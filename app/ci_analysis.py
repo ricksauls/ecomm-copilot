@@ -241,83 +241,62 @@ def snapshot_rank(conn: sqlite3.Connection, group_id: int, run_id: int) -> list[
 
 
 def snapshot_brand_avg_rank(conn: sqlite3.Connection, group_id: int, run_id: int) -> list[dict]:
-    """Average best page-1 position per brand across the run's keywords.
+    """Average page-1 ranking per brand across the terms it appears on.
 
-    The headline "how am I doing overall" figure: reduce each brand to its best
-    (lowest) slot per keyword, then average those bests into one number per brand
-    (mine + competitors). The average is taken only over keywords the brand
-    actually placed for — an absent keyword isn't counted as a penalty — so
-    ``keyword_count`` is returned to show how many terms back the average.
-    Ordered mine-first, then best (lowest) average first.
+    The headline "how am I doing overall" figure. Two-stage average so it reconciles
+    with the per-term table (:func:`snapshot_rank_by_keyword_brand`): first average
+    the brand's placements within each keyword, then average those per-keyword
+    figures across every term the brand placed on. Terms where the brand has no
+    page-1 slot are excluded from the math, not scored as a penalty. Ordered
+    mine-first, then best (lowest) average first.
     """
     rows = conn.execute(
-        # Inner query: each brand's best slot per keyword in this run.
-        # Outer query: average those per-keyword bests into one figure per brand.
+        # Inner query: each brand's average position within a keyword.
+        # Outer query: average those per-keyword figures into one per brand, so
+        # every term is weighted equally regardless of how many slots it held.
         # The JOIN to ci_brands drops the untracked "Other" bucket (brand_id NULL).
         "SELECT b.name AS brand_name, b.type AS brand_type, "
-        "  AVG(per_kw.best) AS avg_best, COUNT(*) AS keyword_count "
-        "FROM (SELECT brand_id, keyword_id, MIN(position) AS best "
+        "  AVG(per_kw.avg_pos) AS overall_avg "
+        "FROM (SELECT brand_id, keyword_id, AVG(position) AS avg_pos "
         "      FROM ci_search_results WHERE group_id = ? AND run_id = ? "
         "      GROUP BY brand_id, keyword_id) per_kw "
         "JOIN ci_brands b ON b.id = per_kw.brand_id "
         "GROUP BY b.id "
-        "ORDER BY CASE b.type WHEN 'mine' THEN 0 ELSE 1 END, avg_best",
+        "ORDER BY CASE b.type WHEN 'mine' THEN 0 ELSE 1 END, overall_avg",
         (group_id, run_id),
     ).fetchall()
     return [{
         "brand_name": r["brand_name"],
         "type": r["brand_type"],
-        "avg_position": round(r["avg_best"], 1) if r["avg_best"] is not None else None,
-        "keyword_count": r["keyword_count"],
+        "avg_position": round(r["overall_avg"], 1) if r["overall_avg"] is not None else None,
     } for r in rows]
 
 
-def snapshot_rank_by_term(conn: sqlite3.Connection, group_id: int, run_id: int) -> list[dict]:
-    """Per keyword, the best slot for *my* brands vs *competitor* brands in a run.
+def snapshot_rank_by_keyword_brand(conn: sqlite3.Connection, group_id: int, run_id: int) -> list[dict]:
+    """Average page-1 ranking per brand per keyword within a run.
 
-    Condenses the brand-level detail into a head-to-head: for each keyword, the
-    single best (lowest) position across all my brands and across all competitor
-    brands, each tagged with the slot type (organic/sponsored) that achieved it.
-    Untracked-brand rows (brand_id NULL) are excluded — this compares tracked
-    mine-vs-competitor standings only. ``*_position`` is None when that side held
-    no slot for the keyword.
+    One row per (keyword, brand) that placed on page 1; ``avg_ranking`` averages
+    all of that brand's slots for the keyword (organic + sponsored). Untracked
+    "Other" rows (brand_id NULL) are excluded. Ordered by keyword, then average
+    ranking ascending (best standing first).
     """
     rows = conn.execute(
-        "SELECT k.keyword AS keyword, "
-        "  CASE b.type WHEN 'mine' THEN 'mine' ELSE 'competitor' END AS side, "
-        "  sr.position AS position, sr.position_type AS position_type "
+        "SELECT k.keyword AS keyword, b.name AS brand_name, b.type AS brand_type, "
+        "  AVG(sr.position) AS avg_pos "
         "FROM ci_search_results sr "
         "JOIN ci_keywords k ON k.id = sr.keyword_id "
         "JOIN ci_brands b ON b.id = sr.brand_id "
-        "WHERE sr.group_id = ? AND sr.run_id = ?",
+        "WHERE sr.group_id = ? AND sr.run_id = ? "
+        "GROUP BY k.id, b.id "
+        "ORDER BY k.keyword COLLATE NOCASE, avg_pos",
         (group_id, run_id),
     ).fetchall()
-
-    # keyword -> side -> (best_position, type_at_best). Reduce to the min position
-    # per side in Python (result sets are small — page-1 only, few keywords/brands).
-    best: dict[str, dict[str, tuple[int, str]]] = {}
-    order: list[str] = []  # preserve first-seen keyword order before the final sort
-    for r in rows:
-        kw = r["keyword"]
-        if kw not in best:
-            best[kw] = {}
-            order.append(kw)
-        held = best[kw].get(r["side"])
-        if held is None or r["position"] < held[0]:
-            best[kw][r["side"]] = (r["position"], r["position_type"])
-
-    out = []
-    for kw in sorted(order, key=str.lower):
-        mine = best[kw].get("mine")
-        comp = best[kw].get("competitor")
-        out.append({
-            "keyword": kw,
-            "mine_position": mine[0] if mine else None,
-            "mine_type": mine[1] if mine else None,
-            "competitor_position": comp[0] if comp else None,
-            "competitor_type": comp[1] if comp else None,
-        })
-    return out
+    return [{
+        "keyword": r["keyword"],
+        "brand_name": r["brand_name"],
+        "type": r["brand_type"],
+        "avg_ranking": round(r["avg_pos"], 1),
+    } for r in rows]
 
 
 def _brand_meta(conn: sqlite3.Connection, group_id: int) -> dict[int, dict]:

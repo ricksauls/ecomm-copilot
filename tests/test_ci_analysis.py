@@ -136,58 +136,51 @@ def test_snapshot_rank_splits_organic_and_sponsored(app):
         assert r["sponsored_position"] == 1
 
 
-def test_snapshot_brand_avg_rank_averages_best_per_keyword(app):
+def test_snapshot_brand_avg_rank_averages_per_keyword_then_across_terms(app):
     with app.app_context():
         db = get_db()
         uid, gid, mine, comp, _, kid, rid = _setup(db)
-        # Second keyword to exercise the average across terms.
+        # Second keyword to exercise the two-stage average (per-keyword, then terms).
         kid2 = ci_config.add_keyword(db, gid, uid, "chipotle sauce")
-        # Tabasco: best #4 on kw1 (two slots), best #2 on kw2  -> avg 3.0 over 2 terms.
+        # Tabasco kw1: #4 & #6 -> avg 5.0; kw2: #1 -> avg 1.0. Overall (5+1)/2 = 3.0.
         _result(db, rid, gid, kid, _iso(0), 4, "x", mine)
-        _result(db, rid, gid, kid, _iso(0), 9, "y", mine)
-        _result(db, rid, gid, kid2, _iso(0), 2, "z", mine)
-        # Frank's: single slot #6 on kw1 -> avg 6.0 over 1 term.
+        _result(db, rid, gid, kid, _iso(0), 6, "y", mine)
+        _result(db, rid, gid, kid2, _iso(0), 1, "z", mine)
+        # Frank's kw1: #6 -> avg 6.0 over one term. Absent from kw2 (not penalized).
         _result(db, rid, gid, kid, _iso(0), 6, "f", comp)
         db.commit()
 
         rows = ci_analysis.snapshot_brand_avg_rank(db, gid, rid)
         by_brand = {r["brand_name"]: r for r in rows}
         assert by_brand["Tabasco"]["avg_position"] == 3.0
-        assert by_brand["Tabasco"]["keyword_count"] == 2
         assert by_brand["Frank's"]["avg_position"] == 6.0
-        assert by_brand["Frank's"]["keyword_count"] == 1
-        # Mine sorts first, then best average first.
+        # keyword_count column was removed from the payload.
+        assert "keyword_count" not in by_brand["Tabasco"]
+        # Mine sorts first, then best (lowest) average first.
         assert rows[0]["type"] == "mine"
 
 
-def test_snapshot_rank_by_term_mine_vs_competitor_with_type(app):
+def test_snapshot_rank_by_keyword_brand_orders_and_averages(app):
     with app.app_context():
         db = get_db()
-        _, gid, mine, comp, _, kid, rid = _setup(db)
-        # Mine best is a sponsored #1 (beats its own organic #5); competitor best #3.
-        _result(db, rid, gid, kid, _iso(0), 5, "x", mine, ptype="organic")
-        _result(db, rid, gid, kid, _iso(0), 1, "y", mine, ptype="sponsored")
-        _result(db, rid, gid, kid, _iso(0), 3, "c", comp, ptype="organic")
+        uid, gid, mine, comp, _, kid, rid = _setup(db)  # kid == "hot sauce"
+        kid2 = ci_config.add_keyword(db, gid, uid, "aaa sauce")
+        # hot sauce: Tabasco #2 & #4 -> avg 3.0; Frank's #5 -> 5.0.
+        _result(db, rid, gid, kid, _iso(0), 2, "a", mine)
+        _result(db, rid, gid, kid, _iso(0), 4, "b", mine)
+        _result(db, rid, gid, kid, _iso(0), 5, "c", comp)
+        # aaa sauce: Frank's #1 -> 1.0.
+        _result(db, rid, gid, kid2, _iso(0), 1, "d", comp)
         db.commit()
 
-        rows = ci_analysis.snapshot_rank_by_term(db, gid, rid)
-        assert len(rows) == 1
-        r = rows[0]
-        assert r["keyword"] == "hot sauce"
-        assert r["mine_position"] == 1 and r["mine_type"] == "sponsored"
-        assert r["competitor_position"] == 3 and r["competitor_type"] == "organic"
-
-
-def test_snapshot_rank_by_term_missing_side_is_none(app):
-    with app.app_context():
-        db = get_db()
-        _, gid, mine, _comp, _, kid, rid = _setup(db)
-        # Only my brand placed for the term; competitor side stays None.
-        _result(db, rid, gid, kid, _iso(0), 2, "x", mine)
-        db.commit()
-        r = ci_analysis.snapshot_rank_by_term(db, gid, rid)[0]
-        assert r["mine_position"] == 2
-        assert r["competitor_position"] is None and r["competitor_type"] is None
+        rows = ci_analysis.snapshot_rank_by_keyword_brand(db, gid, rid)
+        # Ordered by keyword (aaa before hot), then avg ranking ascending within a term.
+        assert [(r["keyword"], r["brand_name"], r["avg_ranking"]) for r in rows] == [
+            ("aaa sauce", "Frank's", 1.0),
+            ("hot sauce", "Tabasco", 3.0),
+            ("hot sauce", "Frank's", 5.0),
+        ]
+        assert rows[1]["type"] == "mine"
 
 
 def test_rank_summary_omits_products_with_no_sightings(app):
