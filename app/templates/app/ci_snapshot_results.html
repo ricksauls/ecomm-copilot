@@ -46,7 +46,10 @@
 {# Share of Digital Shelf — current state, no trend. #}
 <div class="ci-section card card-pad">
   <div class="ci-section-title">Share of Digital Shelf</div>
-  <p class="ci-section-hint">Share of page-1 slots across all tracked keywords, organic vs sponsored.</p>
+  <p class="ci-section-hint">
+    Share of all page-1 slots across your tracked keywords, organic vs sponsored.
+    Based on {{ sos_summary | sum(attribute='total') }} page-1 placements.
+  </p>
   <div class="table-scroll">
     <table class="admin-table">
       <thead><tr><th>Brand</th><th>Type</th><th>Organic</th><th>Sponsored</th><th>Total share</th><th></th></tr></thead>
@@ -70,21 +73,27 @@
   </div>
 </div>
 
-{# Search Ranking — current positions only, no delta/sparkline. #}
+{# Search Ranking — brand-level (you vs competitors), current state only.
+   "Best" is the top slot the brand holds for the keyword; Organic/Sponsored show
+   each channel's best (— when the brand had no slot of that type). #}
 {% if ranks %}
 <div class="ci-section card card-pad">
   <div class="ci-section-title">Search Ranking</div>
-  <p class="ci-section-hint">Best page-1 position of each of your products per keyword. Lower is better.</p>
+  <p class="ci-section-hint">
+    Best page-1 position per brand per keyword — yours vs competitors. Lower is better.
+  </p>
   <div class="table-scroll">
     <table class="admin-table">
-      <thead><tr><th>Brand</th><th>Product</th><th>Keyword</th><th>Position</th></tr></thead>
+      <thead><tr><th>Brand</th><th>Type</th><th>Keyword</th><th>Best</th><th>Organic</th><th>Sponsored</th></tr></thead>
       <tbody>
         {% for r in ranks %}
         <tr>
           <td>{{ r.brand_name }}</td>
-          <td class="col-product">{{ r.product_name }}</td>
+          <td><span class="ci-type {{ 'mine' if r.type == 'mine' else '' }}">{{ r.type }}</span></td>
           <td>{{ r.keyword }}</td>
           <td>#{{ r.current_position }}</td>
+          <td class="cell-muted">{{ '#' ~ r.organic_position if r.organic_position is not none else '—' }}</td>
+          <td class="cell-muted">{{ '#' ~ r.sponsored_position if r.sponsored_position is not none else '—' }}</td>
         </tr>
         {% endfor %}
       </tbody>

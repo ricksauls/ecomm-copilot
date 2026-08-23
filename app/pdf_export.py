@@ -296,27 +296,41 @@ def _sos_table(sos_rows: list[dict], styles: dict, *, with_delta: bool) -> Table
     return _ci_table(rows, [w * inch for w in widths], styles)
 
 
+def _pos(value) -> str:
+    """Render a position cell ('#n', or '—' when the brand had no such slot)."""
+    return f"#{value}" if value is not None else "—"
+
+
 def _rank_table(rank_rows: list[dict], styles: dict, *, with_delta: bool) -> Table:
-    """Search-ranking table. Includes a Δ column only for monitoring."""
-    header = ["Brand", "Product", "Keyword", "Position"]
+    """Brand-level search-ranking table (mine + competitors).
+
+    Monitoring (``with_delta``) shows Best position + Δ vs the prior window;
+    the snapshot form shows the organic/sponsored best-position split instead.
+    """
     if with_delta:
-        header.append("Δ")
+        header = ["Brand", "Type", "Keyword", "Best", "Δ"]
+        widths = [1.7, 0.9, 1.9, 0.8, 0.6]
+    else:
+        header = ["Brand", "Type", "Keyword", "Best", "Organic", "Sponsored"]
+        widths = [1.6, 0.9, 1.7, 0.7, 0.8, 0.9]
     rows = [header]
     for r in rank_rows:
         row = [
             Paragraph(escape(r["brand_name"]), styles["cell"]),
-            Paragraph(escape(r["product_name"]), styles["cell"]),
+            Paragraph(escape(r.get("type", "")), styles["cellmuted"]),
             Paragraph(escape(r["keyword"]), styles["cell"]),
-            Paragraph(f"#{r['current_position']}", styles["cell"]),
+            Paragraph(_pos(r["current_position"]), styles["cell"]),
         ]
         if with_delta:
             d = r.get("delta")
             row.append(Paragraph("new" if d is None else (f"+{d}" if d > 0 else str(d)),
                                  styles["cellmuted"]))
+        else:
+            row.append(Paragraph(_pos(r.get("organic_position")), styles["cellmuted"]))
+            row.append(Paragraph(_pos(r.get("sponsored_position")), styles["cellmuted"]))
         rows.append(row)
     if len(rows) == 1:
-        rows.append([Paragraph("No products ranked.", styles["cellmuted"])] + [""] * (len(header) - 1))
-    widths = [1.5, 2.4, 1.6, 0.8] + ([0.6] if with_delta else [])
+        rows.append([Paragraph("No brands ranked.", styles["cellmuted"])] + [""] * (len(header) - 1))
     return _ci_table(rows, [w * inch for w in widths], styles)
 
 

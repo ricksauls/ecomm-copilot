@@ -208,28 +208,35 @@ def snapshot_share_of_shelf(conn: sqlite3.Connection, group_id: int, run_id: int
 
 
 def snapshot_rank(conn: sqlite3.Connection, group_id: int, run_id: int) -> list[dict]:
-    """Best position of each my-product per keyword within a single run (no trend).
+    """Best page-1 position per brand per keyword within a single run (no trend).
 
-    Used by the One-Time Snapshot results.
+    Brand-level (mine AND competitors) so the user can compare their standing to
+    rivals. ``current_position`` is the best (lowest) slot the brand holds for the
+    keyword across organic + sponsored; the split columns show each channel's best
+    (None when the brand had no slot of that type). Attribution is by brand_id,
+    which the scraper now sets via name matching, so sponsored slots are included.
     """
     rows = conn.execute(
-        "SELECT k.keyword AS keyword, p.name AS product_name, b.name AS brand_name, "
-        "  p.walmart_item_id AS item_id, MIN(sr.position) AS position "
+        "SELECT b.name AS brand_name, b.type AS brand_type, k.keyword AS keyword, "
+        "  MIN(sr.position) AS best, "
+        "  MIN(CASE WHEN sr.position_type = 'organic' THEN sr.position END) AS organic_best, "
+        "  MIN(CASE WHEN sr.position_type = 'sponsored' THEN sr.position END) AS sponsored_best "
         "FROM ci_search_results sr "
         "JOIN ci_keywords k ON k.id = sr.keyword_id "
-        "JOIN ci_products p ON p.walmart_item_id = sr.item_id AND p.group_id = sr.group_id "
-        "JOIN ci_brands b ON b.id = p.brand_id "
-        "WHERE sr.group_id = ? AND sr.run_id = ? AND b.type = 'mine' "
-        "GROUP BY k.id, p.id "
-        "ORDER BY b.name COLLATE NOCASE, p.name COLLATE NOCASE, k.keyword COLLATE NOCASE",
+        "JOIN ci_brands b ON b.id = sr.brand_id "
+        "WHERE sr.group_id = ? AND sr.run_id = ? "
+        "GROUP BY b.id, k.id "
+        "ORDER BY CASE b.type WHEN 'mine' THEN 0 ELSE 1 END, "
+        "  b.name COLLATE NOCASE, k.keyword COLLATE NOCASE",
         (group_id, run_id),
     ).fetchall()
     return [{
-        "keyword": r["keyword"],
-        "product_name": r["product_name"] or r["item_id"],
         "brand_name": r["brand_name"],
-        "item_id": r["item_id"],
-        "current_position": r["position"],
+        "type": r["brand_type"],
+        "keyword": r["keyword"],
+        "current_position": r["best"],
+        "organic_position": r["organic_best"],
+        "sponsored_position": r["sponsored_best"],
     } for r in rows]
 
 
@@ -246,68 +253,66 @@ def _brand_meta(conn: sqlite3.Connection, group_id: int) -> dict[int, dict]:
 # ── Search Ranking ───────────────────────────────────────────────────────────────
 
 def rank_summary(conn: sqlite3.Connection, group_id: int, period: str) -> list[dict]:
-    """Current best rank + trend per (my product, keyword) over the window.
+    """Current best rank + trend per brand per keyword over the window.
 
-    For every "mine" product and each keyword in the group, computes the daily
-    best (minimum) overall position, the latest value, the prior-window best (for
-    a delta), and the full daily series for a sparkline. Rows with no sightings in
-    the window are omitted. Ordered by brand, then product, then keyword.
+    Brand-level and includes competitors so the user can compare against rivals.
+    For each (brand, keyword) seen in the window: the daily best (minimum) position,
+    the latest value, the prior-window best (for a delta), and the daily series for
+    a sparkline. Attribution is by brand_id (set via name matching), so sponsored
+    slots count. Ordered mine-first, then brand, then keyword.
     """
     start, end = get_date_range(period)
     p_start, p_end = get_prior_date_range(period)
 
-    products = conn.execute(
-        "SELECT p.id, p.name, p.walmart_item_id, b.name AS brand_name, b.type AS brand_type "
-        "FROM ci_products p JOIN ci_brands b ON b.id = p.brand_id "
-        "WHERE p.group_id = ? AND p.active = 1 AND b.type = 'mine' "
-        "ORDER BY b.name COLLATE NOCASE, p.name COLLATE NOCASE",
-        (group_id,),
-    ).fetchall()
-    keywords = conn.execute(
-        "SELECT id, keyword FROM ci_keywords WHERE group_id = ? AND active = 1 "
-        "ORDER BY keyword COLLATE NOCASE",
-        (group_id,),
+    # (brand, keyword) pairs that actually appeared in the window.
+    pairs = conn.execute(
+        "SELECT DISTINCT b.id AS brand_id, b.name AS brand_name, b.type AS brand_type, "
+        "  k.id AS keyword_id, k.keyword AS keyword "
+        "FROM ci_search_results sr "
+        "JOIN ci_brands b ON b.id = sr.brand_id "
+        "JOIN ci_keywords k ON k.id = sr.keyword_id "
+        "WHERE sr.group_id = ? AND sr.scraped_at >= ? AND sr.scraped_at <= ? "
+        "ORDER BY CASE b.type WHEN 'mine' THEN 0 ELSE 1 END, "
+        "  b.name COLLATE NOCASE, k.keyword COLLATE NOCASE",
+        (group_id, start, end),
     ).fetchall()
 
     out = []
-    for p in products:
-        for kw in keywords:
-            series = conn.execute(
-                "SELECT scraped_at, MIN(position) AS pos FROM ci_search_results "
-                "WHERE group_id = ? AND keyword_id = ? AND item_id = ? "
-                "AND scraped_at >= ? AND scraped_at <= ? "
-                "GROUP BY scraped_at ORDER BY scraped_at",
-                (group_id, kw["id"], p["walmart_item_id"], start, end),
-            ).fetchall()
-            if not series:
-                continue  # product never surfaced for this keyword in the window
+    for pr in pairs:
+        series = conn.execute(
+            "SELECT scraped_at, MIN(position) AS pos FROM ci_search_results "
+            "WHERE group_id = ? AND brand_id = ? AND keyword_id = ? "
+            "AND scraped_at >= ? AND scraped_at <= ? "
+            "GROUP BY scraped_at ORDER BY scraped_at",
+            (group_id, pr["brand_id"], pr["keyword_id"], start, end),
+        ).fetchall()
+        if not series:
+            continue
 
-            dates = [r["scraped_at"] for r in series]
-            positions = [r["pos"] for r in series]
-            current = positions[-1]
+        dates = [r["scraped_at"] for r in series]
+        positions = [r["pos"] for r in series]
+        current = positions[-1]
 
-            prior_row = conn.execute(
-                "SELECT MIN(position) AS pos FROM ci_search_results "
-                "WHERE group_id = ? AND keyword_id = ? AND item_id = ? "
-                "AND scraped_at >= ? AND scraped_at <= ?",
-                (group_id, kw["id"], p["walmart_item_id"], p_start, p_end),
-            ).fetchone()
-            prior = prior_row["pos"] if prior_row and prior_row["pos"] is not None else None
-            # Lower position is better: positive delta = moved up.
-            delta = (prior - current) if prior is not None else None
+        prior_row = conn.execute(
+            "SELECT MIN(position) AS pos FROM ci_search_results "
+            "WHERE group_id = ? AND brand_id = ? AND keyword_id = ? "
+            "AND scraped_at >= ? AND scraped_at <= ?",
+            (group_id, pr["brand_id"], pr["keyword_id"], p_start, p_end),
+        ).fetchone()
+        prior = prior_row["pos"] if prior_row and prior_row["pos"] is not None else None
+        # Lower position is better: positive delta = moved up.
+        delta = (prior - current) if prior is not None else None
 
-            out.append({
-                "product_id": p["id"],
-                "product_name": p["name"] or p["walmart_item_id"],
-                "brand_name": p["brand_name"],
-                "item_id": p["walmart_item_id"],
-                "keyword": kw["keyword"],
-                "current_position": current,
-                "prior_position": prior,
-                "delta": delta,
-                "dates": dates,
-                "positions": positions,
-            })
+        out.append({
+            "brand_name": pr["brand_name"],
+            "type": pr["brand_type"],
+            "keyword": pr["keyword"],
+            "current_position": current,
+            "prior_position": prior,
+            "delta": delta,
+            "dates": dates,
+            "positions": positions,
+        })
     return out
 
 

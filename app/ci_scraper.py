@@ -108,6 +108,15 @@ def _clean_url(url: str) -> str:
     return (url or "").split("?")[0].rstrip("/").lower()
 
 
+def _norm_name(s: str) -> str:
+    """Lowercase and strip non-alphanumerics for tolerant name matching.
+
+    Turns "Frank's RedHot" and "franks redhot" alike into "franksredhot" so a
+    brand name matches inside a product title regardless of spacing/punctuation.
+    """
+    return "".join(ch for ch in (s or "").lower() if ch.isalnum())
+
+
 def build_result_rows(cards: list[dict], *, run_id: int, group_id: int, keyword_id: int,
                       item_map: dict, brand_map: dict,
                       seen_ids_by_brand: dict | None = None,
@@ -121,9 +130,13 @@ def build_result_rows(cards: list[dict], *, run_id: int, group_id: int, keyword_
     ``/ip/<slug>/<number>`` URL (same rule as intake, :func:`pdp.item_number_from_url`).
     That numeric id is also what we store, so the ranking join
     (``ci_search_results.item_id = ci_products.walmart_item_id``) lines up.
-    A cleaned-URL match is kept as a last-resort fallback. ``seen_ids_by_brand``
-    (brand_id -> set of item ids seen) drives new-SKU detection for tracked
-    competitor brands; it is mutated in place so a caller can carry it across a run.
+    A cleaned-URL match is kept as a fallback, and finally a **brand-name** match
+    against the card title attributes cards we can't tie to a tracked product —
+    notably sponsored slots (different id + tracking URL) and a brand's untracked
+    SKUs — so they still count toward that brand's share of shelf.
+    ``seen_ids_by_brand`` (brand_id -> set of item ids seen) drives new-SKU
+    detection for tracked competitor brands; it is mutated in place so a caller can
+    carry it across a run.
     """
     scrape_date = scrape_date or date.today().isoformat()
     seen_ids_by_brand = seen_ids_by_brand if seen_ids_by_brand is not None else {}
@@ -133,6 +146,14 @@ def build_result_rows(cards: list[dict], *, run_id: int, group_id: int, keyword_
         _clean_url(p["walmart_url"]): p
         for p in item_map.values() if p["walmart_url"]
     }
+    # Brand-name index for attributing cards we can't match to a tracked product —
+    # crucially the SPONSORED slots, which Walmart gives a different item id and a
+    # tracking URL (no /ip/<number>), so id/URL matching never reaches them. Longest
+    # name first so a specific brand ("frank's red hot") wins over a shorter one.
+    brand_index = sorted(
+        ((_norm_name(b["name"]), b["id"]) for b in brand_map.values() if b["name"]),
+        key=lambda t: -len(t[0]),
+    )
 
     rows: list[dict] = []
     for position, card in enumerate(cards, start=1):
@@ -145,12 +166,24 @@ def build_result_rows(cards: list[dict], *, run_id: int, group_id: int, keyword_
         numeric_id = item_number_from_url(product_url) if product_url else None
         item_id = numeric_id or raw_id or None
 
+        # 1) Precise product match (item number, raw id, then cleaned URL).
         matched = item_map.get(numeric_id) if numeric_id else None
         if not matched and raw_id:
             matched = item_map.get(raw_id)
         if not matched and product_url:
             matched = url_map.get(_clean_url(product_url))
         brand_id = matched["brand_id"] if matched else None
+
+        # 2) Brand-name fallback: attribute by the brand name in the card title.
+        # This is how sponsored placements (and a brand's untracked SKUs) get
+        # counted toward that brand's share of the shelf.
+        if brand_id is None:
+            card_norm = _norm_name(card.get("name"))
+            if card_norm:
+                for brand_norm, bid in brand_index:
+                    if brand_norm and brand_norm in card_norm:
+                        brand_id = bid
+                        break
 
         is_new_sku = False
         if brand_id is not None:

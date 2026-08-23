@@ -104,6 +104,38 @@ def test_rank_summary_current_prior_and_sparkline(app):
         assert r["brand_name"] == "Tabasco"
 
 
+def test_rank_summary_includes_competitors_brand_level(app):
+    # Ranking is brand-level and includes competitors so the user can compare.
+    with app.app_context():
+        db = get_db()
+        _, gid, mine, comp, _, kid, rid = _setup(db)
+        # Same keyword, same day: my brand at #4, competitor at #2 (better).
+        _result(db, rid, gid, kid, _iso(0), 4, "10294527", mine)
+        _result(db, rid, gid, kid, _iso(0), 2, "88880000", comp)
+        db.commit()
+        rows = ci_analysis.rank_summary(db, gid, "wow")
+        by_brand = {r["brand_name"]: r for r in rows}
+        assert "Tabasco" in by_brand and "Frank's" in by_brand
+        assert by_brand["Tabasco"]["current_position"] == 4
+        assert by_brand["Frank's"]["current_position"] == 2
+        # Mine sorts first.
+        assert rows[0]["type"] == "mine"
+
+
+def test_snapshot_rank_splits_organic_and_sponsored(app):
+    with app.app_context():
+        db = get_db()
+        _, gid, mine, _comp, _, kid, rid = _setup(db)
+        _result(db, rid, gid, kid, _iso(0), 1, "x", mine, ptype="sponsored")
+        _result(db, rid, gid, kid, _iso(0), 6, "10294527", mine, ptype="organic")
+        db.commit()
+        rows = ci_analysis.snapshot_rank(db, gid, rid)
+        r = next(r for r in rows if r["brand_name"] == "Tabasco")
+        assert r["current_position"] == 1        # best overall (the sponsored #1)
+        assert r["organic_position"] == 6
+        assert r["sponsored_position"] == 1
+
+
 def test_rank_summary_omits_products_with_no_sightings(app):
     with app.app_context():
         db = get_db()

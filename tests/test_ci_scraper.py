@@ -67,6 +67,34 @@ def test_opaque_id_with_no_url_is_stored_as_is_and_unmatched():
     assert rows[0]["item_id"] == "3K2RMCS1KI5D"
 
 
+def test_sponsored_card_attributed_by_brand_name():
+    # Sponsored slots carry an opaque id + a tracking URL (no /ip/<number>), so
+    # they can only be attributed by the brand name in the card title.
+    brand_map = {5: _brand(5, "competitor", name="Frank's Red Hot")}
+    rows = ci_scraper.build_result_rows(
+        [_card("Frank's RedHot Original Cayenne Pepper Sauce, 12 oz",
+               "3K2RMCS1KI5D", listing_type="sponsored", product_url="")],
+        run_id=1, group_id=1, keyword_id=1, item_map={}, brand_map=brand_map,
+    )
+    assert rows[0]["brand_id"] == 5
+    assert rows[0]["position_type"] == "sponsored"
+
+
+def test_name_match_does_not_override_precise_product_match():
+    # A card that matches a tracked product by item id keeps that product's brand,
+    # even if another brand's name also appears in the title.
+    item_map = {"10294527": _product("10294527", brand_id=1,
+                                     url="https://www.walmart.com/ip/10294527")}
+    brand_map = {1: _brand(1, "mine", name="Tabasco"),
+                 2: _brand(2, "competitor", name="Cholula")}
+    rows = ci_scraper.build_result_rows(
+        [_card("Tabasco vs Cholula variety", "opaque",
+               product_url="https://www.walmart.com/ip/x/10294527")],
+        run_id=1, group_id=1, keyword_id=1, item_map=item_map, brand_map=brand_map,
+    )
+    assert rows[0]["brand_id"] == 1  # product match wins over name match
+
+
 def test_brand_match_by_url_fallback_when_item_id_missing():
     url = "https://www.walmart.com/ip/frank/55512340"
     item_map = {"55512340": _product("55512340", brand_id=9, url=url)}
