@@ -119,6 +119,7 @@ def pdp_scoring():
         active_nav="pdp-scoring",
         submitted=False,
         max_items=pdp.MAX_ITEMS,
+        url_prefix=pdp.WALMART_IP_PREFIX,
     )
 
 
@@ -246,6 +247,7 @@ def pdp_copy():
         breadcrumb="PDP Copy Content Creation",
         active_nav="pdp-copy",
         max_items=pdp.MAX_ITEMS,
+        url_prefix=pdp.WALMART_IP_PREFIX,
     )
 
 
@@ -550,6 +552,7 @@ def ci_group_config(group_id):
         latest_run=ci_jobs.latest_run(db, group_id),
         brand_types=ci_config.BRAND_TYPES,
         next_run=ci_analysis.next_monitoring_run(),
+        url_prefix=pdp.WALMART_IP_PREFIX,
     )
 
 
@@ -609,11 +612,30 @@ def ci_delete_product(product_id):
 @bp.route("/app/competitive-intel/groups/<int:group_id>/keywords", methods=["POST"])
 @login_required
 def ci_add_keyword(group_id):
-    """Add a search keyword to a group."""
-    try:
-        ci_config.add_keyword(get_db(), group_id, g.user["id"], request.form.get("keyword", ""))
-    except ci_config.ConfigError as e:
-        flash(str(e), "error")
+    """Add one or more search keywords to a group.
+
+    Accepts a comma-separated list so the user can add several at once; each
+    comma-delimited term is validated and added independently, and per-term
+    failures (duplicates, over the cap) are reported without blocking the rest.
+    """
+    _owned_group_or_404(group_id)  # IDOR: 404 before touching the group's data
+    db = get_db()
+    terms = [t.strip() for t in request.form.get("keyword", "").split(",") if t.strip()]
+    if not terms:
+        flash("Enter at least one keyword.", "error")
+        return _config_redirect(group_id)
+
+    added = 0
+    for term in terms:
+        try:
+            ci_config.add_keyword(db, group_id, g.user["id"], term)
+            added += 1
+        except ci_config.ConfigError as e:
+            flash(str(e), "error")
+    if added:
+        flash(f"Added {added} keyword{'' if added == 1 else 's'}.", "ok")
+    logger.info("CI add-keyword group_id=%s user_id=%s requested=%d added=%d",
+                group_id, g.user["id"], len(terms), added)
     return _config_redirect(group_id)
 
 

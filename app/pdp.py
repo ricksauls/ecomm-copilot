@@ -24,6 +24,11 @@ MAX_ITEMS = 100
 MAX_CSV_BYTES = 2 * 1024 * 1024
 _ALLOWED_SCHEMES = {"http", "https"}
 
+# The stable part of a Walmart product URL up to (but not including) the item
+# number. Intake fields autofill this so the user only appends the number; the
+# templates and intake.js reuse it. Keep in sync with the JS copy in intake.js.
+WALMART_IP_PREFIX = "https://www.walmart.com/ip/"
+
 
 def validate_item_url(raw: str) -> str | None:
     """Return a cleaned URL if valid, else None.
@@ -104,6 +109,14 @@ def collect_items(form_urls: list[str], csv_file: FileStorage | None) -> tuple[l
         if cleaned is None:
             # Only surface non-empty rejects from the form; empty rows are noise.
             if from_form and candidate.strip():
+                rejected.append(candidate.strip()[:MAX_URL_LEN])
+            return
+        if item_number_from_url(cleaned) is None:
+            # A URL with no item number is unusable. Silently skip an untouched
+            # autofill prefix (the field pre-populates WALMART_IP_PREFIX and the
+            # user may leave spare rows unfinished); flag anything else as a reject.
+            stripped = candidate.strip().rstrip("/")
+            if from_form and stripped and stripped != WALMART_IP_PREFIX.rstrip("/"):
                 rejected.append(candidate.strip()[:MAX_URL_LEN])
             return
         if cleaned in seen:

@@ -44,6 +44,21 @@ def test_collect_items_dedupes_and_reports_rejects():
     assert rejected == ["not-a-url"]
 
 
+def test_collect_items_skips_untouched_autofill_prefix():
+    # The intake fields autofill WALMART_IP_PREFIX; a row left at just the prefix
+    # (no item number) is incomplete and should be dropped silently, not rejected.
+    accepted, rejected = pdp.collect_items(
+        [
+            pdp.WALMART_IP_PREFIX,           # untouched autofill -> skipped
+            pdp.WALMART_IP_PREFIX + "10294528",  # completed -> accepted
+            "https://www.walmart.com/ip/no-number",  # item-less, edited -> rejected
+        ],
+        None,
+    )
+    assert accepted == ["https://www.walmart.com/ip/10294528"]
+    assert rejected == ["https://www.walmart.com/ip/no-number"]
+
+
 def test_urls_from_csv_scans_any_cell():
     data = b"url\nhttps://www.walmart.com/ip/111\nsomething,https://www.walmart.com/ip/222\ngarbage\n"
     fs = FileStorage(stream=io.BytesIO(data), filename="items.csv")

@@ -151,7 +151,7 @@
       <option value="" disabled selected>Brand…</option>
       {% for b in brands %}<option value="{{ b.id }}">{{ b.name }} ({{ b.type }})</option>{% endfor %}
     </select>
-    <input type="url" name="url" class="ci-input grow"
+    <input type="url" name="url" class="ci-input grow" value="{{ url_prefix }}"
            placeholder="https://www.walmart.com/ip/…/10294528" maxlength="2048" required />
     <input type="text" name="name" class="ci-input grow" placeholder="Label (optional)" maxlength="255" />
     <button type="submit" class="wbtn wbtn-secondary">Add product</button>
@@ -164,7 +164,10 @@
 {# Keywords. #}
 <div class="ci-section card card-pad">
   <div class="ci-section-title">Keywords</div>
-  <p class="ci-section-hint">Search terms to track on Walmart.com.</p>
+  <p class="ci-section-hint">
+    Search terms to track on Walmart.com. Add several at once by putting a comma
+    after each one — e.g. <em>hot sauce, chipotle sauce, wing sauce,</em>
+  </p>
   {% if keywords %}
   <div class="ci-chips">
     {% for k in keywords %}
@@ -180,8 +183,9 @@
   {% endif %}
   <form method="post" action="{{ url_for('pages.ci_add_keyword', group_id=group.id) }}" class="ci-inline-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-    <input type="text" name="keyword" class="ci-input grow" placeholder="e.g. hot sauce" maxlength="255" required />
-    <button type="submit" class="wbtn wbtn-secondary">Add keyword</button>
+    <input type="text" name="keyword" class="ci-input grow"
+           placeholder="e.g. hot sauce, chipotle sauce," maxlength="1000" required />
+    <button type="submit" class="wbtn wbtn-secondary">Add keywords</button>
   </form>
 </div>
 {% endblock %}

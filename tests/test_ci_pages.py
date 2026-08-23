@@ -53,6 +53,19 @@ def test_snapshot_create_and_config(client, auth):
     assert b"How setup works" in cfg.data  # help panel present
 
 
+def test_add_multiple_keywords_comma_separated(client, auth):
+    auth.register()
+    gid = _snapshot_group(client)
+    resp = client.post(
+        f"/app/competitive-intel/groups/{gid}/keywords",
+        data={"keyword": "hot sauce, chipotle sauce, wing sauce,"},  # trailing comma ok
+    )
+    assert resp.status_code in (302, 303)
+    with client.application.app_context():
+        kws = {k["keyword"] for k in ci_config.list_keywords(get_db(), gid, 1)}
+    assert kws == {"hot sauce", "chipotle sauce", "wing sauce"}
+
+
 def test_monitoring_create_shows_schedule_and_next_run(client, auth):
     auth.register()
     resp = client.post("/app/competitive-intel/monitoring/groups", data={"name": "Mon"})

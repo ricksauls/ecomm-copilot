@@ -5,7 +5,12 @@
 <div class="page-header">
   <div>
     <h1>{{ group.name }}</h1>
-    <p class="subtitle">One-Time Snapshot — current state</p>
+    {# Flash the subtitle while a scrape is running (same cue as PDP scoring);
+       ci_config.js polls and reloads the page when the run finishes. #}
+    {% set scraping = run and run.status in ('queued', 'running') %}
+    <p class="subtitle {{ 'subtitle-scoring' if scraping else '' }}">
+      {% if scraping %}Scraping in progress…{% else %}One-Time Snapshot — current state{% endif %}
+    </p>
   </div>
   <div class="header-actions">
     {% if run and run.status == 'done' and (sos_summary or avg_ranks) %}

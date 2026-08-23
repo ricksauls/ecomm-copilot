@@ -12,6 +12,9 @@
 
   var MAX_ROWS = 100; // Mirror of app.pdp.MAX_ITEMS; the server enforces the real cap.
   var PLACEHOLDER = "https://www.walmart.com/ip/10294528 (use this format, with item number at the end)";
+  // Autofill the stable part of the URL so the user only appends the item number.
+  // Keep in sync with app.pdp.WALMART_IP_PREFIX.
+  var URL_PREFIX = "https://www.walmart.com/ip/";
 
   // --- Repeatable URL rows -------------------------------------------------
 
@@ -46,6 +49,7 @@
     input.name = "urls";
     input.className = "url-input";
     input.placeholder = PLACEHOLDER;
+    input.value = URL_PREFIX;
 
     field.appendChild(icon);
     field.appendChild(input);
@@ -84,7 +88,7 @@
       if (rows.querySelectorAll(".url-row").length <= 1) {
         var lone = rows.querySelector(".url-input");
         if (lone) {
-          lone.value = "";
+          lone.value = URL_PREFIX;  // reset to the autofill prefix, not empty
           lone.focus();
         }
         return;
