@@ -207,6 +207,54 @@ def snapshot_share_of_shelf(conn: sqlite3.Connection, group_id: int, run_id: int
     return out
 
 
+def snapshot_share_by_keyword(conn: sqlite3.Connection, group_id: int, run_id: int) -> list[dict]:
+    """Per-keyword, per-brand share of shelf for a single run.
+
+    Like :func:`snapshot_share_of_shelf` but broken out by keyword: shares are of
+    that keyword's own page-1 slots (so each keyword's total shares sum to ~100%,
+    including the untracked "Other" bucket). Ordered by keyword, then — within a
+    keyword — mine-first, competitors by total share descending, "Other" last,
+    matching the overall table's ordering.
+    """
+    rows = conn.execute(
+        "SELECT k.keyword AS keyword, sos.brand_id AS brand_id, "
+        "  SUM(sos.organic_count) AS o, SUM(sos.sponsored_count) AS s, "
+        "  SUM(sos.total_count) AS t "
+        "FROM ci_share_of_search sos "
+        "JOIN ci_keywords k ON k.id = sos.keyword_id "
+        "WHERE sos.group_id = ? AND sos.run_id = ? "
+        "GROUP BY k.id, sos.brand_id",
+        (group_id, run_id),
+    ).fetchall()
+
+    brand_meta = _brand_meta(conn, group_id)
+    by_kw: dict = defaultdict(list)
+    for r in rows:
+        by_kw[r["keyword"]].append(r)
+
+    out = []
+    for kw in sorted(by_kw, key=str.lower):
+        krows = by_kw[kw]
+        # Per-keyword denominators so shares are of this keyword's own slots.
+        grand = {key: sum((r[col] or 0) for r in krows)
+                 for key, col in (("organic", "o"), ("sponsored", "s"), ("total", "t"))}
+        entries = []
+        for r in krows:
+            meta = brand_meta.get(r["brand_id"])
+            entries.append({
+                "keyword": kw,
+                "brand_name": meta["name"] if meta else "Other",
+                "type": meta["type"] if meta else "other",
+                "organic_share": _pct(r["o"] or 0, grand["organic"]),
+                "sponsored_share": _pct(r["s"] or 0, grand["sponsored"]),
+                "total_share": _pct(r["t"] or 0, grand["total"]),
+            })
+        entries.sort(key=lambda e: ({"mine": 0, "competitor": 1}.get(e["type"], 2),
+                                    -e["total_share"]))
+        out.extend(entries)
+    return out
+
+
 def snapshot_rank(conn: sqlite3.Connection, group_id: int, run_id: int) -> list[dict]:
     """Best page-1 position per brand per keyword within a single run (no trend).
 

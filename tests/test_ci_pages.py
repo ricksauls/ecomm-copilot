@@ -87,6 +87,8 @@ def test_snapshot_results_render_without_trend_markup(client, auth):
     # Headline sections: config summary, overall ranking, per-keyword ranking.
     assert b"What this group tracks" in resp.data
     assert b"Overall Search Ranking" in resp.data
+    # Share of shelf now has an overall section plus a per-keyword breakdown.
+    assert b"Overall Share of Digital Shelf" in resp.data
     # The old head-to-head "Ranking by Term" section was removed.
     assert b"Ranking by Term" not in resp.data
     # Share of shelf carries a stacked-bar view alongside the table.

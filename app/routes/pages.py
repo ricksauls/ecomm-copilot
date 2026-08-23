@@ -682,11 +682,12 @@ def ci_snapshot_results(group_id):
         "keywords": [k["keyword"] for k in ci_config.list_keywords(db, group_id, g.user["id"])],
     }
 
-    # Ranking rollups only exist once a run has produced results.
-    avg_ranks, rank_rows = [], []
+    # Ranking + share rollups only exist once a run has produced results.
+    avg_ranks, rank_rows, share_rows = [], [], []
     if run and run["status"] == "done":
         avg_ranks = ci_analysis.snapshot_brand_avg_rank(db, group_id, run["id"])
         rank_rows = ci_analysis.snapshot_rank_by_keyword_brand(db, group_id, run["id"])
+        share_rows = ci_analysis.snapshot_share_by_keyword(db, group_id, run["id"])
 
     # Stacked-bar chart scale: bars visualize the table's organic/sponsored share
     # columns (not raw counts), so scale to the tallest organic+sponsored stack.
@@ -706,6 +707,7 @@ def ci_snapshot_results(group_id):
         config_summary=config_summary,
         avg_ranks=avg_ranks,
         rank_rows=rank_rows,
+        share_rows=share_rows,
         sos_scale=sos_scale,
     )
 

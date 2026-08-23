@@ -132,7 +132,7 @@
 {# Share of Digital Shelf — current state, no trend. Table plus a stacked-bar
    view: one bar per brand, split into organic + sponsored page-1 placements. #}
 <div class="ci-section card card-pad">
-  <div class="ci-section-title">Share of Digital Shelf</div>
+  <div class="ci-section-title">Overall Share of Digital Shelf</div>
   <p class="ci-section-hint">
     Share of all page-1 slots across your tracked keywords, organic vs sponsored.
     Based on {{ sos_summary | sum(attribute='total') }} page-1 placements.
@@ -193,6 +193,35 @@
     </div>
   </div>
 </div>
+
+{# Share of Digital Shelf broken out per keyword: shares are of that keyword's
+   own page-1 slots. Ordered by keyword, then the overall table's brand order. #}
+{% if share_rows %}
+<div class="ci-section card card-pad">
+  <div class="ci-section-title">Share of Digital Shelf</div>
+  <p class="ci-section-hint">
+    Per-keyword share of that keyword's page-1 slots, by brand. Organic and
+    sponsored are shares of that channel's slots for the keyword.
+  </p>
+  <div class="table-scroll">
+    <table class="admin-table">
+      <thead><tr><th>Keyword</th><th>Brand</th><th>Type</th><th>Organic</th><th>Sponsored</th><th>Total share</th></tr></thead>
+      <tbody>
+        {% for r in share_rows %}
+        <tr>
+          <td>{{ r.keyword }}</td>
+          <td>{{ r.brand_name }}</td>
+          <td><span class="ci-type {{ 'mine' if r.type == 'mine' else '' }}">{{ r.type }}</span></td>
+          <td class="cell-muted">{{ r.organic_share }}%</td>
+          <td class="cell-muted">{{ r.sponsored_share }}%</td>
+          <td>{{ r.total_share }}%</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
 {% endif %}
 {% endblock %}
 

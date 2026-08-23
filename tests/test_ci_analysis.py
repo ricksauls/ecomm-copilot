@@ -160,6 +160,33 @@ def test_snapshot_brand_avg_rank_averages_per_keyword_then_across_terms(app):
         assert rows[0]["type"] == "mine"
 
 
+def test_snapshot_share_by_keyword_uses_per_keyword_denominators(app):
+    with app.app_context():
+        db = get_db()
+        uid, gid, mine, comp, _, kid, rid = _setup(db)  # kid == "hot sauce"
+        kid2 = ci_config.add_keyword(db, gid, uid, "aaa sauce")
+        # hot sauce: Tabasco 6 organic + 4 sponsored; Frank's 4 organic + 6 sponsored.
+        _sos(db, rid, gid, kid, _iso(0), mine, 6, 4)
+        _sos(db, rid, gid, kid, _iso(0), comp, 4, 6)
+        # aaa sauce: Tabasco only, 3 organic.
+        _sos(db, rid, gid, kid2, _iso(0), mine, 3, 0)
+        db.commit()
+
+        rows = ci_analysis.snapshot_share_by_keyword(db, gid, rid)
+        # Ordered by keyword (aaa before hot).
+        assert rows[0]["keyword"] == "aaa sauce"
+        assert rows[0]["total_share"] == 100.0 and rows[0]["organic_share"] == 100.0
+
+        hot = [r for r in rows if r["keyword"] == "hot sauce"]
+        by = {r["brand_name"]: r for r in hot}
+        # Shares use this keyword's own slots: Tabasco 10 of 20 total = 50%.
+        assert by["Tabasco"]["total_share"] == 50.0
+        assert by["Tabasco"]["organic_share"] == 60.0    # 6 of 10 organic slots
+        assert by["Tabasco"]["sponsored_share"] == 40.0  # 4 of 10 sponsored slots
+        # Mine sorts first within a keyword.
+        assert hot[0]["type"] == "mine"
+
+
 def test_snapshot_rank_by_keyword_brand_orders_and_averages(app):
     with app.app_context():
         db = get_db()
