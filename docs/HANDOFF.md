@@ -63,11 +63,14 @@ A working reference for picking up development. Read this first, then
   - **Share % denominator = all page-1 placements** (branded + "Other"); the
     placement count is shown on-screen. **PDF export** works for both snapshot and
     monitoring (`.../results.pdf`, `.../view/<id>/results.pdf`).
-  - **Verified live** (Tabasco Original Hot Sauce group, run 2): organic cards
-    attribute to Tabasco/Frank's/Louisiana/Cholula and rank (e.g. "tabasco" #5).
-    The sponsored name-match fix landed after run 2, so a fresh re-scrape (run 3)
-    was launched to verify sponsored attribution — check that run's results next
-    session (sponsored attribution logic itself is covered by unit tests).
+  - **Verified live** (Tabasco Original Hot Sauce group, run 3, 284 page-1 cards):
+    sponsored attribution now works — 24 of 50 sponsored slots attribute to a
+    tracked brand (was 0 before the fix). Share of shelf: Tabasco 67 (55 organic +
+    12 sponsored), Frank's 32, Louisiana 20, Cholula 17, Other 148. Brand-level
+    ranking populated for all four brands across all five keywords with
+    organic/sponsored splits (e.g. Tabasco "tabasco" best #1 via sponsored). Note
+    brand-name matching counts a brand's *untracked* SKUs too, so organic counts
+    jumped vs run 2 (Tabasco 3→55) — that's correct share-of-shelf semantics.
 - **Admin screens** (Users, Items scored, **Copy created**) for the two admin
   emails, with a new-user notification and per-user delete.
 
