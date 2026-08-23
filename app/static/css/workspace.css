@@ -1430,10 +1430,12 @@ a:focus-visible,
 /* Share-of-shelf stacked bar chart: one bar per brand, split organic/sponsored.
    Bars bottom-align in a fixed plot; segment heights are set inline (px). */
 .sos-chart { margin-top: 20px; }
-.sos-plot { display: flex; align-items: flex-end; gap: 20px; overflow-x: auto; padding-bottom: 4px; }
-.sos-col { display: flex; flex-direction: column; align-items: center; flex: 0 0 auto; }
-.sos-col-value { font-size: 11px; color: var(--mid-gray); margin-bottom: 5px; }
-.sos-bar { display: flex; flex-direction: column; justify-content: flex-end; width: 44px; }
+/* Bars share the full plot width (flex:1 columns) so the chart lines up with
+   the table above it; each bar is centered in its column, capped so few brands
+   don't produce absurdly wide bars. */
+.sos-plot { display: flex; align-items: flex-end; gap: 12px; padding-bottom: 4px; }
+.sos-col { display: flex; flex-direction: column; align-items: center; flex: 1 1 0; min-width: 0; }
+.sos-bar { display: flex; flex-direction: column; justify-content: flex-end; width: 100%; max-width: 64px; }
 .sos-seg { width: 100%; display: block; }
 .sos-bar .sos-seg:first-child { border-radius: 3px 3px 0 0; }  /* round the top of the stack */
 .sos-seg-organic { background: var(--black); }

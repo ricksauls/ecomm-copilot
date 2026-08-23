@@ -688,6 +688,11 @@ def ci_snapshot_results(group_id):
         avg_ranks = ci_analysis.snapshot_brand_avg_rank(db, group_id, run["id"])
         rank_rows = ci_analysis.snapshot_rank_by_keyword_brand(db, group_id, run["id"])
 
+    # Stacked-bar chart scale: bars visualize the table's organic/sponsored share
+    # columns (not raw counts), so scale to the tallest organic+sponsored stack.
+    sos_scale = max((r["organic_share"] + r["sponsored_share"] for r in sos_summary),
+                    default=0)
+
     logger.info("CI snapshot results: group_id=%s user_id=%s run_id=%s rank_rows=%d",
                 group_id, g.user["id"], run["id"] if run else None,
                 len(rank_rows))
@@ -701,6 +706,7 @@ def ci_snapshot_results(group_id):
         config_summary=config_summary,
         avg_ranks=avg_ranks,
         rank_rows=rank_rows,
+        sos_scale=sos_scale,
     )
 
 

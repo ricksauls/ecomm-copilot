@@ -159,31 +159,32 @@
     </table>
   </div>
 
-  {# Stacked bar chart. Segment heights are scaled to the tallest brand's total
-     placement count so the chart fills the plot; each bar's total-share % sits
-     above it. Pure CSS/HTML (strict CSP: no chart library, no inline scripts). #}
-  {% set max_total = (sos_summary | map(attribute='total') | max) or 1 %}
+  {# Stacked bar chart. Segments mirror the table's Organic/Sponsored share
+     columns (share of each channel's page-1 slots) — not raw counts, which are
+     organic-heavy and would swamp the sponsored segment. Heights scale to the
+     tallest organic+sponsored stack (sos_scale). Pure CSS/HTML: strict CSP means
+     no chart library and no inline scripts (inline style attrs are allowed). #}
+  {% set scale = sos_scale or 1 %}
   <div class="sos-chart">
     <div class="sos-plot" role="img"
-         aria-label="Stacked bar chart of each brand's page-1 share of shelf, split into organic and sponsored placements.">
+         aria-label="Stacked bar chart of each brand's organic and sponsored share of the page-1 shelf.">
       {% for r in sos_summary %}
       <div class="sos-col">
-        <div class="sos-col-value">{{ r.total_share }}%</div>
         <div class="sos-bar">
-          {% if r.sponsored %}<span class="sos-seg sos-seg-sponsored"
-            style="height: {{ (r.sponsored / max_total * 180) | round(1) }}px"
-            title="{{ r.brand_name }} — sponsored: {{ r.sponsored }}"></span>{% endif %}
-          {% if r.organic %}<span class="sos-seg sos-seg-organic"
-            style="height: {{ (r.organic / max_total * 180) | round(1) }}px"
-            title="{{ r.brand_name }} — organic: {{ r.organic }}"></span>{% endif %}
+          {% if r.sponsored_share %}<span class="sos-seg sos-seg-sponsored"
+            style="height: {{ (r.sponsored_share / scale * 180) | round(1) }}px"
+            title="{{ r.brand_name }} — sponsored share {{ r.sponsored_share }}%"></span>{% endif %}
+          {% if r.organic_share %}<span class="sos-seg sos-seg-organic"
+            style="height: {{ (r.organic_share / scale * 180) | round(1) }}px"
+            title="{{ r.brand_name }} — organic share {{ r.organic_share }}%"></span>{% endif %}
         </div>
         <div class="sos-col-label">{{ r.brand_name }}</div>
       </div>
       {% endfor %}
     </div>
     <div class="sos-legend">
-      <span class="sos-legend-item"><span class="sos-swatch sos-seg-organic"></span> Organic</span>
-      <span class="sos-legend-item"><span class="sos-swatch sos-seg-sponsored"></span> Sponsored</span>
+      <span class="sos-legend-item"><span class="sos-swatch sos-seg-organic"></span> Organic share</span>
+      <span class="sos-legend-item"><span class="sos-swatch sos-seg-sponsored"></span> Sponsored share</span>
     </div>
   </div>
 </div>
