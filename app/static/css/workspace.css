@@ -1416,6 +1416,10 @@ a:focus-visible,
 .ci-chip button:hover { color: var(--signal-red); }
 
 /* Period selector on the dashboard. */
+/* Header action buttons (e.g. Download PDF + Set up & run). Kept distinct from
+   .ci-periods so the pill-link styling below never bleeds onto .wbtn buttons —
+   that override forced low-contrast text onto the primary button's dark fill. */
+.header-actions { display: inline-flex; gap: 8px; align-items: center; }
 .ci-periods { display: inline-flex; gap: 4px; }
 .ci-periods a {
   font-size: 12px;

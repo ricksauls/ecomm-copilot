@@ -7,7 +7,7 @@
     <h1>{{ group.name }}</h1>
     <p class="subtitle">One-Time Snapshot — current state</p>
   </div>
-  <div class="ci-periods">
+  <div class="header-actions">
     {% if run and run.status == 'done' and (sos_summary or ranks) %}
     <a href="{{ url_for('pages.ci_snapshot_results_pdf', group_id=group.id) }}" class="wbtn wbtn-primary">Download PDF</a>
     {% endif %}
