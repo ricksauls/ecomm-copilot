@@ -334,8 +334,81 @@ def _rank_table(rank_rows: list[dict], styles: dict, *, with_delta: bool) -> Tab
     return _ci_table(rows, [w * inch for w in widths], styles)
 
 
-def build_ci_snapshot_pdf(group: dict, sos_rows: list[dict], rank_rows: list[dict]) -> bytes:
-    """One-Time Snapshot PDF: current-state Share of Shelf + Search Ranking, no trends."""
+def _summary_flow(config_summary: dict, styles: dict) -> list:
+    """"What this group tracks" block: mine/competitor brands, items, terms."""
+    def _line(label: str, value: str) -> Paragraph:
+        body = escape(value) if value else "&#8212;"
+        return Paragraph(f"<b>{escape(label)}:</b> {body}", styles["cellmuted"])
+
+    products = config_summary.get("products") or []
+    names = ", ".join((p["name"] or p["walmart_item_id"]) for p in products)
+    items = f"{len(products)}" + (f" — {names}" if products else "")
+    return [
+        Paragraph("What this group tracks", styles["item"]),
+        Spacer(1, 4),
+        _line("My brands", ", ".join(config_summary.get("my_brands") or [])),
+        _line("Competitor brands", ", ".join(config_summary.get("competitor_brands") or [])),
+        _line("Items tracked", items),
+        _line("Search terms", ", ".join(config_summary.get("keywords") or [])),
+    ]
+
+
+def _avg_rank_table(avg_ranks: list[dict], styles: dict) -> Table:
+    """Overall Search Ranking: one average figure per brand (mine + competitors)."""
+    rows = [["Brand", "Type", "Avg ranking"]]
+    for r in avg_ranks:
+        rows.append([
+            Paragraph(escape(r["brand_name"]), styles["cell"]),
+            Paragraph(escape(r.get("type", "")), styles["cellmuted"]),
+            Paragraph(_pos(r.get("avg_position")), styles["cell"]),
+        ])
+    if len(rows) == 1:
+        rows.append([Paragraph("No brands ranked.", styles["cellmuted"]), "", ""])
+    return _ci_table(rows, [w * inch for w in (2.4, 1.1, 1.3)], styles)
+
+
+def _rank_by_keyword_table(rank_rows: list[dict], styles: dict) -> Table:
+    """Search Ranking: average ranking per brand per keyword."""
+    rows = [["Keyword", "Brand", "Type", "Avg ranking"]]
+    for r in rank_rows:
+        rows.append([
+            Paragraph(escape(r["keyword"]), styles["cell"]),
+            Paragraph(escape(r["brand_name"]), styles["cell"]),
+            Paragraph(escape(r.get("type", "")), styles["cellmuted"]),
+            Paragraph(_pos(r.get("avg_ranking")), styles["cell"]),
+        ])
+    if len(rows) == 1:
+        rows.append([Paragraph("No data.", styles["cellmuted"]), "", "", ""])
+    return _ci_table(rows, [w * inch for w in (2.0, 2.0, 1.0, 1.3)], styles)
+
+
+def _share_by_keyword_table(share_rows: list[dict], styles: dict) -> Table:
+    """Per-keyword Share of Digital Shelf: shares of each keyword's own slots."""
+    rows = [["Keyword", "Brand", "Type", "Organic", "Sponsored", "Total share"]]
+    for r in share_rows:
+        rows.append([
+            Paragraph(escape(r["keyword"]), styles["cell"]),
+            Paragraph(escape(r["brand_name"]), styles["cell"]),
+            Paragraph(escape(r.get("type", "")), styles["cellmuted"]),
+            Paragraph(f"{r['organic_share']}%", styles["cell"]),
+            Paragraph(f"{r['sponsored_share']}%", styles["cell"]),
+            Paragraph(f"{r['total_share']}%", styles["cell"]),
+        ])
+    if len(rows) == 1:
+        rows.append([Paragraph("No data.", styles["cellmuted"])] + [""] * 5)
+    return _ci_table(rows, [w * inch for w in (1.5, 1.5, 0.9, 0.9, 1.0, 1.0)], styles)
+
+
+def build_ci_snapshot_pdf(group: dict, *, config_summary: dict, avg_ranks: list[dict],
+                          rank_rows: list[dict], sos_rows: list[dict],
+                          share_rows: list[dict]) -> bytes:
+    """One-Time Snapshot PDF — mirrors the results page, current-state (no trends).
+
+    Sections, in page order: the config summary, Overall Search Ranking, per-keyword
+    Search Ranking, Overall Share of Digital Shelf, and per-keyword Share of Digital
+    Shelf. (The on-screen stacked bar chart is omitted; the share tables carry the
+    same numbers.)
+    """
     styles = _styles()
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -344,11 +417,18 @@ def build_ci_snapshot_pdf(group: dict, sos_rows: list[dict], rank_rows: list[dic
         topMargin=0.7 * inch, bottomMargin=0.7 * inch,
     )
     flow = _ci_header(group, "One-Time Snapshot — current state", styles)
-    flow.append(Paragraph("Share of Digital Shelf", styles["item"]))
-    flow.append(_sos_table(sos_rows, styles, with_delta=False))
+    flow += _summary_flow(config_summary, styles)
+    flow.append(Paragraph("Overall Search Ranking", styles["item"]))
+    flow.append(_avg_rank_table(avg_ranks, styles))
     flow.append(Spacer(1, 10))
     flow.append(Paragraph("Search Ranking", styles["item"]))
-    flow.append(_rank_table(rank_rows, styles, with_delta=False))
+    flow.append(_rank_by_keyword_table(rank_rows, styles))
+    flow.append(Spacer(1, 10))
+    flow.append(Paragraph("Overall Share of Digital Shelf", styles["item"]))
+    flow.append(_sos_table(sos_rows, styles, with_delta=False))
+    flow.append(Spacer(1, 10))
+    flow.append(Paragraph("Share of Digital Shelf", styles["item"]))
+    flow.append(_share_by_keyword_table(share_rows, styles))
     doc.build(flow)
     logger.info("Built CI snapshot PDF: group=%s", group.get("name"))
     return buffer.getvalue()

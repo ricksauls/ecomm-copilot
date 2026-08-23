@@ -674,28 +674,16 @@ def ci_run_snapshot(group_id):
     return redirect(url_for("pages.ci_snapshot_results", group_id=group_id))
 
 
-def _snapshot_view(db, group_id):
-    """Return (run, sos_rows, rank_rows) for a group's latest completed run."""
+def _snapshot_data(db, group_id):
+    """Gather every section the snapshot results page and its PDF render.
+
+    Returns a dict with the group's config summary plus, once a run is done, the
+    overall/per-keyword ranking and share rollups. Shared by the page route and
+    the PDF export so the two never drift.
+    """
     run = ci_jobs.latest_run(db, group_id)
-    if run and run["status"] == "done":
-        return (run,
-                ci_analysis.snapshot_share_of_shelf(db, group_id, run["id"]),
-                ci_analysis.snapshot_rank(db, group_id, run["id"]))
-    return run, [], []
 
-
-@bp.route("/app/competitive-intel/groups/<int:group_id>/results")
-@login_required
-def ci_snapshot_results(group_id):
-    """Current-state snapshot results (no trends); polls while a run is active."""
-    group = _owned_group_or_404(group_id)
-    db = get_db()
-    # _snapshot_view also yields snapshot_rank rows (used by the PDF export); the
-    # page renders its own keyword/brand average table instead, so ignore them here.
-    run, sos_summary, _ = _snapshot_view(db, group_id)
-
-    # Top-of-page config summary: what this group tracks (mine/competitor brands,
-    # items, terms). Config is user-scoped/IDOR-checked inside ci_config.
+    # Config summary — always available; user-scoped/IDOR-checked in ci_config.
     brands = ci_config.list_brands(db, group_id, g.user["id"])
     config_summary = {
         "my_brands": [b["name"] for b in brands if b["type"] == "mine"],
@@ -704,32 +692,52 @@ def ci_snapshot_results(group_id):
         "keywords": [k["keyword"] for k in ci_config.list_keywords(db, group_id, g.user["id"])],
     }
 
-    # Ranking + share rollups only exist once a run has produced results.
-    avg_ranks, rank_rows, share_rows = [], [], []
+    sos_summary, avg_ranks, rank_rows, share_rows = [], [], [], []
     if run and run["status"] == "done":
-        avg_ranks = ci_analysis.snapshot_brand_avg_rank(db, group_id, run["id"])
-        rank_rows = ci_analysis.snapshot_rank_by_keyword_brand(db, group_id, run["id"])
-        share_rows = ci_analysis.snapshot_share_by_keyword(db, group_id, run["id"])
+        rid = run["id"]
+        sos_summary = ci_analysis.snapshot_share_of_shelf(db, group_id, rid)
+        avg_ranks = ci_analysis.snapshot_brand_avg_rank(db, group_id, rid)
+        rank_rows = ci_analysis.snapshot_rank_by_keyword_brand(db, group_id, rid)
+        share_rows = ci_analysis.snapshot_share_by_keyword(db, group_id, rid)
+
+    return {
+        "run": run,
+        "config_summary": config_summary,
+        "sos_summary": sos_summary,
+        "avg_ranks": avg_ranks,
+        "rank_rows": rank_rows,
+        "share_rows": share_rows,
+    }
+
+
+@bp.route("/app/competitive-intel/groups/<int:group_id>/results")
+@login_required
+def ci_snapshot_results(group_id):
+    """Current-state snapshot results (no trends); polls while a run is active."""
+    group = _owned_group_or_404(group_id)
+    db = get_db()
+    data = _snapshot_data(db, group_id)
 
     # Stacked-bar chart scale: bars visualize the table's organic/sponsored share
     # columns (not raw counts), so scale to the tallest organic+sponsored stack.
-    sos_scale = max((r["organic_share"] + r["sponsored_share"] for r in sos_summary),
+    sos_scale = max((r["organic_share"] + r["sponsored_share"] for r in data["sos_summary"]),
                     default=0)
 
+    run = data["run"]
     logger.info("CI snapshot results: group_id=%s user_id=%s run_id=%s rank_rows=%d",
                 group_id, g.user["id"], run["id"] if run else None,
-                len(rank_rows))
+                len(data["rank_rows"]))
     return render_template(
         "app/ci_snapshot_results.html",
         breadcrumb=f"Competitive Intelligence · {group['name']}",
         active_nav="ci-snapshot",
         group=group,
         run=run,
-        sos_summary=sos_summary,
-        config_summary=config_summary,
-        avg_ranks=avg_ranks,
-        rank_rows=rank_rows,
-        share_rows=share_rows,
+        sos_summary=data["sos_summary"],
+        config_summary=data["config_summary"],
+        avg_ranks=data["avg_ranks"],
+        rank_rows=data["rank_rows"],
+        share_rows=data["share_rows"],
         sos_scale=sos_scale,
     )
 
@@ -746,10 +754,18 @@ def ci_snapshot_results_pdf(group_id):
 
     group = _owned_group_or_404(group_id)
     db = get_db()
-    run, sos_summary, ranks = _snapshot_view(db, group_id)
-    if not run or run["status"] != "done":
+    data = _snapshot_data(db, group_id)
+    if not data["run"] or data["run"]["status"] != "done":
         abort(404)  # nothing to export yet
-    pdf = build_ci_snapshot_pdf(dict(group), sos_summary, ranks)
+    # Mirror the page: config summary, both ranking tables, both share tables.
+    pdf = build_ci_snapshot_pdf(
+        dict(group),
+        config_summary=data["config_summary"],
+        avg_ranks=data["avg_ranks"],
+        rank_rows=data["rank_rows"],
+        sos_rows=data["sos_summary"],
+        share_rows=data["share_rows"],
+    )
     filename = f"ci-snapshot-{_slug(group['name'])}-{date.today().isoformat()}.pdf"
     logger.info("CI snapshot PDF: group_id=%s user_id=%s", group_id, g.user["id"])
     return Response(pdf, mimetype="application/pdf",
