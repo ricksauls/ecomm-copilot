@@ -1420,6 +1420,13 @@ a:focus-visible,
    .ci-periods so the pill-link styling below never bleeds onto .wbtn buttons —
    that override forced low-contrast text onto the primary button's dark fill. */
 .header-actions { display: inline-flex; gap: 8px; align-items: center; }
+
+/* CI config summary ("What this group tracks") — a responsive label/value grid. */
+.ci-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin: 0; }
+.ci-summary-item dt { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--mid-gray); margin-bottom: 4px; }
+.ci-summary-item dd { font-size: 13.5px; margin: 0; }
+.ci-summary-sub { font-size: 12px; color: var(--mid-gray); margin-top: 3px; }
+
 .ci-periods { display: inline-flex; gap: 4px; }
 .ci-periods a {
   font-size: 12px;

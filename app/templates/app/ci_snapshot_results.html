@@ -33,6 +33,40 @@
   {% endif %}
 </p>
 
+{# Config summary: what this group tracks. Shown regardless of run state (it's
+   configuration, not run output) so the reader has context above the results. #}
+{% if config_summary.my_brands or config_summary.competitor_brands or config_summary.keywords %}
+<div class="ci-section card card-pad">
+  <div class="ci-section-title">What this group tracks</div>
+  <dl class="ci-summary">
+    <div class="ci-summary-item">
+      <dt>My brands</dt>
+      <dd>{{ config_summary.my_brands | join(', ') if config_summary.my_brands else '—' }}</dd>
+    </div>
+    <div class="ci-summary-item">
+      <dt>Competitor brands</dt>
+      <dd>{{ config_summary.competitor_brands | join(', ') if config_summary.competitor_brands else '—' }}</dd>
+    </div>
+    <div class="ci-summary-item">
+      <dt>Items tracked</dt>
+      <dd>{{ config_summary.products | length }}
+        {% if config_summary.products %}
+        <div class="ci-summary-sub">
+          {%- for p in config_summary.products -%}
+          {{ p.name or p.walmart_item_id }}{% if not loop.last %}, {% endif %}
+          {%- endfor -%}
+        </div>
+        {% endif %}
+      </dd>
+    </div>
+    <div class="ci-summary-item">
+      <dt>Search terms</dt>
+      <dd>{{ config_summary.keywords | join(', ') if config_summary.keywords else '—' }}</dd>
+    </div>
+  </dl>
+</div>
+{% endif %}
+
 {% if run and run.status in ('queued', 'running') %}
 <div class="card card-pad ci-empty">Scraping in progress… this page will refresh when it's done.</div>
 {% elif run and run.status == 'error' %}
@@ -42,6 +76,65 @@
 {% elif not sos_summary and not ranks %}
 <div class="card card-pad ci-empty">The run finished but returned no data (possible block or empty keywords).</div>
 {% else %}
+
+{# Overall (average) search ranking — one figure per brand, mine vs competitors. #}
+{% if avg_ranks %}
+<div class="ci-section card card-pad">
+  <div class="ci-section-title">Overall Search Ranking</div>
+  <p class="ci-section-hint">
+    Average best page-1 position per brand across all tracked terms. Lower is better.
+  </p>
+  <div class="table-scroll">
+    <table class="admin-table">
+      <thead><tr><th>Brand</th><th>Type</th><th>Avg rank</th><th>Terms</th></tr></thead>
+      <tbody>
+        {% for r in avg_ranks %}
+        <tr>
+          <td>{{ r.brand_name }}</td>
+          <td><span class="ci-type {{ 'mine' if r.type == 'mine' else '' }}">{{ r.type }}</span></td>
+          <td>{{ ('#%s' % r.avg_position) if r.avg_position is not none else '—' }}</td>
+          <td class="cell-muted">{{ r.keyword_count }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{# Ranking by term — my best slot vs the best competitor slot, each tagged with
+   the slot type (organic/sponsored) that achieved it. #}
+{% if rank_by_term %}
+<div class="ci-section card card-pad">
+  <div class="ci-section-title">Ranking by Term</div>
+  <p class="ci-section-hint">
+    Your best page-1 position vs the best competitor position for each term, with
+    the slot type in parentheses. Lower is better.
+  </p>
+  <div class="table-scroll">
+    <table class="admin-table">
+      <thead><tr><th>Term</th><th>My best rank</th><th>Competitor best rank</th></tr></thead>
+      <tbody>
+        {% for r in rank_by_term %}
+        <tr>
+          <td>{{ r.keyword }}</td>
+          <td>
+            {% if r.mine_position is not none %}#{{ r.mine_position }}
+              <span class="cell-muted">({{ r.mine_type }})</span>
+            {% else %}—{% endif %}
+          </td>
+          <td>
+            {% if r.competitor_position is not none %}#{{ r.competitor_position }}
+              <span class="cell-muted">({{ r.competitor_type }})</span>
+            {% else %}—{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
 
 {# Share of Digital Shelf — current state, no trend. #}
 <div class="ci-section card card-pad">

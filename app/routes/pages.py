@@ -669,6 +669,26 @@ def ci_snapshot_results(group_id):
     group = _owned_group_or_404(group_id)
     db = get_db()
     run, sos_summary, ranks = _snapshot_view(db, group_id)
+
+    # Top-of-page config summary: what this group tracks (mine/competitor brands,
+    # items, terms). Config is user-scoped/IDOR-checked inside ci_config.
+    brands = ci_config.list_brands(db, group_id, g.user["id"])
+    config_summary = {
+        "my_brands": [b["name"] for b in brands if b["type"] == "mine"],
+        "competitor_brands": [b["name"] for b in brands if b["type"] != "mine"],
+        "products": ci_config.list_products(db, group_id, g.user["id"]),
+        "keywords": [k["keyword"] for k in ci_config.list_keywords(db, group_id, g.user["id"])],
+    }
+
+    # Ranking rollups only exist once a run has produced results.
+    avg_ranks, rank_by_term = [], []
+    if run and run["status"] == "done":
+        avg_ranks = ci_analysis.snapshot_brand_avg_rank(db, group_id, run["id"])
+        rank_by_term = ci_analysis.snapshot_rank_by_term(db, group_id, run["id"])
+
+    logger.info("CI snapshot results: group_id=%s user_id=%s run_id=%s terms=%d",
+                group_id, g.user["id"], run["id"] if run else None,
+                len(rank_by_term))
     return render_template(
         "app/ci_snapshot_results.html",
         breadcrumb=f"Competitive Intelligence · {group['name']}",
@@ -677,6 +697,9 @@ def ci_snapshot_results(group_id):
         run=run,
         sos_summary=sos_summary,
         ranks=ranks,
+        config_summary=config_summary,
+        avg_ranks=avg_ranks,
+        rank_by_term=rank_by_term,
     )
 
 
