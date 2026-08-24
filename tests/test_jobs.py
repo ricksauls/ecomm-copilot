@@ -28,6 +28,35 @@ def test_count_managed_products_unions_scoring_and_copy_per_user(app):
         assert jobs.count_managed_products(db, other) == 1  # {9}
 
 
+def test_product_counts_are_distinct_and_month_scoped(app):
+    from datetime import date
+
+    from app import copy_jobs
+    with app.app_context():
+        db = get_db()
+        uid = create_local_user("month@example.com", "password123")
+        # scored: item 1 in a prior month, item 2 twice this month, item 3 this month.
+        db.execute("INSERT INTO scored_items (user_id, item_id, url, created_at) "
+                   "VALUES (?,?,?,?)", (uid, "1", "u", "2020-01-05 00:00:00"))
+        for it in ("2", "2", "3"):
+            db.execute("INSERT INTO scored_items (user_id, item_id, url, created_at) "
+                       "VALUES (?,?,?,datetime('now'))", (uid, it, "u"))
+        # copy: item 3 (also scored) + item 4, both this month.
+        for it in ("3", "4"):
+            db.execute("INSERT INTO copy_items (user_id, item_id, url, created_at) "
+                       "VALUES (?,?,?,datetime('now'))", (uid, it, "u"))
+        db.commit()
+        month = date.today().replace(day=1).isoformat()
+
+        assert jobs.count_scored_products(db, uid) == 3            # {1,2,3}
+        assert jobs.count_scored_products(db, uid, since=month) == 2   # {2,3}
+        assert copy_jobs.count_copy_products(db, uid) == 2         # {3,4}
+        assert copy_jobs.count_copy_products(db, uid, since=month) == 2
+        # Managed union: {1,2,3,4} all-time; {2,3,4} this month (item 1 is old).
+        assert jobs.count_managed_products(db, uid) == 4
+        assert jobs.count_managed_products(db, uid, since=month) == 3
+
+
 def test_enqueue_and_get_items_scoped_to_user(app):
     with app.app_context():
         uid = create_local_user("a@example.com", "password123")

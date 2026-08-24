@@ -166,6 +166,23 @@ def count_copy_items(conn: sqlite3.Connection) -> int:
     return int(conn.execute("SELECT COUNT(*) FROM copy_items").fetchone()[0])
 
 
+def count_copy_products(conn: sqlite3.Connection, user_id: int,
+                        since: str | None = None) -> int:
+    """Distinct products a user has created copy for (dashboard "PDP's copy created").
+
+    Keyed on the Walmart item id so re-running the same product counts once; rows
+    without an item id are excluded. ``since`` (an ISO date) restricts to rows
+    created on/after that date, for the "this month" figure.
+    """
+    sql = ("SELECT COUNT(DISTINCT item_id) FROM copy_items "
+           "WHERE user_id = ? AND item_id IS NOT NULL AND item_id != ''")
+    params: list = [user_id]
+    if since:
+        sql += " AND created_at >= ?"
+        params.append(since)
+    return int(conn.execute(sql, params).fetchone()[0])
+
+
 def list_copy_items(conn: sqlite3.Connection, limit: int = 200) -> list[sqlite3.Row]:
     """Return recent copy items across all users (with submitter email) for admin.
 

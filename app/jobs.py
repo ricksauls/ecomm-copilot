@@ -81,23 +81,47 @@ def count_items(conn: sqlite3.Connection) -> int:
     return int(conn.execute("SELECT COUNT(*) FROM scored_items").fetchone()[0])
 
 
-def count_managed_products(conn: sqlite3.Connection, user_id: int) -> int:
+def count_scored_products(conn: sqlite3.Connection, user_id: int,
+                          since: str | None = None) -> int:
+    """Distinct products a user has scored (dashboard "PDP's scored" KPI).
+
+    Keyed on the Walmart item id so re-scoring the same product counts once; rows
+    without an item id are excluded. ``since`` (an ISO date) restricts to rows
+    created on/after that date, for the "this month" figure.
+    """
+    sql = ("SELECT COUNT(DISTINCT item_id) FROM scored_items "
+           "WHERE user_id = ? AND item_id IS NOT NULL AND item_id != ''")
+    params: list = [user_id]
+    if since:
+        sql += " AND created_at >= ?"
+        params.append(since)
+    return int(conn.execute(sql, params).fetchone()[0])
+
+
+def count_managed_products(conn: sqlite3.Connection, user_id: int,
+                           since: str | None = None) -> int:
     """Distinct products a user has worked on — the dashboard "Products managed" KPI.
 
     A product counts once if the user has scored it OR created copy content for it
     (creative/image sets will union in here once that feature exists). Keyed on the
     Walmart item id, so the same product across scoring + copy is counted once;
-    rows without an item id (a failed parse) are excluded.
+    rows without an item id (a failed parse) are excluded. ``since`` (an ISO date)
+    restricts to rows created on/after that date, for the "this month" figure.
     """
+    date_clause = " AND created_at >= ?" if since else ""
+    params: list = [user_id]
+    if since:
+        params.append(since)
+    # Same clause + params for each side of the UNION.
     row = conn.execute(
         "SELECT COUNT(*) FROM ("
         "  SELECT item_id FROM scored_items "
-        "    WHERE user_id = ? AND item_id IS NOT NULL AND item_id != '' "
+        "    WHERE user_id = ? AND item_id IS NOT NULL AND item_id != ''" + date_clause +
         "  UNION "
         "  SELECT item_id FROM copy_items "
-        "    WHERE user_id = ? AND item_id IS NOT NULL AND item_id != ''"
+        "    WHERE user_id = ? AND item_id IS NOT NULL AND item_id != ''" + date_clause +
         ")",
-        (user_id, user_id),
+        params + params,
     ).fetchone()
     return int(row[0])
 

@@ -42,8 +42,12 @@ def test_dashboard_is_personalized_to_the_user(client, auth):
     body = client.get("/app").data
     assert b"rick@example.com" in body
     assert b"Meridian Commerce Group" not in body
-    # With no scored/copy items yet, "Products managed" reads 0.
+    # The four KPI cards are the per-user product metrics.
     assert b"Products managed" in body
+    assert b"scored" in body            # PDP's scored
+    assert b"copy created" in body      # PDP's copy created
+    assert b"images created" in body    # PDP's images created
+    assert b"this month" in body        # each card's this-month footnote
 
 
 def test_pdp_scoring_page_renders(client, auth):

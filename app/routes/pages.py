@@ -66,16 +66,33 @@ def dashboard():
     the sign-in page rather than served.
     """
     logger.info("Serving dashboard")
+    from datetime import date
+
+    db = get_db()
+    uid = g.user["id"]
+    month_start = date.today().replace(day=1).isoformat()  # "this month" boundary
+
+    def _kpi(label: str, total: int, month: int) -> dict:
+        """A KPI card: a unique-product total with the this-month figure beneath it."""
+        return {"label": label, "value": str(total), "footnote": f"{month} this month"}
+
     view_model = fixtures.get_dashboard()
-    # Personalize the demo view model: the portfolio header shows the signed-in
-    # user, and "Products managed" reflects the distinct products they've actually
-    # worked on (scored or created copy for).
+    # Personalize the demo header and replace the four KPI cards with real,
+    # per-user unique-product counts (total + this month). PDP images aren't a
+    # built feature yet, so that card reads 0 until it ships.
     view_model["agency"]["name"] = g.user["email"]
-    managed = jobs.count_managed_products(get_db(), g.user["id"])
-    for kpi in view_model["kpis"]:
-        if kpi["label"] == "Products managed":
-            kpi["value"] = str(managed)
-            kpi.pop("footnote", None)  # drop the demo "+6 this month" note
+    view_model["kpis"] = [
+        _kpi("Products managed",
+             jobs.count_managed_products(db, uid),
+             jobs.count_managed_products(db, uid, since=month_start)),
+        _kpi("PDP's scored",
+             jobs.count_scored_products(db, uid),
+             jobs.count_scored_products(db, uid, since=month_start)),
+        _kpi("PDP's copy created",
+             copy_jobs.count_copy_products(db, uid),
+             copy_jobs.count_copy_products(db, uid, since=month_start)),
+        _kpi("PDP's images created", 0, 0),
+    ]
     return render_template(
         "app/dashboard.html",
         breadcrumb="",  # no name at the very top (topbar breadcrumb)
