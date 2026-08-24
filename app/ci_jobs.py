@@ -93,6 +93,40 @@ def fail_run(conn: sqlite3.Connection, run_id: int, message: str) -> None:
     logger.warning("CI run failed id=%s: %s", run_id, message[:200])
 
 
+def reclaim_orphaned_runs(conn: sqlite3.Connection) -> int:
+    """Fail any run still marked ``running`` — call once on worker startup.
+
+    With a single worker (see HANDOFF §6), a ``running`` row at startup can only be
+    orphaned: the worker that claimed it died mid-run (e.g. an OOM kill when a
+    headed-Chrome scrape spiked memory), so no process will ever finish it. Left
+    alone it blocks the group's monitoring schedule *indefinitely* —
+    ``has_active_run`` keeps seeing it, so ``enqueue_monitoring`` skips the group
+    every slot. Marking it ``error`` unblocks the queue. ``started_at`` is left
+    intact so the screens still report when the run fired. Returns the count
+    reclaimed.
+
+    NB: this assumes one worker. A worker pool (the §6 future) would need a
+    heartbeat or age threshold so a restart can't fail a peer's in-flight run.
+    """
+    orphaned = conn.execute(
+        "SELECT id, started_at FROM ci_runs WHERE status = 'running'"
+    ).fetchall()
+    for row in orphaned:
+        conn.execute(
+            "UPDATE ci_runs SET status = 'error', "
+            "error = 'Interrupted — the worker restarted mid-run (marked failed on startup).', "
+            "finished_at = datetime('now') WHERE id = ?",
+            (row["id"],),
+        )
+    conn.commit()
+    if orphaned:
+        logger.warning(
+            "Reclaimed %d orphaned CI run(s) on startup: %s",
+            len(orphaned), [r["id"] for r in orphaned],
+        )
+    return len(orphaned)
+
+
 def get_run(conn: sqlite3.Connection, run_id: int, user_id: int) -> sqlite3.Row | None:
     """Return a run joined to its group, only if ``user_id`` owns the group (IDOR)."""
     return conn.execute(

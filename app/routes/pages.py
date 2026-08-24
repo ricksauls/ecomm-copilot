@@ -574,10 +574,15 @@ def _run_status_view(run) -> dict:
 
 
 def _run_when_cst(run) -> str | None:
-    """Central-time display string for a run's most recent timestamp (fail-safe)."""
+    """Central-time display string for when a run fired (fail-safe).
+
+    Uses the start/enqueue time, not ``finished_at``, so the "Latest run" line
+    always reports when the run *fired* — even a failed or reclaimed run, whose
+    ``finished_at`` is just when it was marked failed, not when it ran.
+    """
     if run is None:
         return None
-    ts = run["finished_at"] or run["started_at"] or run["created_at"]
+    ts = run["started_at"] or run["created_at"]
     return ci_analysis.format_run_time_cst(ts)
 
 

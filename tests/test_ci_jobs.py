@@ -43,6 +43,25 @@ def test_fail_run_records_message(app):
         assert len(row["error"]) <= 500
 
 
+def test_reclaim_orphaned_runs_unblocks_the_group(app):
+    # A run left 'running' (worker died mid-run) blocks the group's schedule until
+    # reclaim marks it 'error' — then has_active_run clears and the next slot proceeds.
+    with app.app_context():
+        db = get_db()
+        _, gid = _group(db)
+        rid = ci_jobs.enqueue_run(db, gid, "monitoring", slot="night")
+        claimed = ci_jobs.claim_next_run(db)  # -> status 'running', started_at set
+        assert ci_jobs.has_active_run(db, gid) is True
+
+        assert ci_jobs.reclaim_orphaned_runs(db) == 1
+        row = db.execute("SELECT * FROM ci_runs WHERE id = ?", (rid,)).fetchone()
+        assert row["status"] == "error"
+        assert row["started_at"] == claimed["started_at"]  # fire time preserved
+        assert ci_jobs.has_active_run(db, gid) is False
+        # Idempotent: a second sweep with nothing running reclaims zero.
+        assert ci_jobs.reclaim_orphaned_runs(db) == 0
+
+
 def test_get_run_is_ownership_scoped(app):
     with app.app_context():
         db = get_db()

@@ -292,6 +292,11 @@ def main() -> None:
     """
     conn = connect()
     log.info("PDP worker started (scoring + copy + competitive intelligence)")
+    # A previous worker may have died mid-run (e.g. OOM); clear any run it left
+    # stuck in 'running' so it doesn't block the group's monitoring schedule.
+    reclaimed = ci_jobs.reclaim_orphaned_runs(conn)
+    if reclaimed:
+        log.warning("Startup: reclaimed %d orphaned CI run(s)", reclaimed)
     while True:
         row = jobs.claim_next(conn)
         if row is not None:
