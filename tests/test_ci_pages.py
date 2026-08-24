@@ -100,7 +100,7 @@ def test_snapshot_results_render_without_trend_markup(client, auth):
                  "position": 3, "position_type": "organic", "item_id": "10294528",
                  "brand_id": b_mine, "is_new_sku": 0}]
         ci_jobs.write_search_results(db, rows)
-        ci_jobs.write_share_of_search(db, rid, gid, kid, date.today().isoformat(), None, rows)
+        ci_jobs.write_share_of_search(db, rid, gid, kid, date.today().isoformat(), None, rows, {"10294528"})
         ci_jobs.finish_run(db, rid)
 
     resp = client.get(f"/app/competitive-intel/groups/{gid}/results")
@@ -221,7 +221,7 @@ def test_snapshot_pdf_downloads(client, auth):
         rows = [{"run_id": rid, "group_id": gid, "keyword_id": kid, "scraped_at": date.today().isoformat(),
                  "position": 1, "position_type": "organic", "item_id": "1", "brand_id": None, "is_new_sku": 0}]
         ci_jobs.write_search_results(db, rows)
-        ci_jobs.write_share_of_search(db, rid, gid, kid, date.today().isoformat(), None, rows)
+        ci_jobs.write_share_of_search(db, rid, gid, kid, date.today().isoformat(), None, rows, set())
         ci_jobs.finish_run(db, rid)
     resp = client.get(f"/app/competitive-intel/groups/{gid}/results.pdf")
     assert resp.status_code == 200
@@ -356,6 +356,6 @@ def test_snapshot_analysis_is_run_scoped(app):
                      "position": pos, "position_type": "organic", "item_id": "10294528",
                      "brand_id": b, "is_new_sku": 0}]
             ci_jobs.write_search_results(db, rows)
-            ci_jobs.write_share_of_search(db, rid, gid, kid, d, None, rows)
+            ci_jobs.write_share_of_search(db, rid, gid, kid, d, None, rows, {"10294528"})
         ranks = ci_analysis.snapshot_rank(db, gid, r2)
         assert len(ranks) == 1 and ranks[0]["current_position"] == 2  # only r2's row

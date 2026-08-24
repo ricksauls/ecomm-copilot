@@ -166,16 +166,22 @@ def write_search_results(conn: sqlite3.Connection, rows: list[dict]) -> None:
 
 def write_share_of_search(conn: sqlite3.Connection, run_id: int, group_id: int,
                           keyword_id: int, scrape_date: str, slot: str | None,
-                          results: list[dict]) -> None:
+                          results: list[dict], tracked_item_ids: set) -> None:
     """Compute and persist the per-brand share-of-search rollup for one keyword.
 
-    Groups the page-1 results by brand_id, counting organic vs sponsored slots.
-    Cards that matched no tracked product fall under a single NULL brand row
-    ("other"). Rollup logic ported from the reference daily.write_share_of_search.
+    Share of Digital Shelf is measured for the *tracked item* only: a placement
+    counts under its brand only when it is that brand's tracked product (organic or
+    its title-matched sponsored slot). A brand's untracked SKUs — and any card that
+    matched no tracked product — roll into the single NULL "Other" bucket. Because
+    every placement still lands in some bucket, the denominator stays the whole
+    page-1 shelf, so a brand's share is its tracked item's slots ÷ all placements.
+    ``tracked_item_ids`` is the group's set of tracked walmart_item_ids.
     """
     counts: dict = defaultdict(lambda: {"organic": 0, "sponsored": 0})
     for r in results:
-        bucket = counts[r.get("brand_id")]
+        # Count under the brand only for its tracked item; everything else is "Other".
+        key = r["brand_id"] if r.get("item_id") in tracked_item_ids else None
+        bucket = counts[key]
         if r["position_type"] == "organic":
             bucket["organic"] += 1
         else:

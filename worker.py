@@ -258,8 +258,10 @@ def process_ci_run(conn: sqlite3.Connection, run: sqlite3.Row) -> None:
                     seen_ids_by_brand=seen, scrape_date=scrape_date,
                 )
                 ci_jobs.write_search_results(conn, rows)
+                # Share of shelf is tracked-item-only; item_map keys are the group's
+                # tracked walmart_item_ids.
                 ci_jobs.write_share_of_search(conn, run_id, group_id, kw["id"],
-                                              scrape_date, slot, rows)
+                                              scrape_date, slot, rows, set(item_map))
                 succeeded += 1
                 log.info("CI run id=%s keyword=%r ok — %d cards", run_id, kw["keyword"], len(rows))
             except (FetchBlocked, FetchError) as e:

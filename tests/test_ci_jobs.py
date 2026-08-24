@@ -82,8 +82,10 @@ def test_write_search_results_and_share_of_search_rollup(app):
         kid = ci_config.add_keyword(db, gid, uid, "hot sauce")
         rid = ci_jobs.enqueue_run(db, gid)
 
-        # Page-1 mix: mine has 1 organic + 1 sponsored, competitor 1 organic,
-        # and 2 unmatched cards ("other", brand_id None).
+        # Page-1 mix. Tracked items: mine "1"+"2", competitor "3". Plus an UNTRACKED
+        # mine SKU "6", and 2 unmatched cards ("other", brand_id None). Only tracked
+        # slots count under a brand; the untracked SKU rolls into "Other".
+        tracked = {"1", "2", "3"}
         results = [
             {"run_id": rid, "group_id": gid, "keyword_id": kid, "scraped_at": "2026-08-22",
              "position": 1, "position_type": "sponsored", "item_id": "1", "brand_id": b_mine, "is_new_sku": 0},
@@ -92,24 +94,27 @@ def test_write_search_results_and_share_of_search_rollup(app):
             {"run_id": rid, "group_id": gid, "keyword_id": kid, "scraped_at": "2026-08-22",
              "position": 3, "position_type": "organic", "item_id": "3", "brand_id": b_comp, "is_new_sku": 0},
             {"run_id": rid, "group_id": gid, "keyword_id": kid, "scraped_at": "2026-08-22",
-             "position": 4, "position_type": "organic", "item_id": "4", "brand_id": None, "is_new_sku": 0},
+             "position": 4, "position_type": "organic", "item_id": "6", "brand_id": b_mine, "is_new_sku": 0},
             {"run_id": rid, "group_id": gid, "keyword_id": kid, "scraped_at": "2026-08-22",
-             "position": 5, "position_type": "sponsored", "item_id": "5", "brand_id": None, "is_new_sku": 0},
+             "position": 5, "position_type": "organic", "item_id": "4", "brand_id": None, "is_new_sku": 0},
+            {"run_id": rid, "group_id": gid, "keyword_id": kid, "scraped_at": "2026-08-22",
+             "position": 6, "position_type": "sponsored", "item_id": "5", "brand_id": None, "is_new_sku": 0},
         ]
         ci_jobs.write_search_results(db, results)
-        ci_jobs.write_share_of_search(db, rid, gid, kid, "2026-08-22", None, results)
+        ci_jobs.write_share_of_search(db, rid, gid, kid, "2026-08-22", None, results, tracked)
 
-        assert db.execute("SELECT COUNT(*) FROM ci_search_results").fetchone()[0] == 5
+        assert db.execute("SELECT COUNT(*) FROM ci_search_results").fetchone()[0] == 6
 
         sos = {r["brand_id"]: r for r in db.execute(
             "SELECT * FROM ci_share_of_search WHERE run_id = ?", (rid,)
         ).fetchall()}
-        # mine: 1 organic + 1 sponsored = 2 total
+        # mine's tracked item(s): 1 organic (item 2) + 1 sponsored (item 1) = 2 total.
         assert (sos[b_mine]["organic_count"], sos[b_mine]["sponsored_count"], sos[b_mine]["total_count"]) == (1, 1, 2)
-        # competitor: 1 organic
+        # competitor's tracked item: 1 organic.
         assert (sos[b_comp]["organic_count"], sos[b_comp]["total_count"]) == (1, 1)
-        # "other" bucket (NULL brand): 1 organic + 1 sponsored
-        assert (sos[None]["organic_count"], sos[None]["sponsored_count"]) == (1, 1)
+        # "Other": the untracked mine SKU (item 6, organic) + 2 unmatched cards
+        # (organic item 4, sponsored item 5) = 2 organic + 1 sponsored.
+        assert (sos[None]["organic_count"], sos[None]["sponsored_count"]) == (2, 1)
 
 
 def test_list_and_count_runs_for_admin(app):
