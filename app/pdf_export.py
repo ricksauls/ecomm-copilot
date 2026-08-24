@@ -622,7 +622,8 @@ def build_ci_snapshot_pdf(group: dict, *, config_summary: dict, avg_ranks: list[
         ))
         flow.append(Spacer(1, 4))
         flow.append(grid)
-    flow.append(Spacer(1, 10))
+    # Extra breathing room after the Overall Search Ranking block (table + grid).
+    flow.append(Spacer(1, 22))
     flow.append(Paragraph("Search Ranking", styles["item"]))
     flow.append(_rank_by_keyword_table(rank_rows, styles))
     # Start the share-of-shelf sections on a fresh page.
@@ -641,7 +642,8 @@ def build_ci_snapshot_pdf(group: dict, *, config_summary: dict, avg_ranks: list[
             '<font color="#8c8c8c">■</font> Sponsored share',
             styles["cellmuted"],
         ))
-    flow.append(Spacer(1, 10))
+    # Extra breathing room before the per-keyword Share of Digital Shelf section.
+    flow.append(Spacer(1, 22))
     flow.append(Paragraph("Share of Digital Shelf", styles["item"]))
     flow.append(_share_by_keyword_table(share_rows, styles))
     doc.build(flow)
