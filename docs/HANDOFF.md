@@ -1,9 +1,15 @@
 # ecomm-copilot — Session Handoff
 
-_Last updated: 2026-08-24._
+_Last updated: 2026-08-24 (session 2)._
 
 A working reference for picking up development. Read this first, then
 `CLAUDE.md` (coding standards) and `deploy/DEPLOY.md` (infra).
+
+> **Next session — start here (unfinished work).** See §11 for the one carried-over
+> task: the dashboard "brands · products" summary line, plus the agreed decision to
+> **capture the real product brand going forward** (from Walmart's PDP data during
+> fetch, stored on `scored_items`/`copy_items`). Nothing is half-committed — this is
+> net-new work to begin.
 
 ---
 
@@ -14,7 +20,7 @@ A working reference for picking up development. Read this first, then
   `~/Desktop/ClaudeStuff/ecomm-copilot-clean`.
 - **Stack:** Python / Flask, SQLite, server-rendered Jinja templates, deployed
   by GitHub Actions to a DigitalOcean droplet.
-- **Tests:** 204 passing (`ruff` clean, `pip-audit` clean).
+- **Tests:** 214 passing (`ruff` clean, `pip-audit` clean).
 - **Worker:** installed and running — scoring is self-serve end-to-end (intake →
   queue → background fetch+score → results). One worker only (see §6, parallelism).
 
@@ -319,13 +325,20 @@ title/description. All-in overall ≈ 80s (varies as competitor SERPs drift).
 
 ## 5. Admin
 
+> **Nav changed (session #2):** the Admin rail now shows only **User Activity** and
+> **System Activity** (see §7). The per-table screens below still exist as routes
+> (and User Activity rolls them all into one read-only page) but are no longer in the
+> nav. The bullets below describe those still-live screens.
+
 - **Who:** the `ADMIN_EMAILS` allowlist in `.env` (server-side; `security.is_admin`
   / `admin_required` fail closed → 403 / sign-in redirect). Both `ricksauls@cox.net`
   and `ricksauls1@gmail.com` are admins.
-- **Rail Admin section** (below Credits, admins only): **Users**, **Items
-  scored**, **Copy created**, and **Messages**, each with a live count (via the
-  `_inject_admin_context` context processor, which skips all DB work for
-  non-admins).
+- **Rail Admin section** (below Credits, admins only): **User Activity**
+  (`/admin/activity`) + **System Activity** (`/admin/system-activity`, stub). The
+  per-table admin routes (Users, Items scored, Copy created, CI Snapshots/Monitoring,
+  Messages) are unlinked but intact. `_inject_admin_context` now provides only
+  `is_admin` + `admin_new_user_count` (the topbar badges); the per-table rail counts
+  were retired.
 - **Users screen** (`/admin/users`): table of all users; per-row **Delete**
   (POST + CSRF, blocks self-delete, cascades the user's scored items; confirm
   dialog via `static/js/admin_users.js`).
@@ -363,7 +376,68 @@ to the RAM. The queue claim (`jobs.claim_next`) is already concurrency-safe.
 
 ## 7. Known gaps / next-up roadmap
 
-**Session 2026-08-24 (all live on main; 7 commits `2759bbe`..`5eb45ff`).**
+**Session 2026-08-24 #2 (all live on main; 16 commits `fba5d6f`..`a4b4185`).**
+_Focus: CI ranking/share semantics, admin consolidation, dashboard._
+- **CI ranking + share are now TRACKED-ITEM-ONLY (important semantic change).**
+  Search Ranking, Overall Search Ranking, and Share of Digital Shelf used to count
+  every SKU the brand-name matcher swept onto the page; they now count only the
+  group's **tracked products** (by Walmart item id). A brand's untracked SKUs no
+  longer drag its ranking down or inflate its share. Shared SQL fragment
+  `ci_analysis._TRACKED_ITEMS_FILTER`; applied in `snapshot_rank_by_keyword_brand`,
+  `snapshot_brand_avg_rank`, `rank_summary`. Share rollup now buckets a placement
+  under its brand only if it's the tracked item, else "Other" — so the denominator
+  stays the whole page-1 shelf (share = tracked item's slots ÷ all placements).
+  `ci_jobs.write_share_of_search` takes a new `tracked_item_ids` arg (worker passes
+  `set(item_map)`). **Only affects new runs;** run 5's share was hand-recomputed on
+  the droplet. `snapshot_rank` (best-position split) is untouched and test-only.
+- **Sponsored slots now attribute to the tracked item (title matching).** Walmart
+  gives a product a *different opaque id* in a sponsored slot, so id/URL matching
+  never reached it. `ci_scraper.build_result_rows` now learns each tracked product's
+  title from its id-matched organic card, then ties a sponsored card with the
+  identical title back to that tracked item (storing the tracked numeric id so the
+  ranking join reaches it). Only the tracked SKU's own sponsored slots are tied back.
+  Ported from the WM SOV tool's sponsored-variant name matching. **New runs only.**
+- **Orphaned-run recovery.** A worker killed mid-run (OOM on the ~2 GB droplet) left
+  its run stuck `running`, which made `enqueue_monitoring` skip the group every slot
+  (so a scheduled run silently never fired). `ci_jobs.reclaim_orphaned_runs` (called
+  at `worker.main` startup) marks any leftover `running` run as `error`, unblocking
+  the queue. Assumes one worker (see §6). This is a *resilience* fix — the root cause
+  is RAM; resize to ~4 GB for reliability.
+- **"Latest run" shows Central fire-time even on failure.** New
+  `ci_analysis.format_run_time_cst` (UTC→CST, DST-correct); `_run_when_cst` uses the
+  start/enqueue time, not `finished_at`.
+- **CI "Daily Monitoring" rename** (was "Monitoring Setup") — nav + page + cross-link.
+  Route names unchanged (`ci_monitoring_home`).
+- **User-facing "scraping" → "extracting data"** across CI templates (running-run
+  status, config hint, help). Internal names (`ci_scraper`, `scraped_at`) unchanged.
+- **CI snapshot PDF polish:** page breaks after the config summary and after Search
+  Ranking; more spacing around the Overall Search Ranking table; product grid in
+  "What this group tracks" left-aligned with breathing room above.
+- **Admin consolidated.** New read-only **User Activity** screen (`/admin/activity`,
+  `admin_activity.html`) rolls every admin table into collapsible native `<details>`
+  sections (CSP-safe, no JS): Messages (open by default, even when empty), Users,
+  Items Scored, Copy Created, Image Sets Created (empty — feature not built), CI
+  Snapshots Ran, CI Monitoring Scheduled. The **Admin rail is now just User Activity
+  + System Activity** (`/admin/system-activity`, a placeholder stub to build out
+  later); the individual per-table screens still exist as routes (User Activity links
+  to the message thread view) but are unlinked from the nav. Retired the per-table
+  rail count context vars (topbar message + new-user badges unaffected). New admin
+  data helpers: `ci_jobs.{count,list}_snapshot_runs`,
+  `ci_config.{count_monitoring_groups,list_monitoring_groups_admin}`.
+- **Dashboard personalized + real KPIs.** Topbar breadcrumb name removed on the
+  dashboard; the Portfolio header shows the signed-in user (was the demo agency
+  name). The four KPI cards are now real per-user unique-product counts, each with a
+  this-month figure: **Products managed** (scored ∪ copy, item-id deduped), **PDP's
+  scored**, **PDP's copy created**, **PDP's images created** (0 until built). Helpers
+  `jobs.count_managed_products` / `jobs.count_scored_products` /
+  `copy_jobs.count_copy_products`, all with an optional `since` (ISO date) for the
+  monthly figure. **Note:** "scored/copy created" counts a PDP once it's been
+  *submitted* to that pipeline (any status), consistent with "products managed"; the
+  user may later want *completed*-only — a one-line status filter per helper.
+- **Still pending (carried to next session):** the dashboard **"brands · products"
+  subtitle line** — see §11.
+
+**Session 2026-08-24 #1 (all live on main; 7 commits `2759bbe`..`5eb45ff`).**
 - **Contact Us in-app messaging** — two-way threaded support (user threads +
   category, admin inbox, replies, close/reopen), unread badges in topbar + rail
   for both sides. New `app/messages.py`, tables `message_threads`/`messages`,
@@ -559,3 +633,57 @@ cd ~/Desktop/ClaudeStuff/ecomm-copilot-clean
 - WM scraper (fetch method + Xvfb precedent + keyword discovery source):
   `~/Desktop/ClaudeStuff/WM Dot Com Update` — `pdp_scraper.py`,
   `discover_keywords.py`, `score_content.py`, and its `README.md` (xvfb unit).
+
+---
+
+## 11. Carried-over task — dashboard "brands · products" subtitle line
+
+**Status: not started.** The user's session ended before this was built; it is
+net-new work (nothing is half-committed). Context: this session we already
+personalized the dashboard header and made the four KPI cards real (see §7 session
+#2). This is the *remaining* change to the line **above** those cards — the
+`<p class="subtitle">` under the Portfolio header, which today still renders demo
+text: `15 brands · 148 products · Walmart · week of Aug 10`
+(`fixtures.get_dashboard()["agency"]["subtitle"]`).
+
+**What the user asked for, exactly:**
+1. **Brands** = the number of distinct brands the signed-in user has *scored, created
+   copy for, or created creative image sets for*.
+2. **Products** = the number of distinct products across the same three activities —
+   this is the same figure as the "Products managed" KPI
+   (`jobs.count_managed_products(db, uid)`), so reuse it.
+3. **Remove "Walmart"** from the line.
+4. **Date** → `"As of <signup date>"` where the date is when the user signed up
+   (`g.user["created_at"]`, a UTC `YYYY-MM-DD HH:MM:SS` string — format it, e.g.
+   `As of Aug 20, 2026`).
+   So the line becomes roughly: `<N> brands · <M> products · As of Aug 20, 2026`.
+
+**Agreed approach for brands (user chose "capture the real brand going forward"):**
+Scored/copy items do **not** store a brand today (the tables keep only item id, url,
+title; `result_json` has no brand). So:
+- **Extract the brand during fetch.** Walmart's PDP `__NEXT_DATA__` exposes the brand
+  at `props.pageProps.initialData.data.product.brand` (verify the exact key against a
+  live PDP — `fetch.py` already reads `product.name` from the same object). Add a
+  `brand` field to `PdpRecord` (`app/scoring.py`) and populate it in
+  `fetch._load_pdp_data` / `fetch_pdp`.
+- **Store it.** Add a nullable `brand TEXT` column to **both** `scored_items` and
+  `copy_items` via `db._migrate` (PRAGMA table_info guard — SQLite has no ADD COLUMN
+  IF NOT EXISTS; see §9). Write it where the worker saves the fetched record
+  (`jobs.save_result` for scoring; `copy_jobs.save_current_copy` for copy). Also add
+  it to `_row_view` in `routes/pages.py` if it needs to render anywhere (§9 gotcha).
+- **Count it.** Add `jobs.count_managed_brands(conn, user_id)` mirroring
+  `count_managed_products` but `COUNT(DISTINCT brand)` across `scored_items` ∪
+  `copy_items` (union creative/image-set table in once that ships), excluding NULL/''.
+- **Expectation:** existing rows have `brand = NULL` until re-scored, so the brand
+  count starts low and grows — this is understood/accepted. (A one-off re-fetch
+  backfill on the droplet is possible but not required.)
+
+**Where to wire it:** the dashboard route (`pages.dashboard`) already overrides
+`view_model["agency"]["name"]` and rebuilds `view_model["kpis"]`. Override
+`view_model["agency"]["subtitle"]` there too, e.g.
+`f"{brands} brands · {products} products · As of {signup_str}"`.
+
+**Also still open from earlier (unchanged):** PDP Image Set Creation is still a
+placeholder (`href="#"`); the "PDP's images created" KPI and the creative side of
+these brand/product counts stay 0 until that feature is built. The dashboard's
+"Products losing ground" table and the remaining fixture bits are still demo data.
