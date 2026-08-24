@@ -203,6 +203,40 @@ CREATE TABLE IF NOT EXISTS ci_share_of_search (
 CREATE INDEX IF NOT EXISTS idx_ci_sos_group_brand_date
     ON ci_share_of_search(group_id, brand_id, date);
 CREATE INDEX IF NOT EXISTS idx_ci_sos_run ON ci_share_of_search(run_id);
+
+-- In-app "Contact Us" messaging. A thread is one topic a user raised; messages
+-- are the back-and-forth within it between the user and the admin team. Read
+-- state is tracked per side (the two admins share one inbox) so each side's
+-- notification badge counts threads it hasn't caught up on.
+CREATE TABLE IF NOT EXISTS message_threads (
+    id                     INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id                INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    subject                TEXT    NOT NULL,
+    category               TEXT    NOT NULL DEFAULT 'question',  -- question|issue|customization|other
+    status                 TEXT    NOT NULL DEFAULT 'open',      -- open|closed
+    created_at             TEXT    NOT NULL DEFAULT (datetime('now')),
+    last_message_at        TEXT    NOT NULL DEFAULT (datetime('now')),
+    -- Read state is the id of the newest message each side has seen. Message ids
+    -- are monotonic, so this has none of the same-second tie problems a timestamp
+    -- comparison does: a thread is unread for a side when a message from the other
+    -- side has an id greater than this marker.
+    user_last_read_msg_id  INTEGER NOT NULL DEFAULT 0,
+    admin_last_read_msg_id INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_message_threads_user ON message_threads(user_id, id);
+CREATE INDEX IF NOT EXISTS idx_message_threads_activity ON message_threads(last_message_at);
+
+CREATE TABLE IF NOT EXISTS messages (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    thread_id    INTEGER NOT NULL REFERENCES message_threads(id) ON DELETE CASCADE,
+    -- Sender kept even if the user is later deleted (SET NULL) so history reads;
+    -- sender_role is the source of truth for which side sent it.
+    sender_id    INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    sender_role  TEXT    NOT NULL,   -- user|admin
+    body         TEXT    NOT NULL,
+    created_at   TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_messages_thread ON messages(thread_id, id);
 """
 
 

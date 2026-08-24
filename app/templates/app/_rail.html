@@ -16,6 +16,12 @@
        class="nav-item {{ 'active' if active_nav == 'dashboard' else '' }}">
       <span class="mark"></span>Dashboard
     </a>
+    {# Contact Us for everyone; the count badge shows unread admin replies. #}
+    <a href="{{ url_for('pages.contact_home') }}"
+       class="nav-item {{ 'active' if active_nav == 'contact' else '' }}">
+      <span class="mark"></span>Contact Us
+      {% if msg_unread_count %}<span class="nav-count nav-count-alert">{{ msg_unread_count }}</span>{% endif %}
+    </a>
   </div>
 
   {# Content Studio groups the PDP tools, using the same labelled-group pattern
@@ -91,6 +97,12 @@
        class="nav-item {{ 'active' if active_nav == 'admin-copy' else '' }}">
       <span class="mark"></span>Copy created
       <span class="nav-count">{{ admin_copy_count }}</span>
+    </a>
+    {# Messages inbox; the badge turns to the alert style when threads are unread. #}
+    <a href="{{ url_for('pages.admin_messages') }}"
+       class="nav-item {{ 'active' if active_nav == 'admin-messages' else '' }}">
+      <span class="mark"></span>Messages
+      <span class="nav-count {{ 'nav-count-alert' if admin_msg_unread_count else '' }}">{{ admin_msg_unread_count or 0 }}</span>
     </a>
   </div>
   {% endif %}

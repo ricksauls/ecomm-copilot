@@ -1,0 +1,65 @@
+{% extends "app/base.html" %}
+{% block title %}{{ thread.subject }} — ecomm-copilot{% endblock %}
+
+{% set viewer_role = 'admin' if admin_view else 'user' %}
+{% set back_href = url_for('pages.admin_messages') if admin_view else url_for('pages.contact_home') %}
+{% set reply_action = url_for('pages.admin_message_reply', thread_id=thread.id)
+                      if admin_view else url_for('pages.contact_reply', thread_id=thread.id) %}
+
+{% block pane_content %}
+<div class="page-header">
+  <div>
+    <h1>{{ thread.subject }}</h1>
+    <p class="subtitle">
+      <span class="ci-type">{{ category_label(thread.category) }}</span>
+      <span class="status-badge status-{{ thread.status }}">{{ thread.status }}</span>
+      {% if admin_view %}· from {{ thread.user_email }}{% endif %}
+    </p>
+  </div>
+  <div class="header-actions">
+    <a href="{{ back_href }}" class="wbtn wbtn-secondary">&larr; Back</a>
+    {% if admin_view %}
+    <form method="post" action="{{ url_for('pages.admin_message_status', thread_id=thread.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+      {% if thread.status == 'open' %}
+      <input type="hidden" name="status" value="closed" />
+      <button type="submit" class="wbtn wbtn-secondary">Close thread</button>
+      {% else %}
+      <input type="hidden" name="status" value="open" />
+      <button type="submit" class="wbtn wbtn-secondary">Reopen</button>
+      {% endif %}
+    </form>
+    {% endif %}
+  </div>
+</div>
+
+{% with flashes = get_flashed_messages(with_categories=true) %}
+  {% for category, message in flashes %}
+  <div class="ci-flash {{ category }}" role="alert">{{ message }}</div>
+  {% endfor %}
+{% endwith %}
+
+<div class="card card-pad">
+  {# One bubble per message; the viewer's own side sits on the right (msg-out). #}
+  <div class="msg-thread">
+    {% for m in messages_list %}
+    <div class="msg-bubble-row {{ 'msg-out' if m.sender_role == viewer_role else 'msg-in' }}">
+      <div class="msg-bubble">
+        <div class="msg-bubble-meta">
+          {% if m.sender_role == 'admin' %}ecomm-copilot team{% else %}{{ m.sender_email or 'You' }}{% endif %}
+          · <span class="cell-muted">{{ m.created_at }}</span>
+        </div>
+        <div class="msg-bubble-body">{{ m.body }}</div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <form method="post" action="{{ reply_action }}" class="msg-form msg-reply">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+    <textarea name="body" class="ci-input msg-body" rows="3" maxlength="5000"
+              placeholder="Write a reply…" required></textarea>
+    <div><button type="submit" class="wbtn wbtn-primary">Send reply</button></div>
+  </form>
+</div>
+{% endblock %}

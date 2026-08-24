@@ -1,0 +1,42 @@
+{% extends "app/base.html" %}
+{% block title %}Messages — ecomm-copilot{% endblock %}
+
+{% block pane_content %}
+<div class="page-header">
+  <div>
+    <h1>Messages</h1>
+    <p class="subtitle">
+      {{ threads | length }} conversation{{ '' if threads | length == 1 else 's' }} —
+      unread first.
+    </p>
+  </div>
+</div>
+
+<div class="card card-pad">
+  {% if threads %}
+  <div class="table-scroll">
+    <table class="admin-table">
+      <thead><tr><th>Subject</th><th>From</th><th>Category</th><th>Status</th><th>Last activity</th></tr></thead>
+      <tbody>
+        {% for t in threads %}
+        <tr class="msg-row {{ 'msg-row-unread' if t.unread else '' }}">
+          <td>
+            <a href="{{ url_for('pages.admin_message_thread', thread_id=t.id) }}" class="msg-link">
+              {% if t.unread %}<span class="msg-unread-dot" aria-label="Unread"></span>{% endif %}
+              {{ t.subject }}
+            </a>
+          </td>
+          <td class="cell-muted msg-from">{{ t.user_email }}</td>
+          <td><span class="ci-type">{{ category_label(t.category) }}</span></td>
+          <td><span class="status-badge status-{{ t.status }}">{{ t.status }}</span></td>
+          <td class="cell-muted">{{ t.last_message_at }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="results-count">No messages yet.</p>
+  {% endif %}
+</div>
+{% endblock %}

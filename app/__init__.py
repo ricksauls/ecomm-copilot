@@ -206,6 +206,26 @@ def create_app() -> Flask:
             ),
         }
 
+    # Message notifications: unread Contact-Us counts for the shell (rail + topbar
+    # badges). Runs for every signed-in user (their own unread replies) and adds
+    # the shared admin-inbox count for admins. Nothing for anonymous requests.
+    @app.context_processor
+    def _inject_message_context():
+        from flask import g
+
+        user = g.get("user")
+        if not user:
+            return {}
+
+        from app import messages as messages_mod
+        from app.db import get_db
+
+        db = get_db()
+        ctx = {"msg_unread_count": messages_mod.count_unread_for_user(db, user["id"])}
+        if security.is_admin(user):
+            ctx["admin_msg_unread_count"] = messages_mod.count_unread_for_admin(db)
+        return ctx
+
     # Blueprints: public/workspace pages and the auth routes.
     from app import auth
     from app.routes import pages

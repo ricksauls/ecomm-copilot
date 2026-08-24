@@ -34,6 +34,7 @@ from app import (
     copy_jobs,
     fixtures,
     jobs,
+    messages,
     pdp,
     users,
 )
@@ -390,6 +391,140 @@ def admin_copy():
         active_nav="admin-copy",
         items=copy_jobs.list_copy_items(get_db()),
     )
+
+
+# ── Contact Us (user side) ───────────────────────────────────────────────────
+
+@bp.route("/app/contact")
+@login_required
+def contact_home():
+    """The user's Contact Us hub: their threads plus a new-message form."""
+    db = get_db()
+    return render_template(
+        "app/contact_home.html",
+        breadcrumb="Contact Us",
+        active_nav="contact",
+        threads=messages.list_threads_for_user(db, g.user["id"]),
+        categories=messages.CATEGORIES,
+        category_label=messages.category_label,
+    )
+
+
+@bp.route("/app/contact", methods=["POST"])
+@login_required
+def contact_create():
+    """Open a new thread from the contact form, then jump to the conversation."""
+    db = get_db()
+    try:
+        thread_id = messages.create_thread(
+            db, g.user["id"], request.form.get("subject", ""),
+            request.form.get("category", ""), request.form.get("body", ""),
+        )
+    except messages.MessageError as e:
+        flash(str(e), "error")
+        return redirect(url_for("pages.contact_home"))
+    logger.info("Contact thread created id=%s user_id=%s", thread_id, g.user["id"])
+    return redirect(url_for("pages.contact_thread", thread_id=thread_id))
+
+
+@bp.route("/app/contact/threads/<int:thread_id>")
+@login_required
+def contact_thread(thread_id):
+    """View one of the user's own threads (marks it read for the user)."""
+    db = get_db()
+    thread = messages.get_thread_for_user(db, thread_id, g.user["id"])
+    if thread is None:
+        abort(404)  # not theirs (or doesn't exist) — IDOR gate
+    messages.mark_read(db, thread_id, messages.ROLE_USER)
+    return render_template(
+        "app/contact_thread.html",
+        breadcrumb="Contact Us",
+        active_nav="contact",
+        thread=thread,
+        messages_list=messages.list_messages(db, thread_id),
+        category_label=messages.category_label,
+        admin_view=False,
+    )
+
+
+@bp.route("/app/contact/threads/<int:thread_id>/reply", methods=["POST"])
+@login_required
+def contact_reply(thread_id):
+    """User replies within their own thread."""
+    db = get_db()
+    if messages.get_thread_for_user(db, thread_id, g.user["id"]) is None:
+        abort(404)
+    try:
+        messages.post_reply(db, thread_id, g.user["id"], messages.ROLE_USER,
+                            request.form.get("body", ""))
+    except messages.MessageError as e:
+        flash(str(e), "error")
+    return redirect(url_for("pages.contact_thread", thread_id=thread_id))
+
+
+# ── Messages (admin inbox) ───────────────────────────────────────────────────
+
+@bp.route("/admin/messages")
+@admin_required
+def admin_messages():
+    """Admin inbox: every user thread, unread first."""
+    logger.info("Admin messages view: admin_user_id=%s", g.user["id"])
+    return render_template(
+        "app/admin_messages.html",
+        breadcrumb="Admin · Messages",
+        active_nav="admin-messages",
+        threads=messages.list_all_threads(get_db()),
+        category_label=messages.category_label,
+    )
+
+
+@bp.route("/admin/messages/<int:thread_id>")
+@admin_required
+def admin_message_thread(thread_id):
+    """Admin views a thread (marks it read for the admin side)."""
+    db = get_db()
+    thread = messages.get_thread(db, thread_id)
+    if thread is None:
+        abort(404)
+    messages.mark_read(db, thread_id, messages.ROLE_ADMIN)
+    return render_template(
+        "app/contact_thread.html",
+        breadcrumb="Admin · Messages",
+        active_nav="admin-messages",
+        thread=thread,
+        messages_list=messages.list_messages(db, thread_id),
+        category_label=messages.category_label,
+        admin_view=True,
+    )
+
+
+@bp.route("/admin/messages/<int:thread_id>/reply", methods=["POST"])
+@admin_required
+def admin_message_reply(thread_id):
+    """Admin replies within a thread."""
+    db = get_db()
+    if messages.get_thread(db, thread_id) is None:
+        abort(404)
+    try:
+        messages.post_reply(db, thread_id, g.user["id"], messages.ROLE_ADMIN,
+                            request.form.get("body", ""))
+    except messages.MessageError as e:
+        flash(str(e), "error")
+    return redirect(url_for("pages.admin_message_thread", thread_id=thread_id))
+
+
+@bp.route("/admin/messages/<int:thread_id>/status", methods=["POST"])
+@admin_required
+def admin_message_status(thread_id):
+    """Admin closes or reopens a thread."""
+    db = get_db()
+    if messages.get_thread(db, thread_id) is None:
+        abort(404)
+    try:
+        messages.set_status(db, thread_id, request.form.get("status", ""))
+    except messages.MessageError as e:
+        flash(str(e), "error")
+    return redirect(url_for("pages.admin_message_thread", thread_id=thread_id))
 
 
 def _row_view(row) -> dict:
