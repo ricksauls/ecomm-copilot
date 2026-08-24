@@ -411,3 +411,30 @@ def groups_with_monitoring(conn: sqlite3.Connection) -> list[sqlite3.Row]:
         "SELECT * FROM ci_groups "
         "WHERE monitoring_enabled = 1 AND active = 1 AND mode = 'monitoring' ORDER BY id"
     ).fetchall()
+
+
+def count_monitoring_groups(conn: sqlite3.Connection) -> int:
+    """Total Daily Monitoring schedules (monitoring-mode groups), for the admin nav."""
+    return int(conn.execute(
+        "SELECT COUNT(*) FROM ci_groups WHERE mode = 'monitoring' AND active = 1"
+    ).fetchone()[0])
+
+
+def list_monitoring_groups_admin(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    """Every Daily Monitoring schedule across all users, with owner + latest run.
+
+    One row per monitoring-mode group: the owner email, whether the 3x/day sweep is
+    on, and the group's most recent run (status + timestamps) so the admin screen
+    can show when it last ran. Newest group first.
+    """
+    return conn.execute(
+        "SELECT g.id, g.name, g.monitoring_enabled, u.email AS user_email, "
+        "  lr.status AS last_status, lr.started_at AS last_started, "
+        "  lr.created_at AS last_created "
+        "FROM ci_groups g "
+        "JOIN users u ON u.id = g.user_id "
+        "LEFT JOIN ci_runs lr ON lr.id = "
+        "  (SELECT id FROM ci_runs WHERE group_id = g.id ORDER BY id DESC LIMIT 1) "
+        "WHERE g.mode = 'monitoring' AND g.active = 1 "
+        "ORDER BY g.id DESC"
+    ).fetchall()

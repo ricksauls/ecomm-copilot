@@ -235,3 +235,28 @@ def list_runs(conn: sqlite3.Connection, limit: int = 200) -> list[sqlite3.Row]:
         "ORDER BY r.id DESC LIMIT ?",
         (limit,),
     ).fetchall()
+
+
+def count_snapshot_runs(conn: sqlite3.Connection) -> int:
+    """Total One-Time Snapshot runs (runs of snapshot-mode groups), for the admin nav."""
+    return int(conn.execute(
+        "SELECT COUNT(*) FROM ci_runs r JOIN ci_groups g ON g.id = r.group_id "
+        "WHERE g.mode = 'snapshot'"
+    ).fetchone()[0])
+
+
+def list_snapshot_runs(conn: sqlite3.Connection, limit: int = 200) -> list[sqlite3.Row]:
+    """Recent One-Time Snapshot runs across all users, newest first (admin screen).
+
+    Scoped to snapshot-mode groups so it doesn't overlap the Daily Monitoring
+    admin screen (which lists monitoring-mode schedules).
+    """
+    return conn.execute(
+        "SELECT r.id, r.status, r.started_at, r.created_at, r.finished_at, "
+        "  g.name AS group_name, u.email AS user_email "
+        "FROM ci_runs r JOIN ci_groups g ON g.id = r.group_id "
+        "JOIN users u ON u.id = g.user_id "
+        "WHERE g.mode = 'snapshot' "
+        "ORDER BY r.id DESC LIMIT ?",
+        (limit,),
+    ).fetchall()

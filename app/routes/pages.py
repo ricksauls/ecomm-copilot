@@ -393,6 +393,48 @@ def admin_copy():
     )
 
 
+@bp.route("/admin/ci-snapshots")
+@admin_required
+def admin_ci_snapshots():
+    """Admin: table of One-Time Snapshot runs across all users (Central-time)."""
+    logger.info("Admin CI snapshots view: admin_user_id=%s", g.user["id"])
+    runs = [
+        # Shape each run with a Central-time "ran" label (stored timestamps are UTC).
+        {**dict(r), "when_cst": _run_when_cst(r)}
+        for r in ci_jobs.list_snapshot_runs(get_db())
+    ]
+    return render_template(
+        "app/admin_ci_snapshots.html",
+        breadcrumb="Admin · Snapshots run",
+        active_nav="admin-ci-snapshots",
+        runs=runs,
+    )
+
+
+@bp.route("/admin/ci-monitoring")
+@admin_required
+def admin_ci_monitoring():
+    """Admin: table of Daily Monitoring schedules across all users."""
+    logger.info("Admin CI monitoring view: admin_user_id=%s", g.user["id"])
+    next_run = ci_analysis.next_monitoring_run()
+    groups = []
+    for grp in ci_config.list_monitoring_groups_admin(get_db()):
+        last_ts = grp["last_started"] or grp["last_created"]
+        groups.append({
+            **dict(grp),
+            # Next sweep is the same wall-clock for all enabled schedules.
+            "next_run_cst": next_run.strftime("%a %b %-d, %-I:%M %p") + " CST"
+            if grp["monitoring_enabled"] else None,
+            "last_run_cst": ci_analysis.format_run_time_cst(last_ts),
+        })
+    return render_template(
+        "app/admin_ci_monitoring.html",
+        breadcrumb="Admin · Monitoring scheduled",
+        active_nav="admin-ci-monitoring",
+        groups=groups,
+    )
+
+
 # ── Contact Us (user side) ───────────────────────────────────────────────────
 
 @bp.route("/app/contact")

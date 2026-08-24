@@ -98,6 +98,16 @@
       <span class="mark"></span>Copy created
       <span class="nav-count">{{ admin_copy_count }}</span>
     </a>
+    <a href="{{ url_for('pages.admin_ci_snapshots') }}"
+       class="nav-item {{ 'active' if active_nav == 'admin-ci-snapshots' else '' }}">
+      <span class="mark"></span>Snapshots run
+      <span class="nav-count">{{ admin_snapshot_count }}</span>
+    </a>
+    <a href="{{ url_for('pages.admin_ci_monitoring') }}"
+       class="nav-item {{ 'active' if active_nav == 'admin-ci-monitoring' else '' }}">
+      <span class="mark"></span>Monitoring scheduled
+      <span class="nav-count">{{ admin_monitoring_count }}</span>
+    </a>
     {# Messages inbox; the badge turns to the alert style when threads are unread. #}
     <a href="{{ url_for('pages.admin_messages') }}"
        class="nav-item {{ 'active' if active_nav == 'admin-messages' else '' }}">

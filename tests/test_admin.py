@@ -4,7 +4,7 @@ Authorization is the important part — the admin routes must fail closed for
 non-admins and the unauthenticated, regardless of whether the nav is shown.
 """
 
-from app import copy_jobs, jobs
+from app import ci_config, ci_jobs, copy_jobs, jobs
 from app.db import get_db
 from app.users import (
     count_created_since,
@@ -29,11 +29,14 @@ def test_admin_routes_forbidden_for_regular_user(client, auth, app):
     assert client.get("/admin/users").status_code == 403
     assert client.get("/admin/items").status_code == 403
     assert client.get("/admin/copy").status_code == 403
+    assert client.get("/admin/ci-snapshots").status_code == 403
+    assert client.get("/admin/ci-monitoring").status_code == 403
 
 
 def test_admin_routes_redirect_when_unauthenticated(client, app):
     _as_admin(app)
-    for path in ("/admin/users", "/admin/items", "/admin/copy"):
+    for path in ("/admin/users", "/admin/items", "/admin/copy",
+                 "/admin/ci-snapshots", "/admin/ci-monitoring"):
         resp = client.get(path)
         assert resp.status_code == 302
         assert "/signin" in resp.headers["Location"]
@@ -74,6 +77,34 @@ def test_admin_copy_lists_items_with_scores(client, auth, app):
     assert _ADMIN.encode() in resp.data  # submitter email shown
 
 
+def test_admin_ci_snapshots_and_monitoring_screens(client, auth, app):
+    # The two CI admin screens list snapshot runs and monitoring schedules across
+    # users, each scoped to its own group mode.
+    _as_admin(app)
+    auth.register(email=_ADMIN, password=_PW)
+    with app.app_context():
+        db = get_db()
+        uid = get_by_email(_ADMIN)["id"]
+        snap = ci_config.create_group(db, uid, "Snap Group", mode="snapshot")
+        rid = ci_jobs.enqueue_run(db, snap, "one_time")
+        ci_jobs.finish_run(db, rid)
+        mon = ci_config.create_group(db, uid, "Mon Group", mode="monitoring")
+        ci_config.set_monitoring(db, mon, uid, True)
+
+    snaps = client.get("/admin/ci-snapshots")
+    assert snaps.status_code == 200
+    assert b"Snap Group" in snaps.data
+    assert b"Mon Group" not in snaps.data          # monitoring group not listed here
+    assert _ADMIN.encode() in snaps.data
+
+    mons = client.get("/admin/ci-monitoring")
+    assert mons.status_code == 200
+    assert b"Mon Group" in mons.data
+    assert b"Snap Group" not in mons.data          # snapshot group not listed here
+    assert b"On" in mons.data                       # sweep enabled
+    assert b"CST" in mons.data                       # next-run label present
+
+
 def test_admin_nav_visibility(client, auth, app):
     # Admin sees the Admin nav links (incl. the new copy screen); a regular user
     # does not.
@@ -82,10 +113,14 @@ def test_admin_nav_visibility(client, auth, app):
     dash = client.get("/app").data
     assert b"/admin/users" in dash
     assert b"/admin/copy" in dash
+    assert b"/admin/ci-snapshots" in dash
+    assert b"/admin/ci-monitoring" in dash
 
     auth.logout()
     auth.register(email="regular@example.com", password=_PW)
-    assert b"/admin/copy" not in client.get("/app").data
+    regular = client.get("/app").data
+    assert b"/admin/copy" not in regular
+    assert b"/admin/ci-snapshots" not in regular
 
 
 def test_admin_can_delete_user_and_their_items(client, auth, app):

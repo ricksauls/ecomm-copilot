@@ -1,0 +1,54 @@
+{% extends "app/base.html" %}
+{% block title %}Monitoring scheduled — ecomm-copilot{% endblock %}
+
+{% block pane_content %}
+<div class="page-header">
+  <div>
+    <h1>Monitoring scheduled</h1>
+    <p class="subtitle">
+      {{ groups | length }} Daily Monitoring schedule{{ '' if groups | length == 1 else 's' }}
+    </p>
+  </div>
+</div>
+
+<div class="card card-pad">
+  <div class="table-scroll">
+    <table class="admin-table">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th class="col-product">Group</th>
+          <th>User</th>
+          <th>Sweep</th>
+          <th>Next run</th>
+          <th>Last run</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for grp in groups %}
+        <tr>
+          <td class="cell-muted">{{ grp.id }}</td>
+          <td class="col-product">{{ grp.name }}</td>
+          <td class="cell-muted">{{ grp.user_email }}</td>
+          <td>
+            {% if grp.monitoring_enabled %}
+              <span class="status-badge status-done">On</span>
+            {% else %}
+              <span class="status-badge">Off</span>
+            {% endif %}
+          </td>
+          <td class="cell-muted">{{ grp.next_run_cst or '—' }}</td>
+          <td class="cell-muted">
+            {% if grp.last_status %}
+              <span class="status-badge status-{{ grp.last_status }}">{{ grp.last_status }}</span>
+              {{ grp.last_run_cst or '' }}
+            {% else %}—{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if not groups %}<p class="results-count">No monitoring schedules yet.</p>{% endif %}
+</div>
+{% endblock %}
