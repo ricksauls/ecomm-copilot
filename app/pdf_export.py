@@ -612,7 +612,8 @@ def build_ci_snapshot_pdf(group: dict, *, config_summary: dict, avg_ranks: list[
     flow.append(_avg_rank_table(avg_ranks, styles))
     grid = _rank_placement_grid(rank_map)
     if not isinstance(grid, Spacer):
-        flow.append(Spacer(1, 8))
+        # Breathing room directly under the table, before the placement-map grid.
+        flow.append(Spacer(1, 20))
         flow.append(Paragraph(
             '<font color="#ff3b30">■</font> My brand'
             ' &#160;&#160;&#160; '
