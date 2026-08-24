@@ -435,6 +435,46 @@ def admin_ci_monitoring():
     )
 
 
+@bp.route("/admin/activity")
+@admin_required
+def admin_activity():
+    """Admin: one consolidated, read-only view of every activity table.
+
+    Rolls the individual admin screens into collapsible sections (Messages open,
+    the rest closed) so an admin can scan everything without clicking through each
+    screen. Actions (delete, reply) stay on the dedicated screens.
+    """
+    logger.info("Admin activity view: admin_user_id=%s", g.user["id"])
+    db = get_db()
+    snapshot_runs = [
+        {**dict(r), "when_cst": _run_when_cst(r)}
+        for r in ci_jobs.list_snapshot_runs(db)
+    ]
+    next_run = ci_analysis.next_monitoring_run()
+    monitoring_groups = []
+    for grp in ci_config.list_monitoring_groups_admin(db):
+        last_ts = grp["last_started"] or grp["last_created"]
+        monitoring_groups.append({
+            **dict(grp),
+            "next_run_cst": next_run.strftime("%a %b %-d, %-I:%M %p") + " CST"
+            if grp["monitoring_enabled"] else None,
+            "last_run_cst": ci_analysis.format_run_time_cst(last_ts),
+        })
+    return render_template(
+        "app/admin_activity.html",
+        breadcrumb="Admin · User Activity",
+        active_nav="admin-activity",
+        threads=messages.list_all_threads(db),
+        category_label=messages.category_label,
+        users=users.list_users(),
+        items=jobs.list_items(db),
+        copy_items=copy_jobs.list_copy_items(db),
+        image_sets=[],  # PDP Image Set Creation is not built yet — section shown empty.
+        snapshot_runs=snapshot_runs,
+        monitoring_groups=monitoring_groups,
+    )
+
+
 # ── Contact Us (user side) ───────────────────────────────────────────────────
 
 @bp.route("/app/contact")

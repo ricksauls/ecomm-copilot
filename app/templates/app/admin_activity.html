@@ -1,0 +1,222 @@
+{% extends "app/base.html" %}
+{% block title %}User Activity — ecomm-copilot{% endblock %}
+
+{#
+  One read-only view of every admin table, as collapsible <details> sections
+  (native — no JS, so it works under the strict CSP). Messages is open by
+  default; every other section starts closed. Row-level actions (delete a user,
+  reply to a thread) stay on the dedicated Admin screens.
+#}
+{% block pane_content %}
+<div class="page-header">
+  <div>
+    <h1>User Activity</h1>
+    <p class="subtitle">Everything across the workspace, in one place. Click a section to expand.</p>
+  </div>
+</div>
+
+{# 1. Messages — open by default, even when empty. #}
+<details class="activity-section" open>
+  <summary>Messages <span class="activity-count">{{ threads | length }}</span></summary>
+  <div class="activity-body">
+    <div class="table-scroll">
+      <table class="admin-table">
+        <thead><tr><th>Subject</th><th>From</th><th>Category</th><th>Status</th><th>Last activity</th></tr></thead>
+        <tbody>
+          {% for t in threads %}
+          <tr class="msg-row {{ 'msg-row-unread' if t.unread else '' }}">
+            <td>
+              <a href="{{ url_for('pages.admin_message_thread', thread_id=t.id) }}" class="msg-link">
+                {% if t.unread %}<span class="msg-unread-dot" aria-label="Unread"></span>{% endif %}
+                {{ t.subject }}
+              </a>
+            </td>
+            <td class="cell-muted msg-from">{{ t.user_email }}</td>
+            <td><span class="ci-type">{{ category_label(t.category) }}</span></td>
+            <td><span class="status-badge status-{{ t.status }}">{{ t.status }}</span></td>
+            <td class="cell-muted">{{ t.last_message_at }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if not threads %}<p class="results-count">No messages yet.</p>{% endif %}
+  </div>
+</details>
+
+{# 2. Users. #}
+<details class="activity-section">
+  <summary>Users <span class="activity-count">{{ users | length }}</span></summary>
+  <div class="activity-body">
+    <div class="table-scroll">
+      <table class="admin-table">
+        <thead><tr><th>ID</th><th>Email</th><th>Sign-in</th><th>Registered</th><th>Last login</th></tr></thead>
+        <tbody>
+          {% for u in users %}
+          <tr>
+            <td class="cell-muted">{{ u.id }}</td>
+            <td>{{ u.email }}</td>
+            <td>{{ u.auth_provider }}</td>
+            <td class="cell-muted">{{ u.created_at }}</td>
+            <td class="cell-muted">{{ u.last_login_at or '—' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if not users %}<p class="results-count">No users yet.</p>{% endif %}
+  </div>
+</details>
+
+{# 3. Items scored. #}
+<details class="activity-section">
+  <summary>Items Scored <span class="activity-count">{{ items | length }}</span></summary>
+  <div class="activity-body">
+    <div class="table-scroll">
+      <table class="admin-table">
+        <thead>
+          <tr><th>ID</th><th>Item #</th><th class="col-product">Product</th><th>User</th><th>Status</th><th>Score</th><th>Ran</th></tr>
+        </thead>
+        <tbody>
+          {% for it in items %}
+          <tr>
+            <td class="cell-muted">{{ it.id }}</td>
+            <td>{{ it.item_id or '—' }}</td>
+            <td class="col-product">
+              {% if it.title %}{{ it.title }}
+              {% else %}<a href="{{ it.url }}" target="_blank" rel="noopener noreferrer"
+                           class="cell-muted">{{ it.url }}</a>{% endif %}
+            </td>
+            <td class="cell-muted">{{ it.user_email }}</td>
+            <td><span class="status-badge status-{{ it.status }}">{{ it.status }}</span></td>
+            <td>{{ it.overall if it.overall is not none else '—' }}</td>
+            <td class="cell-muted">{{ it.updated_at }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if not items %}<p class="results-count">No items scored yet.</p>{% endif %}
+  </div>
+</details>
+
+{# 4. Copy created. #}
+<details class="activity-section">
+  <summary>Copy Created <span class="activity-count">{{ copy_items | length }}</span></summary>
+  <div class="activity-body">
+    <div class="table-scroll">
+      <table class="admin-table">
+        <thead>
+          <tr><th>ID</th><th>Item #</th><th class="col-product">Product</th><th>User</th><th>Status</th><th>Current</th><th>Projected</th><th>Ran</th></tr>
+        </thead>
+        <tbody>
+          {% for it in copy_items %}
+          <tr>
+            <td class="cell-muted">{{ it.id }}</td>
+            <td>{{ it.item_id or '—' }}</td>
+            <td class="col-product">
+              {% if it.title %}{{ it.title }}
+              {% else %}<a href="{{ it.url }}" target="_blank" rel="noopener noreferrer"
+                           class="cell-muted">{{ it.url }}</a>{% endif %}
+            </td>
+            <td class="cell-muted">{{ it.user_email }}</td>
+            <td><span class="status-badge status-{{ it.status }}">{{ it.status }}</span></td>
+            <td>{{ it.current_overall if it.current_overall is not none else '—' }}</td>
+            <td>{{ it.projected_overall if it.projected_overall is not none else '—' }}</td>
+            <td class="cell-muted">{{ it.updated_at }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if not copy_items %}<p class="results-count">No copy created yet.</p>{% endif %}
+  </div>
+</details>
+
+{# 5. Image sets created — feature not built yet, shown empty for completeness. #}
+<details class="activity-section">
+  <summary>Image Sets Created <span class="activity-count">{{ image_sets | length }}</span></summary>
+  <div class="activity-body">
+    <div class="table-scroll">
+      <table class="admin-table">
+        <thead>
+          <tr><th>ID</th><th>Item #</th><th class="col-product">Product</th><th>User</th><th>Status</th><th>Ran</th></tr>
+        </thead>
+        <tbody>
+          {% for it in image_sets %}
+          <tr>
+            <td class="cell-muted">{{ it.id }}</td>
+            <td>{{ it.item_id or '—' }}</td>
+            <td class="col-product">{{ it.title }}</td>
+            <td class="cell-muted">{{ it.user_email }}</td>
+            <td><span class="status-badge status-{{ it.status }}">{{ it.status }}</span></td>
+            <td class="cell-muted">{{ it.updated_at }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if not image_sets %}<p class="results-count">PDP Image Set Creation isn't built yet — nothing to show.</p>{% endif %}
+  </div>
+</details>
+
+{# 6. Competitive Intelligence — snapshots run. #}
+<details class="activity-section">
+  <summary>Competitive Intelligence Snapshots Ran <span class="activity-count">{{ snapshot_runs | length }}</span></summary>
+  <div class="activity-body">
+    <div class="table-scroll">
+      <table class="admin-table">
+        <thead><tr><th>ID</th><th class="col-product">Group</th><th>User</th><th>Status</th><th>Ran</th></tr></thead>
+        <tbody>
+          {% for r in snapshot_runs %}
+          <tr>
+            <td class="cell-muted">{{ r.id }}</td>
+            <td class="col-product">{{ r.group_name }}</td>
+            <td class="cell-muted">{{ r.user_email }}</td>
+            <td><span class="status-badge status-{{ r.status }}">{{ r.status }}</span></td>
+            <td class="cell-muted">{{ r.when_cst or '—' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if not snapshot_runs %}<p class="results-count">No snapshots run yet.</p>{% endif %}
+  </div>
+</details>
+
+{# 7. Competitive Intelligence — monitoring scheduled. #}
+<details class="activity-section">
+  <summary>Competitive Intelligence Monitoring Scheduled <span class="activity-count">{{ monitoring_groups | length }}</span></summary>
+  <div class="activity-body">
+    <div class="table-scroll">
+      <table class="admin-table">
+        <thead><tr><th>ID</th><th class="col-product">Group</th><th>User</th><th>Sweep</th><th>Next run</th><th>Last run</th></tr></thead>
+        <tbody>
+          {% for grp in monitoring_groups %}
+          <tr>
+            <td class="cell-muted">{{ grp.id }}</td>
+            <td class="col-product">{{ grp.name }}</td>
+            <td class="cell-muted">{{ grp.user_email }}</td>
+            <td>
+              {% if grp.monitoring_enabled %}
+                <span class="status-badge status-done">On</span>
+              {% else %}
+                <span class="status-badge">Off</span>
+              {% endif %}
+            </td>
+            <td class="cell-muted">{{ grp.next_run_cst or '—' }}</td>
+            <td class="cell-muted">
+              {% if grp.last_status %}
+                <span class="status-badge status-{{ grp.last_status }}">{{ grp.last_status }}</span>
+                {{ grp.last_run_cst or '' }}
+              {% else %}—{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if not monitoring_groups %}<p class="results-count">No monitoring schedules yet.</p>{% endif %}
+  </div>
+</details>
+{% endblock %}

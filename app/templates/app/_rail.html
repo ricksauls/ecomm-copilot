@@ -83,6 +83,11 @@
   {% if is_admin %}
   <div class="rail-nav rail-admin">
     <div class="rail-section-label">Admin</div>
+    {# Consolidated read-only overview of every section below. #}
+    <a href="{{ url_for('pages.admin_activity') }}"
+       class="nav-item {{ 'active' if active_nav == 'admin-activity' else '' }}">
+      <span class="mark"></span>User Activity
+    </a>
     <a href="{{ url_for('pages.admin_users') }}"
        class="nav-item {{ 'active' if active_nav == 'admin-users' else '' }}">
       <span class="mark"></span>Users

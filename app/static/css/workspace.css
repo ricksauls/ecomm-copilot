@@ -1599,3 +1599,46 @@ a:focus-visible,
 .msg-bubble-body { font-size: 13.5px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
 /* Keep the sender email on one line in the inbox (the table scrolls if needed). */
 .admin-table .msg-from { white-space: nowrap; }
+
+/* ── Admin "User Activity": collapsible <details> sections (no JS, CSP-safe) ── */
+.activity-section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  margin-bottom: 10px;
+}
+.activity-section > summary {
+  cursor: pointer;
+  padding: 13px 18px;
+  font-size: 14px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  list-style: none;             /* hide the default disclosure marker (Firefox) */
+  user-select: none;
+}
+.activity-section > summary::-webkit-details-marker { display: none; }  /* Safari/Chrome */
+/* Custom caret that rotates when the section opens. */
+.activity-section > summary::before {
+  content: "";
+  width: 0;
+  height: 0;
+  border-left: 5px solid var(--mid-gray);
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  transition: transform var(--fade) var(--ease);
+}
+.activity-section[open] > summary::before { transform: rotate(90deg); }
+.activity-section > summary:hover { background: var(--row-hover); }
+.activity-count {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--cool-gray);
+  background: var(--canvas);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-chip);
+  padding: 1px 7px;
+}
+.activity-body { padding: 0 18px 16px; }
+.activity-body .results-count { margin-top: 10px; }

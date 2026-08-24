@@ -31,12 +31,13 @@ def test_admin_routes_forbidden_for_regular_user(client, auth, app):
     assert client.get("/admin/copy").status_code == 403
     assert client.get("/admin/ci-snapshots").status_code == 403
     assert client.get("/admin/ci-monitoring").status_code == 403
+    assert client.get("/admin/activity").status_code == 403
 
 
 def test_admin_routes_redirect_when_unauthenticated(client, app):
     _as_admin(app)
     for path in ("/admin/users", "/admin/items", "/admin/copy",
-                 "/admin/ci-snapshots", "/admin/ci-monitoring"):
+                 "/admin/ci-snapshots", "/admin/ci-monitoring", "/admin/activity"):
         resp = client.get(path)
         assert resp.status_code == 302
         assert "/signin" in resp.headers["Location"]
@@ -105,6 +106,34 @@ def test_admin_ci_snapshots_and_monitoring_screens(client, auth, app):
     assert b"CST" in mons.data                       # next-run label present
 
 
+def test_admin_activity_consolidated_view(client, auth, app):
+    # One screen with all seven sections; Messages open by default, rest closed.
+    _as_admin(app)
+    auth.register(email=_ADMIN, password=_PW)
+    with app.app_context():
+        db = get_db()
+        uid = get_by_email(_ADMIN)["id"]
+        snap = ci_config.create_group(db, uid, "Snap Group", mode="snapshot")
+        ci_jobs.finish_run(db, ci_jobs.enqueue_run(db, snap, "one_time"))
+        mon = ci_config.create_group(db, uid, "Mon Group", mode="monitoring")
+        ci_config.set_monitoring(db, mon, uid, True)
+
+    resp = client.get("/admin/activity")
+    assert resp.status_code == 200
+    data = resp.data
+    for heading in (b"Messages", b"Users", b"Items Scored", b"Copy Created",
+                    b"Image Sets Created", b"Competitive Intelligence Snapshots Ran",
+                    b"Competitive Intelligence Monitoring Scheduled"):
+        assert heading in data
+    # Seven sections; exactly one (Messages) is open by default.
+    assert data.count(b'class="activity-section"') == 7
+    assert data.count(b'class="activity-section" open') == 1
+    # Seeded rows surface in their sections.
+    assert b"Snap Group" in data and b"Mon Group" in data
+    # Image Sets section renders even though the feature isn't built.
+    assert b"PDP Image Set Creation isn't built yet" in data
+
+
 def test_admin_nav_visibility(client, auth, app):
     # Admin sees the Admin nav links (incl. the new copy screen); a regular user
     # does not.
@@ -113,6 +142,7 @@ def test_admin_nav_visibility(client, auth, app):
     dash = client.get("/app").data
     assert b"/admin/users" in dash
     assert b"/admin/copy" in dash
+    assert b"/admin/activity" in dash
     assert b"/admin/ci-snapshots" in dash
     assert b"/admin/ci-monitoring" in dash
 
