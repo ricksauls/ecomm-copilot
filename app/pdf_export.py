@@ -22,6 +22,7 @@ from reportlab.lib.utils import ImageReader
 from reportlab.platypus import (
     HRFlowable,
     Image as RLImage,
+    PageBreak,
     Paragraph,
     SimpleDocTemplate,
     Spacer,
@@ -592,6 +593,8 @@ def build_ci_snapshot_pdf(group: dict, *, config_summary: dict, avg_ranks: list[
     Sections, in page order: the config summary, Overall Search Ranking (table +
     the placement-map grid), per-keyword Search Ranking, Overall Share of Digital
     Shelf (table + the stacked bar chart), and per-keyword Share of Digital Shelf.
+    Page breaks fall after the config summary and after per-keyword Search Ranking,
+    so the summary, the ranking sections, and the share sections each start fresh.
     """
     styles = _styles()
     buffer = io.BytesIO()
@@ -602,6 +605,9 @@ def build_ci_snapshot_pdf(group: dict, *, config_summary: dict, avg_ranks: list[
     )
     flow = _ci_header(group, "One-Time Snapshot — current state", styles)
     flow += _summary_flow(config_summary, styles)
+    # Start the ranking sections on a fresh page so the config summary (with its
+    # thumbnail grid) stands on its own.
+    flow.append(PageBreak())
     flow.append(Paragraph("Overall Search Ranking", styles["item"]))
     flow.append(_avg_rank_table(avg_ranks, styles))
     grid = _rank_placement_grid(rank_map)
@@ -619,7 +625,8 @@ def build_ci_snapshot_pdf(group: dict, *, config_summary: dict, avg_ranks: list[
     flow.append(Spacer(1, 10))
     flow.append(Paragraph("Search Ranking", styles["item"]))
     flow.append(_rank_by_keyword_table(rank_rows, styles))
-    flow.append(Spacer(1, 10))
+    # Start the share-of-shelf sections on a fresh page.
+    flow.append(PageBreak())
     flow.append(Paragraph("Overall Share of Digital Shelf", styles["item"]))
     flow.append(_sos_table(sos_rows, styles, with_delta=False))
     chart = _sos_chart(sos_rows)
