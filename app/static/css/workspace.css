@@ -1452,6 +1452,45 @@ a:focus-visible,
 .sos-legend-item { display: inline-flex; align-items: center; gap: 6px; }
 .sos-swatch { width: 12px; height: 12px; border-radius: 2px; display: inline-block; }
 
+/* Overall Search Ranking placement map: a page-1 result grid (4 across) where a
+   brand's average rank lights up its slot. My brand uses the one signal-red
+   accent; competitors are ink; empty slots are hairline outlines. */
+.rankmap-wrap { margin-top: 18px; }
+.rankmap-legend { display: flex; flex-wrap: wrap; gap: 16px; font-size: 12px; color: var(--mid-gray); margin-bottom: 8px; }
+.rankmap-key { display: inline-flex; align-items: center; gap: 7px; }
+.rankmap-swatch { width: 13px; height: 13px; border-radius: 3px; display: inline-block; }
+.rankmap-swatch.mine { background: var(--signal-red); }
+.rankmap-swatch.comp { background: var(--black); }
+.rankmap-swatch.empty { border: 1px solid var(--control-border); }
+.rankmap { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 10px; }
+.rankmap-cell {
+  position: relative;
+  min-height: 62px;
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 6px;
+  box-sizing: border-box;
+}
+.rankmap-cell.empty { border: 1px solid var(--control-border); }
+/* Top padding keeps the centered brand label clear of the corner slot number,
+   even when a long name wraps to two lines. */
+.rankmap-cell.mine { background: var(--signal-red); color: #ffffff; padding-top: 18px; }
+.rankmap-cell.comp { background: var(--black); color: var(--canvas); padding-top: 18px; }
+.rankmap-cell.tie { border: 1px solid var(--control-border); gap: 4px; padding-top: 18px; }
+.rankmap-num { position: absolute; top: 6px; left: 8px; font-size: 11px; opacity: 0.7; }
+.rankmap-cell.empty .rankmap-num { color: var(--mid-gray); opacity: 1; }
+.rankmap-cell.tie .rankmap-num { color: var(--mid-gray); opacity: 1; }
+.rankmap-brand { font-size: 13px; font-weight: 600; line-height: 1.15; }
+.rankmap-avg { font-size: 11px; opacity: 0.9; margin-top: 3px; }
+/* Tie: one chip per brand sharing the slot, each colored by its own type. */
+.rankmap-chip { font-size: 11px; font-weight: 500; line-height: 1.2; padding: 2px 7px; border-radius: 999px; color: #ffffff; }
+.rankmap-chip.mine { background: var(--signal-red); }
+.rankmap-chip.comp { background: var(--black); }
+
 .ci-periods { display: inline-flex; gap: 4px; }
 .ci-periods a {
   font-size: 12px;

@@ -318,6 +318,60 @@ def snapshot_brand_avg_rank(conn: sqlite3.Connection, group_id: int, run_id: int
     } for r in rows]
 
 
+def snapshot_page1_depth(conn: sqlite3.Connection, group_id: int, run_id: int) -> int:
+    """Deepest page-1 slot captured in a run (the number of placements to draw).
+
+    Sizes the "Overall Search Ranking" placement grid: rows are laid out to reach
+    at least this far so a brand's average tile always lands on a real placement.
+    Returns 0 when the run recorded nothing.
+    """
+    row = conn.execute(
+        "SELECT MAX(position) FROM ci_search_results WHERE group_id = ? AND run_id = ?",
+        (group_id, run_id),
+    ).fetchone()
+    return int(row[0]) if row and row[0] is not None else 0
+
+
+def _nearest_tile(avg_position: float) -> int:
+    """Round an average rank to the placement tile it sits on (half-up, min 1)."""
+    return max(1, int(avg_position + 0.5))
+
+
+def build_rank_placement_map(avg_ranks: list[dict], depth: int, cols: int = 4) -> dict | None:
+    """Lay each brand's *overall* average rank onto a page-1 placement grid.
+
+    A pure transform (no DB) so the results page and its PDF render the exact same
+    grid. ``avg_ranks`` is :func:`snapshot_brand_avg_rank`'s output; ``depth`` is
+    :func:`snapshot_page1_depth`. Returns ``None`` when no brand has an average
+    (nothing to plot), else::
+
+        {"cols", "total", "rows", "marks"}
+
+    where ``total`` is ``depth`` rounded up to a full row (so the last row isn't
+    ragged) but always deep enough to show every brand, and ``marks`` maps a 1-based
+    placement number to the list of brands whose average rounds onto it. The value
+    is a *list* so tied brands share one tile (the split-tile case) rather than one
+    silently overwriting another.
+    """
+    ranked = [r for r in avg_ranks if r.get("avg_position") is not None]
+    if not ranked:
+        return None
+
+    tiles = [_nearest_tile(r["avg_position"]) for r in ranked]
+    needed = max([depth, cols, *tiles])
+    total = ((needed + cols - 1) // cols) * cols  # round up to whole rows
+
+    marks: dict[int, list[dict]] = {}
+    for r in ranked:
+        pos = min(_nearest_tile(r["avg_position"]), total)
+        marks.setdefault(pos, []).append({
+            "brand_name": r["brand_name"],
+            "type": r["type"],
+            "avg_position": r["avg_position"],
+        })
+    return {"cols": cols, "total": total, "rows": total // cols, "marks": marks}
+
+
 def snapshot_rank_by_keyword_brand(conn: sqlite3.Connection, group_id: int, run_id: int) -> list[dict]:
     """Average page-1 ranking per brand per keyword within a run.
 

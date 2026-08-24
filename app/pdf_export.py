@@ -461,14 +461,91 @@ def _sos_chart(sos_rows: list[dict]) -> Drawing | Spacer:
     return drawing
 
 
+def _truncate(text: str, limit: int) -> str:
+    """Shorten a label to fit a narrow tile (reportlab Strings don't wrap)."""
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def _rank_placement_grid(rank_map: dict | None) -> Drawing | Spacer:
+    """Page-1 result grid marking each brand's *overall* average rank.
+
+    Mirrors the on-screen placement map (``ci_snapshot_results.html``): a
+    ``cols``-wide grid numbered left-to-right, top-to-bottom, every slot blank
+    except the one a brand's average rounds onto — my brand in the signal-red
+    accent, competitors in ink, tied brands sharing one outlined tile. Consumes
+    :func:`app.ci_analysis.build_rank_placement_map`. Tile height auto-shrinks so
+    even a deep page-1 grid stays on one page (a Drawing can't split).
+    """
+    if not rank_map:
+        return Spacer(1, 0)
+    cols, total, rows = rank_map["cols"], rank_map["total"], rank_map["rows"]
+    marks = rank_map["marks"]
+
+    width, gap = 504.0, 6.0
+    tile_w = (width - (cols - 1) * gap) / cols
+    # Fit the whole grid within a height budget; clamp so tiles stay legible.
+    budget = 470.0
+    tile_h = min(40.0, (budget - (rows - 1) * gap) / rows) if rows else 40.0
+    tile_h = max(tile_h, 26.0)
+    height = rows * tile_h + (rows - 1) * gap
+
+    drawing = Drawing(width, height)
+    drawing.hAlign = "CENTER"
+    red = colors.HexColor("#ff3b30")
+    light = colors.HexColor("#f3f3f3")
+    faint_white = colors.Color(1, 1, 1, 0.7)
+
+    for pos in range(1, total + 1):
+        idx = pos - 1
+        r, c = idx // cols, idx % cols
+        x = c * (tile_w + gap)
+        y = height - (r + 1) * tile_h - r * gap  # row 0 at the top
+        cx = x + tile_w / 2
+        cell = marks.get(pos)
+
+        if not cell:  # empty placement — hairline outline + faint number
+            drawing.add(Rect(x, y, tile_w, tile_h, rx=5, fillColor=None,
+                             strokeColor=_RULE, strokeWidth=0.75))
+            drawing.add(String(x + 6, y + tile_h - 11, str(pos),
+                               fontName="Helvetica", fontSize=6.5, fillColor=_MUTED))
+        elif len(cell) == 1:
+            b = cell[0]
+            mine = b["type"] == "mine"
+            drawing.add(Rect(x, y, tile_w, tile_h, rx=5,
+                             fillColor=red if mine else _INK, strokeColor=None))
+            drawing.add(String(x + 6, y + tile_h - 11, str(pos),
+                               fontName="Helvetica", fontSize=6.5, fillColor=faint_white))
+            txt = colors.white if mine else light
+            drawing.add(String(cx, y + tile_h / 2, _truncate(b["brand_name"], 20),
+                               fontName="Helvetica-Bold", fontSize=8, fillColor=txt,
+                               textAnchor="middle"))
+            drawing.add(String(cx, y + tile_h / 2 - 10, f"avg #{b['avg_position']}",
+                               fontName="Helvetica", fontSize=7, fillColor=txt,
+                               textAnchor="middle"))
+        else:  # tie: outlined tile, one colored line per brand sharing the slot
+            drawing.add(Rect(x, y, tile_w, tile_h, rx=5, fillColor=None,
+                             strokeColor=_RULE, strokeWidth=0.75))
+            drawing.add(String(x + 6, y + tile_h - 11, str(pos),
+                               fontName="Helvetica", fontSize=6.5, fillColor=_MUTED))
+            line_h = 9.0
+            start = y + tile_h / 2 + (len(cell) - 1) * line_h / 2 - 3
+            for i, b in enumerate(cell):
+                col = red if b["type"] == "mine" else _INK
+                label = f"{_truncate(b['brand_name'], 14)} #{b['avg_position']}"
+                drawing.add(String(cx, start - i * line_h, label,
+                                   fontName="Helvetica-Bold", fontSize=7,
+                                   fillColor=col, textAnchor="middle"))
+    return drawing
+
+
 def build_ci_snapshot_pdf(group: dict, *, config_summary: dict, avg_ranks: list[dict],
                           rank_rows: list[dict], sos_rows: list[dict],
-                          share_rows: list[dict]) -> bytes:
+                          share_rows: list[dict], rank_map: dict | None = None) -> bytes:
     """One-Time Snapshot PDF — mirrors the results page, current-state (no trends).
 
-    Sections, in page order: the config summary, Overall Search Ranking, per-keyword
-    Search Ranking, Overall Share of Digital Shelf (table + the stacked bar chart),
-    and per-keyword Share of Digital Shelf.
+    Sections, in page order: the config summary, Overall Search Ranking (table +
+    the placement-map grid), per-keyword Search Ranking, Overall Share of Digital
+    Shelf (table + the stacked bar chart), and per-keyword Share of Digital Shelf.
     """
     styles = _styles()
     buffer = io.BytesIO()
@@ -481,6 +558,18 @@ def build_ci_snapshot_pdf(group: dict, *, config_summary: dict, avg_ranks: list[
     flow += _summary_flow(config_summary, styles)
     flow.append(Paragraph("Overall Search Ranking", styles["item"]))
     flow.append(_avg_rank_table(avg_ranks, styles))
+    grid = _rank_placement_grid(rank_map)
+    if not isinstance(grid, Spacer):
+        flow.append(Spacer(1, 8))
+        flow.append(Paragraph(
+            '<font color="#ff3b30">■</font> My brand'
+            ' &#160;&#160;&#160; '
+            '<font color="#050505">■</font> Competitor'
+            ' &#160;&#160;&#160; (outlined = other page-1 placement)',
+            styles["cellmuted"],
+        ))
+        flow.append(Spacer(1, 4))
+        flow.append(grid)
     flow.append(Spacer(1, 10))
     flow.append(Paragraph("Search Ranking", styles["item"]))
     flow.append(_rank_by_keyword_table(rank_rows, styles))

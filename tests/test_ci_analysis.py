@@ -210,6 +210,50 @@ def test_snapshot_rank_by_keyword_brand_orders_and_averages(app):
         assert rows[1]["type"] == "mine"
 
 
+def test_build_rank_placement_map_rounds_ties_and_sizes_grid():
+    # Pure transform — no DB. Half-up rounding, ties share a tile, grid rounds up.
+    avg = [
+        {"brand_name": "Tabasco", "type": "mine", "avg_position": 6.4},
+        {"brand_name": "Frank's", "type": "competitor", "avg_position": 7.9},
+        {"brand_name": "Louisiana", "type": "competitor", "avg_position": 8.1},
+        {"brand_name": "Cholula", "type": "competitor", "avg_position": 11.5},
+    ]
+    m = ci_analysis.build_rank_placement_map(avg, depth=13)
+    # depth 13 -> next full row of 4 = 16.
+    assert m["total"] == 16 and m["rows"] == 4 and m["cols"] == 4
+    # 6.4 -> #6; 7.9 and 8.1 both -> #8 (tie); 11.5 -> #12 (half-up).
+    assert sorted(m["marks"]) == [6, 8, 12]
+    assert [b["brand_name"] for b in m["marks"][8]] == ["Frank's", "Louisiana"]
+    assert m["marks"][8][0]["avg_position"] == 7.9   # exact average preserved
+    assert m["marks"][6][0]["type"] == "mine"
+
+
+def test_build_rank_placement_map_grows_to_fit_deepest_brand():
+    # A brand deeper than the run's captured depth still gets a real tile.
+    avg = [{"brand_name": "X", "type": "competitor", "avg_position": 22.0}]
+    m = ci_analysis.build_rank_placement_map(avg, depth=4)
+    assert m["total"] == 24 and 22 in m["marks"]
+
+
+def test_build_rank_placement_map_none_when_no_averages():
+    assert ci_analysis.build_rank_placement_map([], depth=10) is None
+    only_null = [{"brand_name": "X", "type": "mine", "avg_position": None}]
+    assert ci_analysis.build_rank_placement_map(only_null, depth=10) is None
+
+
+def test_snapshot_page1_depth_returns_deepest_slot(app):
+    with app.app_context():
+        db = get_db()
+        _, gid, mine, comp, _, kid, rid = _setup(db)
+        _result(db, rid, gid, kid, _iso(0), 3, "a", mine)
+        _result(db, rid, gid, kid, _iso(0), 17, "b", comp)
+        db.commit()
+        assert ci_analysis.snapshot_page1_depth(db, gid, rid) == 17
+        # A run with nothing recorded reports depth 0.
+        empty_rid = ci_jobs.enqueue_run(db, gid)
+        assert ci_analysis.snapshot_page1_depth(db, gid, empty_rid) == 0
+
+
 def test_rank_summary_omits_products_with_no_sightings(app):
     with app.app_context():
         db = get_db()

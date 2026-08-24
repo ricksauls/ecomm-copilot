@@ -718,12 +718,17 @@ def _snapshot_data(db, group_id):
     }
 
     sos_summary, avg_ranks, rank_rows, share_rows = [], [], [], []
+    rank_map = None
     if run and run["status"] == "done":
         rid = run["id"]
         sos_summary = ci_analysis.snapshot_share_of_shelf(db, group_id, rid)
         avg_ranks = ci_analysis.snapshot_brand_avg_rank(db, group_id, rid)
         rank_rows = ci_analysis.snapshot_rank_by_keyword_brand(db, group_id, rid)
         share_rows = ci_analysis.snapshot_share_by_keyword(db, group_id, rid)
+        # Placement grid for the Overall Search Ranking section: each brand's
+        # average rank mapped onto a page-1 result grid (page + PDF share this).
+        depth = ci_analysis.snapshot_page1_depth(db, group_id, rid)
+        rank_map = ci_analysis.build_rank_placement_map(avg_ranks, depth)
 
     return {
         "run": run,
@@ -732,6 +737,7 @@ def _snapshot_data(db, group_id):
         "avg_ranks": avg_ranks,
         "rank_rows": rank_rows,
         "share_rows": share_rows,
+        "rank_map": rank_map,
     }
 
 
@@ -763,6 +769,7 @@ def ci_snapshot_results(group_id):
         avg_ranks=data["avg_ranks"],
         rank_rows=data["rank_rows"],
         share_rows=data["share_rows"],
+        rank_map=data["rank_map"],
         sos_scale=sos_scale,
     )
 
@@ -790,6 +797,7 @@ def ci_snapshot_results_pdf(group_id):
         rank_rows=data["rank_rows"],
         sos_rows=data["sos_summary"],
         share_rows=data["share_rows"],
+        rank_map=data["rank_map"],
     )
     filename = f"ci-snapshot-{_slug(group['name'])}-{date.today().isoformat()}.pdf"
     logger.info("CI snapshot PDF: group_id=%s user_id=%s", group_id, g.user["id"])

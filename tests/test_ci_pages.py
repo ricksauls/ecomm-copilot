@@ -112,6 +112,33 @@ def test_snapshot_results_render_without_trend_markup(client, auth):
     assert b"vs prior" not in resp.data
 
 
+def test_snapshot_results_show_rank_placement_map(client, auth):
+    auth.register()
+    gid = _snapshot_group(client)
+    with client.application.app_context():
+        db = get_db()
+        b_mine = ci_config.add_brand(db, gid, 1, "Tabasco", "mine")
+        b_comp = ci_config.add_brand(db, gid, 1, "Frank's", "competitor")
+        kid = ci_config.add_keyword(db, gid, 1, "hot sauce")
+        rid = ci_jobs.enqueue_run(db, gid)
+        rows = [
+            {"run_id": rid, "group_id": gid, "keyword_id": kid, "scraped_at": date.today().isoformat(),
+             "position": 3, "position_type": "organic", "item_id": "1", "brand_id": b_mine, "is_new_sku": 0},
+            {"run_id": rid, "group_id": gid, "keyword_id": kid, "scraped_at": date.today().isoformat(),
+             "position": 9, "position_type": "organic", "item_id": "2", "brand_id": b_comp, "is_new_sku": 0},
+        ]
+        ci_jobs.write_search_results(db, rows)
+        ci_jobs.finish_run(db, rid)
+
+    resp = client.get(f"/app/competitive-intel/groups/{gid}/results")
+    assert resp.status_code == 200
+    # The placement grid renders under Overall Search Ranking, with a lit tile
+    # carrying each brand's exact average.
+    assert b"rankmap" in resp.data
+    assert b"rankmap-cell mine" in resp.data
+    assert b"avg #3.0" in resp.data
+
+
 def test_snapshot_pdf_downloads(client, auth):
     auth.register()
     gid = _snapshot_group(client)
