@@ -184,6 +184,26 @@ def test_snapshot_results_show_product_thumbnails(client, auth, monkeypatch, tmp
     assert b"/media/ci-product/10294528" in resp.data
 
 
+def test_snapshot_products_listed_mine_first(client, auth):
+    auth.register()
+    gid = _snapshot_group(client)
+    with client.application.app_context():
+        db = get_db()
+        # Competitor brand sorts alphabetically before "Tabasco"; without the
+        # mine-first rule it would render on the left.
+        comp = ci_config.add_brand(db, gid, 1, "Aardvark", "competitor")
+        mine = ci_config.add_brand(db, gid, 1, "Tabasco", "mine")
+        ci_config.add_product(db, gid, comp, 1, "https://www.walmart.com/ip/x/11100000")
+        ci_config.add_product(db, gid, mine, 1, "https://www.walmart.com/ip/x/22200000")
+        ci_config.add_keyword(db, gid, 1, "hot sauce")
+        rid = ci_jobs.enqueue_run(db, gid)
+        ci_jobs.finish_run(db, rid)
+
+    body = client.get(f"/app/competitive-intel/groups/{gid}/results").data.decode()
+    # My item (22200000) appears before the competitor's (11100000).
+    assert body.index("22200000") < body.index("11100000")
+
+
 def test_snapshot_pdf_downloads(client, auth):
     auth.register()
     gid = _snapshot_group(client)

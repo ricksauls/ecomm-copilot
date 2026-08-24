@@ -707,7 +707,12 @@ def _product_views(products) -> list[dict]:
     Adds the main-image references both surfaces need: ``image_url`` (the
     same-origin media route the page's <img> hits) and ``image_path`` (the cache
     file the PDF embeds), each present only when an image is actually cached.
+
+    "My" brands are listed first (then whatever order the query returned) so the
+    user sees their own items on the left — matching the mine-first convention the
+    brand/ranking views already follow.
     """
+    products = sorted(products, key=lambda p: 0 if p["brand_type"] == "mine" else 1)
     views = []
     for p in products:
         item_id = p["walmart_item_id"]
