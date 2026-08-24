@@ -1434,8 +1434,10 @@ a:focus-visible,
 .ci-summary-products { grid-column: 1 / -1; }
 .track-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin-top: 8px; }
 .track-tile { border: 1px solid var(--control-border); border-radius: 10px; overflow: hidden; background: var(--surface); }
-/* White ground under the thumbnail — Walmart mains are shot on white. */
-.track-thumb { height: 104px; display: flex; align-items: center; justify-content: center; background: #ffffff; border-bottom: 1px solid var(--control-border); }
+/* White ground under the thumbnail — Walmart mains are shot on white. The
+   padding leaves a little breathing room so a tall bottle image doesn't touch
+   the tile edges. */
+.track-thumb { height: 132px; padding: 12px; display: flex; align-items: center; justify-content: center; background: #ffffff; border-bottom: 1px solid var(--control-border); }
 .track-thumb img { max-width: 100%; max-height: 100%; object-fit: contain; }
 .track-thumb-empty { color: var(--control-border); display: flex; align-items: center; justify-content: center; }
 .track-meta { padding: 9px 10px; }
