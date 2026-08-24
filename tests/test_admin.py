@@ -32,12 +32,14 @@ def test_admin_routes_forbidden_for_regular_user(client, auth, app):
     assert client.get("/admin/ci-snapshots").status_code == 403
     assert client.get("/admin/ci-monitoring").status_code == 403
     assert client.get("/admin/activity").status_code == 403
+    assert client.get("/admin/system-activity").status_code == 403
 
 
 def test_admin_routes_redirect_when_unauthenticated(client, app):
     _as_admin(app)
     for path in ("/admin/users", "/admin/items", "/admin/copy",
-                 "/admin/ci-snapshots", "/admin/ci-monitoring", "/admin/activity"):
+                 "/admin/ci-snapshots", "/admin/ci-monitoring", "/admin/activity",
+                 "/admin/system-activity"):
         resp = client.get(path)
         assert resp.status_code == 302
         assert "/signin" in resp.headers["Location"]
@@ -135,22 +137,33 @@ def test_admin_activity_consolidated_view(client, auth, app):
 
 
 def test_admin_nav_visibility(client, auth, app):
-    # Admin sees the Admin nav links (incl. the new copy screen); a regular user
-    # does not.
+    # The Admin rail is just User Activity + System Activity; the per-table screens
+    # are no longer linked (they live inside User Activity). A regular user sees no
+    # Admin nav at all.
     _as_admin(app)
     auth.register(email=_ADMIN, password=_PW)
     dash = client.get("/app").data
-    assert b"/admin/users" in dash
-    assert b"/admin/copy" in dash
     assert b"/admin/activity" in dash
-    assert b"/admin/ci-snapshots" in dash
-    assert b"/admin/ci-monitoring" in dash
+    assert b"/admin/system-activity" in dash
+    # The individual screens are no longer in the nav.
+    assert b"/admin/users" not in dash
+    assert b"/admin/copy" not in dash
+    assert b"/admin/ci-snapshots" not in dash
+    assert b"/admin/ci-monitoring" not in dash
 
     auth.logout()
     auth.register(email="regular@example.com", password=_PW)
     regular = client.get("/app").data
-    assert b"/admin/copy" not in regular
-    assert b"/admin/ci-snapshots" not in regular
+    assert b"/admin/activity" not in regular
+    assert b"/admin/system-activity" not in regular
+
+
+def test_admin_system_activity_placeholder(client, auth, app):
+    _as_admin(app)
+    auth.register(email=_ADMIN, password=_PW)
+    resp = client.get("/admin/system-activity")
+    assert resp.status_code == 200
+    assert b"System Activity" in resp.data
 
 
 def test_admin_can_delete_user_and_their_items(client, auth, app):

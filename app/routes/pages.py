@@ -475,6 +475,18 @@ def admin_activity():
     )
 
 
+@bp.route("/admin/system-activity")
+@admin_required
+def admin_system_activity():
+    """Admin: System Activity — placeholder to be built out later."""
+    logger.info("Admin system activity view: admin_user_id=%s", g.user["id"])
+    return render_template(
+        "app/admin_system_activity.html",
+        breadcrumb="Admin · System Activity",
+        active_nav="admin-system-activity",
+    )
+
+
 # ── Contact Us (user side) ───────────────────────────────────────────────────
 
 @bp.route("/app/contact")

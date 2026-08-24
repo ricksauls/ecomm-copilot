@@ -187,23 +187,17 @@ def create_app() -> Flask:
         if not user or not security.is_admin(user):
             return {"is_admin": False}
 
-        from app import ci_config, ci_jobs, copy_jobs, jobs
         from app import users as users_mod
-        from app.db import get_db
 
         # "New since your last login" — but on the admin's first tracked login
         # there is no previous login, so fall back to when their account was
         # created (otherwise a genuine new signup wouldn't surface until the
-        # second login). Later logins use the real prev_login_at.
+        # second login). Later logins use the real prev_login_at. This feeds the
+        # topbar new-user badge; the per-table rail counts were retired when the
+        # Admin nav collapsed to the User Activity / System Activity overviews.
         reference = user["prev_login_at"] or user["created_at"]
-        db = get_db()
         return {
             "is_admin": True,
-            "admin_user_count": users_mod.count_users(),
-            "admin_item_count": jobs.count_items(db),
-            "admin_copy_count": copy_jobs.count_copy_items(db),
-            "admin_snapshot_count": ci_jobs.count_snapshot_runs(db),
-            "admin_monitoring_count": ci_config.count_monitoring_groups(db),
             "admin_new_user_count": users_mod.count_created_since(
                 reference, user["id"]
             ),
