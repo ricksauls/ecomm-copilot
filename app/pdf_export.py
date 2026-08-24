@@ -358,6 +358,7 @@ def _product_thumbs(products: list[dict], styles: dict) -> Table:
                 iw, ih = ImageReader(path).getSize()
                 w = 46.0
                 thumb = RLImage(path, width=w, height=(w * ih / iw) if iw else w)
+                thumb.hAlign = "LEFT"  # sit at the cell's left edge, not centered
             except Exception:  # noqa: BLE001 - a bad file just falls back to text
                 logger.warning("Could not embed product thumb %s", path)
         label = Paragraph(escape(p["name"] or f"Item {p['walmart_item_id']}"), styles["cell"])
@@ -369,6 +370,7 @@ def _product_thumbs(products: list[dict], styles: dict) -> Table:
         meta = Paragraph(meta_text, styles["cellmuted"])
         rows.append([thumb, [label, meta]])
     table = Table(rows, colWidths=[0.75 * inch, 4.6 * inch])
+    table.hAlign = "LEFT"  # align the product grid to the left margin (default is CENTER)
     table.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ("TOPPADDING", (0, 0), (-1, -1), 5),
@@ -400,7 +402,8 @@ def _summary_flow(config_summary: dict, styles: dict) -> list:
         _line("Items tracked", str(len(products))),
     ]
     if products:
-        flow.append(Spacer(1, 4))
+        # Line of breathing room between the term/count lines and the thumbnail grid.
+        flow.append(Spacer(1, 16))
         flow.append(_product_thumbs(products, styles))
     return flow
 
