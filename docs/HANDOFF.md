@@ -1,6 +1,6 @@
 # ecomm-copilot — Session Handoff
 
-_Last updated: 2026-08-22._
+_Last updated: 2026-08-23._
 
 A working reference for picking up development. Read this first, then
 `CLAUDE.md` (coding standards) and `deploy/DEPLOY.md` (infra).
@@ -14,7 +14,7 @@ A working reference for picking up development. Read this first, then
   `~/Desktop/ClaudeStuff/ecomm-copilot-clean`.
 - **Stack:** Python / Flask, SQLite, server-rendered Jinja templates, deployed
   by GitHub Actions to a DigitalOcean droplet.
-- **Tests:** 112 passing (`ruff` clean, `pip-audit` clean).
+- **Tests:** 167 passing (`ruff` clean, `pip-audit` clean).
 - **Worker:** installed and running — scoring is self-serve end-to-end (intake →
   queue → background fetch+score → results). One worker only (see §6, parallelism).
 
@@ -36,7 +36,17 @@ A working reference for picking up development. Read this first, then
   (groups are tagged by `mode`, each menu manages only its own):
   1. **One-Time Snapshot** — configure a group (Brands mine/competitor →
      Products → Keywords), **Run**, see **current-state results only (no
-     trends)**, download a **snapshot PDF**.
+     trends)**, download a **snapshot PDF**. The results page (rebuilt 2026-08-23)
+     stacks five sections in this order: **What this group tracks** (config
+     summary), **Overall Search Ranking** (avg page-1 ranking per brand, over the
+     terms it appears on), **Search Ranking** (keyword → brand → avg ranking,
+     ordered keyword then avg asc), **Overall Share of Digital Shelf** (table +
+     a CSS/HTML **stacked bar chart** of each brand's organic/sponsored *share
+     %* — not raw counts), and **Share of Digital Shelf** (per-keyword table,
+     ordered keyword then total-share desc). The **snapshot PDF mirrors the page**
+     (all sections incl. the summary; the chart is omitted, the tables carry the
+     numbers). While a run is queued/running the subtitle **flashes** and
+     `ci_config.js` reloads on completion.
   2. **Monitoring Setup** — configure, **Schedule & Run** (turns on the 3×/day
      sweep at 7 AM / 3 PM / 11 PM CST **and** runs an immediate baseline), shows
      the **next scheduled run time**.
@@ -180,7 +190,7 @@ worker.py            background worker (systemd): drains BOTH queues — scoring
                      (fetch -> keywords -> score -> save) and copy (fetch current
                      copy, then AI-generate new copy + projected score)
 deploy/              DEPLOY.md, *.service units, nginx.conf, setup-droplet.sh
-tests/               162 tests (auth, jobs, pdp, scoring, fetch, pages, keywords,
+tests/               167 tests (auth, jobs, pdp, scoring, fetch, pages, keywords,
                      admin, copygen, copy_jobs, copy, ci_config/jobs/scraper/
                      analysis/worker/monitoring/pages)
 ```
@@ -196,7 +206,11 @@ products/keywords CRUD, user-scoped/IDOR-checked; groups carry a `mode` =
 snapshot|monitoring), `ci_jobs.py` (run queue + result writers + SoS rollup),
 `ci_scraper.py` (search-page card extraction + pure row builder), `ci_analysis.py`
 (period windows, rank/SoS summaries & trends, `next_monitoring_run`, run-scoped
-`snapshot_*` aggregations), `enqueue_monitoring.py` (timer entry point).
+`snapshot_*` aggregations — incl. `snapshot_brand_avg_rank`,
+`snapshot_rank_by_keyword_brand`, `snapshot_share_by_keyword` for the rebuilt
+snapshot page; the older `snapshot_rank` is now test-only), `enqueue_monitoring.py`
+(timer entry point). The snapshot page + PDF share `pages._snapshot_data()` so
+the two never drift.
 Worker drains CI runs in `worker.process_ci_run`. Routes `pages.ci_*` (three
 flows: snapshot/monitoring/view) + templates `templates/app/ci_{snapshot_home,
 monitoring_home,group_config,snapshot_results,view}.html` + `_ci_help.html`;
@@ -300,7 +314,31 @@ to the RAM. The queue claim (`jobs.claim_next`) is already concurrency-safe.
 
 ## 7. Known gaps / next-up roadmap
 
-Done this cycle (kept for context): worker install; attribute extraction;
+**Session 2026-08-23 (all live on main).** Focused on the CI **One-Time Snapshot**
+results page + UX polish:
+- **Rebuilt the snapshot results page** into five sections (see §1 for the order
+  and semantics). New aggregations `snapshot_brand_avg_rank`,
+  `snapshot_rank_by_keyword_brand`, `snapshot_share_by_keyword` in `ci_analysis.py`;
+  page + PDF share `pages._snapshot_data()`.
+- **Share-of-shelf stacked bar chart** (CSS/HTML, CSP-safe, no library): segments
+  are the table's **organic/sponsored share %** (raw counts are organic-heavy and
+  mislead); bars fill the plot width, are labeled with total-share %, and
+  bottom-align via a fixed-height `.sos-col-plot` (so a wrapping brand name can't
+  lift a bar). Styles: `.sos-*`, `.ci-summary`, `.header-actions` in `workspace.css`.
+- **CI snapshot PDF now mirrors the page** (`build_ci_snapshot_pdf`, keyword-only
+  args) — summary + both ranking tables + both share tables; chart omitted.
+- **Button-contrast fixes:** `wbtn-primary` buttons were being restyled to
+  low-contrast text by `.ci-periods a`; moved them to the new **`.header-actions`**
+  wrapper (Download PDF on snapshot + View results on the config header; View
+  Monitoring header de-inlined). See §9.
+- **UX:** subtitle **flashes while scraping** (same cue as PDP scoring); **item-URL
+  fields autofill** `pdp.WALMART_IP_PREFIX` (`https://www.walmart.com/ip/`) on PDP
+  scoring/copy + CI product so the user only appends the number (`collect_items`
+  now requires an item number and silently skips a bare prefix; see §9); CI
+  **keywords accept a comma-separated list** (add several at once, IDOR-guarded
+  route, note in the form).
+
+Done earlier (kept for context): worker install; attribute extraction;
 key-feature extraction; keyword coverage Phase 1 + category cache; main-image
 white-bg check; admin screens; PDF export; HTTPS/cache-busting fixes;
 **PDP Copy Content Creation** (AI copy rewrite — the generation half of the AI
@@ -343,6 +381,17 @@ count shown. Also tweaked URL-field hint copy ("…with item number at the end")
    monitoring accumulates multi-day history; consider a per-keyword page-1 depth
    cap (today the scraper takes all cards the item-stack yields, ~50/keyword).
 5. **Nice-to-haves:** retry `blocked` items, a scoring history view.
+6. **CI/infra maintenance:** the Actions runs warn that `actions/checkout` and
+   `actions/setup-python` still target the **deprecated Node 20** (GitHub is
+   force-running them on Node 24 for now). Bump those action versions in a small
+   PR before a runner change breaks the pipeline. Also: the **monitoring PDF**
+   (`build_ci_monitoring_pdf`) and the **View-Monitoring page** still use the older
+   two-table layout — bring them in line with the rebuilt snapshot page if desired.
+7. **Snapshot ranking semantics to keep in mind:** "Overall Search Ranking" is a
+   two-stage average (avg per keyword, then across the terms a brand placed on) so
+   it reconciles with the per-keyword "Search Ranking" table; absent terms are
+   excluded, not penalized. Per-keyword "Share of Digital Shelf" uses **each
+   keyword's own slots** as the denominator (rows sum to ~100% incl. "Other").
 
 ---
 
@@ -406,6 +455,19 @@ cd ~/Desktop/ClaudeStuff/ecomm-copilot-clean
   (bit us with `title`).
 - **Concurrent sessions:** avoid two chats committing in this folder at once —
   they race.
+- **`.ci-periods a` restyles anchors:** the period-pill rule (`.ci-periods a`,
+  specificity 0,1,1) beats `.wbtn-primary` (0,1,0) and forces low-contrast text
+  onto a primary button's dark fill. Put `.wbtn` header buttons in **`.header-actions`**,
+  not `.ci-periods` (which is only for the View-Monitoring period pills). This bit
+  us three times (Download PDF, View results, View-Monitoring header).
+- **Item-URL fields autofill a prefix:** `pdp.WALMART_IP_PREFIX` prefills the URL
+  inputs and `intake.js` keeps a matching `URL_PREFIX` copy (keep them in sync).
+  `pdp.collect_items` now **requires an item number** — a URL that is just the
+  prefix (an untouched autofill row) is skipped silently; an edited-but-numberless
+  URL is a reject. So item-less URLs are no longer accepted for scoring/copy.
+- **CI snapshot page ↔ PDF:** both render from `pages._snapshot_data()`. When you
+  add or reshape a snapshot section, update that helper (and `build_ci_snapshot_pdf`)
+  or the page and PDF drift.
 
 ---
 
