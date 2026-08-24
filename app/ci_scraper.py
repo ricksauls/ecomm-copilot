@@ -130,13 +130,20 @@ def build_result_rows(cards: list[dict], *, run_id: int, group_id: int, keyword_
     ``/ip/<slug>/<number>`` URL (same rule as intake, :func:`pdp.item_number_from_url`).
     That numeric id is also what we store, so the ranking join
     (``ci_search_results.item_id = ci_products.walmart_item_id``) lines up.
-    A cleaned-URL match is kept as a fallback, and finally a **brand-name** match
-    against the card title attributes cards we can't tie to a tracked product —
-    notably sponsored slots (different id + tracking URL) and a brand's untracked
-    SKUs — so they still count toward that brand's share of shelf.
-    ``seen_ids_by_brand`` (brand_id -> set of item ids seen) drives new-SKU
-    detection for tracked competitor brands; it is mutated in place so a caller can
-    carry it across a run.
+    A cleaned-URL match is kept as a fallback. A tracked product's **sponsored**
+    slot, though, carries a *different* opaque id and a tracking URL (no
+    /ip/<number>), so none of those reach it — but Walmart shows it the *same
+    product title* as the product's organic card. So we first learn each tracked
+    product's title from its id-matched (organic) card, then tie a sponsored slot
+    with an identical title back to that tracked item, storing the tracked numeric
+    id so the ranking join reaches it. (Ported from the WM SOV tool, which
+    name-matches sponsored variant ids to their canonical tracked id.) Only the
+    *tracked* SKU's sponsored slots are tied back this way — a brand's other
+    sponsored SKUs are not. Finally a **brand-name** match attributes whatever is
+    left (untracked SKUs, sponsored or organic) so it still counts toward that
+    brand's share of shelf. ``seen_ids_by_brand`` (brand_id -> set of item ids
+    seen) drives new-SKU detection for tracked competitor brands; it is mutated in
+    place so a caller can carry it across a run.
     """
     scrape_date = scrape_date or date.today().isoformat()
     seen_ids_by_brand = seen_ids_by_brand if seen_ids_by_brand is not None else {}
@@ -155,6 +162,30 @@ def build_result_rows(cards: list[dict], *, run_id: int, group_id: int, keyword_
         key=lambda t: -len(t[0]),
     )
 
+    def _match_by_id(card: dict) -> dict | None:
+        """Match a card to a tracked product by numeric id, raw id, then cleaned URL."""
+        url = card.get("product_url") or ""
+        numeric = item_number_from_url(url) if url else None
+        product = item_map.get(numeric) if numeric else None
+        if product is None and card.get("item_id"):
+            product = item_map.get(card["item_id"])
+        if product is None and url:
+            product = url_map.get(_clean_url(url))
+        return product
+
+    # Pre-pass: learn each tracked product's normalized title from a card we can tie
+    # to it by id (its organic slot). A sponsored slot of the *same* product shows an
+    # identical title, so this lets the loop below attribute that sponsored slot back
+    # to the tracked item even though its id is opaque. Sponsored cards usually sit
+    # ABOVE the organic ones, so this must run before the positional loop.
+    tracked_title_map: dict[str, dict] = {}
+    for card in cards:
+        product = _match_by_id(card)
+        if product is not None:
+            key = _norm_name(card.get("name"))
+            if key:
+                tracked_title_map.setdefault(key, product)
+
     rows: list[dict] = []
     for position, card in enumerate(cards, start=1):
         listing_type = "sponsored" if card.get("listing_type") == "sponsored" else "organic"
@@ -167,16 +198,22 @@ def build_result_rows(cards: list[dict], *, run_id: int, group_id: int, keyword_
         item_id = numeric_id or raw_id or None
 
         # 1) Precise product match (item number, raw id, then cleaned URL).
-        matched = item_map.get(numeric_id) if numeric_id else None
-        if not matched and raw_id:
-            matched = item_map.get(raw_id)
-        if not matched and product_url:
-            matched = url_map.get(_clean_url(product_url))
+        matched = _match_by_id(card)
+
+        # 2) Tracked-item sponsored match: same title as the product's organic card
+        # (learned above) but a different opaque id. Tie it back and store the tracked
+        # numeric id so the ranking join (item_id = walmart_item_id) reaches it.
+        if matched is None:
+            title_match = tracked_title_map.get(_norm_name(card.get("name")))
+            if title_match is not None:
+                matched = title_match
+                item_id = title_match["walmart_item_id"]
+
         brand_id = matched["brand_id"] if matched else None
 
-        # 2) Brand-name fallback: attribute by the brand name in the card title.
-        # This is how sponsored placements (and a brand's untracked SKUs) get
-        # counted toward that brand's share of the shelf.
+        # 3) Brand-name fallback: attribute by the brand name in the card title.
+        # This is how a brand's untracked SKUs (sponsored or organic) get counted
+        # toward that brand's share of the shelf.
         if brand_id is None:
             card_norm = _norm_name(card.get("name"))
             if card_norm:

@@ -80,6 +80,53 @@ def test_sponsored_card_attributed_by_brand_name():
     assert rows[0]["position_type"] == "sponsored"
 
 
+def test_tracked_item_sponsored_slot_matched_by_title():
+    # A tracked product's sponsored slot has an opaque id + tracking URL, but the
+    # SAME title as its organic card. It should be tied back to the tracked item
+    # (numeric id stored), so its position counts in the item's ranking. Sponsored
+    # sits ABOVE organic here, exercising the two-pass title learning.
+    title = "Frank's RedHot Original Cayenne Pepper Sauce, 5 fl oz"
+    item_map = {"17247773": _product("17247773", brand_id=6,
+                                     url="https://www.walmart.com/ip/x/17247773")}
+    brand_map = {6: _brand(6, "competitor", name="Frank's Red Hot")}
+    rows = ci_scraper.build_result_rows(
+        [
+            _card(title, "3K2RMCS1KI5D", listing_type="sponsored", product_url=""),
+            _card(title, "opaque-org",
+                  product_url="https://www.walmart.com/ip/franks/17247773"),
+        ],
+        run_id=1, group_id=1, keyword_id=1, item_map=item_map, brand_map=brand_map,
+    )
+    spon, org = rows[0], rows[1]
+    assert org["item_id"] == "17247773" and org["brand_id"] == 6
+    # The sponsored slot now carries the tracked numeric id and brand.
+    assert spon["position_type"] == "sponsored"
+    assert spon["item_id"] == "17247773" and spon["brand_id"] == 6
+
+
+def test_untracked_brand_sponsored_slot_not_tied_to_tracked_item():
+    # A sponsored slot for a DIFFERENT (untracked) SKU of the brand has a different
+    # title, so it must NOT inherit the tracked item's numeric id — only brand-name
+    # attribution (for share of shelf), keeping its opaque id.
+    tracked_title = "Frank's RedHot Original Cayenne Pepper Sauce, 5 fl oz"
+    item_map = {"17247773": _product("17247773", brand_id=6,
+                                     url="https://www.walmart.com/ip/x/17247773")}
+    brand_map = {6: _brand(6, "competitor", name="Frank's Red Hot")}
+    rows = ci_scraper.build_result_rows(
+        [
+            _card("Frank's RedHot Buffalo Wings Sauce, 12 fl oz", "OTHERSKU01",
+                  listing_type="sponsored", product_url=""),
+            _card(tracked_title, "opaque-org",
+                  product_url="https://www.walmart.com/ip/franks/17247773"),
+        ],
+        run_id=1, group_id=1, keyword_id=1, item_map=item_map, brand_map=brand_map,
+    )
+    other = rows[0]
+    assert other["position_type"] == "sponsored"
+    assert other["brand_id"] == 6            # counts toward brand share of shelf
+    assert other["item_id"] == "OTHERSKU01"  # but NOT the tracked numeric id
+
+
 def test_name_match_does_not_override_precise_product_match():
     # A card that matches a tracked product by item id keeps that product's brand,
     # even if another brand's name also appears in the title.
