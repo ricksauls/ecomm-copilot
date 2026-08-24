@@ -12,6 +12,7 @@ import logging
 from datetime import datetime, timezone
 from xml.sax.saxutils import escape
 
+from reportlab.graphics.shapes import Drawing, Rect, String
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_LEFT
 from reportlab.lib.pagesizes import letter
@@ -32,6 +33,10 @@ _INK = colors.HexColor("#050505")
 _MUTED = colors.HexColor("#6b6b6b")
 _RULE = colors.HexColor("#d9d9d9")
 _HEADER_BG = colors.HexColor("#f3f3f3")
+# Share-of-shelf chart segment fills, matching workspace.css: organic reuses the
+# ink (--black), sponsored uses the cool-gray (--cool-gray).
+_ORGANIC = _INK
+_SPONSORED = colors.HexColor("#8c8c8c")
 
 
 def _styles() -> dict:
@@ -399,15 +404,71 @@ def _share_by_keyword_table(share_rows: list[dict], styles: dict) -> Table:
     return _ci_table(rows, [w * inch for w in (1.5, 1.5, 0.9, 0.9, 1.0, 1.0)], styles)
 
 
+def _sos_chart(sos_rows: list[dict]) -> Drawing | Spacer:
+    """Stacked-bar chart of each brand's organic/sponsored share of the shelf.
+
+    Mirrors the on-screen chart (``ci_snapshot_results.html``): one vertical bar
+    per brand, organic (ink) at the base with sponsored (gray) stacked on top,
+    every bar scaled to the tallest organic+sponsored stack, labeled with the
+    brand's total share above and its name below. Drawn with reportlab shapes so
+    it renders synchronously in the request — no chart library, matching the
+    strict-CSP constraint the HTML view works under. Returns an empty spacer when
+    there is nothing to plot.
+    """
+    # Scale to the tallest stack, exactly as the page does (sos_scale =
+    # max organic+sponsored) so the PDF and screen bars have identical proportions.
+    scale = max((r["organic_share"] + r["sponsored_share"] for r in sos_rows), default=0)
+    if scale <= 0:
+        return Spacer(1, 0)
+
+    plot_h = 150          # height of the tallest bar, in points
+    top_pad = 14          # room above the bars for the total-share label
+    bottom_pad = 12       # room below the bars for the brand-name label
+    bar_w, gap = 46, 20
+    n = len(sos_rows)
+    width = n * bar_w + (n - 1) * gap
+    # Keep the chart within the usable page width; shrink bars/gaps if a group has
+    # many brands rather than letting the drawing overflow the margins.
+    max_width = 500
+    if width > max_width:
+        shrink = max_width / width
+        bar_w *= shrink
+        gap *= shrink
+        width = n * bar_w + (n - 1) * gap
+
+    height = plot_h + top_pad + bottom_pad
+    drawing = Drawing(width, height)
+    drawing.hAlign = "CENTER"
+    x = 0.0
+    for r in sos_rows:
+        org_h = r["organic_share"] / scale * plot_h
+        spon_h = r["sponsored_share"] / scale * plot_h
+        if org_h > 0:
+            drawing.add(Rect(x, bottom_pad, bar_w, org_h, fillColor=_ORGANIC, strokeColor=None))
+        if spon_h > 0:
+            drawing.add(Rect(x, bottom_pad + org_h, bar_w, spon_h,
+                             fillColor=_SPONSORED, strokeColor=None))
+        cx = x + bar_w / 2
+        drawing.add(String(cx, bottom_pad + org_h + spon_h + 3, f"{r['total_share']}%",
+                           fontName="Helvetica-Bold", fontSize=8, fillColor=_INK,
+                           textAnchor="middle"))
+        # Truncate a long brand name so a centered label can't collide with its
+        # neighbours (bars are narrow; the table carries the full names).
+        label = r["brand_name"] if len(r["brand_name"]) <= 12 else r["brand_name"][:11] + "…"
+        drawing.add(String(cx, 2, label, fontName="Helvetica", fontSize=7,
+                           fillColor=_MUTED, textAnchor="middle"))
+        x += bar_w + gap
+    return drawing
+
+
 def build_ci_snapshot_pdf(group: dict, *, config_summary: dict, avg_ranks: list[dict],
                           rank_rows: list[dict], sos_rows: list[dict],
                           share_rows: list[dict]) -> bytes:
     """One-Time Snapshot PDF — mirrors the results page, current-state (no trends).
 
     Sections, in page order: the config summary, Overall Search Ranking, per-keyword
-    Search Ranking, Overall Share of Digital Shelf, and per-keyword Share of Digital
-    Shelf. (The on-screen stacked bar chart is omitted; the share tables carry the
-    same numbers.)
+    Search Ranking, Overall Share of Digital Shelf (table + the stacked bar chart),
+    and per-keyword Share of Digital Shelf.
     """
     styles = _styles()
     buffer = io.BytesIO()
@@ -426,6 +487,18 @@ def build_ci_snapshot_pdf(group: dict, *, config_summary: dict, avg_ranks: list[
     flow.append(Spacer(1, 10))
     flow.append(Paragraph("Overall Share of Digital Shelf", styles["item"]))
     flow.append(_sos_table(sos_rows, styles, with_delta=False))
+    chart = _sos_chart(sos_rows)
+    if not isinstance(chart, Spacer):
+        flow.append(Spacer(1, 10))
+        flow.append(chart)
+        # Legend mirrors the page's: colored square + label per segment type.
+        flow.append(Spacer(1, 4))
+        flow.append(Paragraph(
+            '<font color="#050505">■</font> Organic share'
+            ' &#160;&#160;&#160; '
+            '<font color="#8c8c8c">■</font> Sponsored share',
+            styles["cellmuted"],
+        ))
     flow.append(Spacer(1, 10))
     flow.append(Paragraph("Share of Digital Shelf", styles["item"]))
     flow.append(_share_by_keyword_table(share_rows, styles))
