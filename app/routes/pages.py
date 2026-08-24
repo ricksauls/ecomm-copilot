@@ -67,9 +67,18 @@ def dashboard():
     """
     logger.info("Serving dashboard")
     view_model = fixtures.get_dashboard()
+    # Personalize the demo view model: the portfolio header shows the signed-in
+    # user, and "Products managed" reflects the distinct products they've actually
+    # worked on (scored or created copy for).
+    view_model["agency"]["name"] = g.user["email"]
+    managed = jobs.count_managed_products(get_db(), g.user["id"])
+    for kpi in view_model["kpis"]:
+        if kpi["label"] == "Products managed":
+            kpi["value"] = str(managed)
+            kpi.pop("footnote", None)  # drop the demo "+6 this month" note
     return render_template(
         "app/dashboard.html",
-        breadcrumb="Meridian Commerce Group",
+        breadcrumb="",  # no name at the very top (topbar breadcrumb)
         active_nav="dashboard",
         **view_model,
     )

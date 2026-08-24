@@ -81,6 +81,27 @@ def count_items(conn: sqlite3.Connection) -> int:
     return int(conn.execute("SELECT COUNT(*) FROM scored_items").fetchone()[0])
 
 
+def count_managed_products(conn: sqlite3.Connection, user_id: int) -> int:
+    """Distinct products a user has worked on — the dashboard "Products managed" KPI.
+
+    A product counts once if the user has scored it OR created copy content for it
+    (creative/image sets will union in here once that feature exists). Keyed on the
+    Walmart item id, so the same product across scoring + copy is counted once;
+    rows without an item id (a failed parse) are excluded.
+    """
+    row = conn.execute(
+        "SELECT COUNT(*) FROM ("
+        "  SELECT item_id FROM scored_items "
+        "    WHERE user_id = ? AND item_id IS NOT NULL AND item_id != '' "
+        "  UNION "
+        "  SELECT item_id FROM copy_items "
+        "    WHERE user_id = ? AND item_id IS NOT NULL AND item_id != ''"
+        ")",
+        (user_id, user_id),
+    ).fetchone()
+    return int(row[0])
+
+
 def list_items(conn: sqlite3.Connection, limit: int = 200) -> list[sqlite3.Row]:
     """Return recent items across all users (with submitter email) for admin.
 

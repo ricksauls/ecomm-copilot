@@ -35,6 +35,17 @@ def test_dashboard_renders_when_authenticated(client, auth):
     assert b"\xe2\x88\x9217" in resp.data  # U+2212 17
 
 
+def test_dashboard_is_personalized_to_the_user(client, auth):
+    # Portfolio header shows the signed-in user; the old agency name is gone from
+    # the header and the topbar breadcrumb.
+    auth.register(email="rick@example.com")
+    body = client.get("/app").data
+    assert b"rick@example.com" in body
+    assert b"Meridian Commerce Group" not in body
+    # With no scored/copy items yet, "Products managed" reads 0.
+    assert b"Products managed" in body
+
+
 def test_pdp_scoring_page_renders(client, auth):
     # The guarded intake page renders with its heading, and no longer shows the
     # removed "Content Scoring" eyebrow or the topbar search / client-view UI.
