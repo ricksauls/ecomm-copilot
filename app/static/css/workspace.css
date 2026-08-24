@@ -307,6 +307,7 @@ body.workspace {
   border: 1px solid transparent;
   cursor: pointer;
   text-decoration: none;
+  white-space: nowrap;  /* keep multi-word labels (e.g. "Set up & run") on one line */
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1376,7 +1377,9 @@ a:focus-visible,
 .ci-group-card { display: flex; flex-direction: column; gap: 10px; }
 .ci-group-card .name { font-size: 16px; font-weight: 600; }
 .ci-group-card .meta { font-size: 12px; color: var(--cool-gray); }
-.ci-group-card .actions { display: flex; gap: 8px; margin-top: auto; align-items: center; }
+/* Wrap so a card narrow enough to not fit every action drops buttons to the next
+   row instead of squeezing (and hyphenating) their labels. */
+.ci-group-card .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: auto; align-items: center; }
 
 /* Small type pill for brand type (mine|competitor) — reuses chip radius. */
 .ci-type {

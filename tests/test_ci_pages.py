@@ -142,6 +142,32 @@ def test_schedule_run_enables_monitoring_and_enqueues(client, auth):
         assert ci_jobs.has_active_run(db, gid) is True
 
 
+def test_schedule_from_snapshot_clones_into_monitoring_and_enqueues(client, auth):
+    auth.register()
+    gid = _snapshot_group(client)
+    with client.application.app_context():
+        db = get_db()
+        b = ci_config.add_brand(db, gid, 1, "Tabasco", "mine")
+        ci_config.add_product(db, gid, b, 1, "https://www.walmart.com/ip/x/10294528")
+        ci_config.add_keyword(db, gid, 1, "hot sauce")
+
+    resp = client.post(f"/app/competitive-intel/groups/{gid}/schedule-monitoring")
+    # Redirects to the NEW group's config screen.
+    assert resp.status_code == 302
+    new_id = int(resp.headers["Location"].rstrip("/").split("/")[-1])
+    assert new_id != gid
+
+    with client.application.app_context():
+        db = get_db()
+        new = ci_config.get_group(db, new_id, 1)
+        assert new["mode"] == "monitoring" and new["monitoring_enabled"] == 1
+        assert ci_jobs.has_active_run(db, new_id) is True
+        # Source snapshot untouched: still a snapshot, no run queued on it.
+        src = ci_config.get_group(db, gid, 1)
+        assert src["mode"] == "snapshot" and src["monitoring_enabled"] == 0
+        assert ci_jobs.has_active_run(db, gid) is False
+
+
 def test_view_dropdown_lists_only_monitoring_groups(client, auth):
     auth.register()
     # One snapshot + one monitoring group; only the monitoring one appears in View.
@@ -178,6 +204,8 @@ def test_idor_across_new_routes(client, auth, app):
     # Mutations refused, and the victim's group is untouched.
     assert client.post(f"/app/competitive-intel/groups/{other_gid}/schedule-run").status_code == 404
     assert client.post(f"/app/competitive-intel/groups/{other_gid}/run").status_code == 404
+    assert client.post(
+        f"/app/competitive-intel/groups/{other_gid}/schedule-monitoring").status_code == 404
     with app.app_context():
         db = get_db()
         grp = db.execute("SELECT monitoring_enabled FROM ci_groups WHERE id=?", (other_gid,)).fetchone()

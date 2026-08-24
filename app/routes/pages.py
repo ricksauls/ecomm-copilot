@@ -674,6 +674,31 @@ def ci_run_snapshot(group_id):
     return redirect(url_for("pages.ci_snapshot_results", group_id=group_id))
 
 
+@bp.route("/app/competitive-intel/groups/<int:group_id>/schedule-monitoring", methods=["POST"])
+@login_required
+def ci_schedule_from_snapshot(group_id):
+    """Clone a snapshot group into a monitoring group, then queue a baseline run.
+
+    The snapshot card's "Schedule for monitoring" action: promote a one-time
+    competitive set to ongoing 3x/day tracking without disturbing the snapshot.
+    Lands on the new monitoring group's config so the user can confirm the setup.
+    """
+    _owned_group_or_404(group_id)  # IDOR gate before we touch anything
+    db = get_db()
+    try:
+        new_group_id = ci_config.clone_group_as_monitoring(db, group_id, g.user["id"])
+    except ci_config.ConfigError as e:
+        flash(str(e), "error")
+        return redirect(url_for("pages.ci_snapshot_home"))
+
+    ci_jobs.enqueue_run(db, new_group_id, run_type="one_time")
+    flash("Monitoring group created from this snapshot — a baseline run is queued "
+          "and automatic checks run 3×/day.", "ok")
+    logger.info("CI schedule-from-snapshot src=%s new=%s user_id=%s",
+                group_id, new_group_id, g.user["id"])
+    return _config_redirect(new_group_id)
+
+
 def _snapshot_data(db, group_id):
     """Gather every section the snapshot results page and its PDF render.
 

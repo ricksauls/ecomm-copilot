@@ -47,6 +47,13 @@
     <div class="actions">
       <a href="{{ url_for('pages.ci_group_config', group_id=gr.id) }}" class="wbtn wbtn-primary">Set up &amp; run</a>
       <a href="{{ url_for('pages.ci_snapshot_results', group_id=gr.id) }}" class="wbtn wbtn-secondary">Results</a>
+      {# Promote this one-time set to ongoing tracking: clones it into a monitoring
+         group (leaving this snapshot as-is) and queues a baseline run. #}
+      <form method="post" action="{{ url_for('pages.ci_schedule_from_snapshot', group_id=gr.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+        <button type="submit" class="wbtn wbtn-secondary"
+                data-confirm="Create a monitoring group from this snapshot? It will be tracked automatically 3×/day.">Schedule for monitoring</button>
+      </form>
       <form method="post" action="{{ url_for('pages.ci_delete_group', group_id=gr.id) }}"
             style="margin-left:auto">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />

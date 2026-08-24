@@ -129,6 +129,55 @@ def test_snapshot_group_never_swept_even_if_monitoring_flag_set(app):
         assert ci_config.groups_with_monitoring(db) == []
 
 
+def test_clone_group_as_monitoring_copies_config_and_enables_sweep(app):
+    with app.app_context():
+        uid = create_local_user("clone@example.com", "password123")
+        db = get_db()
+        snap = ci_config.create_group(db, uid, "Hot Sauce", "desc", mode="snapshot")
+        b_mine = ci_config.add_brand(db, snap, uid, "Tabasco", "mine")
+        ci_config.add_brand(db, snap, uid, "Frank's", "competitor")
+        ci_config.add_product(db, snap, b_mine, uid,
+                              "https://www.walmart.com/ip/tabasco/10294528")
+        ci_config.add_keyword(db, snap, uid, "hot sauce")
+
+        new_id = ci_config.clone_group_as_monitoring(db, snap, uid)
+        assert new_id != snap
+
+        # New group is a monitoring group with the sweep on and identical config.
+        new = ci_config.get_group(db, new_id, uid)
+        assert new["mode"] == "monitoring"
+        assert new["monitoring_enabled"] == 1
+        assert new["name"] == "Hot Sauce" and new["description"] == "desc"
+        assert [g["id"] for g in ci_config.groups_with_monitoring(db)] == [new_id]
+
+        brands = ci_config.list_brands(db, new_id, uid)
+        assert {(b["name"], b["type"]) for b in brands} == {("Tabasco", "mine"),
+                                                            ("Frank's", "competitor")}
+        products = ci_config.list_products(db, new_id, uid)
+        assert len(products) == 1
+        assert products[0]["walmart_item_id"] == "10294528"
+        # Product re-points at the CLONED brand, not the source brand.
+        assert products[0]["brand_id"] != b_mine
+        assert products[0]["brand_name"] == "Tabasco"
+        assert [k["keyword"] for k in ci_config.list_keywords(db, new_id, uid)] == ["hot sauce"]
+
+        # Source snapshot is left untouched (still a snapshot, sweep still off).
+        src = ci_config.get_group(db, snap, uid)
+        assert src["mode"] == "snapshot" and src["monitoring_enabled"] == 0
+
+
+def test_clone_group_as_monitoring_rejects_other_users_group(app):
+    with app.app_context():
+        owner = create_local_user("owner2@example.com", "password123")
+        intruder = create_local_user("intruder2@example.com", "password123")
+        db = get_db()
+        gid = ci_config.create_group(db, owner, "Private", mode="snapshot")
+        with pytest.raises(ConfigError):
+            ci_config.clone_group_as_monitoring(db, gid, intruder)
+        # No stray group created for the intruder.
+        assert ci_config.list_groups(db, intruder) == []
+
+
 def test_list_groups_filters_by_mode(app):
     with app.app_context():
         uid = create_local_user("mode@example.com", "password123")
