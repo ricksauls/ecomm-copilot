@@ -1,6 +1,6 @@
 # ecomm-copilot — Session Handoff
 
-_Last updated: 2026-08-23._
+_Last updated: 2026-08-24._
 
 A working reference for picking up development. Read this first, then
 `CLAUDE.md` (coding standards) and `deploy/DEPLOY.md` (infra).
@@ -14,13 +14,18 @@ A working reference for picking up development. Read this first, then
   `~/Desktop/ClaudeStuff/ecomm-copilot-clean`.
 - **Stack:** Python / Flask, SQLite, server-rendered Jinja templates, deployed
   by GitHub Actions to a DigitalOcean droplet.
-- **Tests:** 167 passing (`ruff` clean, `pip-audit` clean).
+- **Tests:** 204 passing (`ruff` clean, `pip-audit` clean).
 - **Worker:** installed and running — scoring is self-serve end-to-end (intake →
   queue → background fetch+score → results). One worker only (see §6, parallelism).
 
 **What works today:**
 - Marketing **landing** page (dark), self-service **auth** (email/password +
   Google SSO), login-guarded **workspace**.
+- **Contact Us messaging** (in-app, two-way) — users open threads (subject +
+  category: question/issue/customization/other) and see replies as a
+  conversation; admins get a **Messages** inbox (unread first) and reply as the
+  team, with close/reopen. Unread counts show in the topbar bell + rail badges
+  for both sides (shared admin inbox). See §5, §3 (`app/messages.py`).
 - **PDP Content Scoring** end-to-end: intake (multi-URL or CSV, up to 100), queue,
   background fetch+score, results page (flashes while scoring, shows product
   title), and a **PDF export** of a batch.
@@ -38,15 +43,27 @@ A working reference for picking up development. Read this first, then
      Products → Keywords), **Run**, see **current-state results only (no
      trends)**, download a **snapshot PDF**. The results page (rebuilt 2026-08-23)
      stacks five sections in this order: **What this group tracks** (config
-     summary), **Overall Search Ranking** (avg page-1 ranking per brand, over the
-     terms it appears on), **Search Ranking** (keyword → brand → avg ranking,
-     ordered keyword then avg asc), **Overall Share of Digital Shelf** (table +
-     a CSS/HTML **stacked bar chart** of each brand's organic/sponsored *share
-     %* — not raw counts), and **Share of Digital Shelf** (per-keyword table,
-     ordered keyword then total-share desc). The **snapshot PDF mirrors the page**
-     (all sections incl. the summary; the chart is omitted, the tables carry the
-     numbers). While a run is queued/running the subtitle **flashes** and
-     `ci_config.js` reloads on completion.
+     summary — now with a **main-image thumbnail grid** for the tracked products,
+     mine-first; see §3 image cache), **Overall Search Ranking** (avg page-1
+     ranking per brand, over the terms it appears on, **+ a page-1 placement-map
+     grid**), **Search Ranking** (keyword → brand → avg ranking, ordered keyword
+     then avg asc), **Overall Share of Digital Shelf** (table + a CSS/HTML
+     **stacked bar chart** of each brand's organic/sponsored *share %* — not raw
+     counts), and **Share of Digital Shelf** (per-keyword table, ordered keyword
+     then total-share desc). The **snapshot PDF mirrors the page** (all sections
+     incl. the summary with thumbnails, the SoS **stacked-bar chart**, and the
+     **placement-map grid** — all drawn with reportlab shapes/images). While a run
+     is queued/running the subtitle **flashes** and `ci_config.js` reloads on
+     completion.
+     - **Placement map** (2026-08-24): a 4-col page-1 result grid, blank except
+       where each brand's *overall* average rank lands — my brand in signal red,
+       competitors in ink, ties split one tile into a chip per brand, exact
+       average on the tile. Grid depth = the run's deepest page-1 slot. Pure model
+       in `ci_analysis.build_rank_placement_map` (shared by page + PDF).
+     - **Schedule for monitoring** (2026-08-24): a button on each snapshot card
+       *clones* the set into a new `mode='monitoring'` group (leaving the snapshot
+       intact), enables the sweep, and queues a baseline —
+       `ci_config.clone_group_as_monitoring` + `pages.ci_schedule_from_snapshot`.
   2. **Monitoring Setup** — configure, **Schedule & Run** (turns on the 3×/day
      sweep at 7 AM / 3 PM / 11 PM CST **and** runs an immediate baseline), shows
      the **next scheduled run time**.
@@ -111,10 +128,15 @@ A working reference for picking up development. Read this first, then
 - **Xvfb:** `xvfb.service` on `:99` (from the WM scraper) — the worker reuses it.
 - **DB:** SQLite at `DATABASE_URL` (`/home/deploy/apps/ecomm-copilot/app.db`),
   chmod 600. Tables: `users`, `scored_items`, `keyword_cache`, `copy_items`
-  (Copy Content Creation), and the CI set `ci_groups` (+`mode`), `ci_brands`,
+  (Copy Content Creation), the CI set `ci_groups` (+`mode`), `ci_brands`,
   `ci_products`, `ci_keywords`, `ci_runs`, `ci_search_results`,
-  `ci_share_of_search`. Schema is created + migrated idempotently at web **and**
-  worker startup (`db.ensure_schema` = `_SCHEMA` + `_migrate`).
+  `ci_share_of_search`, and the messaging set `message_threads`, `messages`
+  (Contact Us). Schema is created + migrated idempotently at web **and** worker
+  startup (`db.ensure_schema` = `_SCHEMA` + `_migrate`).
+- **Media dir (cached product images):** `$MEDIA_DIR` (default `media/` next to
+  `app.db` → `/home/deploy/apps/ecomm-copilot/media/ci_products/<item_id>.jpg`).
+  Worker-populated, outside the repo (survives git-pull deploys), created on
+  first write. Zero-config; delete a file to force a re-fetch. See §3 + DEPLOY.md.
 - **Secrets / config** in `/home/deploy/apps/ecomm-copilot/.env` (chmod 600,
   never committed): `SECRET_KEY`, `DATABASE_URL`, `APP_URL`,
   `GOOGLE_CLIENT_ID/SECRET`, **`ADMIN_EMAILS`** (comma-separated allowlist =
@@ -152,8 +174,9 @@ Actions secrets (already set): `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY`,
 app/
   __init__.py        app factory: logging, strict-CSP headers, session
                      hardening, MAX_CONTENT_LENGTH, ADMIN_EMAILS config,
-                     blueprints, DB + OAuth init, before_request hooks, and two
-                     context processors (static_url + admin nav counts)
+                     blueprints, DB + OAuth init, before_request hooks, and three
+                     context processors (static_url + admin nav counts + message
+                     unread counts)
   db.py              SQLite schema + idempotent _migrate; per-request conn
   users.py           user CRUD, password hashing, record_login, list/count,
                      delete_user, count_created_since (new-user notification)
@@ -165,7 +188,10 @@ app/
   scoring.py         rule-based scorer: PdpRecord -> ScoreResult (see §4)
   fetch.py           Playwright fetch + __NEXT_DATA__ parse -> PdpRecord; Pillow
                      resolution + main-image white-background check; idml specs
-                     + longDescription bullets
+                     + longDescription bullets. _load_pdp_data (shared browser
+                     load) + fetch_main_image_url (image URL only, for CI cache)
+  ci_images.py       cached tracked-product main images: path guard (digits only,
+                     no traversal), download+downscale to JPEG, has/save/from_url
   keywords.py        keyword discovery: Walmart autocomplete + competitor SERP
                      mining -> ranked target set; cache_key (category-level)
   jobs.py            scored_items queue (enqueue/claim/save), admin list/count,
@@ -174,43 +200,58 @@ app/
                      output) -> GeneratedCopy. COPYGEN_MODEL, lazy SDK import
   copy_jobs.py       copy_items queue: two-phase fetch->generate lifecycle
                      (enqueue/claim/save_current/save_generated/request_generation)
-  pdf_export.py      reportlab PDFs: build_results_pdf (scored batch) +
-                     build_copy_pdf (copy batch, current vs new side by side)
+  messages.py        Contact Us model: threads + messages, per-side unread by
+                     *message id* (not timestamp — avoids same-second ties),
+                     create/reply/mark_read/set_status, unread counts, IDOR-scoped
+                     reads. CATEGORIES allowlist.
+  pdf_export.py      reportlab PDFs: build_results_pdf (scored batch),
+                     build_copy_pdf (copy batch), build_ci_snapshot_pdf (+ SoS
+                     stacked-bar chart, placement-map grid, product thumbnails),
+                     build_ci_monitoring_pdf
   routes/pages.py    landing, dashboard, PDP scoring + results + results.pdf,
-                     PDP copy (intake/results/generate/status/results.pdf) +
-                     scoring create-copy cross-link, admin users/items/copy + delete
+                     PDP copy (...), scoring create-copy cross-link, CI snapshot/
+                     monitoring/view + PDFs + schedule-from-snapshot,
+                     /media/ci-product/<id> (cached image), Contact Us
+                     (contact_home/create/thread/reply), admin users/items/copy +
+                     admin messages (inbox/thread/reply/status) + delete
   fixtures.py        demo data for the dashboard
   templates/…        public_base + landing/signin/signup; app/base + _rail,
-                     _topbar, dashboard, pdp_scoring, pdp_results, pdp_copy,
-                     pdp_copy_results, admin_users, admin_items, admin_copy
+                     _topbar, dashboard, pdp_*, ci_* , admin_users/items/copy,
+                     admin_messages, contact_home, contact_thread (shared
+                     user+admin thread view)
   static/            css/{tokens,public,workspace}.css,
-                     js/{intake,admin_users}.js  (intake.js is shared by the
-                     scoring + copy intake pages), img/{logo,favicon,...}
-worker.py            background worker (systemd): drains BOTH queues — scoring
-                     (fetch -> keywords -> score -> save) and copy (fetch current
-                     copy, then AI-generate new copy + projected score)
+                     js/{intake,admin_users,ci_*}.js, img/{logo,favicon,...}
+worker.py            background worker (systemd): drains scoring, copy, and CI
+                     queues. process_ci_run also caches each tracked product's
+                     main image once (_cache_ci_product_images, best-effort)
 deploy/              DEPLOY.md, *.service units, nginx.conf, setup-droplet.sh
-tests/               167 tests (auth, jobs, pdp, scoring, fetch, pages, keywords,
+tests/               204 tests (auth, jobs, pdp, scoring, fetch, pages, keywords,
                      admin, copygen, copy_jobs, copy, ci_config/jobs/scraper/
-                     analysis/worker/monitoring/pages)
+                     analysis/worker/monitoring/pages, ci_images, messages,
+                     messages_pages)
 ```
 
-**Nav (rail):** **Dashboard** (top-level, no sub-menu); **Content Studio**
-section — PDP Content Scoring (built), PDP Image Set Creation (placeholder), PDP
-Copy Content Creation (built); **Competitive Intelligence** section — One-Time
-Snapshot, Monitoring Setup, View Monitoring (all built). **Admin** section (below
-Credits, admins only): Users, Items scored, Copy created, each with a live count.
+**Nav (rail):** **Dashboard** + **Contact Us** (top-level; Contact Us shows an
+unread badge); **Content Studio** section — PDP Content Scoring (built), PDP Image
+Set Creation (placeholder), PDP Copy Content Creation (built); **Competitive
+Intelligence** section — One-Time Snapshot, Monitoring Setup, View Monitoring (all
+built). **Admin** section (below Credits, admins only): Users, Items scored, Copy
+created, **Messages** (unread badge), each with a live count. The **topbar** bell
+shows unread-message counts (admin inbox for admins, own replies for users) plus
+the admins-only new-user badge.
 
 **Competitive Intelligence modules** (`app/`): `ci_config.py` (groups/brands/
 products/keywords CRUD, user-scoped/IDOR-checked; groups carry a `mode` =
-snapshot|monitoring), `ci_jobs.py` (run queue + result writers + SoS rollup),
-`ci_scraper.py` (search-page card extraction + pure row builder), `ci_analysis.py`
-(period windows, rank/SoS summaries & trends, `next_monitoring_run`, run-scoped
+snapshot|monitoring; `clone_group_as_monitoring` powers snapshot→monitoring),
+`ci_jobs.py` (run queue + result writers + SoS rollup), `ci_scraper.py`
+(search-page card extraction + pure row builder), `ci_analysis.py` (period
+windows, rank/SoS summaries & trends, `next_monitoring_run`, run-scoped
 `snapshot_*` aggregations — incl. `snapshot_brand_avg_rank`,
-`snapshot_rank_by_keyword_brand`, `snapshot_share_by_keyword` for the rebuilt
-snapshot page; the older `snapshot_rank` is now test-only), `enqueue_monitoring.py`
-(timer entry point). The snapshot page + PDF share `pages._snapshot_data()` so
-the two never drift.
+`snapshot_rank_by_keyword_brand`, `snapshot_share_by_keyword`; `snapshot_page1_depth`
++ pure `build_rank_placement_map` for the placement grid; the older `snapshot_rank`
+is now test-only), `enqueue_monitoring.py` (timer entry point). The snapshot page +
+PDF share `pages._snapshot_data()` (which builds the placement map + thumbnail
+`image_url`/`image_path` per product) so the two never drift.
 Worker drains CI runs in `worker.process_ci_run`. Routes `pages.ci_*` (three
 flows: snapshot/monitoring/view) + templates `templates/app/ci_{snapshot_home,
 monitoring_home,group_config,snapshot_results,view}.html` + `_ci_help.html`;
@@ -282,7 +323,7 @@ title/description. All-in overall ≈ 80s (varies as competitor SERPs drift).
   / `admin_required` fail closed → 403 / sign-in redirect). Both `ricksauls@cox.net`
   and `ricksauls1@gmail.com` are admins.
 - **Rail Admin section** (below Credits, admins only): **Users**, **Items
-  scored**, and **Copy created**, each with a live count (via the
+  scored**, **Copy created**, and **Messages**, each with a live count (via the
   `_inject_admin_context` context processor, which skips all DB work for
   non-admins).
 - **Users screen** (`/admin/users`): table of all users; per-row **Delete**
@@ -293,9 +334,17 @@ title/description. All-in overall ≈ 80s (varies as competitor SERPs drift).
 - **Copy created** (`/admin/copy`): recent copy items across all users (item,
   product title, submitter email, status, current + projected score, "Ran"
   time). Backed by `copy_jobs.count_copy_items` / `list_copy_items`.
+- **Messages** (`/admin/messages`): the Contact Us inbox — every user thread,
+  unread first, with owner email + category + status. Open one (`/admin/messages/
+  <id>`) to reply as the team or close/reopen. Backed by `messages.list_all_threads`
+  / `count_unread_for_admin`; the two admins share one inbox (read state is shared,
+  keyed per-side by message id). See §9 gotcha on read tracking.
 - **New-user notification** (topbar, admins only): counts users who signed up
   since the admin's **previous login** (`users.last_login_at` / `prev_login_at`,
   stamped on every sign-in). First-ever login falls back to account-creation time.
+- **Message notification** (topbar, everyone): unread-message count — the shared
+  inbox count for admins, the user's own unread replies otherwise. Injected by the
+  `_inject_message_context` processor for every signed-in user.
 
 ---
 
@@ -313,6 +362,25 @@ to the RAM. The queue claim (`jobs.claim_next`) is already concurrency-safe.
 ---
 
 ## 7. Known gaps / next-up roadmap
+
+**Session 2026-08-24 (all live on main; 7 commits `2759bbe`..`5eb45ff`).**
+- **Contact Us in-app messaging** — two-way threaded support (user threads +
+  category, admin inbox, replies, close/reopen), unread badges in topbar + rail
+  for both sides. New `app/messages.py`, tables `message_threads`/`messages`,
+  templates `contact_home`/`contact_thread`/`admin_messages`, `_inject_message_context`.
+- **CI snapshot PDF** now includes the **SoS stacked-bar chart** and, under Overall
+  Search Ranking, the **placement-map grid** (both reportlab shapes).
+- **Placement map** on the snapshot page + PDF: each brand's overall avg rank lit
+  on a page-1 result grid (mine red, competitors ink, ties split, exact avg on
+  tile). `ci_analysis.build_rank_placement_map`.
+- **Tracked-product main images** in "What this group tracks" (page grid + PDF
+  thumbnails), mine-first, with breathing room. Worker caches each product image
+  once (`ci_images.py`, `worker._cache_ci_product_images`), served same-origin from
+  `/media/ci-product/<id>` (CSP `img-src 'self'`). **Note:** existing groups show
+  placeholders until their next run caches images (I hand-cached the "Tabasco
+  Original Hot Sauce" group's 4 items live on 2026-08-24).
+- **Schedule for monitoring** button on snapshot cards (clones the set into a
+  monitoring group + baseline run).
 
 **Session 2026-08-23 (all live on main).** Focused on the CI **One-Time Snapshot**
 results page + UX polish:
@@ -468,6 +536,20 @@ cd ~/Desktop/ClaudeStuff/ecomm-copilot-clean
 - **CI snapshot page ↔ PDF:** both render from `pages._snapshot_data()`. When you
   add or reshape a snapshot section, update that helper (and `build_ci_snapshot_pdf`)
   or the page and PDF drift.
+- **Message read tracking is by *message id*, not timestamp:** `message_threads`
+  stores `user_last_read_msg_id` / `admin_last_read_msg_id`; a thread is unread for
+  a side when a message from the *other* side has a larger id. This was a
+  deliberate fix — a timestamp compare (`created_at > last_read_at`) misses a reply
+  created in the *same second* as a read (`datetime('now')` is 1-second resolution),
+  so unread badges would silently not appear. Don't switch it back to timestamps.
+- **Product images are worker-cached, so they lag first use:** a group shows image
+  placeholders until a run caches them (`worker._cache_ci_product_images` fetches
+  each uncached product's PDP once). To backfill without a full re-run, cache
+  directly on the droplet, e.g.:
+  `ssh droplet-deploy 'cd /home/deploy/apps/ecomm-copilot && env DISPLAY=:99 venv/bin/python -c "from app.fetch import fetch_main_image_url; from app import ci_images; u=fetch_main_image_url(\"https://www.walmart.com/ip/<ITEM>\",\"<ITEM>\"); print(ci_images.cache_product_image_from_url(\"<ITEM>\", u))"'`
+  Served from `/media/ci-product/<id>` (same-origin; CSP already allows `img-src 'self'`).
+  The `sqlite3` CLI is **not** installed on the droplet — inspect the DB with
+  `venv/bin/python -c "import sqlite3; ..."` instead.
 
 ---
 
