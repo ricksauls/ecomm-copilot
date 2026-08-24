@@ -29,6 +29,20 @@ def _result(db, run_id, gid, kid, d, position, item_id, brand_id, ptype="organic
     )
 
 
+def _track(db, gid, brand_id, item_id):
+    """Register ``item_id`` as a tracked product of ``brand_id``.
+
+    Ranking now counts only tracked items, so a result row is only scored when its
+    item id is a tracked product. Inserts directly (any id) rather than via
+    add_product's URL parsing so tests can use short synthetic ids.
+    """
+    db.execute(
+        "INSERT INTO ci_products (group_id, brand_id, name, walmart_item_id, walmart_url) "
+        "VALUES (?,?,?,?,?)",
+        (gid, brand_id, None, item_id, f"https://www.walmart.com/ip/x/{item_id}"),
+    )
+
+
 def _setup(db):
     uid = create_local_user("an@example.com", "password123")
     gid = ci_config.create_group(db, uid, "Hot Sauce")
@@ -104,14 +118,19 @@ def test_rank_summary_current_prior_and_sparkline(app):
         assert r["brand_name"] == "Tabasco"
 
 
-def test_rank_summary_includes_competitors_brand_level(app):
-    # Ranking is brand-level and includes competitors so the user can compare.
+def test_rank_summary_includes_competitors_tracked_only(app):
+    # Ranking includes competitors so the user can compare — but only their tracked
+    # items count (untracked SKUs are excluded).
     with app.app_context():
         db = get_db()
         _, gid, mine, comp, _, kid, rid = _setup(db)
-        # Same keyword, same day: my brand at #4, competitor at #2 (better).
+        # Same keyword, same day: my tracked item at #4, competitor's tracked item at #2.
+        _track(db, gid, mine, "10294527")
+        _track(db, gid, comp, "88880000")
         _result(db, rid, gid, kid, _iso(0), 4, "10294527", mine)
         _result(db, rid, gid, kid, _iso(0), 2, "88880000", comp)
+        # An untracked Frank's SKU at #1 must NOT improve the competitor's rank.
+        _result(db, rid, gid, kid, _iso(0), 1, "99999999", comp)
         db.commit()
         rows = ci_analysis.rank_summary(db, gid, "wow")
         by_brand = {r["brand_name"]: r for r in rows}
@@ -142,6 +161,11 @@ def test_snapshot_brand_avg_rank_averages_per_keyword_then_across_terms(app):
         uid, gid, mine, comp, _, kid, rid = _setup(db)
         # Second keyword to exercise the two-stage average (per-keyword, then terms).
         kid2 = ci_config.add_keyword(db, gid, uid, "chipotle sauce")
+        # Tabasco tracks x/y/z; Frank's tracks f (only tracked items are averaged).
+        _track(db, gid, mine, "x")
+        _track(db, gid, mine, "y")
+        _track(db, gid, mine, "z")
+        _track(db, gid, comp, "f")
         # Tabasco kw1: #4 & #6 -> avg 5.0; kw2: #1 -> avg 1.0. Overall (5+1)/2 = 3.0.
         _result(db, rid, gid, kid, _iso(0), 4, "x", mine)
         _result(db, rid, gid, kid, _iso(0), 6, "y", mine)
@@ -192,10 +216,17 @@ def test_snapshot_rank_by_keyword_brand_orders_and_averages(app):
         db = get_db()
         uid, gid, mine, comp, _, kid, rid = _setup(db)  # kid == "hot sauce"
         kid2 = ci_config.add_keyword(db, gid, uid, "aaa sauce")
+        # Tabasco tracks a/b; Frank's tracks c/d (only tracked items are averaged).
+        _track(db, gid, mine, "a")
+        _track(db, gid, mine, "b")
+        _track(db, gid, comp, "c")
+        _track(db, gid, comp, "d")
         # hot sauce: Tabasco #2 & #4 -> avg 3.0; Frank's #5 -> 5.0.
         _result(db, rid, gid, kid, _iso(0), 2, "a", mine)
         _result(db, rid, gid, kid, _iso(0), 4, "b", mine)
         _result(db, rid, gid, kid, _iso(0), 5, "c", comp)
+        # An untracked Frank's SKU at #1 must not pull the average down to 3.0.
+        _result(db, rid, gid, kid, _iso(0), 1, "zz", comp)
         # aaa sauce: Frank's #1 -> 1.0.
         _result(db, rid, gid, kid2, _iso(0), 1, "d", comp)
         db.commit()

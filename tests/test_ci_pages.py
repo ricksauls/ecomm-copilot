@@ -130,6 +130,13 @@ def test_snapshot_results_show_rank_placement_map(client, auth):
         b_mine = ci_config.add_brand(db, gid, 1, "Tabasco", "mine")
         b_comp = ci_config.add_brand(db, gid, 1, "Frank's", "competitor")
         kid = ci_config.add_keyword(db, gid, 1, "hot sauce")
+        # Ranking counts only tracked items, so register the two SKUs below.
+        for bid, item in ((b_mine, "1"), (b_comp, "2")):
+            db.execute(
+                "INSERT INTO ci_products (group_id, brand_id, name, walmart_item_id, walmart_url) "
+                "VALUES (?,?,?,?,?)",
+                (gid, bid, None, item, f"https://www.walmart.com/ip/x/{item}"),
+            )
         rid = ci_jobs.enqueue_run(db, gid)
         rows = [
             {"run_id": rid, "group_id": gid, "keyword_id": kid, "scraped_at": date.today().isoformat(),

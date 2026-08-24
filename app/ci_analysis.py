@@ -28,6 +28,19 @@ CST = ZoneInfo("America/Chicago")
 UTC = ZoneInfo("UTC")
 MONITORING_HOURS = (7, 15, 23)  # 7 AM, 3 PM, 11 PM CST
 
+# Search Ranking answers "where does *my tracked item* stand", so it counts only
+# the group's tracked products (by Walmart item id) — never a brand's untracked
+# SKUs, which the share-of-shelf name matcher deliberately sweeps in and which
+# would otherwise drag a brand's average down. (Share of Digital Shelf still counts
+# every SKU; that is its correct, brand-level meaning.) A tracked item's sponsored
+# slot carries an opaque id that can't be tied back to the item number, so only its
+# organic placements match here — an acceptable, unavoidable limitation.
+# Appended into a WHERE clause; contributes one bound parameter (the group id).
+_TRACKED_ITEMS_FILTER = (
+    "item_id IN (SELECT walmart_item_id FROM ci_products "
+    "WHERE group_id = ? AND active = 1)"
+)
+
 # Shared display format for run/schedule times (e.g. "Mon Aug 24, 3:00 PM CST").
 _TIME_FMT = "%a %b %-d, %-I:%M %p"
 
@@ -316,25 +329,26 @@ def snapshot_brand_avg_rank(conn: sqlite3.Connection, group_id: int, run_id: int
 
     The headline "how am I doing overall" figure. Two-stage average so it reconciles
     with the per-term table (:func:`snapshot_rank_by_keyword_brand`): first average
-    the brand's placements within each keyword, then average those per-keyword
-    figures across every term the brand placed on. Terms where the brand has no
-    page-1 slot are excluded from the math, not scored as a penalty. Ordered
-    mine-first, then best (lowest) average first.
+    the brand's *tracked* placements within each keyword, then average those
+    per-keyword figures across every term the tracked item placed on. Terms with no
+    page-1 slot are excluded from the math, not scored as a penalty; untracked SKUs
+    are excluded too (see :data:`_TRACKED_ITEMS_FILTER`). Ordered mine-first, then
+    best (lowest) average first.
     """
     rows = conn.execute(
-        # Inner query: each brand's average position within a keyword.
+        # Inner query: each brand's average tracked-item position within a keyword.
         # Outer query: average those per-keyword figures into one per brand, so
         # every term is weighted equally regardless of how many slots it held.
         # The JOIN to ci_brands drops the untracked "Other" bucket (brand_id NULL).
         "SELECT b.name AS brand_name, b.type AS brand_type, "
         "  AVG(per_kw.avg_pos) AS overall_avg "
         "FROM (SELECT brand_id, keyword_id, AVG(position) AS avg_pos "
-        "      FROM ci_search_results WHERE group_id = ? AND run_id = ? "
+        "      FROM ci_search_results WHERE group_id = ? AND run_id = ? AND " + _TRACKED_ITEMS_FILTER + " "
         "      GROUP BY brand_id, keyword_id) per_kw "
         "JOIN ci_brands b ON b.id = per_kw.brand_id "
         "GROUP BY b.id "
         "ORDER BY CASE b.type WHEN 'mine' THEN 0 ELSE 1 END, overall_avg",
-        (group_id, run_id),
+        (group_id, run_id, group_id),
     ).fetchall()
     return [{
         "brand_name": r["brand_name"],
@@ -400,10 +414,10 @@ def build_rank_placement_map(avg_ranks: list[dict], depth: int, cols: int = 4) -
 def snapshot_rank_by_keyword_brand(conn: sqlite3.Connection, group_id: int, run_id: int) -> list[dict]:
     """Average page-1 ranking per brand per keyword within a run.
 
-    One row per (keyword, brand) that placed on page 1; ``avg_ranking`` averages
-    all of that brand's slots for the keyword (organic + sponsored). Untracked
-    "Other" rows (brand_id NULL) are excluded. Ordered by keyword, then average
-    ranking ascending (best standing first).
+    One row per (keyword, brand) whose *tracked* product(s) placed on page 1;
+    ``avg_ranking`` averages those tracked items' organic slots for the keyword (see
+    :data:`_TRACKED_ITEMS_FILTER` for why untracked SKUs are excluded). Ordered by
+    keyword, then average ranking ascending (best standing first).
     """
     rows = conn.execute(
         "SELECT k.keyword AS keyword, b.name AS brand_name, b.type AS brand_type, "
@@ -411,10 +425,10 @@ def snapshot_rank_by_keyword_brand(conn: sqlite3.Connection, group_id: int, run_
         "FROM ci_search_results sr "
         "JOIN ci_keywords k ON k.id = sr.keyword_id "
         "JOIN ci_brands b ON b.id = sr.brand_id "
-        "WHERE sr.group_id = ? AND sr.run_id = ? "
+        "WHERE sr.group_id = ? AND sr.run_id = ? AND sr." + _TRACKED_ITEMS_FILTER + " "
         "GROUP BY k.id, b.id "
         "ORDER BY k.keyword COLLATE NOCASE, avg_pos",
-        (group_id, run_id),
+        (group_id, run_id, group_id),
     ).fetchall()
     return [{
         "keyword": r["keyword"],
@@ -439,16 +453,18 @@ def _brand_meta(conn: sqlite3.Connection, group_id: int) -> dict[int, dict]:
 def rank_summary(conn: sqlite3.Connection, group_id: int, period: str) -> list[dict]:
     """Current best rank + trend per brand per keyword over the window.
 
-    Brand-level and includes competitors so the user can compare against rivals.
-    For each (brand, keyword) seen in the window: the daily best (minimum) position,
-    the latest value, the prior-window best (for a delta), and the daily series for
-    a sparkline. Attribution is by brand_id (set via name matching), so sponsored
-    slots count. Ordered mine-first, then brand, then keyword.
+    Brand-level and includes competitors so the user can compare against rivals, but
+    counts only each brand's *tracked* products (see :data:`_TRACKED_ITEMS_FILTER`),
+    so an untracked SKU can't stand in for the item the user follows. For each
+    (brand, keyword) whose tracked item appeared in the window: the daily best
+    (minimum) tracked-item position, the latest value, the prior-window best (for a
+    delta), and the daily series for a sparkline. Ordered mine-first, then brand,
+    then keyword.
     """
     start, end = get_date_range(period)
     p_start, p_end = get_prior_date_range(period)
 
-    # (brand, keyword) pairs that actually appeared in the window.
+    # (brand, keyword) pairs whose tracked item(s) actually appeared in the window.
     pairs = conn.execute(
         "SELECT DISTINCT b.id AS brand_id, b.name AS brand_name, b.type AS brand_type, "
         "  k.id AS keyword_id, k.keyword AS keyword "
@@ -456,9 +472,10 @@ def rank_summary(conn: sqlite3.Connection, group_id: int, period: str) -> list[d
         "JOIN ci_brands b ON b.id = sr.brand_id "
         "JOIN ci_keywords k ON k.id = sr.keyword_id "
         "WHERE sr.group_id = ? AND sr.scraped_at >= ? AND sr.scraped_at <= ? "
+        "  AND sr." + _TRACKED_ITEMS_FILTER + " "
         "ORDER BY CASE b.type WHEN 'mine' THEN 0 ELSE 1 END, "
         "  b.name COLLATE NOCASE, k.keyword COLLATE NOCASE",
-        (group_id, start, end),
+        (group_id, start, end, group_id),
     ).fetchall()
 
     out = []
@@ -466,9 +483,9 @@ def rank_summary(conn: sqlite3.Connection, group_id: int, period: str) -> list[d
         series = conn.execute(
             "SELECT scraped_at, MIN(position) AS pos FROM ci_search_results "
             "WHERE group_id = ? AND brand_id = ? AND keyword_id = ? "
-            "AND scraped_at >= ? AND scraped_at <= ? "
+            "AND scraped_at >= ? AND scraped_at <= ? AND " + _TRACKED_ITEMS_FILTER + " "
             "GROUP BY scraped_at ORDER BY scraped_at",
-            (group_id, pr["brand_id"], pr["keyword_id"], start, end),
+            (group_id, pr["brand_id"], pr["keyword_id"], start, end, group_id),
         ).fetchall()
         if not series:
             continue
@@ -480,8 +497,8 @@ def rank_summary(conn: sqlite3.Connection, group_id: int, period: str) -> list[d
         prior_row = conn.execute(
             "SELECT MIN(position) AS pos FROM ci_search_results "
             "WHERE group_id = ? AND brand_id = ? AND keyword_id = ? "
-            "AND scraped_at >= ? AND scraped_at <= ?",
-            (group_id, pr["brand_id"], pr["keyword_id"], p_start, p_end),
+            "AND scraped_at >= ? AND scraped_at <= ? AND " + _TRACKED_ITEMS_FILTER,
+            (group_id, pr["brand_id"], pr["keyword_id"], p_start, p_end, group_id),
         ).fetchone()
         prior = prior_row["pos"] if prior_row and prior_row["pos"] is not None else None
         # Lower position is better: positive delta = moved up.
