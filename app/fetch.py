@@ -324,15 +324,14 @@ def parse_product(product: dict, *, url: str = "", item_id: str | None = None,
     )
 
 
-def fetch_pdp(url: str, item_id: str | None = None, *, timeout_ms: int = 35000) -> PdpRecord:
-    """Load a Walmart PDP in a real browser and parse it into a PdpRecord.
+def _load_pdp_data(url: str, timeout_ms: int) -> dict:
+    """Drive a real browser to a Walmart PDP and return ``initialData.data``.
 
-    Raises :class:`FetchBlocked` if bot detection triggers, or :class:`FetchError`
-    on any other failure. Playwright is imported here (not at module top) so the
-    app doesn't hard-depend on it; a missing install raises a clear FetchError.
-
-    This drives a full browser and is slow (seconds per item) — it must run in a
-    background job, never inline in a request handler.
+    Centralizes the anti-bot browser setup and ``__NEXT_DATA__`` extraction shared
+    by :func:`fetch_pdp` (full scoring parse) and :func:`fetch_main_image_url`
+    (image discovery only). Raises :class:`FetchBlocked` on bot detection and
+    :class:`FetchError` on any other failure. Slow (seconds) and headed — must run
+    in a background job, never inline in a request.
     """
     try:
         from playwright.sync_api import sync_playwright
@@ -344,9 +343,6 @@ def fetch_pdp(url: str, item_id: str | None = None, *, timeout_ms: int = 35000) 
 
     import json
 
-    logger.info("Fetching PDP url=%s item_id=%s", url, item_id)
-    spec_pairs: list[dict] | None = None
-    bullets: list[str] | None = None
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch(
@@ -374,20 +370,31 @@ def fetch_pdp(url: str, item_id: str | None = None, *, timeout_ms: int = 35000) 
                 if not nd_raw:
                     raise FetchError("__NEXT_DATA__ not found on the page")
 
-                data = json.loads(nd_raw)["props"]["pageProps"]["initialData"]["data"]
-                product = data["product"]
-                idml = data.get("idml")
-                # Specs and key-feature bullets both live on the sibling ``idml``
-                # node. Prefer the product node's keyFeatures when present, else
-                # fall back to idml.longDescription's bulleted list.
-                spec_pairs = _extract_idml_specs(idml)
-                bullets = _extract_bullets(product) or _extract_idml_bullets(idml)
+                return json.loads(nd_raw)["props"]["pageProps"]["initialData"]["data"]
             finally:
                 browser.close()
     except FetchError:
         raise
     except Exception as e:
         raise FetchError(f"Failed to fetch {url}: {e}") from e
+
+
+def fetch_pdp(url: str, item_id: str | None = None, *, timeout_ms: int = 35000) -> PdpRecord:
+    """Load a Walmart PDP in a real browser and parse it into a PdpRecord.
+
+    Raises :class:`FetchBlocked` if bot detection triggers, or :class:`FetchError`
+    on any other failure. Slow (seconds per item) — must run in a background job,
+    never inline in a request handler.
+    """
+    logger.info("Fetching PDP url=%s item_id=%s", url, item_id)
+    data = _load_pdp_data(url, timeout_ms)
+    product = data["product"]
+    idml = data.get("idml")
+    # Specs and key-feature bullets both live on the sibling ``idml`` node. Prefer
+    # the product node's keyFeatures when present, else fall back to
+    # idml.longDescription's bulleted list.
+    spec_pairs = _extract_idml_specs(idml)
+    bullets = _extract_bullets(product) or _extract_idml_bullets(idml)
 
     # Image dimensions and the main-image background live outside __NEXT_DATA__;
     # both are read from the image bytes (the main image is the first).
@@ -398,3 +405,17 @@ def fetch_pdp(url: str, item_id: str | None = None, *, timeout_ms: int = 35000) 
         product, url=url, item_id=item_id, max_image_px=max_px,
         spec_pairs=spec_pairs, bullets=bullets, main_image_white_bg=white_bg,
     )
+
+
+def fetch_main_image_url(url: str, item_id: str | None = None, *,
+                         timeout_ms: int = 35000) -> str | None:
+    """Return a Walmart product's main image URL (the first image), or ``None``.
+
+    A lean cousin of :func:`fetch_pdp` used by the CI image cache: it only needs
+    the image URL, so it skips the scoring parse and the extra image-byte
+    downloads. Same browser/bot-detection path (headed, background-only).
+    """
+    logger.info("Fetching main image URL url=%s item_id=%s", url, item_id)
+    data = _load_pdp_data(url, timeout_ms)
+    urls = _image_urls(data.get("product") or {})
+    return urls[0] if urls else None

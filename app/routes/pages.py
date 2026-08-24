@@ -11,6 +11,7 @@ guarded by ``login_required``, so it is no longer world-reachable.
 
 import json
 import logging
+import os
 
 from flask import (
     Blueprint,
@@ -28,6 +29,7 @@ from flask import (
 from app import (
     ci_analysis,
     ci_config,
+    ci_images,
     ci_jobs,
     copy_jobs,
     fixtures,
@@ -699,6 +701,41 @@ def ci_schedule_from_snapshot(group_id):
     return _config_redirect(new_group_id)
 
 
+def _product_views(products) -> list[dict]:
+    """Shape tracked-product rows for the "What this group tracks" section.
+
+    Adds the main-image references both surfaces need: ``image_url`` (the
+    same-origin media route the page's <img> hits) and ``image_path`` (the cache
+    file the PDF embeds), each present only when an image is actually cached.
+    """
+    views = []
+    for p in products:
+        item_id = p["walmart_item_id"]
+        cached = ci_images.has_product_image(item_id)
+        views.append({
+            "name": p["name"],
+            "walmart_item_id": item_id,
+            "brand_name": p["brand_name"],
+            "brand_type": p["brand_type"],
+            "image_url": url_for("pages.ci_product_image", item_id=item_id) if cached else None,
+            "image_path": ci_images.product_image_path(item_id) if cached else None,
+        })
+    return views
+
+
+@bp.route("/media/ci-product/<item_id>")
+@login_required
+def ci_product_image(item_id):
+    """Serve a cached tracked-product image (same-origin, so CSP img-src 'self')."""
+    from flask import send_file
+
+    path = ci_images.product_image_path(item_id)  # None for a non-numeric id
+    if not path or not os.path.isfile(path):
+        abort(404)
+    # Product photos are public; cache a day. login_required keeps it behind auth.
+    return send_file(path, mimetype="image/jpeg", max_age=86400)
+
+
 def _snapshot_data(db, group_id):
     """Gather every section the snapshot results page and its PDF render.
 
@@ -713,7 +750,7 @@ def _snapshot_data(db, group_id):
     config_summary = {
         "my_brands": [b["name"] for b in brands if b["type"] == "mine"],
         "competitor_brands": [b["name"] for b in brands if b["type"] != "mine"],
-        "products": ci_config.list_products(db, group_id, g.user["id"]),
+        "products": _product_views(ci_config.list_products(db, group_id, g.user["id"])),
         "keywords": [k["keyword"] for k in ci_config.list_keywords(db, group_id, g.user["id"])],
     }
 

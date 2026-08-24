@@ -38,3 +38,6 @@ coverage.xml
 
 # --- Local working assets (duplicates of tracked app/static/img sources) ---
 Images/
+
+# --- Cached tracked-product images (worker-populated, per-environment) ---
+media/

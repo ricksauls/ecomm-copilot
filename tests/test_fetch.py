@@ -220,3 +220,22 @@ def test_bullets_override_feeds_key_features_scoring():
         d for d in score_pdp(pdp).dimensions if d.key == "key_features"
     )
     assert key_features.score > 0
+
+
+def test_fetch_main_image_url_returns_first_image(monkeypatch):
+    # Stub the browser load so we exercise only the URL-picking logic.
+    import app.fetch as fetch
+    monkeypatch.setattr(fetch, "_load_pdp_data", lambda url, timeout_ms: {
+        "product": {"imageInfo": {"allImages": [
+            {"url": "https://i5.walmartimages.com/main.jpg"},
+            {"url": "https://i5.walmartimages.com/alt.jpg"},
+        ]}}
+    })
+    assert fetch.fetch_main_image_url("https://www.walmart.com/ip/x/1", "1") \
+        == "https://i5.walmartimages.com/main.jpg"
+
+
+def test_fetch_main_image_url_none_when_no_images(monkeypatch):
+    import app.fetch as fetch
+    monkeypatch.setattr(fetch, "_load_pdp_data", lambda url, timeout_ms: {"product": {}})
+    assert fetch.fetch_main_image_url("https://www.walmart.com/ip/x/1") is None

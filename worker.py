@@ -25,8 +25,8 @@ from dataclasses import replace  # noqa: E402
 from datetime import datetime  # noqa: E402
 from zoneinfo import ZoneInfo  # noqa: E402
 
-from app import ci_config, ci_jobs, ci_scraper, copy_jobs, copygen, db, jobs, keywords  # noqa: E402  (after load_dotenv is intentional)
-from app.fetch import FetchBlocked, FetchError, fetch_pdp  # noqa: E402
+from app import ci_config, ci_images, ci_jobs, ci_scraper, copy_jobs, copygen, db, jobs, keywords  # noqa: E402  (after load_dotenv is intentional)
+from app.fetch import FetchBlocked, FetchError, fetch_main_image_url, fetch_pdp  # noqa: E402
 from app.scoring import PdpRecord, result_to_dict, score_pdp  # noqa: E402
 
 # Scrape dates are stamped in Central time so a monitoring run near midnight lands
@@ -190,6 +190,37 @@ def process_copy_one(conn: sqlite3.Connection, row: sqlite3.Row) -> bool:
     return False
 
 
+def _cache_ci_product_images(run_id: int, item_map: dict) -> None:
+    """Best-effort: cache the main image for each tracked product missing one.
+
+    One headed-Chrome PDP fetch per *uncached* product to discover the image URL,
+    then a plain download of the bytes. Images rarely change, so a product is
+    fetched once and skipped on every later run. Entirely non-fatal — an image
+    that won't fetch just leaves that product without a thumbnail; the keyword
+    sweep (the actual point of the run) is never affected.
+    """
+    todo = [(iid, p) for iid, p in item_map.items() if not ci_images.has_product_image(iid)]
+    if not todo:
+        return
+    log.info("CI run id=%s caching %d product image(s)", run_id, len(todo))
+    for i, (item_id, product) in enumerate(todo):
+        try:
+            img_url = fetch_main_image_url(product["walmart_url"], item_id)
+            if img_url:
+                ci_images.cache_product_image_from_url(item_id, img_url)
+            else:
+                log.info("CI run id=%s no main image for item_id=%s", run_id, item_id)
+        except (FetchBlocked, FetchError) as e:
+            log.warning("CI run id=%s product image fetch failed item_id=%s: %s",
+                        run_id, item_id, e)
+        except Exception:  # noqa: BLE001 - image caching must never sink the run
+            log.exception("CI run id=%s unexpected error caching image item_id=%s",
+                          run_id, item_id)
+        # Polite pause between PDP fetches (same courtesy as the keyword sweep).
+        if i < len(todo) - 1:
+            time.sleep(random.uniform(*ci_scraper.INTER_KEYWORD_DELAY_S))
+
+
 def process_ci_run(conn: sqlite3.Connection, run: sqlite3.Row) -> None:
     """Scrape every active keyword for a claimed Competitive Intelligence run.
 
@@ -213,6 +244,9 @@ def process_ci_run(conn: sqlite3.Connection, run: sqlite3.Row) -> None:
         seen = ci_jobs.seen_item_ids_by_brand(conn, group_id)
         log.info("CI run id=%s group=%s starting — %d keyword(s)",
                  run_id, group_id, len(keyword_rows))
+
+        # Cache each tracked product's main image (once) for the results page + PDF.
+        _cache_ci_product_images(run_id, item_map)
 
         succeeded = failed = 0
         for i, kw in enumerate(keyword_rows):

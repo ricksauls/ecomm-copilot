@@ -8,9 +8,19 @@ across the new routes.
 
 from datetime import date, timedelta
 
-from app import ci_analysis, ci_config, ci_jobs
+import io
+
+from app import ci_analysis, ci_config, ci_images, ci_jobs
 from app.db import get_db
 from app.users import create_local_user
+
+
+def _png_bytes():
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", (120, 120), (200, 16, 46)).save(buf, "PNG")
+    return buf.getvalue()
 
 
 def _snapshot_group(client):
@@ -137,6 +147,41 @@ def test_snapshot_results_show_rank_placement_map(client, auth):
     assert b"rankmap" in resp.data
     assert b"rankmap-cell mine" in resp.data
     assert b"avg #3.0" in resp.data
+
+
+def test_ci_product_image_route(client, auth, monkeypatch, tmp_path):
+    monkeypatch.setenv("MEDIA_DIR", str(tmp_path))
+    # Auth required.
+    assert client.get("/media/ci-product/10294528").status_code in (302, 401)
+    auth.register()
+    # Missing image -> 404; non-numeric id -> 404 (path-traversal guard).
+    assert client.get("/media/ci-product/10294528").status_code == 404
+    assert client.get("/media/ci-product/notanid").status_code == 404
+    # Cached image -> 200 image/jpeg.
+    assert ci_images.save_product_image("10294528", _png_bytes()) is True
+    resp = client.get("/media/ci-product/10294528")
+    assert resp.status_code == 200
+    assert resp.mimetype == "image/jpeg"
+
+
+def test_snapshot_results_show_product_thumbnails(client, auth, monkeypatch, tmp_path):
+    monkeypatch.setenv("MEDIA_DIR", str(tmp_path))
+    auth.register()
+    gid = _snapshot_group(client)
+    with client.application.app_context():
+        db = get_db()
+        b = ci_config.add_brand(db, gid, 1, "Tabasco", "mine")
+        ci_config.add_product(db, gid, b, 1, "https://www.walmart.com/ip/x/10294528")
+        ci_config.add_keyword(db, gid, 1, "hot sauce")
+        rid = ci_jobs.enqueue_run(db, gid)
+        ci_jobs.finish_run(db, rid)
+    ci_images.save_product_image("10294528", _png_bytes())
+
+    resp = client.get(f"/app/competitive-intel/groups/{gid}/results")
+    assert resp.status_code == 200
+    # The tracked-product grid renders, with the cached image served same-origin.
+    assert b"track-grid" in resp.data
+    assert b"/media/ci-product/10294528" in resp.data
 
 
 def test_snapshot_pdf_downloads(client, auth):

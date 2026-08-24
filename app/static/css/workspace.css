@@ -1430,6 +1430,18 @@ a:focus-visible,
 .ci-summary-item dd { font-size: 13.5px; margin: 0; }
 .ci-summary-sub { font-size: 12px; color: var(--mid-gray); margin-top: 3px; }
 
+/* Tracked products span the full summary grid so the thumbnails have room. */
+.ci-summary-products { grid-column: 1 / -1; }
+.track-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin-top: 8px; }
+.track-tile { border: 1px solid var(--control-border); border-radius: 10px; overflow: hidden; background: var(--surface); }
+/* White ground under the thumbnail — Walmart mains are shot on white. */
+.track-thumb { height: 104px; display: flex; align-items: center; justify-content: center; background: #ffffff; border-bottom: 1px solid var(--control-border); }
+.track-thumb img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.track-thumb-empty { color: var(--control-border); display: flex; align-items: center; justify-content: center; }
+.track-meta { padding: 9px 10px; }
+.track-name { font-size: 13px; font-weight: 500; line-height: 1.2; color: var(--black); }
+.track-id { font-size: 11px; color: var(--mid-gray); margin: 3px 0 7px; }
+
 /* Share-of-shelf stacked bar chart: one bar per brand, split organic/sponsored.
    Bars bottom-align in a fixed plot; segment heights are set inline (px). */
 .sos-chart { margin-top: 20px; }

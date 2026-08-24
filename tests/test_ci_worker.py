@@ -1,10 +1,32 @@
 """Tests for the worker's CI run processor (browser stubbed out)."""
 
+import io
+
+import pytest
+
 import worker
-from app import ci_config, ci_jobs, ci_scraper
+from app import ci_config, ci_images, ci_jobs, ci_scraper
 from app.db import get_db
 from app.fetch import FetchBlocked
 from app.users import create_local_user
+
+
+@pytest.fixture(autouse=True)
+def _no_image_fetch(monkeypatch):
+    """Stub the product-image fetch so process_ci_run never launches a browser.
+
+    Image caching runs inside process_ci_run; the browser-driven URL lookup is
+    irrelevant to the keyword-sweep tests, so default it to a no-op here.
+    """
+    monkeypatch.setattr(worker, "fetch_main_image_url", lambda *a, **k: None)
+
+
+def _png_bytes():
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", (80, 80), (10, 10, 10)).save(buf, "PNG")
+    return buf.getvalue()
 
 
 def _seed_group(db, *, keywords=("hot sauce",)):
@@ -84,3 +106,25 @@ def test_one_bad_keyword_does_not_sink_the_run(app, monkeypatch):
         # Run still done (one keyword succeeded); only the good keyword's card stored.
         assert ci_jobs.get_run(db, rid, uid)["status"] == "done"
         assert db.execute("SELECT COUNT(*) FROM ci_search_results WHERE run_id=?", (rid,)).fetchone()[0] == 1
+
+
+def test_cache_ci_product_images_fetches_uncached_only(monkeypatch, tmp_path):
+    # Directly exercise the image-cache helper: a product with a cached image is
+    # skipped; an uncached one is fetched (URL) and handed to the cache.
+    monkeypatch.setenv("MEDIA_DIR", str(tmp_path))
+    ci_images.save_product_image("111", _png_bytes())  # pre-cached
+
+    monkeypatch.setattr(worker, "fetch_main_image_url", lambda url, iid: f"http://img/{iid}")
+    monkeypatch.setattr(ci_scraper, "INTER_KEYWORD_DELAY_S", (0, 0))
+    cached = []
+    monkeypatch.setattr(worker.ci_images, "cache_product_image_from_url",
+                        lambda iid, url: cached.append((iid, url)) or True)
+
+    item_map = {
+        "111": {"walmart_url": "https://www.walmart.com/ip/x/111"},
+        "222": {"walmart_url": "https://www.walmart.com/ip/x/222"},
+    }
+    worker._cache_ci_product_images(run_id=1, item_map=item_map)
+
+    # Only the uncached product (222) is fetched and cached.
+    assert cached == [("222", "http://img/222")]

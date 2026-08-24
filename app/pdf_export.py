@@ -18,8 +18,10 @@ from reportlab.lib.enums import TA_LEFT
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import inch
+from reportlab.lib.utils import ImageReader
 from reportlab.platypus import (
     HRFlowable,
+    Image as RLImage,
     Paragraph,
     SimpleDocTemplate,
     Spacer,
@@ -339,23 +341,67 @@ def _rank_table(rank_rows: list[dict], styles: dict, *, with_delta: bool) -> Tab
     return _ci_table(rows, [w * inch for w in widths], styles)
 
 
+def _product_thumbs(products: list[dict], styles: dict) -> Table:
+    """A row per tracked product: cached main-image thumbnail + name/item/type.
+
+    A product without a cached image gets a muted "(no image)" placeholder so the
+    row still lines up. Embeds the JPEG bytes reportlab needs (a hotlinked URL
+    wouldn't render), scaling the thumbnail to a fixed width by its own aspect.
+    """
+    rows = []
+    for p in products:
+        path = p.get("image_path")
+        thumb = Paragraph("(no image)", styles["cellmuted"])
+        if path:
+            try:
+                iw, ih = ImageReader(path).getSize()
+                w = 46.0
+                thumb = RLImage(path, width=w, height=(w * ih / iw) if iw else w)
+            except Exception:  # noqa: BLE001 - a bad file just falls back to text
+                logger.warning("Could not embed product thumb %s", path)
+        label = Paragraph(escape(p["name"] or f"Item {p['walmart_item_id']}"), styles["cell"])
+        # When the name already is the item number, don't repeat it in the meta line.
+        if p["name"]:
+            meta_text = f"Item {escape(str(p['walmart_item_id']))} &#183; {escape(p['brand_type'])}"
+        else:
+            meta_text = escape(p["brand_type"])
+        meta = Paragraph(meta_text, styles["cellmuted"])
+        rows.append([thumb, [label, meta]])
+    table = Table(rows, colWidths=[0.75 * inch, 4.6 * inch])
+    table.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("LINEBELOW", (0, 0), (-1, -2), 0.4, _RULE),
+    ]))
+    return table
+
+
 def _summary_flow(config_summary: dict, styles: dict) -> list:
-    """"What this group tracks" block: mine/competitor brands, items, terms."""
+    """"What this group tracks" block: mine/competitor brands, items, terms.
+
+    Tracked items render as a thumbnail table (main image + name/item/type) so the
+    PDF mirrors the results page's product grid.
+    """
     def _line(label: str, value: str) -> Paragraph:
         body = escape(value) if value else "&#8212;"
         return Paragraph(f"<b>{escape(label)}:</b> {body}", styles["cellmuted"])
 
     products = config_summary.get("products") or []
-    names = ", ".join((p["name"] or p["walmart_item_id"]) for p in products)
-    items = f"{len(products)}" + (f" — {names}" if products else "")
-    return [
+    flow = [
         Paragraph("What this group tracks", styles["item"]),
         Spacer(1, 4),
         _line("My brands", ", ".join(config_summary.get("my_brands") or [])),
         _line("Competitor brands", ", ".join(config_summary.get("competitor_brands") or [])),
-        _line("Items tracked", items),
         _line("Search terms", ", ".join(config_summary.get("keywords") or [])),
+        _line("Items tracked", str(len(products))),
     ]
+    if products:
+        flow.append(Spacer(1, 4))
+        flow.append(_product_thumbs(products, styles))
+    return flow
 
 
 def _avg_rank_table(avg_ranks: list[dict], styles: dict) -> Table:

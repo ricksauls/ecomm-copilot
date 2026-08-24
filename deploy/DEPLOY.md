@@ -111,6 +111,17 @@ sudo journalctl -u ecomm-copilot-worker -n 50 --no-pager
 The GitHub Actions deploy restarts the worker too (guarded, so it's a no-op
 until `setup-droplet.sh` has installed the unit + sudoers rule).
 
+### Cached product images (media dir)
+
+The worker caches each tracked CI product's main image as a small JPEG so the
+snapshot page and PDF can show a thumbnail. Files live in a **`media/`** directory
+next to the SQLite DB (`$MEDIA_DIR`, defaulting to
+`/home/deploy/apps/ecomm-copilot/media/ci_products/<item_id>.jpg`). It's created
+automatically on first write, sits **outside** the git checkout (so `git pull`
+deploys never wipe it), and needs no setup. Zero-config; both the web app and the
+worker resolve it from `DATABASE_URL`. To force a re-fetch, delete a file (or the
+directory) — the next run re-caches any that are missing. No secrets live here.
+
 ## Competitive Intelligence monitoring timers
 
 CI "monitoring" runs are enqueued **3×/day at 7:00 AM / 3:00 PM / 11:00 PM CST**
