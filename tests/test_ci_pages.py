@@ -319,6 +319,18 @@ def test_next_monitoring_run_picks_correct_slot():
     assert (n.hour, n.day) == (7, 23)
 
 
+def test_format_run_time_cst_converts_utc_to_central():
+    # A stored UTC run timestamp renders as Central wall-clock (matches the
+    # schedule label), not the raw UTC that confused the "Latest run" line.
+    # 04:00 UTC on the 24th is the prior day's 11 PM CDT night run.
+    assert ci_analysis.format_run_time_cst("2026-08-24 04:00:04") == "Sun Aug 23, 11:00 PM CST"
+    # DST off in January: 13:00 UTC -> 7 AM CST (UTC-6).
+    assert ci_analysis.format_run_time_cst("2026-01-15 13:00:00") == "Thu Jan 15, 7:00 AM CST"
+    # Empty -> None; an unparseable value falls back to the raw string, not a crash.
+    assert ci_analysis.format_run_time_cst(None) is None
+    assert ci_analysis.format_run_time_cst("garbage") == "garbage"
+
+
 def test_snapshot_analysis_is_run_scoped(app):
     # snapshot_* aggregations count only the given run, not other runs' rows.
     with app.app_context():

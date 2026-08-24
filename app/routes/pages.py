@@ -573,6 +573,14 @@ def _run_status_view(run) -> dict:
     }
 
 
+def _run_when_cst(run) -> str | None:
+    """Central-time display string for a run's most recent timestamp (fail-safe)."""
+    if run is None:
+        return None
+    ts = run["finished_at"] or run["started_at"] or run["created_at"]
+    return ci_analysis.format_run_time_cst(ts)
+
+
 def _ci_active_nav(mode: str) -> str:
     """Rail slug for a group's mode (config screen highlights its parent menu)."""
     return "ci-monitoring" if mode == "monitoring" else "ci-snapshot"
@@ -678,6 +686,7 @@ def ci_group_config(group_id):
     """
     group = _owned_group_or_404(group_id)
     db = get_db()
+    latest_run = ci_jobs.latest_run(db, group_id)
     return render_template(
         "app/ci_group_config.html",
         breadcrumb=f"Competitive Intelligence · {group['name']}",
@@ -686,7 +695,8 @@ def ci_group_config(group_id):
         brands=ci_config.list_brands(db, group_id, g.user["id"]),
         products=ci_config.list_products(db, group_id, g.user["id"]),
         keywords=ci_config.list_keywords(db, group_id, g.user["id"]),
-        latest_run=ci_jobs.latest_run(db, group_id),
+        latest_run=latest_run,
+        latest_run_when=_run_when_cst(latest_run),
         brand_types=ci_config.BRAND_TYPES,
         next_run=ci_analysis.next_monitoring_run(),
         url_prefix=pdp.WALMART_IP_PREFIX,

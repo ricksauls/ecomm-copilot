@@ -25,7 +25,32 @@ DEFAULT_PERIOD = "wow"
 
 # The three daily monitoring slots, in Central time (matches the systemd timers).
 CST = ZoneInfo("America/Chicago")
+UTC = ZoneInfo("UTC")
 MONITORING_HOURS = (7, 15, 23)  # 7 AM, 3 PM, 11 PM CST
+
+# Shared display format for run/schedule times (e.g. "Mon Aug 24, 3:00 PM CST").
+_TIME_FMT = "%a %b %-d, %-I:%M %p"
+
+
+def format_run_time_cst(ts: str | None) -> str | None:
+    """Format a stored UTC run timestamp as Central time (matches the schedule).
+
+    Run timestamps are written by SQLite ``datetime('now')`` in UTC
+    ("YYYY-MM-DD HH:MM:SS"). The monitoring screens otherwise show Central
+    wall-clock (the 7/3/11 slots, the next run), so a bare UTC timestamp beside
+    them reads as a different — and confusingly earlier — time. Returns the same
+    shape as the next-run label; falls back to the raw string on a parse failure
+    (better to show *something* than to drop the run time) and ``None`` when empty.
+    """
+    if not ts:
+        return None
+    try:
+        naive = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        logger.warning("Unparseable run timestamp, showing raw value: %r", ts)
+        return ts
+    local = naive.replace(tzinfo=UTC).astimezone(CST)
+    return local.strftime(_TIME_FMT) + " CST"
 
 
 def next_monitoring_run(now: datetime | None = None) -> datetime:

@@ -65,7 +65,7 @@
     {% if latest_run %}
       Latest run:
       <span class="status-badge status-{{ latest_run.status }}">{{ latest_run.status }}</span>
-      <span class="js-run-when">{{ latest_run.finished_at or latest_run.started_at or latest_run.created_at }}</span>
+      <span class="js-run-when">{{ latest_run_when }}</span>
     {% else %}
       No runs yet.
     {% endif %}
