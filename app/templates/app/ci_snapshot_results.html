@@ -5,11 +5,11 @@
 <div class="page-header">
   <div>
     <h1>{{ group.name }}</h1>
-    {# Flash the subtitle while a scrape is running (same cue as PDP scoring);
+    {# Flash the subtitle while data extraction is running (same cue as PDP scoring);
        ci_config.js polls and reloads the page when the run finishes. #}
-    {% set scraping = run and run.status in ('queued', 'running') %}
-    <p class="subtitle {{ 'subtitle-scoring' if scraping else '' }}">
-      {% if scraping %}Scraping in progress…{% else %}One-Time Snapshot — current state{% endif %}
+    {% set extracting = run and run.status in ('queued', 'running') %}
+    <p class="subtitle {{ 'subtitle-scoring' if extracting else '' }}">
+      {% if extracting %}Extracting data…{% else %}One-Time Snapshot — current state{% endif %}
     </p>
   </div>
   <div class="header-actions">
@@ -97,7 +97,7 @@
 {% endif %}
 
 {% if run and run.status in ('queued', 'running') %}
-<div class="card card-pad ci-empty">Scraping in progress… this page will refresh when it's done.</div>
+<div class="card card-pad ci-empty">Extracting data… this page will refresh when it's done.</div>
 {% elif run and run.status == 'error' %}
 <div class="card card-pad ci-empty">That run didn't complete{% if run.error %}: {{ run.error }}{% endif %}. Try running it again.</div>
 {% elif not run %}
