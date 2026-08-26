@@ -102,7 +102,39 @@
     }
   }
 
-  // ── Rank sparkline ────────────────────────────────────────────────────────
+  // ── Sparkline hover tooltip ───────────────────────────────────────────────
+  // One shared element reused by every sparkline; positioned over the hovered
+  // point (a transparent, larger hit-circle makes the tiny points easy to hit).
+  var tip;
+  function getTip() {
+    if (!tip) {
+      tip = document.createElement("div");
+      tip.className = "ci-spark-tip";
+      tip.hidden = true;
+      document.body.appendChild(tip);
+    }
+    return tip;
+  }
+  function showTip(target) {
+    var t = getTip();
+    t.textContent = target.getAttribute("data-value");
+    t.hidden = false;
+    var r = target.getBoundingClientRect();
+    // Center above the point, in document coordinates (the tip lives on <body>).
+    t.style.left = (r.left + r.width / 2 + window.scrollX) + "px";
+    t.style.top = (r.top + window.scrollY) + "px";
+  }
+  function hideTip() {
+    if (tip) tip.hidden = true;
+  }
+
+  function formatValue(v, unit) {
+    if (unit === "rank") return "#" + v;    // search ranking position
+    if (unit === "share") return v + "%";   // share of shelf
+    return "" + v;
+  }
+
+  // ── Rank / share sparkline ────────────────────────────────────────────────
   function drawSparkline(container) {
     var pts;
     try { pts = JSON.parse(container.getAttribute("data-points") || "[]"); }
@@ -117,6 +149,7 @@
     // Orientation: "better" values render toward the top. For rank (default),
     // smaller is better; for share (data-better="high"), larger is better.
     var betterHigh = container.getAttribute("data-better") === "high";
+    var unit = container.getAttribute("data-unit") || "";
     function y(v) {
       var t = betterHigh ? (max - v) : (v - min);
       return pad + (t / range) * (H - 2 * pad);
@@ -129,10 +162,23 @@
     });
     svg.appendChild(el("path", { d: d.trim(), fill: "none", stroke: "#050505",
       "stroke-width": 1.5, "stroke-linejoin": "round", "stroke-linecap": "round" }));
-    // Mark the latest point.
-    var lastX = pad + (pts.length - 1) * stepX;
-    svg.appendChild(el("circle", { cx: lastX.toFixed(1), cy: y(pts[pts.length - 1]).toFixed(1),
-      r: 2, fill: "#050505" }));
+
+    // A visible dot at each point (the latest is larger), plus a transparent,
+    // larger hit-circle that shows the value on hover.
+    pts.forEach(function (v, i) {
+      var cx = (pad + i * stepX).toFixed(1);
+      var cy = y(v).toFixed(1);
+      var isLast = i === pts.length - 1;
+      svg.appendChild(el("circle", { cx: cx, cy: cy, r: isLast ? 2 : 1.4, fill: "#050505" }));
+
+      var label = formatValue(v, unit);
+      var hit = el("circle", { cx: cx, cy: cy, r: 6, fill: "#050505",
+        "fill-opacity": "0", "class": "ci-spark-hit" });
+      hit.setAttribute("data-value", label);
+      hit.addEventListener("mouseenter", function () { showTip(hit); });
+      hit.addEventListener("mouseleave", hideTip);
+      svg.appendChild(hit);
+    });
     container.appendChild(svg);
   }
 

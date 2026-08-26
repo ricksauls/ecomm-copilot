@@ -1589,6 +1589,26 @@ a:focus-visible,
 /* Sparkline cell. */
 .ci-spark { display: inline-block; vertical-align: middle; }
 .ci-spark svg { display: block; }
+/* Larger transparent hit-target over each tiny data point so it's easy to hover. */
+.ci-spark-hit { cursor: pointer; }
+/* Shared hover tooltip for sparkline points (positioned by ci_charts.js). It sits
+   on <body>, so it's absolute in document space; the transform lifts it above the
+   point and centers it horizontally. */
+.ci-spark-tip {
+  position: absolute;
+  transform: translate(-50%, calc(-100% - 6px));
+  background: var(--black);
+  color: var(--canvas);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 4px 7px;
+  border-radius: 5px;
+  white-space: nowrap;
+  pointer-events: none; /* never intercept the hover it's describing */
+  z-index: 1000;
+}
+.ci-spark-tip[hidden] { display: none; }
 
 /* Trend chart container. */
 .ci-chart { width: 100%; overflow-x: auto; }
