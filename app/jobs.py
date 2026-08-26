@@ -10,6 +10,7 @@ process (its own connection).
 import json
 import logging
 import sqlite3
+import uuid
 
 logger = logging.getLogger(__name__)
 
@@ -21,18 +22,48 @@ def enqueue_items(conn: sqlite3.Connection, user_id: int, items: list[dict]) -> 
     so the dashboard's brand count reflects the submission immediately (and even
     when a later fetch is blocked). The worker fills it in from the PDP only when
     the user left it blank — see :func:`save_result`.
+
+    All items in one submission share a generated ``batch_id`` so a later
+    dashboard row click can reopen the whole run's results (see
+    :func:`batch_ids_for_item`).
     """
+    batch_id = uuid.uuid4().hex
     ids: list[int] = []
     for it in items:
         cur = conn.execute(
-            "INSERT INTO scored_items (user_id, item_id, url, brand, status) "
-            "VALUES (?, ?, ?, ?, 'queued')",
-            (user_id, it.get("item"), it["url"], it.get("brand")),
+            "INSERT INTO scored_items (user_id, item_id, url, brand, batch_id, status) "
+            "VALUES (?, ?, ?, ?, ?, 'queued')",
+            (user_id, it.get("item"), it["url"], it.get("brand"), batch_id),
         )
         ids.append(int(cur.lastrowid))
     conn.commit()
-    logger.info("Enqueued %d PDP scoring item(s) for user_id=%s", len(ids), user_id)
+    logger.info("Enqueued %d PDP scoring item(s) for user_id=%s batch=%s",
+                len(ids), user_id, batch_id)
     return ids
+
+
+def batch_ids_for_item(conn: sqlite3.Connection, row_id: int, user_id: int) -> list[int]:
+    """All scored_items ids in the same run as ``row_id`` (owned by ``user_id``).
+
+    Backs the dashboard/View All row click: open the whole run the clicked item
+    belongs to. Items submitted together share a ``batch_id``, so we return every
+    sibling (ordered). Rows scored before batch tracking have no ``batch_id`` and
+    open on their own. Returns ``[]`` when the item isn't found or isn't owned by
+    the user, so the caller can 404 (IDOR guard).
+    """
+    row = conn.execute(
+        "SELECT batch_id FROM scored_items WHERE id = ? AND user_id = ?",
+        (row_id, user_id),
+    ).fetchone()
+    if row is None:
+        return []
+    if not row["batch_id"]:
+        return [row_id]
+    siblings = conn.execute(
+        "SELECT id FROM scored_items WHERE batch_id = ? AND user_id = ? ORDER BY id",
+        (row["batch_id"], user_id),
+    ).fetchall()
+    return [r["id"] for r in siblings]
 
 
 def get_items(conn: sqlite3.Connection, ids: list[int], user_id: int) -> list[sqlite3.Row]:

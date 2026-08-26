@@ -19,6 +19,7 @@ scoring screen) advances a row to ``gen_queued``.
 import json
 import logging
 import sqlite3
+import uuid
 
 logger = logging.getLogger(__name__)
 
@@ -44,20 +45,45 @@ def enqueue_copy_items(
     brand count reflects the submission immediately. The worker fills it from the
     PDP only when the user left it blank — see :func:`save_current_copy`.
     """
+    batch_id = uuid.uuid4().hex  # groups this submission so a row click reopens the run
     ids: list[int] = []
     for it in items:
         cur = conn.execute(
-            "INSERT INTO copy_items (user_id, item_id, url, brand, status, auto_generate) "
-            "VALUES (?, ?, ?, ?, 'queued', ?)",
-            (user_id, it.get("item"), it["url"], it.get("brand"), 1 if auto_generate else 0),
+            "INSERT INTO copy_items (user_id, item_id, url, brand, batch_id, status, auto_generate) "
+            "VALUES (?, ?, ?, ?, ?, 'queued', ?)",
+            (user_id, it.get("item"), it["url"], it.get("brand"), batch_id,
+             1 if auto_generate else 0),
         )
         ids.append(int(cur.lastrowid))
     conn.commit()
     logger.info(
-        "Enqueued %d copy item(s) for user_id=%s (auto_generate=%s)",
-        len(ids), user_id, auto_generate,
+        "Enqueued %d copy item(s) for user_id=%s (auto_generate=%s) batch=%s",
+        len(ids), user_id, auto_generate, batch_id,
     )
     return ids
+
+
+def batch_ids_for_copy_item(conn: sqlite3.Connection, row_id: int, user_id: int) -> list[int]:
+    """All copy_items ids in the same run as ``row_id`` (owned by ``user_id``).
+
+    Copy counterpart of :func:`app.jobs.batch_ids_for_item`: a dashboard/View All
+    row click reopens the whole run the clicked item belongs to. Returns ``[]``
+    when the item isn't found or owned (IDOR guard); a row without a ``batch_id``
+    (pre-batch-tracking) opens on its own.
+    """
+    row = conn.execute(
+        "SELECT batch_id FROM copy_items WHERE id = ? AND user_id = ?",
+        (row_id, user_id),
+    ).fetchone()
+    if row is None:
+        return []
+    if not row["batch_id"]:
+        return [row_id]
+    siblings = conn.execute(
+        "SELECT id FROM copy_items WHERE batch_id = ? AND user_id = ? ORDER BY id",
+        (row["batch_id"], user_id),
+    ).fetchall()
+    return [r["id"] for r in siblings]
 
 
 def get_copy_items(conn: sqlite3.Connection, ids: list[int], user_id: int) -> list[sqlite3.Row]:

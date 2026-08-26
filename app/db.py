@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS scored_items (
     url          TEXT    NOT NULL,
     title        TEXT,    -- product name, filled in by the worker once fetched
     brand        TEXT,    -- brand, from the user at intake and/or the PDP on fetch
+    batch_id     TEXT,    -- groups items submitted together in one run (row-click reopens the run)
     status       TEXT    NOT NULL DEFAULT 'queued',  -- queued|scoring|scored|blocked|error
     overall      INTEGER,
     result_json  TEXT,
@@ -81,6 +82,7 @@ CREATE TABLE IF NOT EXISTS copy_items (
     auto_generate      INTEGER NOT NULL DEFAULT 0,
     title              TEXT,           -- product name, filled by the worker on fetch
     brand              TEXT,           -- brand, from the user at intake and/or the PDP on fetch
+    batch_id           TEXT,           -- groups items submitted together in one run (row-click reopens the run)
     current_json       TEXT,           -- JSON: {title, bullets[], description, score}
     new_json           TEXT,           -- JSON: {title, bullets[], description, score}
     current_overall    INTEGER,        -- rule-based score of the current copy
@@ -292,11 +294,20 @@ def _migrate(conn: sqlite3.Connection) -> None:
     if "brand" not in item_cols:
         conn.execute("ALTER TABLE scored_items ADD COLUMN brand TEXT")
         logger.info("Migrated scored_items: added 'brand' column")
+    # batch_id groups the items submitted together in one run, so a dashboard row
+    # click can reopen the whole run's results. Nullable — rows scored before this
+    # column existed stay NULL and open on their own (a one-item run).
+    if "batch_id" not in item_cols:
+        conn.execute("ALTER TABLE scored_items ADD COLUMN batch_id TEXT")
+        logger.info("Migrated scored_items: added 'batch_id' column")
 
     copy_cols = {row[1] for row in conn.execute("PRAGMA table_info(copy_items)")}
     if copy_cols and "brand" not in copy_cols:
         conn.execute("ALTER TABLE copy_items ADD COLUMN brand TEXT")
         logger.info("Migrated copy_items: added 'brand' column")
+    if copy_cols and "batch_id" not in copy_cols:
+        conn.execute("ALTER TABLE copy_items ADD COLUMN batch_id TEXT")
+        logger.info("Migrated copy_items: added 'batch_id' column")
 
     user_cols = {row[1] for row in conn.execute("PRAGMA table_info(users)")}
     for col in ("last_login_at", "prev_login_at"):

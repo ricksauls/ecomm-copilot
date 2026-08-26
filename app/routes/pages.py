@@ -507,29 +507,33 @@ def pdp_copy_results():
 @bp.route("/app/pdp-scoring/item/<int:sid>")
 @login_required
 def pdp_scoring_item(sid):
-    """Open one historical scored item's results (from a dashboard / View All row).
+    """Open the whole run a scored item belongs to (from a dashboard / View All row).
 
-    Points the session batch at just this item and reuses the standard scoring
-    results page, so its polling, PDF export, and layout all work unchanged.
-    Ownership-checked via :func:`jobs.get_items` — a foreign or missing id 404s.
+    Points the session batch at every item submitted in the same run as ``sid``
+    (its batch siblings), then reuses the standard scoring results page — so a run
+    of several items shows all of them, with polling / PDF / layout unchanged.
+    Ownership-checked via :func:`jobs.batch_ids_for_item` — a foreign or missing
+    id yields no ids and 404s.
     """
-    if not jobs.get_items(get_db(), [sid], g.user["id"]):
+    ids = jobs.batch_ids_for_item(get_db(), sid, g.user["id"])
+    if not ids:
         abort(404)
-    session[_BATCH_KEY] = [sid]
+    session[_BATCH_KEY] = ids
     return redirect(url_for("pages.pdp_scoring_results"))
 
 
 @bp.route("/app/pdp-copy/item/<int:cid>")
 @login_required
 def pdp_copy_item(cid):
-    """Open one historical copy item's results (from a dashboard / View All row).
+    """Open the whole run a copy item belongs to (from a dashboard / View All row).
 
-    Mirrors :func:`pdp_scoring_item` for the copy queue. Ownership-checked via
-    :func:`copy_jobs.get_copy_items`.
+    Mirrors :func:`pdp_scoring_item` for the copy queue, via
+    :func:`copy_jobs.batch_ids_for_copy_item`.
     """
-    if not copy_jobs.get_copy_items(get_db(), [cid], g.user["id"]):
+    ids = copy_jobs.batch_ids_for_copy_item(get_db(), cid, g.user["id"])
+    if not ids:
         abort(404)
-    session[_COPY_BATCH_KEY] = [cid]
+    session[_COPY_BATCH_KEY] = ids
     return redirect(url_for("pages.pdp_copy_results"))
 
 

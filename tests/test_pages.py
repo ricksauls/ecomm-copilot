@@ -242,3 +242,36 @@ def test_activity_item_route_is_ownership_scoped(client, auth, app):
     auth.logout()
     auth.register(email="intruder-b@example.com")
     assert client.get(f"/app/pdp-scoring/item/{foreign_sid}").status_code == 404
+
+
+def test_row_click_opens_whole_run(client, auth, app):
+    # Clicking one item's row opens the whole run it was submitted with — all items
+    # scored together (sharing a batch_id) appear, not just the clicked one.
+    from app import jobs
+    from app.db import get_db
+
+    auth.register(email="run@example.com")
+    with app.app_context():
+        db = get_db()
+        uid = db.execute("SELECT id FROM users WHERE email = ?", ("run@example.com",)).fetchone()["id"]
+        ids = jobs.enqueue_items(db, uid, [
+            {"url": "https://www.walmart.com/ip/111", "item": "111"},
+            {"url": "https://www.walmart.com/ip/222", "item": "222"},
+            {"url": "https://www.walmart.com/ip/333", "item": "333"},
+        ])
+        jobs.save_result(db, ids[0], 70, {"overall": 70}, "Run Item A")
+        jobs.save_result(db, ids[1], 80, {"overall": 80}, "Run Item B")
+        jobs.save_result(db, ids[2], 90, {"overall": 90}, "Run Item C")
+        # A separate, later run — must NOT bleed into the first run's results.
+        other = jobs.enqueue_items(db, uid, [{"url": "https://www.walmart.com/ip/999", "item": "999"}])
+        jobs.save_result(db, other[0], 60, {"overall": 60}, "Other Run Item")
+        db.commit()
+        clicked = ids[1]
+
+    # Clicking the middle item of the run opens all three run items, not the other run.
+    resp = client.get(f"/app/pdp-scoring/item/{clicked}", follow_redirects=True)
+    assert resp.status_code == 200
+    assert b"Run Item A" in resp.data
+    assert b"Run Item B" in resp.data
+    assert b"Run Item C" in resp.data
+    assert b"Other Run Item" not in resp.data
