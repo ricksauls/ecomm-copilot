@@ -134,12 +134,24 @@
     return "" + v;
   }
 
+  var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  // "2026-08-24" -> "Aug 24". Parsed by hand (not new Date) so a UTC date string
+  // never shifts a day in the viewer's local timezone.
+  function formatDate(iso) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || "");
+    if (!m) return iso || "";
+    return MONTHS[parseInt(m[2], 10) - 1] + " " + parseInt(m[3], 10);
+  }
+
   // ── Rank / share sparkline ────────────────────────────────────────────────
   function drawSparkline(container) {
-    var pts;
+    var pts, dates;
     try { pts = JSON.parse(container.getAttribute("data-points") || "[]"); }
     catch (e) { return; }
     if (!pts.length) return;
+    try { dates = JSON.parse(container.getAttribute("data-dates") || "[]"); }
+    catch (e) { dates = []; }
 
     var W = 68, H = 20, pad = 2;
     var min = Math.min.apply(null, pts), max = Math.max.apply(null, pts);
@@ -171,7 +183,9 @@
       var isLast = i === pts.length - 1;
       svg.appendChild(el("circle", { cx: cx, cy: cy, r: isLast ? 2 : 1.4, fill: "#050505" }));
 
-      var label = formatValue(v, unit);
+      // Tooltip text: "date · value" when a date is known, else just the value.
+      var value = formatValue(v, unit);
+      var label = dates[i] ? formatDate(dates[i]) + " · " + value : value;
       var hit = el("circle", { cx: cx, cy: cy, r: 6, fill: "#050505",
         "fill-opacity": "0", "class": "ci-spark-hit" });
       hit.setAttribute("data-value", label);

@@ -115,14 +115,17 @@ def test_monitoring_trend_helpers(app):
         _sos(db, rid, gid, kid, _iso(0), comp, 3, 0)
         db.commit()
 
-        # Rank trends: daily avg position per brand and per keyword+brand.
-        assert ci_analysis.rank_trend_by_brand(db, gid, "wow")["Tabasco"] == [4.0, 2.0]
+        # Rank trends: daily avg position per brand and per keyword+brand, each
+        # carrying aligned dates (for the hover tooltip) and values (drawn).
+        rb = ci_analysis.rank_trend_by_brand(db, gid, "wow")["Tabasco"]
+        assert rb == {"dates": [_iso(1), _iso(0)], "values": [4.0, 2.0]}
         assert ci_analysis.rank_trend_by_keyword_brand(db, gid, "wow")[
-            ("hot sauce", "Tabasco")] == [4.0, 2.0]
+            ("hot sauce", "Tabasco")]["values"] == [4.0, 2.0]
         # Share trends: daily total-share % per brand and per keyword+brand.
-        assert ci_analysis.share_trend_by_brand(db, gid, "wow")["Tabasco"] == [40.0, 70.0]
+        sb = ci_analysis.share_trend_by_brand(db, gid, "wow")["Tabasco"]
+        assert sb == {"dates": [_iso(1), _iso(0)], "values": [40.0, 70.0]}
         assert ci_analysis.share_trend_by_keyword_brand(db, gid, "wow")[
-            ("hot sauce", "Tabasco")] == [40.0, 70.0]
+            ("hot sauce", "Tabasco")]["values"] == [40.0, 70.0]
 
 
 def test_rank_summary_current_prior_and_sparkline(app):

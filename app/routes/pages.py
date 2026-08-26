@@ -1127,20 +1127,26 @@ def _monitoring_data(db, group_id, period):
         depth = ci_analysis.snapshot_page1_depth(db, group_id, rid)
         rank_map = ci_analysis.build_rank_placement_map(avg_ranks, depth)
 
-        # Attach the period trend series to each row (empty list = no history yet,
-        # which the template renders as a blank trend cell).
+        # Attach the period trend series to each row (empty = no history yet, which
+        # the template renders as a blank trend cell). Each series carries aligned
+        # ``values`` (drawn) and ``dates`` (shown in the hover tooltip).
         rt_brand = ci_analysis.rank_trend_by_brand(db, group_id, period)
         rt_kw = ci_analysis.rank_trend_by_keyword_brand(db, group_id, period)
         st_brand = ci_analysis.share_trend_by_brand(db, group_id, period)
         st_kw = ci_analysis.share_trend_by_keyword_brand(db, group_id, period)
+
+        def _attach(row, series):
+            row["trend"] = series["values"] if series else []
+            row["trend_dates"] = series["dates"] if series else []
+
         for r in avg_ranks:
-            r["trend"] = rt_brand.get(r["brand_name"], [])
+            _attach(r, rt_brand.get(r["brand_name"]))
         for r in rank_rows:
-            r["trend"] = rt_kw.get((r["keyword"], r["brand_name"]), [])
+            _attach(r, rt_kw.get((r["keyword"], r["brand_name"])))
         for r in sos_summary:
-            r["trend"] = st_brand.get(r["brand_name"], [])
+            _attach(r, st_brand.get(r["brand_name"]))
         for r in share_rows:
-            r["trend"] = st_kw.get((r["keyword"], r["brand_name"]), [])
+            _attach(r, st_kw.get((r["keyword"], r["brand_name"])))
 
     return {
         "run": run,

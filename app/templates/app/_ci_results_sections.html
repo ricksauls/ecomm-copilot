@@ -75,7 +75,7 @@
           <td>{{ r.brand_name }}</td>
           <td><span class="ci-type {{ 'mine' if r.type == 'mine' else '' }}">{{ r.type }}</span></td>
           <td>{{ ('#%s' % r.avg_position) if r.avg_position is not none else '—' }}</td>
-          {% if show_trend %}<td><span class="ci-spark" data-unit="rank" data-points='{{ r.trend | tojson }}'></span></td>{% endif %}
+          {% if show_trend %}<td><span class="ci-spark" data-unit="rank" data-dates='{{ r.trend_dates | tojson }}' data-points='{{ r.trend | tojson }}'></span></td>{% endif %}
         </tr>
         {% endfor %}
       </tbody>
@@ -138,7 +138,7 @@
           <td>{{ r.brand_name }}</td>
           <td><span class="ci-type {{ 'mine' if r.type == 'mine' else '' }}">{{ r.type }}</span></td>
           <td>#{{ r.avg_ranking }}</td>
-          {% if show_trend %}<td><span class="ci-spark" data-unit="rank" data-points='{{ r.trend | tojson }}'></span></td>{% endif %}
+          {% if show_trend %}<td><span class="ci-spark" data-unit="rank" data-dates='{{ r.trend_dates | tojson }}' data-points='{{ r.trend | tojson }}'></span></td>{% endif %}
         </tr>
         {% endfor %}
       </tbody>
@@ -171,7 +171,7 @@
               <span class="ci-bar-fill {{ 'mine' if r.type == 'mine' else '' }}" style="width: {{ r.total_share }}%"></span>
             </span>
           </td>
-          {% if show_trend %}<td><span class="ci-spark" data-better="high" data-unit="share" data-points='{{ r.trend | tojson }}'></span></td>{% endif %}
+          {% if show_trend %}<td><span class="ci-spark" data-better="high" data-unit="share" data-dates='{{ r.trend_dates | tojson }}' data-points='{{ r.trend | tojson }}'></span></td>{% endif %}
         </tr>
         {% endfor %}
       </tbody>
@@ -227,7 +227,7 @@
           <td class="cell-muted">{{ r.organic_share }}%</td>
           <td class="cell-muted">{{ r.sponsored_share }}%</td>
           <td>{{ r.total_share }}%</td>
-          {% if show_trend %}<td><span class="ci-spark" data-better="high" data-unit="share" data-points='{{ r.trend | tojson }}'></span></td>{% endif %}
+          {% if show_trend %}<td><span class="ci-spark" data-better="high" data-unit="share" data-dates='{{ r.trend_dates | tojson }}' data-points='{{ r.trend | tojson }}'></span></td>{% endif %}
         </tr>
         {% endfor %}
       </tbody>
