@@ -1241,6 +1241,54 @@ def _resolve_period(raw: str | None) -> str:
     return raw if raw in ci_analysis.PERIOD_DAYS else ci_analysis.DEFAULT_PERIOD
 
 
+@bp.route("/app/competitive-intel/view-snapshot")
+@login_required
+def ci_view_snapshot():
+    """Pick a one-time snapshot group from a dropdown; show its current-state results.
+
+    The snapshot counterpart to :func:`ci_view`: same picker layout, rendering the
+    snapshot results sections (no trends, no period window) for the selected group's
+    latest completed run.
+    """
+    db = get_db()
+    groups = ci_config.list_groups(db, g.user["id"], mode="snapshot")
+
+    group_id = request.args.get("group_id", type=int)
+    selected = None
+    if group_id is not None:
+        selected = ci_config.get_group(db, group_id, g.user["id"])
+        if selected is not None and selected["mode"] != "snapshot":
+            selected = None
+    elif groups:
+        selected = groups[0]  # default to the newest snapshot group
+
+    data = {"run": None, "config_summary": None, "sos_summary": [], "avg_ranks": [],
+            "rank_rows": [], "share_rows": [], "rank_map": None}
+    if selected is not None:
+        data = _snapshot_data(db, selected["id"])
+
+    sos_scale = max((r["organic_share"] + r["sponsored_share"] for r in data["sos_summary"]),
+                    default=0)
+    logger.info("CI view-snapshot user_id=%s group_id=%s run_id=%s",
+                g.user["id"], selected["id"] if selected else None,
+                data["run"]["id"] if data["run"] else None)
+    return render_template(
+        "app/ci_view_snapshot.html",
+        breadcrumb="Competitive Intelligence · View Snapshot",
+        active_nav="ci-view-snapshot",
+        groups=groups,
+        selected=selected,
+        run=data["run"],
+        config_summary=data["config_summary"],
+        sos_summary=data["sos_summary"],
+        avg_ranks=data["avg_ranks"],
+        rank_rows=data["rank_rows"],
+        share_rows=data["share_rows"],
+        rank_map=data["rank_map"],
+        sos_scale=sos_scale,
+    )
+
+
 @bp.route("/app/competitive-intel/view")
 @login_required
 def ci_view():

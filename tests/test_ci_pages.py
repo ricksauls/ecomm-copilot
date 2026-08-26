@@ -319,6 +319,50 @@ def test_monitoring_view_matches_snapshot_layout_with_trends(client, auth):
     assert b"data-better=\"high\"" in resp.data  # share trend renders higher = up
 
 
+def test_view_snapshot_dropdown_and_results_without_trends(client, auth):
+    auth.register()
+    # One snapshot + one monitoring group; only the snapshot one appears in View Snapshot.
+    client.post("/app/competitive-intel/monitoring/groups", data={"name": "ZzzMonOnlyGrp"})
+    resp = client.post("/app/competitive-intel/snapshot/groups", data={"name": "SnapView"})
+    sgid = int(resp.headers["Location"].rstrip("/").split("/")[-1])
+    with client.application.app_context():
+        db = get_db()
+        b_mine = ci_config.add_brand(db, sgid, 1, "Tabasco", "mine")
+        ci_config.add_product(db, sgid, b_mine, 1, "https://www.walmart.com/ip/x/10294528")
+        kid = ci_config.add_keyword(db, sgid, 1, "hot sauce")
+        rid = ci_jobs.enqueue_run(db, sgid)
+        rows = [{"run_id": rid, "group_id": sgid, "keyword_id": kid, "scraped_at": date.today().isoformat(),
+                 "position": 3, "position_type": "organic", "item_id": "10294528",
+                 "brand_id": b_mine, "is_new_sku": 0}]
+        ci_jobs.write_search_results(db, rows)
+        ci_jobs.write_share_of_search(db, rid, sgid, kid, date.today().isoformat(), None, rows, {"10294528"})
+        ci_jobs.finish_run(db, rid)
+
+    view = client.get("/app/competitive-intel/view-snapshot")
+    assert view.status_code == 200
+    assert b"SnapView" in view.data
+    assert b"ZzzMonOnlyGrp" not in view.data  # monitoring group not offered here
+
+    resp = client.get(f"/app/competitive-intel/view-snapshot?group_id={sgid}")
+    assert resp.status_code == 200
+    # Same snapshot sections…
+    assert b"What this group tracks" in resp.data
+    assert b"Overall Search Ranking" in resp.data
+    assert b"Overall Share of Digital Shelf" in resp.data
+    assert b"sos-chart" in resp.data
+    # …and NO trend affordances (that's the monitoring view's addition).
+    assert b"ci-spark" not in resp.data
+
+
+def test_view_snapshot_rejects_monitoring_group(client, auth, app):
+    # A monitoring group id passed to View Snapshot isn't shown (mode guard).
+    _uid, mgid = _make_group(app, "snapowner@example.com", "monitoring")
+    auth.register(email="snapviewer@example.com")
+    resp = client.get(f"/app/competitive-intel/view-snapshot?group_id={mgid}")
+    assert resp.status_code == 200  # renders, but the group isn't selected/shown
+    assert b"What this group tracks" not in resp.data
+
+
 def test_monitoring_pdf_downloads(client, auth):
     auth.register()
     resp = client.post("/app/competitive-intel/monitoring/groups", data={"name": "Mon"})

@@ -1,0 +1,55 @@
+{% extends "app/base.html" %}
+{% block title %}View Snapshot — ecomm-copilot{% endblock %}
+
+{% block pane_content %}
+<div class="page-header">
+  <div>
+    <h1>View Snapshot</h1>
+    <p class="subtitle">Current-state results from a one-time snapshot group.</p>
+  </div>
+  {% if selected and run and run.status == 'done' %}
+  <div class="header-actions">
+    <a href="{{ url_for('pages.ci_snapshot_results_pdf', group_id=selected.id) }}" class="wbtn wbtn-primary">Download PDF</a>
+  </div>
+  {% endif %}
+</div>
+
+{% if not groups %}
+<div class="card card-pad ci-empty">
+  No snapshot groups yet. Set one up under
+  <a href="{{ url_for('pages.ci_snapshot_home') }}">One-Time Snapshot</a>.
+</div>
+{% else %}
+
+{# Group picker. Works without JS (a GET form + Go); ci_dashboard.js auto-submits on change. #}
+<div class="card card-pad">
+  <form method="get" action="{{ url_for('pages.ci_view_snapshot') }}" class="ci-inline-form" id="ci-group-form" style="margin-top:0">
+    <label class="field-label" for="ci-group-select">Group</label>
+    <select name="group_id" id="ci-group-select" class="ci-select">
+      {% for gr in groups %}
+      <option value="{{ gr.id }}" {{ 'selected' if selected and gr.id == selected.id else '' }}>{{ gr.name }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="wbtn wbtn-secondary">Go</button>
+  </form>
+</div>
+
+{% if selected %}
+{% if not run or run.status != 'done' %}
+<div class="card card-pad ci-empty">
+  No completed snapshot yet for this group. Configure and run it from
+  <a href="{{ url_for('pages.ci_group_config', group_id=selected.id) }}">this group's setup</a>.
+</div>
+{% elif not sos_summary and not avg_ranks and not rank_rows %}
+<div class="card card-pad ci-empty">The run finished but returned no data (possible block or empty keywords).</div>
+{% endif %}
+{% set show_trend = false %}
+{% include "app/_ci_results_sections.html" %}
+{% endif %}
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ static_url('js/ci_charts.js') }}"></script>
+<script src="{{ static_url('js/ci_dashboard.js') }}"></script>
+{% endblock %}
