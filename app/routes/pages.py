@@ -117,6 +117,14 @@ def dashboard():
              copy_jobs.count_copy_products(db, uid),
              copy_jobs.count_copy_products(db, uid, since=month_start)),
         _kpi("PDP's images created", 0, 0),
+        # Competitive Intelligence activity: snapshots the user has run and the
+        # daily-monitoring schedules they have active.
+        _kpi("One-Time Snapshot",
+             ci_jobs.count_snapshot_runs_for_user(db, uid),
+             ci_jobs.count_snapshot_runs_for_user(db, uid, since=month_start)),
+        _kpi("Daily Monitoring",
+             ci_config.count_monitoring_groups_for_user(db, uid),
+             ci_config.count_monitoring_groups_for_user(db, uid, since=month_start)),
     ]
     return render_template(
         "app/dashboard.html",

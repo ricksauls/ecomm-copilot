@@ -420,6 +420,22 @@ def count_monitoring_groups(conn: sqlite3.Connection) -> int:
     ).fetchone()[0])
 
 
+def count_monitoring_groups_for_user(conn: sqlite3.Connection, user_id: int,
+                                     since: str | None = None) -> int:
+    """Daily Monitoring schedules the user has set up — the dashboard KPI.
+
+    Counts the user's active monitoring-mode groups (mirrors the admin
+    ``count_monitoring_groups`` but scoped to one user). ``since`` (an ISO date)
+    restricts to groups created on/after that date, for the "this month" figure.
+    """
+    sql = "SELECT COUNT(*) FROM ci_groups WHERE user_id = ? AND mode = 'monitoring' AND active = 1"
+    params: list = [user_id]
+    if since:
+        sql += " AND created_at >= ?"
+        params.append(since)
+    return int(conn.execute(sql, params).fetchone()[0])
+
+
 def list_monitoring_groups_admin(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     """Every Daily Monitoring schedule across all users, with owner + latest run.
 

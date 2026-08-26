@@ -346,15 +346,22 @@ body.workspace {
 /* KPI row */
 .kpi-row {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 14px;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 12px;
   margin-bottom: 14px;
 }
 .kpi {
-  padding: 20px 22px;
+  padding: 18px 18px;
+}
+/* Six cards make each one narrow, so a two-word title wraps. Reserve two lines
+   on every card's label so a one-line title doesn't lift its metric out of
+   alignment with the wrapped ones. */
+.kpi .label {
+  min-height: 2.3em;
+  line-height: 1.2;
 }
 .kpi .metric {
-  font-size: 40px;
+  font-size: 34px;
   font-weight: 700;
   letter-spacing: -0.03em;
   line-height: 1;
@@ -559,10 +566,15 @@ a:focus-visible,
    later task (see handoff: rail should collapse to icons first). --- */
 @media (max-width: 1100px) {
   .kpi-row {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(3, 1fr);
   }
   .main-row {
     grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 760px) {
+  .kpi-row {
+    grid-template-columns: repeat(2, 1fr);
   }
 }
 

@@ -245,6 +245,23 @@ def count_snapshot_runs(conn: sqlite3.Connection) -> int:
     ).fetchone()[0])
 
 
+def count_snapshot_runs_for_user(conn: sqlite3.Connection, user_id: int,
+                                 since: str | None = None) -> int:
+    """One-Time Snapshot runs the user has triggered — the dashboard KPI.
+
+    Counts runs of the user's own snapshot-mode groups (mirrors the admin
+    ``count_snapshot_runs`` but scoped to one user). ``since`` (an ISO date)
+    restricts to runs created on/after that date, for the "this month" figure.
+    """
+    sql = ("SELECT COUNT(*) FROM ci_runs r JOIN ci_groups g ON g.id = r.group_id "
+           "WHERE g.user_id = ? AND g.mode = 'snapshot'")
+    params: list = [user_id]
+    if since:
+        sql += " AND r.created_at >= ?"
+        params.append(since)
+    return int(conn.execute(sql, params).fetchone()[0])
+
+
 def list_snapshot_runs(conn: sqlite3.Connection, limit: int = 200) -> list[sqlite3.Row]:
     """Recent One-Time Snapshot runs across all users, newest first (admin screen).
 

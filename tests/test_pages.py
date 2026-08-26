@@ -42,11 +42,13 @@ def test_dashboard_is_personalized_to_the_user(client, auth):
     body = client.get("/app").data
     assert b"rick@example.com" in body
     assert b"Meridian Commerce Group" not in body
-    # The four KPI cards are the per-user product metrics.
+    # The KPI row: four per-user product metrics plus the two CI activity cards.
     assert b"Products managed" in body
     assert b"scored" in body            # PDP's scored
     assert b"copy created" in body      # PDP's copy created
     assert b"images created" in body    # PDP's images created
+    assert b"One-Time Snapshot" in body  # CI snapshot card
+    assert b"Daily Monitoring" in body   # CI monitoring card
     assert b"this month" in body        # each card's this-month footnote
 
 
