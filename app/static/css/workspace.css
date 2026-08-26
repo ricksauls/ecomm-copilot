@@ -465,24 +465,12 @@ body.workspace {
   border-radius: var(--radius-chip);
   padding: 1px 8px;
 }
-/* "View all" link in the summary → its all-time screen. dashboard.js intercepts
-   the click so it navigates instead of toggling the <details>. */
+/* "View all" link in the summary → its all-time screen. Uses the shared
+   .wbtn.wbtn-secondary button style for consistency with the rest of the app;
+   only its layout is set here. dashboard.js intercepts the click so it navigates
+   instead of toggling the <details>. */
 .dash-viewall {
   flex: none;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--black);
-  text-decoration: none;
-  padding: 4px 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-chip);
-  background: var(--canvas);
-  transition: background var(--fade) var(--ease), color var(--fade) var(--ease);
-}
-.dash-viewall:hover {
-  background: var(--signal-red);
-  color: var(--canvas);
-  border-color: var(--signal-red);
 }
 /* Hover-to-enlarge: real thumbnails invite the zoom; the enlarged copy floats,
    positioned by JS, fixed on <body> so no table overflow can clip it. */
