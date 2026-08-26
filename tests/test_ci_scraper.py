@@ -207,19 +207,44 @@ def test_build_ad_rows_untracked_brand_left_unattributed():
     assert rows[0]["brand_text"] == "Cholula"
 
 
+class _FakeFrame:
+    def __init__(self, url="", text=""):
+        self.url = url
+        self._t = text
+
+    def inner_text(self, _sel):
+        return self._t
+
+
+class _FakePage:
+    def __init__(self, body="", frames=()):
+        self._body = body
+        self.frames = list(frames)
+
+    def inner_text(self, _sel):
+        return self._body
+
+
 def test_challenge_overlay_detected_from_body_text():
-    class FakePage:
-        def __init__(self, text):
-            self._t = text
-
-        def inner_text(self, _sel):
-            return self._t
-
-    # A bot-challenge modal overlaying the page is detected so its screenshot is skipped.
-    assert ci_scraper._challenge_overlay_present(FakePage("Robot or human? Press & Hold")) is True
-    assert ci_scraper._challenge_overlay_present(FakePage("Activate and hold the button")) is True
+    # A challenge whose text is in the main DOM is detected.
+    assert ci_scraper._challenge_overlay_present(_FakePage("Robot or human? Press & Hold")) is True
+    assert ci_scraper._challenge_overlay_present(_FakePage("Activate and hold the button")) is True
     # A normal results page is clear.
-    assert ci_scraper._challenge_overlay_present(FakePage("Results for hot sauce")) is False
+    assert ci_scraper._challenge_overlay_present(_FakePage("Results for hot sauce")) is False
+
+
+def test_challenge_overlay_detected_inside_iframe():
+    # The "Press & Hold" widget renders in an iframe, so its text isn't in body —
+    # detection must still catch it via the frame's text or URL.
+    by_text = _FakePage(body="Results for hot sauce",
+                        frames=[_FakeFrame(text="Robot or human? Activate and hold")])
+    assert ci_scraper._challenge_overlay_present(by_text) is True
+    by_url = _FakePage(body="results",
+                       frames=[_FakeFrame(url="https://captcha.px-cdn.net/challenge")])
+    assert ci_scraper._challenge_overlay_present(by_url) is True
+    # A clean page with only a benign ad iframe stays clear.
+    clean = _FakePage(body="results", frames=[_FakeFrame(url="https://ads.example.com", text="buy")])
+    assert ci_scraper._challenge_overlay_present(clean) is False
 
 
 def test_proxy_from_env_unset_is_none(monkeypatch):

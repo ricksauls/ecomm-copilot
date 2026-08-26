@@ -373,16 +373,42 @@ def build_ad_rows(ads: list[dict], *, run_id: int, group_id: int, keyword_id: in
 # read the ad brand/count from the DOM behind it but skip the creative screenshot,
 # so a captcha overlay is never captured (and the captcha is never interacted with).
 _AD_CHALLENGE_MARKERS = ("press & hold", "press and hold", "activate and hold",
-                         "robot or human")
+                         "robot or human", "verify you are human", "verify you're human")
+# The human-challenge widget renders in its own iframe, so its text isn't in the
+# main-page body; these URL fragments identify that iframe directly.
+_CHALLENGE_FRAME_HINTS = ("captcha", "perimeterx", "px-cdn", "px-cloud", "hcaptcha",
+                          "recaptcha", "human-challenge", "geo.captcha")
 
 
 def _challenge_overlay_present(page) -> bool:
-    """Whether a bot-challenge modal is currently overlaying the page."""
+    """Whether a bot-challenge (e.g. "Press & Hold") overlay is on the page.
+
+    The challenge modal renders inside an iframe, so a main-DOM body-text check
+    misses it — we also scan every frame's URL (fast) and, failing that, its text
+    for the challenge markers. Fully guarded: any read error is treated as "clear"
+    so detection never raises into the capture path.
+    """
+    def _has_markers(text) -> bool:
+        t = (text or "").lower()
+        return any(marker in t for marker in _AD_CHALLENGE_MARKERS)
+
     try:
-        body = (page.inner_text("body") or "").lower()
-    except Exception:  # noqa: BLE001 - if we can't read it, assume clear
-        return False
-    return any(marker in body for marker in _AD_CHALLENGE_MARKERS)
+        if _has_markers(page.inner_text("body")):
+            return True
+    except Exception:  # noqa: BLE001 - unreadable body -> fall through to frames
+        pass
+    try:
+        for frame in page.frames:
+            if any(hint in (frame.url or "").lower() for hint in _CHALLENGE_FRAME_HINTS):
+                return True
+            try:
+                if _has_markers(frame.inner_text("body")):
+                    return True
+            except Exception:  # noqa: BLE001 - a detached/cross-origin frame is skipped
+                continue
+    except Exception:  # noqa: BLE001 - no frame access -> rely on the body check above
+        pass
+    return False
 
 
 def _capture_ads(page) -> list[dict]:

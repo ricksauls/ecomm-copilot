@@ -1234,8 +1234,10 @@ def ci_run_snapshot(group_id):
     if ci_jobs.has_active_run(db, group_id):
         flash("A run is already in progress for this group.", "error")
     else:
+        # No success flash: the results page's own in-progress message ("Extracting
+        # data and creating the report…") already confirms the run started, so a
+        # separate banner would be redundant (and "worker" is internal jargon).
         ci_jobs.enqueue_run(db, group_id, run_type="one_time")
-        flash("Snapshot queued — results appear as the worker finishes.", "ok")
     return redirect(url_for("pages.ci_snapshot_results", group_id=group_id))
 
 
