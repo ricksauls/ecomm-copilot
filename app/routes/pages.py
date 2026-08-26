@@ -806,7 +806,7 @@ def ci_monitoring_home():
     db = get_db()
     return render_template(
         "app/ci_monitoring_home.html",
-        breadcrumb="Competitive Intelligence · Monitoring",
+        breadcrumb="Competitive Intelligence · Daily Monitoring",
         active_nav="ci-monitoring",
         groups=ci_config.list_groups(db, g.user["id"], mode="monitoring"),
         next_run=ci_analysis.next_monitoring_run(),
