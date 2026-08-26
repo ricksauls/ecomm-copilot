@@ -275,3 +275,39 @@ def test_row_click_opens_whole_run(client, auth, app):
     assert b"Run Item B" in resp.data
     assert b"Run Item C" in resp.data
     assert b"Other Run Item" not in resp.data
+
+
+def test_content_activity_shows_all_three_tables_all_time(client, auth, app):
+    # The View Content Activity screen has the three Content Studio tables, all-time
+    # (a prior-month scored item appears here even though the dashboard hides it),
+    # with clickable rows and the nav link present.
+    from app import jobs
+    from app.db import get_db
+
+    auth.register(email="ca@example.com")
+    with app.app_context():
+        db = get_db()
+        uid = db.execute("SELECT id FROM users WHERE email = ?", ("ca@example.com",)).fetchone()["id"]
+        ids = jobs.enqueue_items(db, uid, [{"url": "https://www.walmart.com/ip/808", "item": "808"}])
+        jobs.save_result(db, ids[0], 91, {"overall": 91}, "Old Content Item")
+        db.execute("UPDATE scored_items SET created_at = '2020-03-01 00:00:00' WHERE id = ?", (ids[0],))
+        db.commit()
+        sid = ids[0]
+
+    resp = client.get("/app/content-activity")
+    assert resp.status_code == 200
+    assert b"View Content Activity" in resp.data
+    assert b"Products Scored" in resp.data
+    assert b"Copy Created" in resp.data
+    assert b"Image Sets Created" in resp.data
+    # All-time: the prior-month item shows, and its row links to the run's results.
+    assert b"Old Content Item" in resp.data
+    assert f"/app/pdp-scoring/item/{sid}".encode() in resp.data
+
+    # The nav link is present on an authenticated page.
+    assert b"/app/content-activity" in client.get("/app").data
+
+
+def test_content_activity_requires_login(client):
+    resp = client.get("/app/content-activity")
+    assert resp.status_code in (301, 302)
