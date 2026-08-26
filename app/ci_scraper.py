@@ -368,27 +368,51 @@ def build_ad_rows(ads: list[dict], *, run_id: int, group_id: int, keyword_id: in
     return rows
 
 
+# A "Robot or human? / Press & Hold" bot-challenge modal can appear mid-scrape
+# (after the load-time block check) and overlay the page. When present we still
+# read the ad brand/count from the DOM behind it but skip the creative screenshot,
+# so a captcha overlay is never captured (and the captcha is never interacted with).
+_AD_CHALLENGE_MARKERS = ("press & hold", "press and hold", "activate and hold",
+                         "robot or human")
+
+
+def _challenge_overlay_present(page) -> bool:
+    """Whether a bot-challenge modal is currently overlaying the page."""
+    try:
+        body = (page.inner_text("body") or "").lower()
+    except Exception:  # noqa: BLE001 - if we can't read it, assume clear
+        return False
+    return any(marker in body for marker in _AD_CHALLENGE_MARKERS)
+
+
 def _capture_ads(page) -> list[dict]:
     """Extract + screenshot the page's brand ad units (best-effort, in-session).
 
     Ads load lazily, so nudge-scroll to trigger them, read the ad descriptors, then
     screenshot each ad's element for the creative image. Returns a list of
     ``{ad_type, brand_text, image_bytes}`` (``image_bytes`` is PNG or ``None`` if the
-    shot failed). Never raises — ads are a bonus on top of the card scrape, so any
-    failure is logged and yields fewer/no ads rather than sinking the keyword.
+    shot was skipped/failed). If a bot-challenge modal is overlaying the page we keep
+    the ad sighting (brand + count, read from the DOM) but skip the screenshot rather
+    than store a captcha-marred creative. Never raises — ads are a bonus on top of the
+    card scrape, so any failure yields fewer/no ads rather than sinking the keyword.
     """
     for y in (400, 1100, 0):  # trigger lazy ad fill, then return to the top
         page.evaluate(f"window.scrollTo(0, {y})")
         page.wait_for_timeout(1500)
     descriptors = page.evaluate(_EXTRACT_ADS_JS) or []
+    challenged = _challenge_overlay_present(page)
+    if challenged and descriptors:
+        logger.warning("CI ad capture: bot-challenge overlay present — recording "
+                       "%d ad sighting(s) without a creative screenshot", len(descriptors))
     ads = []
     for d in descriptors:
         image_bytes = None
-        try:
-            image_bytes = page.locator(d["selector"]).first.screenshot(timeout=8000)
-        except Exception:  # noqa: BLE001 - a missed screenshot must not fail the scrape
-            logger.warning("CI ad screenshot failed ad_type=%s selector=%s",
-                           d.get("ad_type"), d.get("selector"))
+        if not challenged:
+            try:
+                image_bytes = page.locator(d["selector"]).first.screenshot(timeout=8000)
+            except Exception:  # noqa: BLE001 - a missed screenshot must not fail the scrape
+                logger.warning("CI ad screenshot failed ad_type=%s selector=%s",
+                               d.get("ad_type"), d.get("selector"))
         ads.append({"ad_type": d["ad_type"], "brand_text": d.get("brand_text"),
                     "image_bytes": image_bytes})
     return ads

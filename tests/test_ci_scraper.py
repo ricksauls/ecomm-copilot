@@ -207,6 +207,21 @@ def test_build_ad_rows_untracked_brand_left_unattributed():
     assert rows[0]["brand_text"] == "Cholula"
 
 
+def test_challenge_overlay_detected_from_body_text():
+    class FakePage:
+        def __init__(self, text):
+            self._t = text
+
+        def inner_text(self, _sel):
+            return self._t
+
+    # A bot-challenge modal overlaying the page is detected so its screenshot is skipped.
+    assert ci_scraper._challenge_overlay_present(FakePage("Robot or human? Press & Hold")) is True
+    assert ci_scraper._challenge_overlay_present(FakePage("Activate and hold the button")) is True
+    # A normal results page is clear.
+    assert ci_scraper._challenge_overlay_present(FakePage("Results for hot sauce")) is False
+
+
 def test_proxy_from_env_unset_is_none(monkeypatch):
     # No proxy configured -> scrape directly (inert), the default.
     monkeypatch.delenv("WALMART_PROXY_SERVER", raising=False)

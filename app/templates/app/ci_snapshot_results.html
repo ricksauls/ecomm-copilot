@@ -98,7 +98,7 @@
 {% endif %}
 
 {% if run and run.status in ('queued', 'running') %}
-<div class="card card-pad ci-empty">Extracting data… this page will refresh when it's done.</div>
+<div class="card card-pad ci-empty">Extracting data and creating the report… this page will refresh when it's done.</div>
 {% elif run and run.status == 'error' %}
 <div class="card card-pad ci-empty">That run didn't complete{% if run.error %}: {{ run.error }}{% endif %}. Try running it again.</div>
 {% elif not run %}
