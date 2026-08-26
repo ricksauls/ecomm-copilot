@@ -95,7 +95,8 @@ def process_one(conn: sqlite3.Connection, row: sqlite3.Row) -> None:
         pdp = fetch_pdp(row["url"], row["item_id"])
         resolve_keywords(conn, row_id, pdp)
         result = score_pdp(pdp)
-        jobs.save_result(conn, row_id, result.overall, result_to_dict(result), pdp.title)
+        jobs.save_result(conn, row_id, result.overall, result_to_dict(result),
+                         pdp.title, brand=pdp.brand)
         log.info("Scored id=%s item=%s overall=%s", row_id, row["item_id"], result.overall)
     except FetchBlocked as e:
         log.warning("Blocked id=%s: %s", row_id, e)
@@ -132,6 +133,7 @@ def _copy_fetch(conn: sqlite3.Connection, row: sqlite3.Row) -> None:
         copy_jobs.save_current_copy(
             conn, row_id, title=pdp.title, current=current,
             current_overall=current_score.overall, keywords=found, next_status=next_status,
+            brand=pdp.brand,
         )
         log.info("Fetched current copy id=%s overall=%s next=%s",
                  row_id, current_score.overall, next_status)

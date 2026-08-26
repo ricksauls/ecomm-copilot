@@ -51,6 +51,24 @@ def _extract_bullets(product: dict) -> list[str]:
     return []
 
 
+def _extract_brand(product: dict) -> str:
+    """Read the product's brand from the __NEXT_DATA__ product node.
+
+    Walmart exposes it as ``product.brand`` — usually a plain string, but some
+    payloads nest it as ``{"name": ...}``, so both shapes are handled. Returns an
+    empty string when absent (the item genuinely has no brand set, or the page
+    didn't render one), which the job store treats as "no brand captured".
+    """
+    brand = product.get("brand")
+    if isinstance(brand, str):
+        return brand.strip()
+    if isinstance(brand, dict):
+        name = brand.get("name")
+        if isinstance(name, str):
+            return name.strip()
+    return ""
+
+
 def _extract_description(product: dict) -> str:
     """Prefer the long description, fall back to the short one."""
     for key in ("longDescription", "shortDescription"):
@@ -313,6 +331,7 @@ def parse_product(product: dict, *, url: str = "", item_id: str | None = None,
         url=url,
         item_id=item_id,
         title=(product.get("name") or "").strip(),
+        brand=_extract_brand(product),
         image_count=_extract_image_count(product),
         max_image_px=max_image_px,
         has_video=_detect_video(product),

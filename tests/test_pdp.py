@@ -30,6 +30,14 @@ def test_item_number_from_url():
     assert pdp.item_number_from_url("https://www.walmart.com/ip/some-name") is None
 
 
+def test_clean_brand_trims_bounds_and_blanks_to_none():
+    assert pdp.clean_brand("  Tabasco  ") == "Tabasco"
+    assert pdp.clean_brand("") is None
+    assert pdp.clean_brand("   ") is None
+    assert pdp.clean_brand(None) is None
+    assert len(pdp.clean_brand("x" * 500)) == pdp.MAX_BRAND_LEN
+
+
 def test_collect_items_dedupes_and_reports_rejects():
     accepted, rejected = pdp.collect_items(
         [
@@ -83,6 +91,23 @@ def test_pdp_get_renders_form(client, auth):
     assert resp.status_code == 200
     assert b"Score items" in resp.data
     assert b"walmart.com/ip/10294528" in resp.data
+    # The optional batch-level brand field is present.
+    assert b'name="brand"' in resp.data
+
+
+def test_pdp_post_persists_entered_brand(client, auth):
+    from app.db import get_db
+
+    auth.register()
+    client.post(
+        "/app/pdp-scoring",
+        data={"urls": ["https://www.walmart.com/ip/10294528"], "brand": "  Tabasco "},
+    )
+    with client.application.app_context():
+        row = get_db().execute(
+            "SELECT brand FROM scored_items WHERE item_id = '10294528'"
+        ).fetchone()
+        assert row["brand"] == "Tabasco"  # trimmed by clean_brand
 
 
 def test_pdp_post_enqueues_and_redirects(client, auth):

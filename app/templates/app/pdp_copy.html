@@ -17,6 +17,17 @@
         class="pdp-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
 
+    {# Optional batch-level brand. Applies to every item in this submission; the
+       worker fills it from the PDP only where the user leaves it blank. #}
+    <div class="form-section brand-section">
+      <label class="field-label" for="brand">Brand <span class="field-optional">(optional)</span></label>
+      <p class="brand-hint">Label these products with your brand — we’ll capture it from the page where you leave it blank.</p>
+      <span class="brand-field">
+        <input type="text" id="brand" name="brand" class="brand-input" maxlength="120"
+               placeholder="e.g. Tabasco" />
+      </span>
+    </div>
+
     <div class="form-section">
       <div class="section-head">
         <span class="step">1</span>

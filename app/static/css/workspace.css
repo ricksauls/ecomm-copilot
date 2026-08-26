@@ -603,6 +603,45 @@ a:focus-visible,
   align-items: center;
   justify-content: center;
 }
+/* Optional batch-level brand field, sitting above the numbered steps. */
+.field-optional {
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--cool-gray);
+}
+.brand-hint {
+  margin: 6px 0 10px;
+  font-size: 12.5px;
+  color: var(--cool-gray);
+}
+.brand-field {
+  display: block;
+  max-width: 340px;
+  padding: 0 12px;
+  background: var(--surface);
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-card);
+  transition: border-color var(--fade) var(--ease);
+}
+.brand-field:hover {
+  border-color: var(--mid-gray);
+}
+.brand-field:focus-within {
+  border-color: var(--black);
+}
+.brand-input {
+  width: 100%;
+  font-family: var(--font);
+  font-size: 13.5px;
+  color: var(--black);
+  background: none;
+  border: 0;
+  padding: 11px 0;
+}
+.brand-input:focus {
+  outline: none;
+}
 .url-rows {
   display: flex;
   flex-direction: column;

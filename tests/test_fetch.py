@@ -8,6 +8,7 @@ from PIL import Image
 
 from app.fetch import (
     _count_spec_pairs,
+    _extract_brand,
     _extract_idml_bullets,
     _extract_idml_specs,
     _is_white_background,
@@ -19,6 +20,7 @@ from app.scoring import score_pdp
 # props.pageProps.initialData.data.product.
 _PRODUCT = {
     "name": "Great Value Purified Drinking Water, 16.9 fl oz, 40 Count",
+    "brand": "Great Value",
     "shortDescription": "Stay hydrated with this 40-count case of purified water.",
     "longDescription": " ".join(["Purified water is great."] * 40),
     "keyFeatures": [
@@ -56,6 +58,16 @@ def test_parse_product_maps_fields():
     assert len(pdp.bullets) == 3
     assert "Purified water" in pdp.description
     assert pdp.attributes_present == 3  # empty spec value dropped
+    assert pdp.brand == "Great Value"
+
+
+def test_extract_brand_handles_string_dict_and_absent():
+    assert _extract_brand({"brand": "  Tabasco "}) == "Tabasco"
+    # Some payloads nest the brand as {"name": ...}.
+    assert _extract_brand({"brand": {"name": "Frank's RedHot"}}) == "Frank's RedHot"
+    # Absent or unexpected shapes read as "no brand".
+    assert _extract_brand({}) == ""
+    assert _extract_brand({"brand": 123}) == ""
 
 
 def test_parsed_record_is_scorable():

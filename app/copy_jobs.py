@@ -33,18 +33,23 @@ def enqueue_copy_items(
     *,
     auto_generate: bool = False,
 ) -> list[int]:
-    """Insert queued copy rows for ``items`` (each ``{"url", "item"}``); return ids.
+    """Insert queued copy rows for ``items`` (each ``{"url", "item", "brand"?}``); return ids.
 
     ``auto_generate`` marks the batch to generate new copy immediately after the
     fetch (the flow that starts from the scoring screen), rather than resting at
     ``fetched`` until the user clicks "Create new copy content".
+
+    ``brand`` is the optional brand the user typed at intake (or carried over from
+    a scored item on the cross-link path); stored up front so the dashboard's
+    brand count reflects the submission immediately. The worker fills it from the
+    PDP only when the user left it blank — see :func:`save_current_copy`.
     """
     ids: list[int] = []
     for it in items:
         cur = conn.execute(
-            "INSERT INTO copy_items (user_id, item_id, url, status, auto_generate) "
-            "VALUES (?, ?, ?, 'queued', ?)",
-            (user_id, it.get("item"), it["url"], 1 if auto_generate else 0),
+            "INSERT INTO copy_items (user_id, item_id, url, brand, status, auto_generate) "
+            "VALUES (?, ?, ?, ?, 'queued', ?)",
+            (user_id, it.get("item"), it["url"], it.get("brand"), 1 if auto_generate else 0),
         )
         ids.append(int(cur.lastrowid))
     conn.commit()
@@ -105,6 +110,7 @@ def save_current_copy(
     current_overall: int,
     keywords: list[str] | None,
     next_status: str,
+    brand: str | None = None,
 ) -> None:
     """Store the fetched current copy (and its score) and set the next status.
 
@@ -112,17 +118,22 @@ def save_current_copy(
     immediately pick it back up to generate) or ``'fetched'`` otherwise (it rests
     until the user requests generation). The resolved keyword set is persisted so
     the generation phase reuses it without re-discovering.
+
+    ``brand`` is the brand read from the PDP; like the scoring queue, it only fills
+    the column when the user didn't provide one at intake (``COALESCE`` over the
+    existing non-empty value), so a deliberate user label is never overwritten.
     """
     conn.execute(
         "UPDATE copy_items SET status = ?, title = ?, current_json = ?, "
-        "current_overall = ?, keywords_json = ?, error = NULL, "
-        "updated_at = datetime('now') WHERE id = ?",
+        "current_overall = ?, keywords_json = ?, brand = COALESCE(NULLIF(brand, ''), ?), "
+        "error = NULL, updated_at = datetime('now') WHERE id = ?",
         (
             next_status,
             title,
             json.dumps(current),
             current_overall,
             json.dumps(keywords or []),
+            brand,
             row_id,
         ),
     )

@@ -42,6 +42,10 @@ class PdpRecord:
     url: str
     item_id: str | None = None
     title: str = ""
+    # Product brand as read from the PDP (``product.brand`` in __NEXT_DATA__).
+    # Empty when the page didn't expose one; the scorer doesn't use it, but the
+    # job store persists it for the dashboard's distinct-brand count.
+    brand: str = ""
     image_count: int = 0
     max_image_px: int = 0  # largest edge across all images, in pixels
     has_video: bool = False

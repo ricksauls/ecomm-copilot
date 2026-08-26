@@ -50,6 +50,23 @@ _COPY_BATCH_KEY = "pdp_copy_batch_ids"
 bp = Blueprint("pages", __name__)
 
 
+def _format_signup_date(created_at: str | None) -> str:
+    """Render a stored UTC ``created_at`` as e.g. "Aug 20, 2026" for the dashboard.
+
+    ``created_at`` is a ``YYYY-MM-DD HH:MM:SS`` string. Fail-safe: an unexpected or
+    missing value falls back to the raw date portion rather than 500-ing the
+    dashboard over a cosmetic subtitle.
+    """
+    from datetime import datetime
+
+    if not created_at:
+        return "—"
+    try:
+        return datetime.strptime(created_at[:19], "%Y-%m-%d %H:%M:%S").strftime("%b %-d, %Y")
+    except (ValueError, TypeError):
+        return created_at[:10]
+
+
 @bp.route("/")
 def landing():
     """Marketing landing page. Public, dark surface."""
@@ -81,6 +98,14 @@ def dashboard():
     # per-user unique-product counts (total + this month). PDP images aren't a
     # built feature yet, so that card reads 0 until it ships.
     view_model["agency"]["name"] = g.user["email"]
+    # Portfolio subtitle: distinct brands · distinct products the user has worked
+    # on, then their signup date. "Products" reuses the "Products managed" KPI
+    # figure below (same helper), and "Walmart" from the demo line is dropped.
+    view_model["agency"]["subtitle"] = (
+        f"{jobs.count_managed_brands(db, uid)} brands · "
+        f"{jobs.count_managed_products(db, uid)} products · "
+        f"As of {_format_signup_date(g.user['created_at'])}"
+    )
     view_model["kpis"] = [
         _kpi("Products managed",
              jobs.count_managed_products(db, uid),
@@ -130,7 +155,14 @@ def pdp_scoring():
                 400,
             )
 
-        items = [{"url": url, "item": pdp.item_number_from_url(url)} for url in accepted]
+        # Optional batch-level brand the user typed for these products; applies to
+        # every item in the submission and is filled from the PDP later only where
+        # left blank (see jobs.save_result).
+        brand = pdp.clean_brand(request.form.get("brand"))
+        items = [
+            {"url": url, "item": pdp.item_number_from_url(url), "brand": brand}
+            for url in accepted
+        ]
         ids = jobs.enqueue_items(get_db(), g.user["id"], items)
         session[_BATCH_KEY] = ids
         logger.info(
@@ -261,7 +293,11 @@ def pdp_copy():
                 400,
             )
 
-        items = [{"url": url, "item": pdp.item_number_from_url(url)} for url in accepted]
+        brand = pdp.clean_brand(request.form.get("brand"))
+        items = [
+            {"url": url, "item": pdp.item_number_from_url(url), "brand": brand}
+            for url in accepted
+        ]
         ids = copy_jobs.enqueue_copy_items(get_db(), g.user["id"], items)
         session[_COPY_BATCH_KEY] = ids
         logger.info(
@@ -350,7 +386,11 @@ def pdp_scoring_create_copy():
     except ValueError:
         abort(400, description="Invalid item selection.")
     rows = jobs.get_items(get_db(), selected, g.user["id"])
-    items = [{"url": r["url"], "item": r["item_id"]} for r in rows if r["url"]]
+    # Carry the brand already captured on the scored item so the copy row keeps it.
+    items = [
+        {"url": r["url"], "item": r["item_id"], "brand": r["brand"]}
+        for r in rows if r["url"]
+    ]
     if not items:
         # Nothing valid selected — send them back to the scoring results.
         logger.info("PDP copy cross-link: no valid items selected, user_id=%s", g.user["id"])

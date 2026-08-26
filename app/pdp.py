@@ -19,6 +19,8 @@ logger = logging.getLogger(__name__)
 # the total number of items accepted in one submission.
 MAX_URL_LEN = 2048
 MAX_ITEMS = 100
+# A brand name is short; bound it so an oversized value can't bloat a row.
+MAX_BRAND_LEN = 120
 # Read at most this many bytes from an uploaded CSV, regardless of the app-wide
 # MAX_CONTENT_LENGTH, as a second belt-and-braces cap.
 MAX_CSV_BYTES = 2 * 1024 * 1024
@@ -45,6 +47,19 @@ def validate_item_url(raw: str) -> str | None:
     if parsed.scheme.lower() not in _ALLOWED_SCHEMES or not parsed.netloc:
         return None
     return url
+
+
+def clean_brand(raw: str | None) -> str | None:
+    """Normalize a user-entered brand for storage, or None when blank.
+
+    Trimmed and length-bounded at the boundary (untrusted input). Returns None
+    for an empty/whitespace value so the caller stores NULL rather than "",
+    keeping the distinct-brand count clean.
+    """
+    if not raw:
+        return None
+    cleaned = raw.strip()[:MAX_BRAND_LEN]
+    return cleaned or None
 
 
 def item_number_from_url(url: str) -> str | None:

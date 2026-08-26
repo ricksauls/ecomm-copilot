@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS scored_items (
     item_id      TEXT,
     url          TEXT    NOT NULL,
     title        TEXT,    -- product name, filled in by the worker once fetched
+    brand        TEXT,    -- brand, from the user at intake and/or the PDP on fetch
     status       TEXT    NOT NULL DEFAULT 'queued',  -- queued|scoring|scored|blocked|error
     overall      INTEGER,
     result_json  TEXT,
@@ -79,6 +80,7 @@ CREATE TABLE IF NOT EXISTS copy_items (
     -- click. Set when the batch originates from the scoring screen.
     auto_generate      INTEGER NOT NULL DEFAULT 0,
     title              TEXT,           -- product name, filled by the worker on fetch
+    brand              TEXT,           -- brand, from the user at intake and/or the PDP on fetch
     current_json       TEXT,           -- JSON: {title, bullets[], description, score}
     new_json           TEXT,           -- JSON: {title, bullets[], description, score}
     current_overall    INTEGER,        -- rule-based score of the current copy
@@ -284,6 +286,17 @@ def _migrate(conn: sqlite3.Connection) -> None:
     if "title" not in item_cols:
         conn.execute("ALTER TABLE scored_items ADD COLUMN title TEXT")
         logger.info("Migrated scored_items: added 'title' column")
+    # Brand: the product's brand, captured from the user at intake and/or from the
+    # Walmart PDP during fetch. Nullable — existing rows stay NULL until re-run, so
+    # the dashboard brand count starts low and grows (an accepted trade-off).
+    if "brand" not in item_cols:
+        conn.execute("ALTER TABLE scored_items ADD COLUMN brand TEXT")
+        logger.info("Migrated scored_items: added 'brand' column")
+
+    copy_cols = {row[1] for row in conn.execute("PRAGMA table_info(copy_items)")}
+    if copy_cols and "brand" not in copy_cols:
+        conn.execute("ALTER TABLE copy_items ADD COLUMN brand TEXT")
+        logger.info("Migrated copy_items: added 'brand' column")
 
     user_cols = {row[1] for row in conn.execute("PRAGMA table_info(users)")}
     for col in ("last_login_at", "prev_login_at"):

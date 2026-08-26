@@ -15,12 +15,19 @@ logger = logging.getLogger(__name__)
 
 
 def enqueue_items(conn: sqlite3.Connection, user_id: int, items: list[dict]) -> list[int]:
-    """Insert queued rows for ``items`` (each ``{"url", "item"}``); return ids."""
+    """Insert queued rows for ``items`` (each ``{"url", "item", "brand"?}``); return ids.
+
+    ``brand`` is the optional brand the user typed at intake; it's stored up front
+    so the dashboard's brand count reflects the submission immediately (and even
+    when a later fetch is blocked). The worker fills it in from the PDP only when
+    the user left it blank — see :func:`save_result`.
+    """
     ids: list[int] = []
     for it in items:
         cur = conn.execute(
-            "INSERT INTO scored_items (user_id, item_id, url, status) VALUES (?, ?, ?, 'queued')",
-            (user_id, it.get("item"), it["url"]),
+            "INSERT INTO scored_items (user_id, item_id, url, brand, status) "
+            "VALUES (?, ?, ?, ?, 'queued')",
+            (user_id, it.get("item"), it["url"], it.get("brand")),
         )
         ids.append(int(cur.lastrowid))
     conn.commit()
@@ -126,6 +133,34 @@ def count_managed_products(conn: sqlite3.Connection, user_id: int,
     return int(row[0])
 
 
+def count_managed_brands(conn: sqlite3.Connection, user_id: int,
+                         since: str | None = None) -> int:
+    """Distinct brands a user has worked on — the dashboard "brands" subtitle figure.
+
+    A brand counts once across everything the user has scored OR created copy for
+    (creative/image sets union in here once that feature exists). Compared
+    case-insensitively (``LOWER(TRIM(...))``) so "Tabasco" and "TABASCO" — e.g. a
+    user-typed label vs the PDP's spelling — don't double-count; NULL/blank brands
+    are excluded. ``since`` (an ISO date) restricts to rows created on/after that
+    date, mirroring the product counts.
+    """
+    date_clause = " AND created_at >= ?" if since else ""
+    params: list = [user_id]
+    if since:
+        params.append(since)
+    # Same brand filter + params for each side of the UNION.
+    brand_filter = " AND brand IS NOT NULL AND TRIM(brand) != ''"
+    row = conn.execute(
+        "SELECT COUNT(DISTINCT LOWER(TRIM(brand))) FROM ("
+        "  SELECT brand FROM scored_items WHERE user_id = ?" + brand_filter + date_clause +
+        "  UNION ALL "
+        "  SELECT brand FROM copy_items WHERE user_id = ?" + brand_filter + date_clause +
+        ")",
+        params + params,
+    ).fetchone()
+    return int(row[0])
+
+
 def list_items(conn: sqlite3.Connection, limit: int = 200) -> list[sqlite3.Row]:
     """Return recent items across all users (with submitter email) for admin.
 
@@ -166,16 +201,22 @@ def claim_next(conn: sqlite3.Connection) -> sqlite3.Row | None:
 
 
 def save_result(conn: sqlite3.Connection, row_id: int, overall: int, result: dict,
-                title: str | None = None) -> None:
+                title: str | None = None, brand: str | None = None) -> None:
     """Store a completed score (and the fetched product title) and mark it scored.
 
     ``title`` is captured so the results view can label each item by product name
     rather than URL alone; it's unknown at enqueue time and filled in here.
+
+    ``brand`` is the brand read from the PDP. It only fills the column when the
+    user didn't already provide one at intake (``COALESCE`` over the existing,
+    non-empty value) so a deliberate user label is never overwritten by the
+    scraped value.
     """
     conn.execute(
         "UPDATE scored_items SET status = 'scored', overall = ?, result_json = ?, "
-        "title = ?, error = NULL, updated_at = datetime('now') WHERE id = ?",
-        (overall, json.dumps(result), title, row_id),
+        "title = ?, brand = COALESCE(NULLIF(brand, ''), ?), "
+        "error = NULL, updated_at = datetime('now') WHERE id = ?",
+        (overall, json.dumps(result), title, brand, row_id),
     )
     conn.commit()
 

@@ -57,6 +57,48 @@ def test_product_counts_are_distinct_and_month_scoped(app):
         assert jobs.count_managed_products(db, uid, since=month) == 3
 
 
+def test_count_managed_brands_is_distinct_case_insensitive_and_unions(app):
+    # Distinct brands across scoring + copy, compared case-insensitively, scoped
+    # to the user; blank/NULL brands are excluded.
+    with app.app_context():
+        db = get_db()
+        uid = create_local_user("brands@example.com", "password123")
+        other = create_local_user("brands2@example.com", "password123")
+        jobs.enqueue_items(db, uid, [
+            {"url": "https://www.walmart.com/ip/1", "item": "1", "brand": "Tabasco"},
+            {"url": "https://www.walmart.com/ip/2", "item": "2", "brand": "TABASCO"},  # same brand
+            {"url": "https://www.walmart.com/ip/3", "item": "3", "brand": None},       # no brand
+        ])
+        copy_jobs.enqueue_copy_items(db, uid, [
+            {"url": "https://www.walmart.com/ip/4", "item": "4", "brand": "Cholula"},
+        ])
+        jobs.enqueue_items(db, other, [
+            {"url": "https://www.walmart.com/ip/9", "item": "9", "brand": "Frank's"},
+        ])
+
+        assert jobs.count_managed_brands(db, uid) == 2    # {tabasco, cholula}
+        assert jobs.count_managed_brands(db, other) == 1  # {frank's}
+
+
+def test_save_result_keeps_user_brand_but_fills_blank_from_pdp(app):
+    # A user-entered brand wins; a blank one is filled from the scraped PDP brand.
+    with app.app_context():
+        db = get_db()
+        uid = create_local_user("brandfill@example.com", "password123")
+        ids = jobs.enqueue_items(db, uid, [
+            {"url": "https://www.walmart.com/ip/1", "item": "1", "brand": "My Brand"},
+            {"url": "https://www.walmart.com/ip/2", "item": "2", "brand": None},
+        ])
+        jobs.save_result(db, ids[0], 80, {"overall": 80, "dimensions": []},
+                         "Prod A", brand="PDP Brand")   # user brand present -> unchanged
+        jobs.save_result(db, ids[1], 80, {"overall": 80, "dimensions": []},
+                         "Prod B", brand="PDP Brand")   # blank -> filled from PDP
+
+        rows = {r["id"]: r for r in jobs.get_items(db, ids, uid)}
+        assert rows[ids[0]]["brand"] == "My Brand"
+        assert rows[ids[1]]["brand"] == "PDP Brand"
+
+
 def test_enqueue_and_get_items_scoped_to_user(app):
     with app.app_context():
         uid = create_local_user("a@example.com", "password123")

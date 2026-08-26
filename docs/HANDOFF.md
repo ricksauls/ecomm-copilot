@@ -1,15 +1,15 @@
 # ecomm-copilot — Session Handoff
 
-_Last updated: 2026-08-24 (session 2)._
+_Last updated: 2026-08-25 (session 3)._
 
 A working reference for picking up development. Read this first, then
 `CLAUDE.md` (coding standards) and `deploy/DEPLOY.md` (infra).
 
-> **Next session — start here (unfinished work).** See §11 for the one carried-over
-> task: the dashboard "brands · products" summary line, plus the agreed decision to
-> **capture the real product brand going forward** (from Walmart's PDP data during
-> fetch, stored on `scored_items`/`copy_items`). Nothing is half-committed — this is
-> net-new work to begin.
+> **Next session — start here.** §11's carried-over task is **done** (2026-08-25):
+> brand capture + the dashboard "brands · products" subtitle now ship (see §11 for
+> what landed and the follow-ups). Not yet committed/deployed at time of writing —
+> tests pass locally (219) and the change was verified in the local preview. The
+> remaining open roadmap is in §7.
 
 ---
 
@@ -636,14 +636,55 @@ cd ~/Desktop/ClaudeStuff/ecomm-copilot-clean
 
 ---
 
-## 11. Carried-over task — dashboard "brands · products" subtitle line
+## 11. Brand capture + dashboard "brands · products" subtitle — DONE (2026-08-25)
 
-**Status: not started.** The user's session ended before this was built; it is
-net-new work (nothing is half-committed). Context: this session we already
-personalized the dashboard header and made the four KPI cards real (see §7 session
-#2). This is the *remaining* change to the line **above** those cards — the
-`<p class="subtitle">` under the Portfolio header, which today still renders demo
-text: `15 brands · 148 products · Walmart · week of Aug 10`
+**Status: implemented, tested (219 pass), verified in local preview. Not yet
+committed/deployed.** Both halves the user asked for shipped:
+
+**1. Capture the brand when scraping.** `fetch._extract_brand` reads
+`product.brand` from `__NEXT_DATA__` (handles the plain-string and nested
+`{"name": …}` shapes; empty when absent). `PdpRecord` gained a `brand` field
+(`scoring.py`); the worker passes `pdp.brand` into `jobs.save_result` and
+`copy_jobs.save_current_copy`.
+
+**2. Capture the brand the user enters at intake.** Both intake forms
+(`pdp_scoring.html`, `pdp_copy.html`) have an optional batch-level **Brand** field
+(above step 1; `.brand-field`/`.brand-input` in `workspace.css`). The route reads
+it via `pdp.clean_brand` (trim + 120-char bound, blank→None) and stores it on every
+enqueued row. The scoring→copy cross-link carries the brand forward from the scored
+row.
+
+**Reconciliation rule (important):** the **user-entered brand wins**. The worker
+fills the scraped brand only where the column is still blank —
+`brand = COALESCE(NULLIF(brand, ''), ?)` in both save functions — so a deliberate
+user label is never overwritten by Walmart's PDP value.
+
+**Storage:** nullable `brand TEXT` on **both** `scored_items` and `copy_items`
+(added to `_SCHEMA` and idempotently in `db._migrate`; existing rows stay NULL until
+re-run). Not added to `_row_view` — brand doesn't render on the results screens.
+
+**Count + subtitle:** `jobs.count_managed_brands(conn, uid, since=None)` =
+`COUNT(DISTINCT LOWER(TRIM(brand)))` across `scored_items ∪ copy_items` (case-insensitive
+so "Tabasco"/"TABASCO" don't double-count; NULL/blank excluded). The dashboard route
+overrides `view_model["agency"]["subtitle"]` to
+`f"{brands} brands · {products} products · As of {signup}"` where products reuses
+`count_managed_products` and `signup` is `g.user["created_at"]` formatted by
+`_format_signup_date` (→ e.g. "Aug 24, 2026"). "Walmart" is dropped. Verified live in
+preview reading `0 brands · 0 products · As of Aug 24, 2026`.
+
+**Follow-ups (optional):** existing rows have `brand = NULL` until re-scored, so the
+count starts low and grows (accepted). A one-off droplet re-fetch backfill is
+possible but not required. The `fixtures.get_dashboard()` demo subtitle string is now
+dead for the real page (route always overrides it) but left in place.
+
+---
+
+### Original spec (kept for reference)
+
+Context: prior session personalized the dashboard header and made the four KPI cards
+real (see §7 session #2). This was the *remaining* change to the line **above** those
+cards — the `<p class="subtitle">` under the Portfolio header, which used to render
+demo text: `15 brands · 148 products · Walmart · week of Aug 10`
 (`fixtures.get_dashboard()["agency"]["subtitle"]`).
 
 **What the user asked for, exactly:**
