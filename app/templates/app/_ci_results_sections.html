@@ -1,10 +1,24 @@
 {# Shared Competitive Intelligence results sections, rendered by both the View
    Snapshot and View Monitoring screens (and mirroring the One-Time Snapshot
    results page). Set `show_trend` before including: monitoring passes True to add
-   a per-row trend sparkline column; snapshot passes False for current-state only.
+   a "vs prior" delta column and a per-period trend sparkline; snapshot passes
+   False for current-state only.
 
    Expects in context: config_summary, avg_ranks, rank_rows, sos_summary,
-   share_rows, rank_map, sos_scale. #}
+   share_rows, rank_map, sos_scale. When show_trend: also period_label, prior_label,
+   period_labels, period. Each aggregated row (monitoring) carries `delta`, `trend`
+   (per-period values) and `trend_dates` (period labels for the tooltip). #}
+
+{# Delta badge: positive is always the "good" direction (rank moved up, or share
+   gained), so a positive delta shows an up arrow. `new` when there's no prior. #}
+{% macro delta_badge(delta) -%}
+  {% if delta is none %}<span class="ci-delta flat">new</span>
+  {%- elif delta > 0 %}<span class="ci-delta up">▲ {{ delta }}</span>
+  {%- elif delta < 0 %}<span class="ci-delta down">▼ {{ delta | abs }}</span>
+  {%- else %}<span class="ci-delta flat">—</span>{% endif %}
+{%- endmacro %}
+
+{% if show_trend %}{% set period_word = period_labels[period] | lower %}{% endif %}
 
 {# Config summary: what this group tracks. #}
 {% if config_summary and (config_summary.my_brands or config_summary.competitor_brands or config_summary.keywords) %}
@@ -64,18 +78,19 @@
   <div class="ci-section-title">Overall Search Ranking</div>
   <p class="ci-section-hint">
     Average page-1 ranking per brand across the terms it appears on (terms with no
-    page-1 placement are excluded). Lower is better.{% if show_trend %} Trend spans the {{ period | upper }} window.{% endif %}
+    page-1 placement are excluded). Lower is better.{% if show_trend %} Aggregated over {{ period_label }}; Δ vs {{ prior_label }}; trend over recent {{ period_word }}s.{% endif %}
   </p>
   <div class="table-scroll">
     <table class="admin-table">
-      <thead><tr><th>Brand</th><th>Type</th><th>Avg ranking</th>{% if show_trend %}<th>Trend</th>{% endif %}</tr></thead>
+      <thead><tr><th>Brand</th><th>Type</th><th>Avg ranking</th>{% if show_trend %}<th>vs prior</th><th>Trend</th>{% endif %}</tr></thead>
       <tbody>
         {% for r in avg_ranks %}
         <tr>
           <td>{{ r.brand_name }}</td>
           <td><span class="ci-type {{ 'mine' if r.type == 'mine' else '' }}">{{ r.type }}</span></td>
           <td>{{ ('#%s' % r.avg_position) if r.avg_position is not none else '—' }}</td>
-          {% if show_trend %}<td><span class="ci-spark" data-unit="rank" data-dates='{{ r.trend_dates | tojson }}' data-points='{{ r.trend | tojson }}'></span></td>{% endif %}
+          {% if show_trend %}<td>{{ delta_badge(r.delta) }}</td>
+          <td><span class="ci-spark" data-unit="rank" data-dates='{{ r.trend_dates | tojson }}' data-points='{{ r.trend | tojson }}'></span></td>{% endif %}
         </tr>
         {% endfor %}
       </tbody>
@@ -126,11 +141,11 @@
 <div class="ci-section card card-pad">
   <div class="ci-section-title">Search Ranking</div>
   <p class="ci-section-hint">
-    Average page-1 ranking per brand for each keyword. Lower is better.{% if show_trend %} Trend spans the {{ period | upper }} window.{% endif %}
+    Average page-1 ranking per brand for each keyword. Lower is better.{% if show_trend %} Aggregated over {{ period_label }}; Δ vs {{ prior_label }}; trend over recent {{ period_word }}s.{% endif %}
   </p>
   <div class="table-scroll">
     <table class="admin-table">
-      <thead><tr><th>Keyword</th><th>Brand</th><th>Type</th><th>Avg ranking</th>{% if show_trend %}<th>Trend</th>{% endif %}</tr></thead>
+      <thead><tr><th>Keyword</th><th>Brand</th><th>Type</th><th>Avg ranking</th>{% if show_trend %}<th>vs prior</th><th>Trend</th>{% endif %}</tr></thead>
       <tbody>
         {% for r in rank_rows %}
         <tr>
@@ -138,7 +153,8 @@
           <td>{{ r.brand_name }}</td>
           <td><span class="ci-type {{ 'mine' if r.type == 'mine' else '' }}">{{ r.type }}</span></td>
           <td>#{{ r.avg_ranking }}</td>
-          {% if show_trend %}<td><span class="ci-spark" data-unit="rank" data-dates='{{ r.trend_dates | tojson }}' data-points='{{ r.trend | tojson }}'></span></td>{% endif %}
+          {% if show_trend %}<td>{{ delta_badge(r.delta) }}</td>
+          <td><span class="ci-spark" data-unit="rank" data-dates='{{ r.trend_dates | tojson }}' data-points='{{ r.trend | tojson }}'></span></td>{% endif %}
         </tr>
         {% endfor %}
       </tbody>
@@ -153,11 +169,11 @@
   <div class="ci-section-title">Overall Share of Digital Shelf</div>
   <p class="ci-section-hint">
     Share of all page-1 slots across your tracked keywords, organic vs sponsored.
-    Based on {{ sos_summary | sum(attribute='total') }} page-1 placements.{% if show_trend %} Trend spans the {{ period | upper }} window.{% endif %}
+    Based on {{ sos_summary | sum(attribute='total') }} page-1 placements.{% if show_trend %} Aggregated over {{ period_label }}; Δ vs {{ prior_label }}; trend over recent {{ period_word }}s.{% endif %}
   </p>
   <div class="table-scroll">
     <table class="admin-table">
-      <thead><tr><th>Brand</th><th>Type</th><th>Organic</th><th>Sponsored</th><th>Total share</th><th></th>{% if show_trend %}<th>Trend</th>{% endif %}</tr></thead>
+      <thead><tr><th>Brand</th><th>Type</th><th>Organic</th><th>Sponsored</th><th>Total share</th><th></th>{% if show_trend %}<th>vs prior</th><th>Trend</th>{% endif %}</tr></thead>
       <tbody>
         {% for r in sos_summary %}
         <tr>
@@ -171,7 +187,8 @@
               <span class="ci-bar-fill {{ 'mine' if r.type == 'mine' else '' }}" style="width: {{ r.total_share }}%"></span>
             </span>
           </td>
-          {% if show_trend %}<td><span class="ci-spark" data-better="high" data-unit="share" data-dates='{{ r.trend_dates | tojson }}' data-points='{{ r.trend | tojson }}'></span></td>{% endif %}
+          {% if show_trend %}<td>{{ delta_badge(r.delta) }}</td>
+          <td><span class="ci-spark" data-better="high" data-unit="share" data-dates='{{ r.trend_dates | tojson }}' data-points='{{ r.trend | tojson }}'></span></td>{% endif %}
         </tr>
         {% endfor %}
       </tbody>
@@ -213,11 +230,11 @@
   <div class="ci-section-title">Share of Digital Shelf</div>
   <p class="ci-section-hint">
     Per-keyword share of that keyword's page-1 slots, by brand. Organic and
-    sponsored are shares of that channel's slots for the keyword.{% if show_trend %} Trend spans the {{ period | upper }} window.{% endif %}
+    sponsored are shares of that channel's slots for the keyword.{% if show_trend %} Aggregated over {{ period_label }}; Δ vs {{ prior_label }}; trend over recent {{ period_word }}s.{% endif %}
   </p>
   <div class="table-scroll">
     <table class="admin-table">
-      <thead><tr><th>Keyword</th><th>Brand</th><th>Type</th><th>Organic</th><th>Sponsored</th><th>Total share</th>{% if show_trend %}<th>Trend</th>{% endif %}</tr></thead>
+      <thead><tr><th>Keyword</th><th>Brand</th><th>Type</th><th>Organic</th><th>Sponsored</th><th>Total share</th>{% if show_trend %}<th>vs prior</th><th>Trend</th>{% endif %}</tr></thead>
       <tbody>
         {% for r in share_rows %}
         <tr>
@@ -227,7 +244,8 @@
           <td class="cell-muted">{{ r.organic_share }}%</td>
           <td class="cell-muted">{{ r.sponsored_share }}%</td>
           <td>{{ r.total_share }}%</td>
-          {% if show_trend %}<td><span class="ci-spark" data-better="high" data-unit="share" data-dates='{{ r.trend_dates | tojson }}' data-points='{{ r.trend | tojson }}'></span></td>{% endif %}
+          {% if show_trend %}<td>{{ delta_badge(r.delta) }}</td>
+          <td><span class="ci-spark" data-better="high" data-unit="share" data-dates='{{ r.trend_dates | tojson }}' data-points='{{ r.trend | tojson }}'></span></td>{% endif %}
         </tr>
         {% endfor %}
       </tbody>

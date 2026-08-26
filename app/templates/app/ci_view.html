@@ -5,17 +5,27 @@
 <div class="page-header">
   <div>
     <h1>View Monitoring</h1>
-    <p class="subtitle">Current standing with trend lines over the selected window.</p>
+    <p class="subtitle">
+      {% if selected and available %}Aggregated over {{ period_label }} · vs {{ prior_label }}{% else %}Results by completed week, month, quarter or year.{% endif %}
+    </p>
   </div>
   {% if selected %}
   <div class="header-actions">
+    {# Period pills. A period is a link only once its most recent completed period
+       has data; otherwise it renders disabled with a reason on hover. #}
     <div class="ci-periods">
       {% for p in periods %}
+      {% if p in available %}
       <a href="{{ url_for('pages.ci_view', group_id=selected.id, period=p) }}"
-         class="{{ 'active' if p == period else '' }}">{{ p }}</a>
+         class="{{ 'active' if p == period else '' }}">{{ period_labels[p] }}</a>
+      {% else %}
+      <span class="disabled" title="No completed {{ period_labels[p] | lower }} of data yet">{{ period_labels[p] }}</span>
+      {% endif %}
       {% endfor %}
     </div>
+    {% if available %}
     <a href="{{ url_for('pages.ci_view_pdf', group_id=selected.id, period=period) }}" class="wbtn wbtn-primary">Download PDF</a>
+    {% endif %}
   </div>
   {% endif %}
 </div>
@@ -42,14 +52,12 @@
 </div>
 
 {% if selected %}
-{% if not run %}
+{% if not available %}
 <div class="card card-pad ci-empty">
-  No completed run yet for this group. Run a check from
-  <a href="{{ url_for('pages.ci_group_config', group_id=selected.id) }}">this group's setup</a>;
-  results and trend lines appear once monitoring has collected data.
+  No completed period with data yet. Monitoring aggregates over a full completed
+  week (Mon–Sun), month, quarter or year — the buttons switch on as each one fills
+  in. Runs happen 3×/day; check back once the first week wraps up.
 </div>
-{% elif not sos_summary and not avg_ranks and not rank_rows %}
-<div class="card card-pad ci-empty">The latest run returned no data (possible block or empty keywords).</div>
 {% endif %}
 {% set show_trend = true %}
 {% include "app/_ci_results_sections.html" %}

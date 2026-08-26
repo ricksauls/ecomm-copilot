@@ -54,124 +54,79 @@ def _setup(db):
     return uid, gid, mine, comp, pid, kid, rid
 
 
-def test_share_of_shelf_summary_shares_ordering_and_delta(app):
+def test_period_bounds_are_last_completed_calendar():
+    T = date(2026, 8, 26)  # a Wednesday; this week/month/quarter/year are in progress
+    assert ci_analysis.period_bounds("wow", 0, T) == ("2026-08-17", "2026-08-23")
+    assert ci_analysis.period_bounds("wow", 1, T) == ("2026-08-10", "2026-08-16")
+    assert ci_analysis.period_bounds("mom", 0, T) == ("2026-07-01", "2026-07-31")
+    assert ci_analysis.period_bounds("qoq", 0, T) == ("2026-04-01", "2026-06-30")
+    assert ci_analysis.period_bounds("yoy", 0, T) == ("2025-01-01", "2025-12-31")
+    assert ci_analysis.period_label("wow", 0, T) == "Aug 17–23"
+    assert ci_analysis.period_label("mom", 0, T) == "Jul 2026"
+    assert ci_analysis.period_label("qoq", 0, T) == "Q2 2026"
+    assert ci_analysis.period_label("yoy", 0, T) == "2025"
+
+
+def test_available_periods_gate_on_completed_period_data(app):
     with app.app_context():
         db = get_db()
         _, gid, mine, comp, _, kid, rid = _setup(db)
-        # Current window (today): mine 6 slots (4 org + 2 spon), comp 3 org, other 1 org => 10 total.
-        _sos(db, rid, gid, kid, _iso(0), mine, 4, 2)
-        _sos(db, rid, gid, kid, _iso(0), comp, 3, 0)
-        _sos(db, rid, gid, kid, _iso(0), None, 1, 0)
-        # Prior window (~10 days ago, inside wow's prior 7-day window): mine 2 of 10.
-        _sos(db, rid, gid, kid, _iso(10), mine, 2, 0)
-        _sos(db, rid, gid, kid, _iso(10), None, 8, 0)
+        T = date(2026, 8, 26)
+        # Data only in the last completed WEEK (Aug 17–23) -> only week is offered.
+        _sos(db, rid, gid, kid, "2026-08-20", mine, 5, 0)
         db.commit()
-
-        rows = ci_analysis.share_of_shelf_summary(db, gid, "wow")
-        by_id = {r["brand_id"]: r for r in rows}
-        assert by_id[mine]["total_share"] == 60.0   # 6/10
-        assert by_id[mine]["organic_share"] == 50.0  # 4 of 8 organic slots
-        assert by_id[comp]["total_share"] == 30.0
-        assert by_id[None]["brand_name"] == "Other"
-        # Delta: mine was 20% prior -> +40.0 (kept for the PDF; page shows a trend)
-        assert by_id[mine]["total_share_delta"] == 40.0
-        # Ordering: mine first, then competitor, then Other last.
-        assert [r["type"] for r in rows] == ["mine", "competitor", "other"]
-        # Trend sparkline data: daily total-share % aligned to `dates`. This window
-        # only has today's slots, so one point at each brand's current share.
-        assert by_id[mine]["dates"] == [_iso(0)]
-        assert by_id[mine]["shares"] == [60.0]
-        assert by_id[comp]["shares"] == [30.0]
+        assert ci_analysis.available_periods(db, gid, today=T) == ["wow"]
+        # Add data inside last completed month (July) -> month switches on too.
+        _sos(db, rid, gid, kid, "2026-07-15", mine, 5, 0)
+        db.commit()
+        avail = ci_analysis.available_periods(db, gid, today=T)
+        assert "wow" in avail and "mom" in avail
+        assert "qoq" not in avail and "yoy" not in avail
 
 
-def test_share_of_shelf_trend_series(app):
+def test_monitoring_avg_rank_period_delta_and_trend(app):
     with app.app_context():
         db = get_db()
-        _, gid, mine, comp, _, kid, rid = _setup(db)
-        _sos(db, rid, gid, kid, _iso(1), mine, 5, 0)   # day A: mine 5 of 10 = 50%
-        _sos(db, rid, gid, kid, _iso(1), comp, 5, 0)
-        _sos(db, rid, gid, kid, _iso(0), mine, 8, 0)   # day B: mine 8 of 10 = 80%
-        _sos(db, rid, gid, kid, _iso(0), comp, 2, 0)
-        db.commit()
-
-        trend = ci_analysis.share_of_shelf_trend(db, gid, "wow")
-        assert trend["dates"] == [_iso(1), _iso(0)]
-        mine_series = next(b for b in trend["brands"] if b["brand_id"] == mine)
-        assert mine_series["share"] == [50.0, 80.0]
-
-
-def test_monitoring_trend_helpers(app):
-    with app.app_context():
-        db = get_db()
-        _, gid, mine, comp, _, kid, rid = _setup(db)  # mine tracks item 10294528
+        _, gid, mine, comp, _, kid, rid = _setup(db)  # mine tracks 10294528
         item = "10294528"
-        # Ranking: mine's tracked item improves 4 -> 2 across two days.
-        _result(db, rid, gid, kid, _iso(1), 4, item, mine)
-        _result(db, rid, gid, kid, _iso(0), 2, item, mine)
-        # Share: mine climbs 40% -> 70%, competitor falls (10 slots/day).
-        _sos(db, rid, gid, kid, _iso(1), mine, 4, 0)
-        _sos(db, rid, gid, kid, _iso(1), comp, 6, 0)
-        _sos(db, rid, gid, kid, _iso(0), mine, 7, 0)
-        _sos(db, rid, gid, kid, _iso(0), comp, 3, 0)
+        T = date(2026, 8, 26)
+        # Last completed week (Aug 17–23): #5 and #3 -> avg 4.0.
+        _result(db, rid, gid, kid, "2026-08-18", 5, item, mine)
+        _result(db, rid, gid, kid, "2026-08-20", 3, item, mine)
+        # Prior week (Aug 10–16): #8 -> avg 8.0.
+        _result(db, rid, gid, kid, "2026-08-12", 8, item, mine)
         db.commit()
 
-        # Rank trends: daily avg position per brand and per keyword+brand, each
-        # carrying aligned dates (for the hover tooltip) and values (drawn).
-        rb = ci_analysis.rank_trend_by_brand(db, gid, "wow")["Tabasco"]
-        assert rb == {"dates": [_iso(1), _iso(0)], "values": [4.0, 2.0]}
-        assert ci_analysis.rank_trend_by_keyword_brand(db, gid, "wow")[
-            ("hot sauce", "Tabasco")]["values"] == [4.0, 2.0]
-        # Share trends: daily total-share % per brand and per keyword+brand.
-        sb = ci_analysis.share_trend_by_brand(db, gid, "wow")["Tabasco"]
-        assert sb == {"dates": [_iso(1), _iso(0)], "values": [40.0, 70.0]}
-        assert ci_analysis.share_trend_by_keyword_brand(db, gid, "wow")[
-            ("hot sauce", "Tabasco")]["values"] == [40.0, 70.0]
+        rows = ci_analysis.monitoring_avg_rank(db, gid, "wow", today=T)
+        r = next(r for r in rows if r["brand_name"] == "Tabasco")
+        assert r["avg_position"] == 4.0
+        assert r["delta"] == 4.0  # prior 8.0 - current 4.0 = improved 4 slots
+        # Trend is one point per completed week, oldest -> newest, labelled.
+        assert r["trend"] == [8.0, 4.0]
+        assert r["trend_dates"] == ["Aug 10–16", "Aug 17–23"]
 
 
-def test_rank_summary_current_prior_and_sparkline(app):
+def test_monitoring_share_of_shelf_period_delta_and_trend(app):
     with app.app_context():
         db = get_db()
         _, gid, mine, comp, _, kid, rid = _setup(db)
-        item = "10294528"
-        # In-window sightings: pos 5 three days ago, pos 3 today (improved).
-        _result(db, rid, gid, kid, _iso(3), 5, item, mine)
-        _result(db, rid, gid, kid, _iso(0), 3, item, mine)
-        # Prior window sighting: best pos 8.
-        _result(db, rid, gid, kid, _iso(10), 8, item, mine)
+        T = date(2026, 8, 26)
+        # Last completed week: mine 7 of 10 = 70%.
+        _sos(db, rid, gid, kid, "2026-08-20", mine, 7, 0)
+        _sos(db, rid, gid, kid, "2026-08-20", comp, 3, 0)
+        # Prior week: mine 4 of 10 = 40%.
+        _sos(db, rid, gid, kid, "2026-08-12", mine, 4, 0)
+        _sos(db, rid, gid, kid, "2026-08-12", comp, 6, 0)
         db.commit()
 
-        rows = ci_analysis.rank_summary(db, gid, "wow")
-        assert len(rows) == 1
-        r = rows[0]
-        assert r["current_position"] == 3
-        assert r["prior_position"] == 8
-        assert r["delta"] == 5           # 8 - 3, moved up 5 slots
-        assert r["positions"] == [5, 3]  # sparkline oldest->newest
-        assert r["keyword"] == "hot sauce"
-        assert r["brand_name"] == "Tabasco"
-
-
-def test_rank_summary_includes_competitors_tracked_only(app):
-    # Ranking includes competitors so the user can compare — but only their tracked
-    # items count (untracked SKUs are excluded).
-    with app.app_context():
-        db = get_db()
-        _, gid, mine, comp, _, kid, rid = _setup(db)
-        # Same keyword, same day: my tracked item at #4, competitor's tracked item at #2.
-        _track(db, gid, mine, "10294527")
-        _track(db, gid, comp, "88880000")
-        _result(db, rid, gid, kid, _iso(0), 4, "10294527", mine)
-        _result(db, rid, gid, kid, _iso(0), 2, "88880000", comp)
-        # An untracked Frank's SKU at #1 must NOT improve the competitor's rank.
-        _result(db, rid, gid, kid, _iso(0), 1, "99999999", comp)
-        db.commit()
-        rows = ci_analysis.rank_summary(db, gid, "wow")
-        by_brand = {r["brand_name"]: r for r in rows}
-        assert "Tabasco" in by_brand and "Frank's" in by_brand
-        assert by_brand["Tabasco"]["current_position"] == 4
-        assert by_brand["Frank's"]["current_position"] == 2
-        # Mine sorts first.
-        assert rows[0]["type"] == "mine"
+        rows = ci_analysis.monitoring_share_of_shelf(db, gid, "wow", today=T)
+        by = {r["brand_name"]: r for r in rows}
+        assert by["Tabasco"]["total_share"] == 70.0
+        assert by["Tabasco"]["delta"] == 30.0  # 70 - 40 percentage points gained
+        assert by["Tabasco"]["trend"] == [40.0, 70.0]
+        assert by["Tabasco"]["trend_dates"] == ["Aug 10–16", "Aug 17–23"]
+        # Ordering: mine first, then competitor.
+        assert [r["type"] for r in rows] == ["mine", "competitor"]
 
 
 def test_snapshot_rank_splits_organic_and_sponsored(app):
@@ -318,15 +273,8 @@ def test_snapshot_page1_depth_returns_deepest_slot(app):
         assert ci_analysis.snapshot_page1_depth(db, gid, empty_rid) == 0
 
 
-def test_rank_summary_omits_products_with_no_sightings(app):
+def test_monitoring_avg_rank_empty_when_no_period_data(app):
     with app.app_context():
         db = get_db()
         _, gid, *_ = _setup(db)
-        assert ci_analysis.rank_summary(db, gid, "wow") == []
-
-
-def test_period_windows_do_not_overlap():
-    start, end = ci_analysis.get_date_range("wow", today=date(2026, 8, 22))
-    p_start, p_end = ci_analysis.get_prior_date_range("wow", today=date(2026, 8, 22))
-    assert end == "2026-08-22" and start == "2026-08-15"
-    assert p_end == "2026-08-15" and p_start == "2026-08-08"
+        assert ci_analysis.monitoring_avg_rank(db, gid, "wow", today=date(2026, 8, 26)) == []

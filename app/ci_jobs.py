@@ -144,20 +144,6 @@ def latest_run(conn: sqlite3.Connection, group_id: int) -> sqlite3.Row | None:
     ).fetchone()
 
 
-def latest_done_run(conn: sqlite3.Connection, group_id: int) -> sqlite3.Row | None:
-    """Return the most recent *completed* run for a group, or None.
-
-    The monitoring dashboard shows current-state figures (matching the One-Time
-    Snapshot layout) from the newest finished run, while trend lines span the
-    whole period — so a run still queued/running or one that errored is skipped.
-    """
-    return conn.execute(
-        "SELECT * FROM ci_runs WHERE group_id = ? AND status = 'done' "
-        "ORDER BY id DESC LIMIT 1",
-        (group_id,),
-    ).fetchone()
-
-
 # ── result writers ───────────────────────────────────────────────────────────────
 
 def write_search_results(conn: sqlite3.Connection, rows: list[dict]) -> None:

@@ -19,9 +19,14 @@ from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
 
-# Rolling period windows (days), ending today. Mirrors the reference periods.
-PERIOD_DAYS = {"wow": 7, "mom": 30, "qoq": 90, "yoy": 365}
+# Reporting periods for the Daily Monitoring view. Each aggregates over the last
+# *completed* calendar period and compares to the one before (week-over-week, …).
+# Weeks run Monday–Sunday; months/quarters/years are calendar.
+PERIODS = ("wow", "mom", "qoq", "yoy")
+PERIOD_LABELS = {"wow": "Week", "mom": "Month", "qoq": "Quarter", "yoy": "Year"}
 DEFAULT_PERIOD = "wow"
+# How many completed periods the per-row trend sparkline plots (one point each).
+TREND_PERIODS = 6
 
 # The three daily monitoring slots, in Central time (matches the systemd timers).
 CST = ZoneInfo("America/Chicago")
@@ -83,138 +88,12 @@ def next_monitoring_run(now: datetime | None = None) -> datetime:
     return datetime(now.year, now.month, now.day, MONITORING_HOURS[0], 0, tzinfo=CST)
 
 
-def get_date_range(period: str, today: date | None = None) -> tuple[str, str]:
-    """Return (start, end) ISO dates for the current window (inclusive)."""
-    today = today or date.today()
-    days = PERIOD_DAYS.get(period, PERIOD_DAYS[DEFAULT_PERIOD])
-    start = today - timedelta(days=days)
-    return start.isoformat(), today.isoformat()
-
-
-def get_prior_date_range(period: str, today: date | None = None) -> tuple[str, str]:
-    """Return (start, end) ISO dates for the immediately preceding window."""
-    today = today or date.today()
-    days = PERIOD_DAYS.get(period, PERIOD_DAYS[DEFAULT_PERIOD])
-    end = today - timedelta(days=days)
-    start = end - timedelta(days=days)
-    return start.isoformat(), end.isoformat()
-
-
 def _pct(part: int, whole: int) -> float:
     """Percentage of ``part`` in ``whole``, rounded to one decimal (0 if whole=0)."""
     return round(100.0 * part / whole, 1) if whole else 0.0
 
 
 # ── Share of Digital Shelf ───────────────────────────────────────────────────────
-
-def share_of_shelf_summary(conn: sqlite3.Connection, group_id: int, period: str) -> list[dict]:
-    """Per-brand share of page-1 slots over the window, with a delta vs the prior window.
-
-    Aggregates every keyword's rollup in the group. ``*_share`` are percentages of
-    all slots recorded in the window (organic share is of organic slots, etc.).
-    Rows are ordered mine-first, then by total share descending; the unmatched
-    "Other" bucket (brand_id NULL) sorts last.
-    """
-    start, end = get_date_range(period)
-    p_start, p_end = get_prior_date_range(period)
-
-    cur = _sos_totals_by_brand(conn, group_id, start, end)
-    prior = _sos_totals_by_brand(conn, group_id, p_start, p_end)
-
-    grand = {k: sum(b[k] for b in cur.values()) for k in ("organic", "sponsored", "total")}
-    grand_prior_total = sum(b["total"] for b in prior.values())
-
-    # Daily total-share % per brand over the window, for the per-row trend
-    # sparkline (mirrors the Search Ranking table's `positions`).
-    dates, share_series = _daily_total_share_by_brand(conn, group_id, start, end)
-
-    brand_meta = _brand_meta(conn, group_id)
-    out = []
-    for brand_id, c in cur.items():
-        meta = brand_meta.get(brand_id)
-        total_share = _pct(c["total"], grand["total"])
-        prior_share = _pct(prior.get(brand_id, {}).get("total", 0), grand_prior_total)
-        out.append({
-            "brand_id": brand_id,
-            "brand_name": meta["name"] if meta else "Other",
-            "type": meta["type"] if meta else "other",
-            "organic": c["organic"],
-            "sponsored": c["sponsored"],
-            "total": c["total"],
-            "organic_share": _pct(c["organic"], grand["organic"]),
-            "sponsored_share": _pct(c["sponsored"], grand["sponsored"]),
-            "total_share": total_share,
-            "total_share_prior": prior_share,
-            "total_share_delta": round(total_share - prior_share, 1),
-            # Daily total-share % across the window for the trend sparkline.
-            "dates": dates,
-            "shares": share_series.get(brand_id, []),
-        })
-
-    def _sort_key(r):
-        # mine (0) before competitor (1) before other (2); then higher share first.
-        rank = {"mine": 0, "competitor": 1}.get(r["type"], 2)
-        return (rank, -r["total_share"])
-
-    out.sort(key=_sort_key)
-    return out
-
-
-def _daily_total_share_by_brand(conn: sqlite3.Connection, group_id: int,
-                                start: str, end: str) -> tuple[list[str], dict]:
-    """Daily total-share-% series per brand over a window.
-
-    Returns ``(dates, {brand_id: [share%, ...]})`` where each list is aligned to
-    ``dates`` and a share is the brand's percentage of all page-1 slots on that
-    date. Shared by the trend chart and the Share-of-Shelf table's per-row
-    sparkline so the two never disagree.
-    """
-    rows = conn.execute(
-        "SELECT date, brand_id, SUM(total_count) AS total "
-        "FROM ci_share_of_search WHERE group_id = ? AND date >= ? AND date <= ? "
-        "GROUP BY date, brand_id ORDER BY date",
-        (group_id, start, end),
-    ).fetchall()
-
-    dates = sorted({r["date"] for r in rows})
-    grand_by_date: dict = defaultdict(int)
-    by_brand_date: dict = defaultdict(dict)
-    for r in rows:
-        grand_by_date[r["date"]] += r["total"]
-        by_brand_date[r["brand_id"]][r["date"]] = r["total"]
-
-    series_by_brand = {
-        brand_id: [_pct(by_date.get(d, 0), grand_by_date[d]) for d in dates]
-        for brand_id, by_date in by_brand_date.items()
-    }
-    return dates, series_by_brand
-
-
-def share_of_shelf_trend(conn: sqlite3.Connection, group_id: int, period: str) -> dict:
-    """Total-share-% per brand per date over the window (for the trend chart).
-
-    Returns ``{"dates": [...], "brands": [{brand_id, brand_name, type, share: [...]}]}``
-    where each share value is that brand's percentage of all slots on that date.
-    """
-    start, end = get_date_range(period)
-    dates, series_by_brand = _daily_total_share_by_brand(conn, group_id, start, end)
-
-    brand_meta = _brand_meta(conn, group_id)
-    brands_out = []
-    # Group brands (in meta order) first, then Other (None) if present.
-    ordered_ids = [bid for bid in brand_meta if bid in series_by_brand]
-    if None in series_by_brand:
-        ordered_ids.append(None)
-    for brand_id in ordered_ids:
-        meta = brand_meta.get(brand_id)
-        brands_out.append({
-            "brand_id": brand_id,
-            "brand_name": meta["name"] if meta else "Other",
-            "type": meta["type"] if meta else "other",
-            "share": series_by_brand[brand_id],
-        })
-    return {"dates": dates, "brands": brands_out}
-
 
 def _sos_totals_by_brand(conn: sqlite3.Connection, group_id: int,
                          start: str, end: str) -> dict[int | None, dict]:
@@ -458,113 +337,6 @@ def snapshot_rank_by_keyword_brand(conn: sqlite3.Connection, group_id: int, run_
     } for r in rows]
 
 
-# ── Monitoring trend series ──────────────────────────────────────────────────
-# These power the trend sparklines the Daily Monitoring view adds on top of the
-# snapshot layout. Each returns a dict keyed to match a snapshot row (brand names
-# / keywords are unique within a group) whose value is ``{"dates": [...],
-# "values": [...]}`` — one aligned point per day the entity was observed, in date
-# order. The sparkline draws the values; the dates drive the hover tooltip.
-
-
-def _empty_series() -> dict:
-    return {"dates": [], "values": []}
-
-
-def rank_trend_by_brand(conn: sqlite3.Connection, group_id: int, period: str) -> dict:
-    """{brand_name: {dates, values}} of daily avg tracked-item position over the window.
-
-    Trend for the "Overall Search Ranking" table. Per day, a brand's average
-    tracked-item page-1 position (lower is better); untracked SKUs excluded.
-    """
-    start, end = get_date_range(period)
-    rows = conn.execute(
-        "SELECT sr.scraped_at AS d, b.name AS brand_name, AVG(sr.position) AS avg_pos "
-        "FROM ci_search_results sr JOIN ci_brands b ON b.id = sr.brand_id "
-        "WHERE sr.group_id = ? AND sr.scraped_at >= ? AND sr.scraped_at <= ? "
-        "  AND sr." + _TRACKED_ITEMS_FILTER + " "
-        "GROUP BY sr.scraped_at, b.id ORDER BY sr.scraped_at",
-        (group_id, start, end, group_id),
-    ).fetchall()
-    out: dict = defaultdict(_empty_series)
-    for r in rows:
-        out[r["brand_name"]]["dates"].append(r["d"])
-        out[r["brand_name"]]["values"].append(round(r["avg_pos"], 1))
-    return dict(out)
-
-
-def rank_trend_by_keyword_brand(conn: sqlite3.Connection, group_id: int, period: str) -> dict:
-    """{(keyword, brand_name): {dates, values}} of daily avg position over the window.
-
-    Trend for the per-keyword "Search Ranking" table (lower is better).
-    """
-    start, end = get_date_range(period)
-    rows = conn.execute(
-        "SELECT sr.scraped_at AS d, k.keyword AS kw, b.name AS brand_name, "
-        "  AVG(sr.position) AS avg_pos "
-        "FROM ci_search_results sr "
-        "JOIN ci_keywords k ON k.id = sr.keyword_id "
-        "JOIN ci_brands b ON b.id = sr.brand_id "
-        "WHERE sr.group_id = ? AND sr.scraped_at >= ? AND sr.scraped_at <= ? "
-        "  AND sr." + _TRACKED_ITEMS_FILTER + " "
-        "GROUP BY sr.scraped_at, k.id, b.id ORDER BY sr.scraped_at",
-        (group_id, start, end, group_id),
-    ).fetchall()
-    out: dict = defaultdict(_empty_series)
-    for r in rows:
-        key = (r["kw"], r["brand_name"])
-        out[key]["dates"].append(r["d"])
-        out[key]["values"].append(round(r["avg_pos"], 1))
-    return dict(out)
-
-
-def share_trend_by_brand(conn: sqlite3.Connection, group_id: int, period: str) -> dict:
-    """{brand_name: {dates, values}} of daily total-share % over the window (incl. "Other").
-
-    Trend for the "Overall Share of Digital Shelf" table (higher is better).
-    Reuses the daily share series that feeds the trend chart, keyed by name; every
-    brand's series is aligned to the same window dates.
-    """
-    start, end = get_date_range(period)
-    dates, by_brand_id = _daily_total_share_by_brand(conn, group_id, start, end)
-    brand_meta = _brand_meta(conn, group_id)
-    return {
-        (brand_meta[bid]["name"] if bid in brand_meta else "Other"):
-            {"dates": dates, "values": series}
-        for bid, series in by_brand_id.items()
-    }
-
-
-def share_trend_by_keyword_brand(conn: sqlite3.Connection, group_id: int, period: str) -> dict:
-    """{(keyword, brand_name): {dates, values}} of daily total-share % (incl. "Other").
-
-    Trend for the per-keyword "Share of Digital Shelf" table. Each day's share is
-    of that keyword's own page-1 slots that day (higher is better).
-    """
-    start, end = get_date_range(period)
-    rows = conn.execute(
-        "SELECT sos.date AS d, k.keyword AS kw, sos.brand_id AS bid, "
-        "  SUM(sos.total_count) AS t "
-        "FROM ci_share_of_search sos JOIN ci_keywords k ON k.id = sos.keyword_id "
-        "WHERE sos.group_id = ? AND sos.date >= ? AND sos.date <= ? "
-        "GROUP BY sos.date, k.id, sos.brand_id ORDER BY sos.date",
-        (group_id, start, end),
-    ).fetchall()
-
-    brand_meta = _brand_meta(conn, group_id)
-    # Per (date, keyword) grand total for the share denominator.
-    grand: dict = defaultdict(int)
-    for r in rows:
-        grand[(r["d"], r["kw"])] += r["t"]
-
-    out: dict = defaultdict(_empty_series)
-    for r in rows:
-        name = brand_meta[r["bid"]]["name"] if r["bid"] in brand_meta else "Other"
-        key = (r["kw"], name)
-        out[key]["dates"].append(r["d"])
-        out[key]["values"].append(_pct(r["t"], grand[(r["d"], r["kw"])]))
-    return dict(out)
-
-
 def _brand_meta(conn: sqlite3.Connection, group_id: int) -> dict[int, dict]:
     """Return {brand_id: {name, type}} for a group, preserving mine-first order."""
     rows = conn.execute(
@@ -575,101 +347,282 @@ def _brand_meta(conn: sqlite3.Connection, group_id: int) -> dict[int, dict]:
     return {r["id"]: {"name": r["name"], "type": r["type"]} for r in rows}
 
 
-# ── Search Ranking ───────────────────────────────────────────────────────────────
+# ── Calendar reporting periods (Daily Monitoring) ────────────────────────────
+# The monitoring view aggregates each results table over the last *completed*
+# calendar period and compares it to the one before it. A period's button stays
+# off until its most recent completed period actually holds scraped data.
 
-def rank_summary(conn: sqlite3.Connection, group_id: int, period: str) -> list[dict]:
-    """Current best rank + trend per brand per keyword over the window.
+_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+           "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
-    Brand-level and includes competitors so the user can compare against rivals, but
-    counts only each brand's *tracked* products (see :data:`_TRACKED_ITEMS_FILTER`),
-    so an untracked SKU can't stand in for the item the user follows. For each
-    (brand, keyword) whose tracked item appeared in the window: the daily best
-    (minimum) tracked-item position, the latest value, the prior-window best (for a
-    delta), and the daily series for a sparkline. Ordered mine-first, then brand,
-    then keyword.
+
+def _add_months(year: int, month: int, delta: int) -> tuple[int, int]:
+    """Shift a (year, month) pair by ``delta`` months (month is 1-12)."""
+    total = year * 12 + (month - 1) + delta
+    return total // 12, total % 12 + 1
+
+
+def _month_end(year: int, month: int) -> date:
+    """Last calendar day of a given year/month."""
+    ny, nm = _add_months(year, month, 1)
+    return date(ny, nm, 1) - timedelta(days=1)
+
+
+def period_bounds(period: str, index: int = 0, today: date | None = None) -> tuple[str, str]:
+    """(start, end) ISO dates for a *completed* calendar period.
+
+    ``index`` counts back from the most recently completed period: 0 is the last
+    completed period, 1 the one before it, and so on. Weeks are Monday–Sunday;
+    months, quarters and years are calendar (never the in-progress current one).
     """
-    start, end = get_date_range(period)
-    p_start, p_end = get_prior_date_range(period)
+    today = today or date.today()
+    if period == "wow":
+        this_monday = today - timedelta(days=today.weekday())
+        end = this_monday - timedelta(days=1 + 7 * index)  # Sunday of the target week
+        start = end - timedelta(days=6)
+    elif period == "mom":
+        y, m = _add_months(today.year, today.month, -(index + 1))
+        start, end = date(y, m, 1), _month_end(y, m)
+    elif period == "qoq":
+        q_first_month = ((today.month - 1) // 3) * 3 + 1
+        y, m = _add_months(today.year, q_first_month, -3 * (index + 1))
+        ey, em = _add_months(y, m, 2)
+        start, end = date(y, m, 1), _month_end(ey, em)
+    elif period == "yoy":
+        y = today.year - 1 - index
+        start, end = date(y, 1, 1), date(y, 12, 31)
+    else:
+        raise ValueError(f"Unknown period {period!r}")
+    return start.isoformat(), end.isoformat()
 
-    # (brand, keyword) pairs whose tracked item(s) actually appeared in the window.
-    pairs = conn.execute(
-        "SELECT DISTINCT b.id AS brand_id, b.name AS brand_name, b.type AS brand_type, "
-        "  k.id AS keyword_id, k.keyword AS keyword "
-        "FROM ci_search_results sr "
-        "JOIN ci_brands b ON b.id = sr.brand_id "
-        "JOIN ci_keywords k ON k.id = sr.keyword_id "
-        "WHERE sr.group_id = ? AND sr.scraped_at >= ? AND sr.scraped_at <= ? "
-        "  AND sr." + _TRACKED_ITEMS_FILTER + " "
-        "ORDER BY CASE b.type WHEN 'mine' THEN 0 ELSE 1 END, "
-        "  b.name COLLATE NOCASE, k.keyword COLLATE NOCASE",
+
+def period_label(period: str, index: int = 0, today: date | None = None) -> str:
+    """Human label for a completed period ('Aug 17–23', 'Jul 2026', 'Q2 2026', '2025')."""
+    s = date.fromisoformat(period_bounds(period, index, today)[0])
+    e = date.fromisoformat(period_bounds(period, index, today)[1])
+    if period == "wow":
+        if s.month == e.month:
+            return f"{_MONTHS[s.month - 1]} {s.day}–{e.day}"
+        return f"{_MONTHS[s.month - 1]} {s.day}–{_MONTHS[e.month - 1]} {e.day}"
+    if period == "mom":
+        return f"{_MONTHS[s.month - 1]} {s.year}"
+    if period == "qoq":
+        return f"Q{(s.month - 1) // 3 + 1} {s.year}"
+    return str(s.year)  # yoy
+
+
+def period_has_data(conn: sqlite3.Connection, group_id: int, period: str,
+                    index: int = 0, today: date | None = None) -> bool:
+    """Whether the given completed period holds any scraped data for the group."""
+    start, end = period_bounds(period, index, today)
+    for table, col in (("ci_search_results", "scraped_at"), ("ci_share_of_search", "date")):
+        row = conn.execute(
+            f"SELECT 1 FROM {table} WHERE group_id = ? AND {col} >= ? AND {col} <= ? LIMIT 1",
+            (group_id, start, end),
+        ).fetchone()
+        if row:
+            return True
+    return False
+
+
+def available_periods(conn: sqlite3.Connection, group_id: int,
+                      today: date | None = None) -> list[str]:
+    """Period keys whose most recent completed period has data (the enabled buttons)."""
+    return [p for p in PERIODS if period_has_data(conn, group_id, p, 0, today)]
+
+
+# ── Period-range aggregations (mirror the run-scoped snapshot_* by date) ──────
+
+def _avg_rank_by_brand_range(conn, group_id, start, end) -> list[dict]:
+    """Two-stage average tracked-item page-1 position per brand over a date range."""
+    rows = conn.execute(
+        "SELECT b.name AS brand_name, b.type AS brand_type, AVG(per_kw.avg_pos) AS overall_avg "
+        "FROM (SELECT brand_id, keyword_id, AVG(position) AS avg_pos FROM ci_search_results "
+        "      WHERE group_id = ? AND scraped_at >= ? AND scraped_at <= ? AND " + _TRACKED_ITEMS_FILTER + " "
+        "      GROUP BY brand_id, keyword_id) per_kw "
+        "JOIN ci_brands b ON b.id = per_kw.brand_id GROUP BY b.id "
+        "ORDER BY CASE b.type WHEN 'mine' THEN 0 ELSE 1 END, overall_avg",
         (group_id, start, end, group_id),
     ).fetchall()
+    return [{"brand_name": r["brand_name"], "type": r["brand_type"],
+             "avg_position": round(r["overall_avg"], 1) if r["overall_avg"] is not None else None}
+            for r in rows]
 
+
+def _rank_by_keyword_brand_range(conn, group_id, start, end) -> list[dict]:
+    """Average tracked-item page-1 position per (keyword, brand) over a date range."""
+    rows = conn.execute(
+        "SELECT k.keyword AS keyword, b.name AS brand_name, b.type AS brand_type, "
+        "  AVG(sr.position) AS avg_pos "
+        "FROM ci_search_results sr JOIN ci_keywords k ON k.id = sr.keyword_id "
+        "JOIN ci_brands b ON b.id = sr.brand_id "
+        "WHERE sr.group_id = ? AND sr.scraped_at >= ? AND sr.scraped_at <= ? AND sr." + _TRACKED_ITEMS_FILTER + " "
+        "GROUP BY k.id, b.id ORDER BY k.keyword COLLATE NOCASE, avg_pos",
+        (group_id, start, end, group_id),
+    ).fetchall()
+    return [{"keyword": r["keyword"], "brand_name": r["brand_name"], "type": r["brand_type"],
+             "avg_ranking": round(r["avg_pos"], 1)} for r in rows]
+
+
+def _share_of_shelf_range(conn, group_id, start, end) -> list[dict]:
+    """Per-brand organic/sponsored/total share of shelf over a date range."""
+    counts = _sos_totals_by_brand(conn, group_id, start, end)
+    grand = {k: sum(b[k] for b in counts.values()) for k in ("organic", "sponsored", "total")}
+    brand_meta = _brand_meta(conn, group_id)
     out = []
-    for pr in pairs:
-        series = conn.execute(
-            "SELECT scraped_at, MIN(position) AS pos FROM ci_search_results "
-            "WHERE group_id = ? AND brand_id = ? AND keyword_id = ? "
-            "AND scraped_at >= ? AND scraped_at <= ? AND " + _TRACKED_ITEMS_FILTER + " "
-            "GROUP BY scraped_at ORDER BY scraped_at",
-            (group_id, pr["brand_id"], pr["keyword_id"], start, end, group_id),
-        ).fetchall()
-        if not series:
-            continue
-
-        dates = [r["scraped_at"] for r in series]
-        positions = [r["pos"] for r in series]
-        current = positions[-1]
-
-        prior_row = conn.execute(
-            "SELECT MIN(position) AS pos FROM ci_search_results "
-            "WHERE group_id = ? AND brand_id = ? AND keyword_id = ? "
-            "AND scraped_at >= ? AND scraped_at <= ? AND " + _TRACKED_ITEMS_FILTER,
-            (group_id, pr["brand_id"], pr["keyword_id"], p_start, p_end, group_id),
-        ).fetchone()
-        prior = prior_row["pos"] if prior_row and prior_row["pos"] is not None else None
-        # Lower position is better: positive delta = moved up.
-        delta = (prior - current) if prior is not None else None
-
+    for brand_id, c in counts.items():
+        meta = brand_meta.get(brand_id)
         out.append({
-            "brand_name": pr["brand_name"],
-            "type": pr["brand_type"],
-            "keyword": pr["keyword"],
-            "current_position": current,
-            "prior_position": prior,
-            "delta": delta,
-            "dates": dates,
-            "positions": positions,
+            "brand_id": brand_id,
+            "brand_name": meta["name"] if meta else "Other",
+            "type": meta["type"] if meta else "other",
+            "organic": c["organic"], "sponsored": c["sponsored"], "total": c["total"],
+            "organic_share": _pct(c["organic"], grand["organic"]),
+            "sponsored_share": _pct(c["sponsored"], grand["sponsored"]),
+            "total_share": _pct(c["total"], grand["total"]),
         })
+    out.sort(key=lambda r: ({"mine": 0, "competitor": 1}.get(r["type"], 2), -r["total_share"]))
     return out
 
 
-def rank_trend(conn: sqlite3.Connection, group_id: int, keyword_id: int, period: str) -> dict:
-    """Daily best position for each of the group's my-products for one keyword.
-
-    Shape mirrors the reference get_search_rank_trend, for a per-keyword chart.
-    """
-    start, end = get_date_range(period)
-    products = conn.execute(
-        "SELECT p.id, p.name, p.walmart_item_id FROM ci_products p "
-        "JOIN ci_brands b ON b.id = p.brand_id "
-        "WHERE p.group_id = ? AND p.active = 1 AND b.type = 'mine'",
-        (group_id,),
+def _share_by_keyword_range(conn, group_id, start, end) -> list[dict]:
+    """Per-keyword, per-brand share of that keyword's own slots over a date range."""
+    rows = conn.execute(
+        "SELECT k.keyword AS keyword, sos.brand_id AS brand_id, "
+        "  SUM(sos.organic_count) AS o, SUM(sos.sponsored_count) AS s, SUM(sos.total_count) AS t "
+        "FROM ci_share_of_search sos JOIN ci_keywords k ON k.id = sos.keyword_id "
+        "WHERE sos.group_id = ? AND sos.date >= ? AND sos.date <= ? GROUP BY k.id, sos.brand_id",
+        (group_id, start, end),
     ).fetchall()
+    brand_meta = _brand_meta(conn, group_id)
+    by_kw: dict = defaultdict(list)
+    for r in rows:
+        by_kw[r["keyword"]].append(r)
+    out = []
+    for kw in sorted(by_kw, key=str.lower):
+        krows = by_kw[kw]
+        grand = {key: sum((r[col] or 0) for r in krows)
+                 for key, col in (("organic", "o"), ("sponsored", "s"), ("total", "t"))}
+        entries = [{
+            "keyword": kw,
+            "brand_name": (brand_meta.get(r["brand_id"]) or {}).get("name", "Other"),
+            "type": (brand_meta.get(r["brand_id"]) or {}).get("type", "other"),
+            "organic_share": _pct(r["o"] or 0, grand["organic"]),
+            "sponsored_share": _pct(r["s"] or 0, grand["sponsored"]),
+            "total_share": _pct(r["t"] or 0, grand["total"]),
+        } for r in krows]
+        entries.sort(key=lambda e: -e["total_share"])
+        out.extend(entries)
+    return out
 
-    series_out = []
-    for p in products:
-        rows = conn.execute(
-            "SELECT scraped_at, MIN(position) AS pos FROM ci_search_results "
-            "WHERE group_id = ? AND keyword_id = ? AND item_id = ? "
-            "AND scraped_at >= ? AND scraped_at <= ? "
-            "GROUP BY scraped_at ORDER BY scraped_at",
-            (group_id, keyword_id, p["walmart_item_id"], start, end),
-        ).fetchall()
-        series_out.append({
-            "product_id": p["id"],
-            "product_name": p["name"] or p["walmart_item_id"],
-            "dates": [r["scraped_at"] for r in rows],
-            "positions": [r["pos"] for r in rows],
-        })
-    return {"products": series_out}
+
+def _page1_depth_range(conn, group_id, start, end) -> int:
+    """Deepest page-1 slot recorded over a date range (sizes the placement grid)."""
+    row = conn.execute(
+        "SELECT MAX(position) FROM ci_search_results "
+        "WHERE group_id = ? AND scraped_at >= ? AND scraped_at <= ?",
+        (group_id, start, end),
+    ).fetchone()
+    return int(row[0]) if row and row[0] is not None else 0
+
+
+# ── Period-over-period assemblers (current + delta + trend) ──────────────────
+
+def _period_trend(conn, group_id, period, today, *, key_fn, val_fn, range_fn) -> dict:
+    """Per-entity {dates(labels), values} across the last ``TREND_PERIODS`` periods.
+
+    One aggregated point per completed period (oldest→newest), skipping periods
+    where the entity had no value. ``dates`` carry the period labels the tooltip
+    shows; ``values`` are what the sparkline draws.
+    """
+    series: dict = defaultdict(lambda: {"dates": [], "values": []})
+    for i in range(TREND_PERIODS - 1, -1, -1):
+        start, end = period_bounds(period, i, today)
+        label = period_label(period, i, today)
+        for r in range_fn(conn, group_id, start, end):
+            v = val_fn(r)
+            if v is None:
+                continue
+            series[key_fn(r)]["dates"].append(label)
+            series[key_fn(r)]["values"].append(v)
+    return series
+
+
+def monitoring_avg_rank(conn, group_id, period, today=None) -> list[dict]:
+    """Overall Search Ranking for the last completed period, with delta + trend.
+
+    Delta is prior-average minus current-average, so a positive delta means the
+    brand's average ranking *improved* (moved up).
+    """
+    cur = _avg_rank_by_brand_range(conn, group_id, *period_bounds(period, 0, today))
+    prior = {r["brand_name"]: r for r in _avg_rank_by_brand_range(conn, group_id, *period_bounds(period, 1, today))}
+    trend = _period_trend(conn, group_id, period, today, key_fn=lambda r: r["brand_name"],
+                          val_fn=lambda r: r["avg_position"], range_fn=_avg_rank_by_brand_range)
+    out = []
+    for r in cur:
+        p = prior.get(r["brand_name"])
+        delta = (round(p["avg_position"] - r["avg_position"], 1)
+                 if p and p["avg_position"] is not None and r["avg_position"] is not None else None)
+        t = trend.get(r["brand_name"], {"dates": [], "values": []})
+        out.append({**r, "delta": delta, "trend": t["values"], "trend_dates": t["dates"]})
+    return out
+
+
+def monitoring_rank_by_keyword(conn, group_id, period, today=None) -> list[dict]:
+    """Per-keyword Search Ranking for the last completed period, with delta + trend."""
+    cur = _rank_by_keyword_brand_range(conn, group_id, *period_bounds(period, 0, today))
+    prior = {(r["keyword"], r["brand_name"]): r
+             for r in _rank_by_keyword_brand_range(conn, group_id, *period_bounds(period, 1, today))}
+    trend = _period_trend(conn, group_id, period, today,
+                          key_fn=lambda r: (r["keyword"], r["brand_name"]),
+                          val_fn=lambda r: r["avg_ranking"], range_fn=_rank_by_keyword_brand_range)
+    out = []
+    for r in cur:
+        key = (r["keyword"], r["brand_name"])
+        p = prior.get(key)
+        delta = round(p["avg_ranking"] - r["avg_ranking"], 1) if p else None
+        t = trend.get(key, {"dates": [], "values": []})
+        out.append({**r, "delta": delta, "trend": t["values"], "trend_dates": t["dates"]})
+    return out
+
+
+def monitoring_share_of_shelf(conn, group_id, period, today=None) -> list[dict]:
+    """Overall Share of Digital Shelf for the last completed period, with delta + trend.
+
+    Delta is current minus prior total-share (percentage points; positive = gained).
+    """
+    cur = _share_of_shelf_range(conn, group_id, *period_bounds(period, 0, today))
+    prior = {r["brand_name"]: r for r in _share_of_shelf_range(conn, group_id, *period_bounds(period, 1, today))}
+    trend = _period_trend(conn, group_id, period, today, key_fn=lambda r: r["brand_name"],
+                          val_fn=lambda r: r["total_share"], range_fn=_share_of_shelf_range)
+    out = []
+    for r in cur:
+        p = prior.get(r["brand_name"])
+        delta = round(r["total_share"] - p["total_share"], 1) if p else None
+        t = trend.get(r["brand_name"], {"dates": [], "values": []})
+        out.append({**r, "delta": delta, "trend": t["values"], "trend_dates": t["dates"]})
+    return out
+
+
+def monitoring_share_by_keyword(conn, group_id, period, today=None) -> list[dict]:
+    """Per-keyword Share of Digital Shelf for the last completed period, with delta + trend."""
+    cur = _share_by_keyword_range(conn, group_id, *period_bounds(period, 0, today))
+    prior = {(r["keyword"], r["brand_name"]): r
+             for r in _share_by_keyword_range(conn, group_id, *period_bounds(period, 1, today))}
+    trend = _period_trend(conn, group_id, period, today,
+                          key_fn=lambda r: (r["keyword"], r["brand_name"]),
+                          val_fn=lambda r: r["total_share"], range_fn=_share_by_keyword_range)
+    out = []
+    for r in cur:
+        key = (r["keyword"], r["brand_name"])
+        p = prior.get(key)
+        delta = round(r["total_share"] - p["total_share"], 1) if p else None
+        t = trend.get(key, {"dates": [], "values": []})
+        out.append({**r, "delta": delta, "trend": t["values"], "trend_dates": t["dates"]})
+    return out
+
+
+def monitoring_placement_map(conn, group_id, period, avg_ranks, today=None) -> dict | None:
+    """Placement grid for the period's overall average ranking (page + PDF share it)."""
+    start, end = period_bounds(period, 0, today)
+    return build_rank_placement_map(avg_ranks, _page1_depth_range(conn, group_id, start, end))

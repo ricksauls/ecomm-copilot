@@ -1568,6 +1568,18 @@ a:focus-visible,
   text-decoration: none;
 }
 .ci-periods a.active { border-color: var(--black); color: var(--black); font-weight: 600; }
+/* A period whose most recent completed window has no data yet: shown, but inert. */
+.ci-periods .disabled {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 4px 10px;
+  border: 1px dashed var(--control-border);
+  border-radius: var(--radius-chip);
+  color: var(--mid-gray);
+  opacity: 0.45;
+  cursor: not-allowed;
+}
 
 /* Share-of-shelf bar (share % rendered as a filled track). */
 .ci-bar-track {

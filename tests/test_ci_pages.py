@@ -286,22 +286,25 @@ def test_monitoring_view_matches_snapshot_layout_with_trends(client, auth):
     auth.register()
     resp = client.post("/app/competitive-intel/monitoring/groups", data={"name": "MonTrend"})
     gid = int(resp.headers["Location"].rstrip("/").split("/")[-1])
-    # Seed a completed run with two days of data so trend sparklines have points.
+    # Seed data inside the last *completed* week (the route uses the real "today"),
+    # so the aggregated tables + week button are available.
+    from app import ci_analysis
+    wk_start, _wk_end = ci_analysis.period_bounds("wow", 0)
+    d1 = wk_start
+    d2 = (date.fromisoformat(wk_start) + timedelta(days=2)).isoformat()
     with client.application.app_context():
         db = get_db()
         b_mine = ci_config.add_brand(db, gid, 1, "Tabasco", "mine")
         ci_config.add_product(db, gid, b_mine, 1, "https://www.walmart.com/ip/x/10294528")
         kid = ci_config.add_keyword(db, gid, 1, "hot sauce")
-        today = date.today().isoformat()
-        yday = (date.today() - timedelta(days=1)).isoformat()
         rid = ci_jobs.enqueue_run(db, gid, run_type="monitoring")
         rows = []
-        for d, pos in ((yday, 5), (today, 3)):
+        for d, pos in ((d1, 5), (d2, 3)):
             rows.append({"run_id": rid, "group_id": gid, "keyword_id": kid, "scraped_at": d,
                          "position": pos, "position_type": "organic", "item_id": "10294528",
                          "brand_id": b_mine, "is_new_sku": 0})
         ci_jobs.write_search_results(db, rows)
-        for d in (yday, today):
+        for d in (d1, d2):
             day_rows = [r for r in rows if r["scraped_at"] == d]
             ci_jobs.write_share_of_search(db, rid, gid, kid, d, None, day_rows, {"10294528"})
         ci_jobs.finish_run(db, rid)
@@ -314,8 +317,9 @@ def test_monitoring_view_matches_snapshot_layout_with_trends(client, auth):
     assert b"Overall Share of Digital Shelf" in resp.data
     assert b"sos-chart" in resp.data
     assert b"rankmap" in resp.data
-    # …plus the trend sparklines that monitoring adds.
+    # …plus the monitoring extras: the "vs prior" delta column and trend sparklines.
     assert b"ci-spark" in resp.data
+    assert b"vs prior" in resp.data
     assert b"data-better=\"high\"" in resp.data  # share trend renders higher = up
 
 

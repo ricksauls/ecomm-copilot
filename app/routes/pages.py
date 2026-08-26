@@ -1097,16 +1097,12 @@ def _snapshot_data(db, group_id):
 
 
 def _monitoring_data(db, group_id, period):
-    """Gather the Daily Monitoring view's sections.
+    """Gather the Daily Monitoring view's sections for a completed calendar period.
 
-    Mirrors :func:`_snapshot_data` so the monitoring results match the One-Time
-    Snapshot layout and logic: the current-state figures (overall/per-keyword
-    ranking and share, placement map, config summary) come from the group's latest
-    *completed* run. On top of that it attaches, to each table row, a trend series
-    over the selected ``period`` — the one thing monitoring adds over a snapshot.
+    Each results table is aggregated over the last completed ``period`` (week /
+    month / quarter / year) with a delta vs the prior period and a per-period trend
+    sparkline. The config summary and placement map mirror the snapshot layout.
     """
-    run = ci_jobs.latest_done_run(db, group_id)
-
     # Config summary — always available (it's configuration, not run output).
     brands = ci_config.list_brands(db, group_id, g.user["id"])
     config_summary = {
@@ -1116,40 +1112,13 @@ def _monitoring_data(db, group_id, period):
         "keywords": [k["keyword"] for k in ci_config.list_keywords(db, group_id, g.user["id"])],
     }
 
-    sos_summary, avg_ranks, rank_rows, share_rows = [], [], [], []
-    rank_map = None
-    if run:
-        rid = run["id"]
-        sos_summary = ci_analysis.snapshot_share_of_shelf(db, group_id, rid)
-        avg_ranks = ci_analysis.snapshot_brand_avg_rank(db, group_id, rid)
-        rank_rows = ci_analysis.snapshot_rank_by_keyword_brand(db, group_id, rid)
-        share_rows = ci_analysis.snapshot_share_by_keyword(db, group_id, rid)
-        depth = ci_analysis.snapshot_page1_depth(db, group_id, rid)
-        rank_map = ci_analysis.build_rank_placement_map(avg_ranks, depth)
-
-        # Attach the period trend series to each row (empty = no history yet, which
-        # the template renders as a blank trend cell). Each series carries aligned
-        # ``values`` (drawn) and ``dates`` (shown in the hover tooltip).
-        rt_brand = ci_analysis.rank_trend_by_brand(db, group_id, period)
-        rt_kw = ci_analysis.rank_trend_by_keyword_brand(db, group_id, period)
-        st_brand = ci_analysis.share_trend_by_brand(db, group_id, period)
-        st_kw = ci_analysis.share_trend_by_keyword_brand(db, group_id, period)
-
-        def _attach(row, series):
-            row["trend"] = series["values"] if series else []
-            row["trend_dates"] = series["dates"] if series else []
-
-        for r in avg_ranks:
-            _attach(r, rt_brand.get(r["brand_name"]))
-        for r in rank_rows:
-            _attach(r, rt_kw.get((r["keyword"], r["brand_name"])))
-        for r in sos_summary:
-            _attach(r, st_brand.get(r["brand_name"]))
-        for r in share_rows:
-            _attach(r, st_kw.get((r["keyword"], r["brand_name"])))
+    avg_ranks = ci_analysis.monitoring_avg_rank(db, group_id, period)
+    rank_rows = ci_analysis.monitoring_rank_by_keyword(db, group_id, period)
+    sos_summary = ci_analysis.monitoring_share_of_shelf(db, group_id, period)
+    share_rows = ci_analysis.monitoring_share_by_keyword(db, group_id, period)
+    rank_map = ci_analysis.monitoring_placement_map(db, group_id, period, avg_ranks)
 
     return {
-        "run": run,
         "config_summary": config_summary,
         "sos_summary": sos_summary,
         "avg_ranks": avg_ranks,
@@ -1244,7 +1213,7 @@ def ci_schedule_run(group_id):
 # ── View Monitoring (dropdown + trends + PDF) ────────────────────────────────
 
 def _resolve_period(raw: str | None) -> str:
-    return raw if raw in ci_analysis.PERIOD_DAYS else ci_analysis.DEFAULT_PERIOD
+    return raw if raw in ci_analysis.PERIODS else ci_analysis.DEFAULT_PERIOD
 
 
 @bp.route("/app/competitive-intel/view-snapshot")
@@ -1306,7 +1275,6 @@ def ci_view():
     """
     db = get_db()
     groups = ci_config.list_groups(db, g.user["id"], mode="monitoring")
-    period = _resolve_period(request.args.get("period"))
 
     group_id = request.args.get("group_id", type=int)
     selected = None
@@ -1317,18 +1285,30 @@ def ci_view():
     elif groups:
         selected = groups[0]  # default to the newest monitoring group
 
-    data = {"run": None, "config_summary": None, "sos_summary": [], "avg_ranks": [],
+    data = {"config_summary": None, "sos_summary": [], "avg_ranks": [],
             "rank_rows": [], "share_rows": [], "rank_map": None}
+    available: list = []
+    period = ci_analysis.DEFAULT_PERIOD
+    period_label = prior_label = None
     if selected is not None:
-        data = _monitoring_data(db, selected["id"], period)
+        # A period button is offered only once its most recent completed period
+        # holds data; fall back to the first available period if the request asks
+        # for one that isn't ready yet.
+        available = ci_analysis.available_periods(db, selected["id"])
+        requested = request.args.get("period")
+        period = (requested if requested in available
+                  else (available[0] if available else ci_analysis.DEFAULT_PERIOD))
+        data = _monitoring_data(db, selected["id"], period)  # config summary always populated
+        if available:
+            period_label = ci_analysis.period_label(period)
+            prior_label = ci_analysis.period_label(period, 1)
 
     # Stacked-bar chart scale: scale to the tallest organic+sponsored stack, so the
     # bars visualize the table's share columns (same as the snapshot page).
     sos_scale = max((r["organic_share"] + r["sponsored_share"] for r in data["sos_summary"]),
                     default=0)
-    logger.info("CI view user_id=%s group_id=%s period=%s run_id=%s",
-                g.user["id"], selected["id"] if selected else None, period,
-                data["run"]["id"] if data["run"] else None)
+    logger.info("CI view user_id=%s group_id=%s period=%s available=%s",
+                g.user["id"], selected["id"] if selected else None, period, available)
     return render_template(
         "app/ci_view.html",
         breadcrumb="Competitive Intelligence · View Monitoring",
@@ -1336,8 +1316,11 @@ def ci_view():
         groups=groups,
         selected=selected,
         period=period,
-        periods=list(ci_analysis.PERIOD_DAYS.keys()),
-        run=data["run"],
+        periods=list(ci_analysis.PERIODS),
+        period_labels=ci_analysis.PERIOD_LABELS,
+        available=available,
+        period_label=period_label,
+        prior_label=prior_label,
         config_summary=data["config_summary"],
         sos_summary=data["sos_summary"],
         avg_ranks=data["avg_ranks"],
@@ -1361,8 +1344,8 @@ def ci_view_pdf(group_id):
     group = _owned_group_or_404(group_id)
     db = get_db()
     period = _resolve_period(request.args.get("period"))
-    # Same data the page renders (see _monitoring_data): current-state sections from
-    # the latest completed run, each row carrying its period trend series.
+    # Same data the page renders (see _monitoring_data): aggregated over the last
+    # completed calendar period, each row carrying its delta + per-period trend.
     data = _monitoring_data(db, group_id, period)
     pdf = build_ci_monitoring_pdf(
         dict(group), period,
@@ -1372,6 +1355,8 @@ def ci_view_pdf(group_id):
         sos_rows=data["sos_summary"],
         share_rows=data["share_rows"],
         rank_map=data["rank_map"],
+        period_label=ci_analysis.period_label(period),
+        prior_label=ci_analysis.period_label(period, 1),
     )
     filename = f"ci-monitoring-{_slug(group['name'])}-{date.today().isoformat()}.pdf"
     logger.info("CI monitoring PDF: group_id=%s period=%s user_id=%s", group_id, period, g.user["id"])

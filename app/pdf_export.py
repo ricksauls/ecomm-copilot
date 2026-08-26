@@ -312,11 +312,24 @@ def _sparkline_drawing(points: list, styles: dict, *, better_high: bool):
     return drawing
 
 
+def _delta_cell(delta, styles: dict) -> Paragraph:
+    """Render a period-over-period delta ('+n' improved, 'n' worse, 'new', '—')."""
+    if delta is None:
+        text = "new"
+    elif delta > 0:
+        text = f"+{delta}"
+    elif delta < 0:
+        text = str(delta)
+    else:
+        text = "&#8212;"
+    return Paragraph(text, styles["cellmuted"])
+
+
 def _sos_table(sos_rows: list[dict], styles: dict, *, with_trend: bool = False) -> Table:
-    """Share-of-Digital-Shelf table. Adds a trend sparkline column for monitoring."""
+    """Share-of-Digital-Shelf table. Adds a 'vs prior' delta + trend column for monitoring."""
     header = ["Brand", "Type", "Organic", "Sponsored", "Total share"]
     if with_trend:
-        header.append("Trend")
+        header += ["vs prior", "Trend"]
     rows = [header]
     for r in sos_rows:
         row = [
@@ -327,11 +340,13 @@ def _sos_table(sos_rows: list[dict], styles: dict, *, with_trend: bool = False) 
             Paragraph(f"{r['total_share']}%", styles["cell"]),
         ]
         if with_trend:
+            row.append(_delta_cell(r.get("delta"), styles))
             row.append(_sparkline_drawing(r.get("trend"), styles, better_high=True))
         rows.append(row)
     if len(rows) == 1:
         rows.append([Paragraph("No data.", styles["cellmuted"])] + [""] * (len(header) - 1))
-    widths = [1.9, 0.9, 0.9, 1.0, 1.0] + ([0.9] if with_trend else [])
+    widths = ([1.7, 0.8, 0.85, 0.95, 0.95, 0.7, 0.85] if with_trend
+              else [1.9, 0.9, 0.9, 1.0, 1.0])
     return _ci_table(rows, [w * inch for w in widths], styles)
 
 
@@ -412,7 +427,7 @@ def _avg_rank_table(avg_ranks: list[dict], styles: dict, *, with_trend: bool = F
     Monitoring (``with_trend``) adds a rank trend sparkline over the window; lower
     ranking is better, so the sparkline orients "improving" upward.
     """
-    header = ["Brand", "Type", "Avg ranking"] + (["Trend"] if with_trend else [])
+    header = ["Brand", "Type", "Avg ranking"] + (["vs prior", "Trend"] if with_trend else [])
     rows = [header]
     for r in avg_ranks:
         row = [
@@ -421,17 +436,19 @@ def _avg_rank_table(avg_ranks: list[dict], styles: dict, *, with_trend: bool = F
             Paragraph(_pos(r.get("avg_position")), styles["cell"]),
         ]
         if with_trend:
+            row.append(_delta_cell(r.get("delta"), styles))
             row.append(_sparkline_drawing(r.get("trend"), styles, better_high=False))
         rows.append(row)
     if len(rows) == 1:
         rows.append([Paragraph("No brands ranked.", styles["cellmuted"])] + [""] * (len(header) - 1))
-    widths = (2.2, 1.0, 1.2, 0.9) if with_trend else (2.4, 1.1, 1.3)
+    widths = (2.0, 0.9, 1.1, 0.8, 0.9) if with_trend else (2.4, 1.1, 1.3)
     return _ci_table(rows, [w * inch for w in widths], styles)
 
 
 def _rank_by_keyword_table(rank_rows: list[dict], styles: dict, *, with_trend: bool = False) -> Table:
     """Search Ranking: average ranking per brand per keyword (+ trend for monitoring)."""
-    header = ["Keyword", "Brand", "Type", "Avg ranking"] + (["Trend"] if with_trend else [])
+    header = (["Keyword", "Brand", "Type", "Avg ranking"]
+              + (["vs prior", "Trend"] if with_trend else []))
     rows = [header]
     for r in rank_rows:
         row = [
@@ -441,18 +458,19 @@ def _rank_by_keyword_table(rank_rows: list[dict], styles: dict, *, with_trend: b
             Paragraph(_pos(r.get("avg_ranking")), styles["cell"]),
         ]
         if with_trend:
+            row.append(_delta_cell(r.get("delta"), styles))
             row.append(_sparkline_drawing(r.get("trend"), styles, better_high=False))
         rows.append(row)
     if len(rows) == 1:
         rows.append([Paragraph("No data.", styles["cellmuted"])] + [""] * (len(header) - 1))
-    widths = (1.8, 1.8, 0.9, 1.1, 0.9) if with_trend else (2.0, 2.0, 1.0, 1.3)
+    widths = (1.6, 1.6, 0.8, 1.05, 0.75, 0.85) if with_trend else (2.0, 2.0, 1.0, 1.3)
     return _ci_table(rows, [w * inch for w in widths], styles)
 
 
 def _share_by_keyword_table(share_rows: list[dict], styles: dict, *, with_trend: bool = False) -> Table:
     """Per-keyword Share of Digital Shelf (+ a share trend sparkline for monitoring)."""
     header = (["Keyword", "Brand", "Type", "Organic", "Sponsored", "Total share"]
-              + (["Trend"] if with_trend else []))
+              + (["vs prior", "Trend"] if with_trend else []))
     rows = [header]
     for r in share_rows:
         row = [
@@ -464,11 +482,12 @@ def _share_by_keyword_table(share_rows: list[dict], styles: dict, *, with_trend:
             Paragraph(f"{r['total_share']}%", styles["cell"]),
         ]
         if with_trend:
+            row.append(_delta_cell(r.get("delta"), styles))
             row.append(_sparkline_drawing(r.get("trend"), styles, better_high=True))
         rows.append(row)
     if len(rows) == 1:
         rows.append([Paragraph("No data.", styles["cellmuted"])] + [""] * (len(header) - 1))
-    widths = ((1.3, 1.3, 0.8, 0.8, 0.85, 0.9, 0.85) if with_trend
+    widths = ((1.2, 1.2, 0.7, 0.75, 0.8, 0.8, 0.65, 0.8) if with_trend
               else (1.5, 1.5, 0.9, 0.9, 1.0, 1.0))
     return _ci_table(rows, [w * inch for w in widths], styles)
 
@@ -689,12 +708,15 @@ def build_ci_snapshot_pdf(group: dict, *, config_summary: dict, avg_ranks: list[
 
 def build_ci_monitoring_pdf(group: dict, period: str, *, config_summary: dict,
                             avg_ranks: list[dict], rank_rows: list[dict], sos_rows: list[dict],
-                            share_rows: list[dict], rank_map: dict | None = None) -> bytes:
-    """Daily Monitoring PDF — the snapshot layout plus a trend sparkline per row.
+                            share_rows: list[dict], rank_map: dict | None = None,
+                            period_label: str | None = None,
+                            prior_label: str | None = None) -> bytes:
+    """Daily Monitoring PDF — the snapshot layout, aggregated over a completed period.
 
-    Current-state figures come from the group's latest completed run; each table's
-    trend column shows the metric across the selected ``period`` window (rank
-    sparklines read lower-is-better, share sparklines higher-is-better).
+    Each table is aggregated over the last completed calendar period, with a
+    "vs prior" delta and a per-period trend sparkline (rank sparklines read
+    lower-is-better, share sparklines higher-is-better). ``period_label`` /
+    ``prior_label`` name the periods in the header (e.g. "Jul 2026" vs "Jun 2026").
     """
     styles = _styles()
     buffer = io.BytesIO()
@@ -703,10 +725,14 @@ def build_ci_monitoring_pdf(group: dict, period: str, *, config_summary: dict,
         leftMargin=0.75 * inch, rightMargin=0.75 * inch,
         topMargin=0.7 * inch, bottomMargin=0.7 * inch,
     )
+    window = period_label or period.upper()
+    subtitle = f"Daily Monitoring — {window}"
+    if prior_label:
+        subtitle += f" (vs {prior_label})"
     flow = _ci_results_flow(
-        group, f"Daily Monitoring — current state, trend over the {period.upper()} window",
-        styles, config_summary=config_summary, avg_ranks=avg_ranks, rank_rows=rank_rows,
-        sos_rows=sos_rows, share_rows=share_rows, rank_map=rank_map, with_trend=True,
+        group, subtitle, styles, config_summary=config_summary, avg_ranks=avg_ranks,
+        rank_rows=rank_rows, sos_rows=sos_rows, share_rows=share_rows, rank_map=rank_map,
+        with_trend=True,
     )
     doc.build(flow)
     logger.info("Built CI monitoring PDF: group=%s period=%s", group.get("name"), period)
