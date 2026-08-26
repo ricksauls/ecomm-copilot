@@ -197,3 +197,48 @@ def test_view_all_requires_login(client):
     # Guarded like the rest of the workspace — anonymous is redirected to sign-in.
     resp = client.get("/app/activity/scored")
     assert resp.status_code in (301, 302)
+
+
+def test_activity_rows_link_to_results(client, auth, app):
+    # Dashboard rows carry a per-item results link, and that route opens the item's
+    # results (ownership-checked).
+    from app import jobs
+    from app.db import get_db
+
+    auth.register(email="rowlink@example.com")
+    with app.app_context():
+        db = get_db()
+        uid = db.execute("SELECT id FROM users WHERE email = ?", ("rowlink@example.com",)).fetchone()["id"]
+        ids = jobs.enqueue_items(db, uid, [{"url": "https://www.walmart.com/ip/321", "item": "321"}])
+        jobs.save_result(db, ids[0], 88, {"overall": 88, "dimensions": []}, "Linked Product")
+        db.commit()
+        sid = ids[0]
+
+    # The dashboard renders the row as a link to the per-item results route.
+    body = client.get("/app").data
+    assert f"/app/pdp-scoring/item/{sid}".encode() in body
+
+    # Following it lands on the scoring results page for that item.
+    resp = client.get(f"/app/pdp-scoring/item/{sid}", follow_redirects=True)
+    assert resp.status_code == 200
+    assert b"Linked Product" in resp.data
+
+
+def test_activity_item_route_is_ownership_scoped(client, auth, app):
+    # Another user's scored item id must not be viewable.
+    from app import jobs
+    from app.db import get_db
+
+    auth.register(email="owner-a@example.com")
+    with app.app_context():
+        db = get_db()
+        owner = db.execute("SELECT id FROM users WHERE email = ?", ("owner-a@example.com",)).fetchone()["id"]
+        ids = jobs.enqueue_items(db, owner, [{"url": "https://www.walmart.com/ip/1", "item": "1"}])
+        jobs.save_result(db, ids[0], 50, {"overall": 50}, "Private")
+        db.commit()
+        foreign_sid = ids[0]
+
+    # Sign in as a different user; the first user's item id 404s.
+    auth.logout()
+    auth.register(email="intruder-b@example.com")
+    assert client.get(f"/app/pdp-scoring/item/{foreign_sid}").status_code == 404

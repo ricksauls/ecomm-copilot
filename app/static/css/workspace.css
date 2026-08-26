@@ -567,6 +567,16 @@ img.dash-thumb {
 .dash-row:last-child {
   border-bottom: 0;
 }
+/* Rows link to that activity's results; keep them looking like table rows (no
+   underline / link colour) with a hover cue. */
+.dash-row-link {
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
+}
+.dash-row-link:hover {
+  background: var(--row-hover);
+}
 /* Every cell truncates rather than wraps so a long title or brand list can't
    break the grid's row height; the full value is still in the DOM/title. */
 .dash-row .col {

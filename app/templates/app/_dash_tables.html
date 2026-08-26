@@ -32,7 +32,8 @@
       {% if with_score %}<div class="col r">Score</div>{% endif %}
     </div>
     {% for row in rows %}
-    <div class="dash-cols dash-cols-product{{ ' has-score' if with_score }} dash-row">
+    {% set tag = 'a' if row.result_url else 'div' %}
+    <{{ tag }} class="dash-cols dash-cols-product{{ ' has-score' if with_score }} dash-row{{ ' dash-row-link' if row.result_url }}"{% if row.result_url %} href="{{ row.result_url }}"{% endif %}>
       <div class="col dash-thumb-cell">
         {% if row.image_url %}
           <img class="dash-thumb" src="{{ row.image_url }}" alt="" loading="lazy" />
@@ -44,7 +45,7 @@
       <div class="col">{{ row.brand }}</div>
       <div class="col dash-title">{{ row.title }}</div>
       {% if with_score %}<div class="col r dash-score">{{ row.score }}</div>{% endif %}
-    </div>
+    </{{ tag }}>
     {% else %}
     <div class="dash-empty">{{ empty }}</div>
     {% endfor %}
@@ -66,14 +67,15 @@
       <div class="col r">Competitor items</div>
     </div>
     {% for row in rows %}
-    <div class="dash-cols dash-cols-ci dash-row">
+    {% set tag = 'a' if row.result_url else 'div' %}
+    <{{ tag }} class="dash-cols dash-cols-ci dash-row{{ ' dash-row-link' if row.result_url }}"{% if row.result_url %} href="{{ row.result_url }}"{% endif %}>
       <div class="col dash-title">{{ row.name }}</div>
       <div class="col dash-date" data-sort="{{ row.sort_date }}">{{ row.date }}</div>
       <div class="col">{{ row.my_brands }}</div>
       <div class="col r">{{ row.my_items }}</div>
       <div class="col">{{ row.competitor_brands }}</div>
       <div class="col r">{{ row.competitor_items }}</div>
-    </div>
+    </{{ tag }}>
     {% else %}
     <div class="dash-empty">{{ empty }}</div>
     {% endfor %}

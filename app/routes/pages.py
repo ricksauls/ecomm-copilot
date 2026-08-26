@@ -105,6 +105,7 @@ def _product_activity_view(rows, *, with_score: bool) -> list[dict]:
     views = []
     for r in rows:
         view = {
+            "id": r["id"],  # scored_items / copy_items row id, for the per-item results link
             "image_url": _item_image_url(r["item_id"]),
             "date": _format_activity_date(r["created_at"]),
             # Raw timestamp for client-side sorting: the display date ("Aug 26")
@@ -135,6 +136,7 @@ def _ci_activity_view(db, uid, rows) -> list[dict]:
         mine = [b for b in brands if b["type"] == "mine"]
         competitors = [b for b in brands if b["type"] != "mine"]
         views.append({
+            "group_id": r["group_id"],  # for the per-group results link
             "name": r["group_name"],
             "date": _format_activity_date(r["run_at"]),
             # Raw timestamp for client-side sorting (see _product_activity_view).
@@ -167,19 +169,33 @@ def _activity_rows(db, uid, kind, since):
     """Shaped rows for one activity kind — month-scoped (``since`` set) or all-time.
 
     Shared by the dashboard (``since`` = start of month) and the View All screen
-    (``since`` = None). Returns an empty list for the not-yet-built Image Sets
-    feature. Callers validate ``kind`` against :data:`_ACTIVITY_META` first.
+    (``since`` = None). Each row gets a ``result_url`` so it links to that activity's
+    results (a scored/copy item's results page, or a CI group's results/monitoring
+    view). Returns an empty list for the not-yet-built Image Sets feature. Callers
+    validate ``kind`` against :data:`_ACTIVITY_META` first.
     """
     if kind == "scored":
-        return _product_activity_view(jobs.list_scored_activity(db, uid, since), with_score=True)
+        rows = _product_activity_view(jobs.list_scored_activity(db, uid, since), with_score=True)
+        for r in rows:
+            r["result_url"] = url_for("pages.pdp_scoring_item", sid=r["id"])
+        return rows
     if kind == "copy":
-        return _product_activity_view(copy_jobs.list_copy_activity(db, uid, since), with_score=False)
+        rows = _product_activity_view(copy_jobs.list_copy_activity(db, uid, since), with_score=False)
+        for r in rows:
+            r["result_url"] = url_for("pages.pdp_copy_item", cid=r["id"])
+        return rows
     if kind == "images":
         return []  # feature not built yet — always empty
     if kind == "ci-snapshot":
-        return _ci_activity_view(db, uid, ci_jobs.list_snapshot_activity_for_user(db, uid, since))
+        rows = _ci_activity_view(db, uid, ci_jobs.list_snapshot_activity_for_user(db, uid, since))
+        for r in rows:
+            r["result_url"] = url_for("pages.ci_snapshot_results", group_id=r["group_id"])
+        return rows
     if kind == "ci-monitoring":
-        return _ci_activity_view(db, uid, ci_jobs.list_monitoring_activity_for_user(db, uid, since))
+        rows = _ci_activity_view(db, uid, ci_jobs.list_monitoring_activity_for_user(db, uid, since))
+        for r in rows:
+            r["result_url"] = url_for("pages.ci_view", group_id=r["group_id"])
+        return rows
     return []
 
 
@@ -486,6 +502,35 @@ def pdp_copy_results():
         active_nav="pdp-copy",
         items=items,
     )
+
+
+@bp.route("/app/pdp-scoring/item/<int:sid>")
+@login_required
+def pdp_scoring_item(sid):
+    """Open one historical scored item's results (from a dashboard / View All row).
+
+    Points the session batch at just this item and reuses the standard scoring
+    results page, so its polling, PDF export, and layout all work unchanged.
+    Ownership-checked via :func:`jobs.get_items` — a foreign or missing id 404s.
+    """
+    if not jobs.get_items(get_db(), [sid], g.user["id"]):
+        abort(404)
+    session[_BATCH_KEY] = [sid]
+    return redirect(url_for("pages.pdp_scoring_results"))
+
+
+@bp.route("/app/pdp-copy/item/<int:cid>")
+@login_required
+def pdp_copy_item(cid):
+    """Open one historical copy item's results (from a dashboard / View All row).
+
+    Mirrors :func:`pdp_scoring_item` for the copy queue. Ownership-checked via
+    :func:`copy_jobs.get_copy_items`.
+    """
+    if not copy_jobs.get_copy_items(get_db(), [cid], g.user["id"]):
+        abort(404)
+    session[_COPY_BATCH_KEY] = [cid]
+    return redirect(url_for("pages.pdp_copy_results"))
 
 
 @bp.route("/app/pdp-copy/results.pdf")
