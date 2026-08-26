@@ -1297,7 +1297,7 @@ def ci_view():
 @bp.route("/app/competitive-intel/view/<int:group_id>/results.pdf")
 @login_required
 def ci_view_pdf(group_id):
-    """Download the monitoring dashboard (with deltas) as a PDF."""
+    """Download the monitoring dashboard as a PDF (snapshot layout + trend lines)."""
     from datetime import date
 
     from flask import Response
@@ -1307,9 +1307,18 @@ def ci_view_pdf(group_id):
     group = _owned_group_or_404(group_id)
     db = get_db()
     period = _resolve_period(request.args.get("period"))
-    sos_summary = ci_analysis.share_of_shelf_summary(db, group_id, period)
-    ranks = ci_analysis.rank_summary(db, group_id, period)
-    pdf = build_ci_monitoring_pdf(dict(group), period, sos_summary, ranks)
+    # Same data the page renders (see _monitoring_data): current-state sections from
+    # the latest completed run, each row carrying its period trend series.
+    data = _monitoring_data(db, group_id, period)
+    pdf = build_ci_monitoring_pdf(
+        dict(group), period,
+        config_summary=data["config_summary"],
+        avg_ranks=data["avg_ranks"],
+        rank_rows=data["rank_rows"],
+        sos_rows=data["sos_summary"],
+        share_rows=data["share_rows"],
+        rank_map=data["rank_map"],
+    )
     filename = f"ci-monitoring-{_slug(group['name'])}-{date.today().isoformat()}.pdf"
     logger.info("CI monitoring PDF: group_id=%s period=%s user_id=%s", group_id, period, g.user["id"])
     return Response(pdf, mimetype="application/pdf",

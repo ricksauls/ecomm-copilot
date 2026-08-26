@@ -12,7 +12,7 @@ import logging
 from datetime import datetime, timezone
 from xml.sax.saxutils import escape
 
-from reportlab.graphics.shapes import Drawing, Rect, String
+from reportlab.graphics.shapes import Circle, Drawing, PolyLine, Rect, String
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_LEFT
 from reportlab.lib.pagesizes import letter
@@ -279,11 +279,44 @@ def _ci_header(group: dict, subtitle: str, styles: dict) -> list:
     ]
 
 
-def _sos_table(sos_rows: list[dict], styles: dict, *, with_delta: bool) -> Table:
-    """Share-of-Digital-Shelf table. Includes a Δ column only for monitoring."""
+def _sparkline_drawing(points: list, styles: dict, *, better_high: bool):
+    """A tiny trend line for a table cell, mirroring the page's sparkline.
+
+    ``points`` is the row's daily series over the window; ``better_high`` orients
+    it so the *better* direction reads upward — share climbing renders up, and rank
+    (where lower is better) also renders up as the standing improves. reportlab's
+    y-axis grows upward, so a "better" value maps to a larger y. Returns a muted
+    dash when there's no history yet (a brand seen only in the latest run).
+    """
+    pts = [p for p in (points or []) if p is not None]
+    if not pts:
+        return Paragraph("&#8212;", styles["cellmuted"])
+    w, h, pad = 54.0, 14.0, 2.0
+    lo, hi = min(pts), max(pts)
+    rng = (hi - lo) or 1
+    n = len(pts)
+    step = (w - 2 * pad) / (n - 1) if n > 1 else 0.0
+
+    def y(v):
+        t = (v - lo) if better_high else (hi - v)
+        return pad + (t / rng) * (h - 2 * pad)
+
+    drawing = Drawing(w, h)
+    if n > 1:
+        coords = []
+        for i, v in enumerate(pts):
+            coords += [pad + i * step, y(v)]
+        drawing.add(PolyLine(coords, strokeColor=_INK, strokeWidth=1))
+    # Mark the latest point (the current standing).
+    drawing.add(Circle(pad + (n - 1) * step, y(pts[-1]), 1.5, fillColor=_INK, strokeColor=None))
+    return drawing
+
+
+def _sos_table(sos_rows: list[dict], styles: dict, *, with_trend: bool = False) -> Table:
+    """Share-of-Digital-Shelf table. Adds a trend sparkline column for monitoring."""
     header = ["Brand", "Type", "Organic", "Sponsored", "Total share"]
-    if with_delta:
-        header.append("Δ vs prior")
+    if with_trend:
+        header.append("Trend")
     rows = [header]
     for r in sos_rows:
         row = [
@@ -293,53 +326,18 @@ def _sos_table(sos_rows: list[dict], styles: dict, *, with_delta: bool) -> Table
             Paragraph(f"{r['sponsored_share']}%", styles["cell"]),
             Paragraph(f"{r['total_share']}%", styles["cell"]),
         ]
-        if with_delta:
-            d = r.get("total_share_delta", 0)
-            sign = "+" if d > 0 else ""
-            row.append(Paragraph(f"{sign}{d}", styles["cellmuted"]))
+        if with_trend:
+            row.append(_sparkline_drawing(r.get("trend"), styles, better_high=True))
         rows.append(row)
     if len(rows) == 1:
         rows.append([Paragraph("No data.", styles["cellmuted"])] + [""] * (len(header) - 1))
-    widths = [1.9, 0.9, 0.9, 1.0, 1.0] + ([1.0] if with_delta else [])
+    widths = [1.9, 0.9, 0.9, 1.0, 1.0] + ([0.9] if with_trend else [])
     return _ci_table(rows, [w * inch for w in widths], styles)
 
 
 def _pos(value) -> str:
     """Render a position cell ('#n', or '—' when the brand had no such slot)."""
     return f"#{value}" if value is not None else "—"
-
-
-def _rank_table(rank_rows: list[dict], styles: dict, *, with_delta: bool) -> Table:
-    """Brand-level search-ranking table (mine + competitors).
-
-    Monitoring (``with_delta``) shows Best position + Δ vs the prior window;
-    the snapshot form shows the organic/sponsored best-position split instead.
-    """
-    if with_delta:
-        header = ["Brand", "Type", "Keyword", "Best", "Δ"]
-        widths = [1.7, 0.9, 1.9, 0.8, 0.6]
-    else:
-        header = ["Brand", "Type", "Keyword", "Best", "Organic", "Sponsored"]
-        widths = [1.6, 0.9, 1.7, 0.7, 0.8, 0.9]
-    rows = [header]
-    for r in rank_rows:
-        row = [
-            Paragraph(escape(r["brand_name"]), styles["cell"]),
-            Paragraph(escape(r.get("type", "")), styles["cellmuted"]),
-            Paragraph(escape(r["keyword"]), styles["cell"]),
-            Paragraph(_pos(r["current_position"]), styles["cell"]),
-        ]
-        if with_delta:
-            d = r.get("delta")
-            row.append(Paragraph("new" if d is None else (f"+{d}" if d > 0 else str(d)),
-                                 styles["cellmuted"]))
-        else:
-            row.append(Paragraph(_pos(r.get("organic_position")), styles["cellmuted"]))
-            row.append(Paragraph(_pos(r.get("sponsored_position")), styles["cellmuted"]))
-        rows.append(row)
-    if len(rows) == 1:
-        rows.append([Paragraph("No brands ranked.", styles["cellmuted"])] + [""] * (len(header) - 1))
-    return _ci_table(rows, [w * inch for w in widths], styles)
 
 
 def _product_thumbs(products: list[dict], styles: dict) -> Table:
@@ -408,50 +406,71 @@ def _summary_flow(config_summary: dict, styles: dict) -> list:
     return flow
 
 
-def _avg_rank_table(avg_ranks: list[dict], styles: dict) -> Table:
-    """Overall Search Ranking: one average figure per brand (mine + competitors)."""
-    rows = [["Brand", "Type", "Avg ranking"]]
+def _avg_rank_table(avg_ranks: list[dict], styles: dict, *, with_trend: bool = False) -> Table:
+    """Overall Search Ranking: one average figure per brand (mine + competitors).
+
+    Monitoring (``with_trend``) adds a rank trend sparkline over the window; lower
+    ranking is better, so the sparkline orients "improving" upward.
+    """
+    header = ["Brand", "Type", "Avg ranking"] + (["Trend"] if with_trend else [])
+    rows = [header]
     for r in avg_ranks:
-        rows.append([
+        row = [
             Paragraph(escape(r["brand_name"]), styles["cell"]),
             Paragraph(escape(r.get("type", "")), styles["cellmuted"]),
             Paragraph(_pos(r.get("avg_position")), styles["cell"]),
-        ])
+        ]
+        if with_trend:
+            row.append(_sparkline_drawing(r.get("trend"), styles, better_high=False))
+        rows.append(row)
     if len(rows) == 1:
-        rows.append([Paragraph("No brands ranked.", styles["cellmuted"]), "", ""])
-    return _ci_table(rows, [w * inch for w in (2.4, 1.1, 1.3)], styles)
+        rows.append([Paragraph("No brands ranked.", styles["cellmuted"])] + [""] * (len(header) - 1))
+    widths = (2.2, 1.0, 1.2, 0.9) if with_trend else (2.4, 1.1, 1.3)
+    return _ci_table(rows, [w * inch for w in widths], styles)
 
 
-def _rank_by_keyword_table(rank_rows: list[dict], styles: dict) -> Table:
-    """Search Ranking: average ranking per brand per keyword."""
-    rows = [["Keyword", "Brand", "Type", "Avg ranking"]]
+def _rank_by_keyword_table(rank_rows: list[dict], styles: dict, *, with_trend: bool = False) -> Table:
+    """Search Ranking: average ranking per brand per keyword (+ trend for monitoring)."""
+    header = ["Keyword", "Brand", "Type", "Avg ranking"] + (["Trend"] if with_trend else [])
+    rows = [header]
     for r in rank_rows:
-        rows.append([
+        row = [
             Paragraph(escape(r["keyword"]), styles["cell"]),
             Paragraph(escape(r["brand_name"]), styles["cell"]),
             Paragraph(escape(r.get("type", "")), styles["cellmuted"]),
             Paragraph(_pos(r.get("avg_ranking")), styles["cell"]),
-        ])
+        ]
+        if with_trend:
+            row.append(_sparkline_drawing(r.get("trend"), styles, better_high=False))
+        rows.append(row)
     if len(rows) == 1:
-        rows.append([Paragraph("No data.", styles["cellmuted"]), "", "", ""])
-    return _ci_table(rows, [w * inch for w in (2.0, 2.0, 1.0, 1.3)], styles)
+        rows.append([Paragraph("No data.", styles["cellmuted"])] + [""] * (len(header) - 1))
+    widths = (1.8, 1.8, 0.9, 1.1, 0.9) if with_trend else (2.0, 2.0, 1.0, 1.3)
+    return _ci_table(rows, [w * inch for w in widths], styles)
 
 
-def _share_by_keyword_table(share_rows: list[dict], styles: dict) -> Table:
-    """Per-keyword Share of Digital Shelf: shares of each keyword's own slots."""
-    rows = [["Keyword", "Brand", "Type", "Organic", "Sponsored", "Total share"]]
+def _share_by_keyword_table(share_rows: list[dict], styles: dict, *, with_trend: bool = False) -> Table:
+    """Per-keyword Share of Digital Shelf (+ a share trend sparkline for monitoring)."""
+    header = (["Keyword", "Brand", "Type", "Organic", "Sponsored", "Total share"]
+              + (["Trend"] if with_trend else []))
+    rows = [header]
     for r in share_rows:
-        rows.append([
+        row = [
             Paragraph(escape(r["keyword"]), styles["cell"]),
             Paragraph(escape(r["brand_name"]), styles["cell"]),
             Paragraph(escape(r.get("type", "")), styles["cellmuted"]),
             Paragraph(f"{r['organic_share']}%", styles["cell"]),
             Paragraph(f"{r['sponsored_share']}%", styles["cell"]),
             Paragraph(f"{r['total_share']}%", styles["cell"]),
-        ])
+        ]
+        if with_trend:
+            row.append(_sparkline_drawing(r.get("trend"), styles, better_high=True))
+        rows.append(row)
     if len(rows) == 1:
-        rows.append([Paragraph("No data.", styles["cellmuted"])] + [""] * 5)
-    return _ci_table(rows, [w * inch for w in (1.5, 1.5, 0.9, 0.9, 1.0, 1.0)], styles)
+        rows.append([Paragraph("No data.", styles["cellmuted"])] + [""] * (len(header) - 1))
+    widths = ((1.3, 1.3, 0.8, 0.8, 0.85, 0.9, 0.85) if with_trend
+              else (1.5, 1.5, 0.9, 0.9, 1.0, 1.0))
+    return _ci_table(rows, [w * inch for w in widths], styles)
 
 
 def _sos_chart(sos_rows: list[dict]) -> Drawing | Spacer:
@@ -588,31 +607,25 @@ def _rank_placement_grid(rank_map: dict | None) -> Drawing | Spacer:
     return drawing
 
 
-def build_ci_snapshot_pdf(group: dict, *, config_summary: dict, avg_ranks: list[dict],
-                          rank_rows: list[dict], sos_rows: list[dict],
-                          share_rows: list[dict], rank_map: dict | None = None) -> bytes:
-    """One-Time Snapshot PDF — mirrors the results page, current-state (no trends).
+def _ci_results_flow(group: dict, subtitle: str, styles: dict, *, config_summary: dict,
+                     avg_ranks: list[dict], rank_rows: list[dict], sos_rows: list[dict],
+                     share_rows: list[dict], rank_map: dict | None, with_trend: bool) -> list:
+    """The shared five-section results flow behind both CI results PDFs.
 
-    Sections, in page order: the config summary, Overall Search Ranking (table +
-    the placement-map grid), per-keyword Search Ranking, Overall Share of Digital
-    Shelf (table + the stacked bar chart), and per-keyword Share of Digital Shelf.
-    Page breaks fall after the config summary and after per-keyword Search Ranking,
-    so the summary, the ranking sections, and the share sections each start fresh.
+    In page order: the config summary, Overall Search Ranking (table + the
+    placement-map grid), per-keyword Search Ranking, Overall Share of Digital Shelf
+    (table + the stacked bar chart), and per-keyword Share of Digital Shelf. Page
+    breaks fall after the config summary and after per-keyword Search Ranking so
+    each block starts fresh. ``with_trend`` adds a trend sparkline column to every
+    table — the only thing the Daily Monitoring export adds over the snapshot.
     """
-    styles = _styles()
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(
-        buffer, pagesize=letter, title="CI Snapshot",
-        leftMargin=0.75 * inch, rightMargin=0.75 * inch,
-        topMargin=0.7 * inch, bottomMargin=0.7 * inch,
-    )
-    flow = _ci_header(group, "One-Time Snapshot — current state", styles)
+    flow = _ci_header(group, subtitle, styles)
     flow += _summary_flow(config_summary, styles)
     # Start the ranking sections on a fresh page so the config summary (with its
     # thumbnail grid) stands on its own.
     flow.append(PageBreak())
     flow.append(Paragraph("Overall Search Ranking", styles["item"]))
-    flow.append(_avg_rank_table(avg_ranks, styles))
+    flow.append(_avg_rank_table(avg_ranks, styles, with_trend=with_trend))
     grid = _rank_placement_grid(rank_map)
     if not isinstance(grid, Spacer):
         # Breathing room directly under the table, before the placement-map grid.
@@ -629,11 +642,11 @@ def build_ci_snapshot_pdf(group: dict, *, config_summary: dict, avg_ranks: list[
     # Extra breathing room after the Overall Search Ranking block (table + grid).
     flow.append(Spacer(1, 22))
     flow.append(Paragraph("Search Ranking", styles["item"]))
-    flow.append(_rank_by_keyword_table(rank_rows, styles))
+    flow.append(_rank_by_keyword_table(rank_rows, styles, with_trend=with_trend))
     # Start the share-of-shelf sections on a fresh page.
     flow.append(PageBreak())
     flow.append(Paragraph("Overall Share of Digital Shelf", styles["item"]))
-    flow.append(_sos_table(sos_rows, styles, with_delta=False))
+    flow.append(_sos_table(sos_rows, styles, with_trend=with_trend))
     chart = _sos_chart(sos_rows)
     if not isinstance(chart, Spacer):
         flow.append(Spacer(1, 10))
@@ -649,15 +662,40 @@ def build_ci_snapshot_pdf(group: dict, *, config_summary: dict, avg_ranks: list[
     # Extra breathing room before the per-keyword Share of Digital Shelf section.
     flow.append(Spacer(1, 22))
     flow.append(Paragraph("Share of Digital Shelf", styles["item"]))
-    flow.append(_share_by_keyword_table(share_rows, styles))
+    flow.append(_share_by_keyword_table(share_rows, styles, with_trend=with_trend))
+    return flow
+
+
+def build_ci_snapshot_pdf(group: dict, *, config_summary: dict, avg_ranks: list[dict],
+                          rank_rows: list[dict], sos_rows: list[dict],
+                          share_rows: list[dict], rank_map: dict | None = None) -> bytes:
+    """One-Time Snapshot PDF — mirrors the results page, current-state (no trends)."""
+    styles = _styles()
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer, pagesize=letter, title="CI Snapshot",
+        leftMargin=0.75 * inch, rightMargin=0.75 * inch,
+        topMargin=0.7 * inch, bottomMargin=0.7 * inch,
+    )
+    flow = _ci_results_flow(
+        group, "One-Time Snapshot — current state", styles,
+        config_summary=config_summary, avg_ranks=avg_ranks, rank_rows=rank_rows,
+        sos_rows=sos_rows, share_rows=share_rows, rank_map=rank_map, with_trend=False,
+    )
     doc.build(flow)
     logger.info("Built CI snapshot PDF: group=%s", group.get("name"))
     return buffer.getvalue()
 
 
-def build_ci_monitoring_pdf(group: dict, period: str, sos_rows: list[dict],
-                            rank_rows: list[dict]) -> bytes:
-    """Monitoring PDF: Share of Shelf + Search Ranking with deltas vs the prior window."""
+def build_ci_monitoring_pdf(group: dict, period: str, *, config_summary: dict,
+                            avg_ranks: list[dict], rank_rows: list[dict], sos_rows: list[dict],
+                            share_rows: list[dict], rank_map: dict | None = None) -> bytes:
+    """Daily Monitoring PDF — the snapshot layout plus a trend sparkline per row.
+
+    Current-state figures come from the group's latest completed run; each table's
+    trend column shows the metric across the selected ``period`` window (rank
+    sparklines read lower-is-better, share sparklines higher-is-better).
+    """
     styles = _styles()
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -665,12 +703,11 @@ def build_ci_monitoring_pdf(group: dict, period: str, sos_rows: list[dict],
         leftMargin=0.75 * inch, rightMargin=0.75 * inch,
         topMargin=0.7 * inch, bottomMargin=0.7 * inch,
     )
-    flow = _ci_header(group, f"Monitoring — {period.upper()} window (Δ vs prior)", styles)
-    flow.append(Paragraph("Share of Digital Shelf", styles["item"]))
-    flow.append(_sos_table(sos_rows, styles, with_delta=True))
-    flow.append(Spacer(1, 10))
-    flow.append(Paragraph("Search Ranking", styles["item"]))
-    flow.append(_rank_table(rank_rows, styles, with_delta=True))
+    flow = _ci_results_flow(
+        group, f"Daily Monitoring — current state, trend over the {period.upper()} window",
+        styles, config_summary=config_summary, avg_ranks=avg_ranks, rank_rows=rank_rows,
+        sos_rows=sos_rows, share_rows=share_rows, rank_map=rank_map, with_trend=True,
+    )
     doc.build(flow)
     logger.info("Built CI monitoring PDF: group=%s period=%s", group.get("name"), period)
     return buffer.getvalue()

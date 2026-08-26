@@ -526,9 +526,9 @@ count shown. Also tweaked URL-field hint copy ("…with item number at the end")
 6. **CI/infra maintenance:** the Actions runs warn that `actions/checkout` and
    `actions/setup-python` still target the **deprecated Node 20** (GitHub is
    force-running them on Node 24 for now). Bump those action versions in a small
-   PR before a runner change breaks the pipeline. Also: the **monitoring PDF**
-   (`build_ci_monitoring_pdf`) and the **View-Monitoring page** still use the older
-   two-table layout — bring them in line with the rebuilt snapshot page if desired.
+   PR before a runner change breaks the pipeline. (The **View-Monitoring page** and
+   the **monitoring PDF** were rebuilt 2026-08-25 to mirror the snapshot layout plus
+   trend lines — see the session note below.)
 7. **Snapshot ranking semantics to keep in mind:** "Overall Search Ranking" is a
    two-stage average (avg per keyword, then across the terms a brand placed on) so
    it reconciles with the per-keyword "Search Ranking" table; absent terms are
