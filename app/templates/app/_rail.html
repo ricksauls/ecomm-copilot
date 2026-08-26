@@ -16,10 +16,15 @@
        class="nav-item {{ 'active' if active_nav == 'dashboard' else '' }}">
       <span class="mark"></span>Dashboard
     </a>
-    {# Contact Us for everyone; the count badge shows unread admin replies. #}
+    {# Contact Us for everyone; the count badge shows unread admin replies. The
+       parenthetical hints at what the channel is for (support, feature asks). #}
     <a href="{{ url_for('pages.contact_home') }}"
-       class="nav-item {{ 'active' if active_nav == 'contact' else '' }}">
-      <span class="mark"></span>Contact Us
+       class="nav-item nav-item-stacked {{ 'active' if active_nav == 'contact' else '' }}">
+      <span class="mark"></span>
+      <span class="nav-label">
+        Contact Us
+        <span class="nav-sub">(questions, issues, customizations etc.)</span>
+      </span>
       {% if msg_unread_count %}<span class="nav-count nav-count-alert">{{ msg_unread_count }}</span>{% endif %}
     </a>
   </div>
