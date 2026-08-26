@@ -528,18 +528,19 @@ img.dash-thumb {
 }
 .dash-head-row .col {
   font-size: 9.5px;
-  font-weight: 700; /* bold column headers */
+  font-weight: 700; /* bold, black column headers */
   letter-spacing: 0.11em;
   text-transform: uppercase;
-  color: var(--cool-gray);
+  color: var(--black);
 }
-/* Sortable headers (all but Image): clickable, with a caret on the active one. */
+/* Sortable headers (all but Image): clickable, with a caret on the active one.
+   Headers are black, so hover shifts to the accent red for the click cue. */
 .dash-head-row .col.sortable {
   cursor: pointer;
   user-select: none;
 }
 .dash-head-row .col.sortable:hover {
-  color: var(--black);
+  color: var(--signal-red);
 }
 .dash-head-row .col[data-dir]::after {
   font-size: 8px;
