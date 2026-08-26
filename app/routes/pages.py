@@ -154,7 +154,7 @@ def pdp_scoring():
             return (
                 render_template(
                     "app/pdp_scoring.html",
-                    breadcrumb="PDP Content Scoring",
+                    breadcrumb="Content Studio · PDP Content Scoring",
                     active_nav="pdp-scoring",
                     submitted=False,
                     max_items=pdp.MAX_ITEMS,
@@ -179,7 +179,7 @@ def pdp_scoring():
     logger.info("Serving PDP Content Scoring intake")
     return render_template(
         "app/pdp_scoring.html",
-        breadcrumb="PDP Content Scoring",
+        breadcrumb="Content Studio · PDP Content Scoring",
         active_nav="pdp-scoring",
         submitted=False,
         max_items=pdp.MAX_ITEMS,
@@ -200,7 +200,7 @@ def pdp_scoring_results():
     rows = _batch_rows()
     return render_template(
         "app/pdp_results.html",
-        breadcrumb="PDP Content Scoring",
+        breadcrumb="Content Studio · PDP Content Scoring",
         active_nav="pdp-scoring",
         items=[_row_view(r) for r in rows],
     )
@@ -288,7 +288,7 @@ def pdp_copy():
             return (
                 render_template(
                     "app/pdp_copy.html",
-                    breadcrumb="PDP Copy Content Creation",
+                    breadcrumb="Content Studio · PDP Copy Content Creation",
                     active_nav="pdp-copy",
                     max_items=pdp.MAX_ITEMS,
                     error="No valid item URLs were provided.",
@@ -312,7 +312,7 @@ def pdp_copy():
     logger.info("Serving PDP Copy Content Creation intake")
     return render_template(
         "app/pdp_copy.html",
-        breadcrumb="PDP Copy Content Creation",
+        breadcrumb="Content Studio · PDP Copy Content Creation",
         active_nav="pdp-copy",
         max_items=pdp.MAX_ITEMS,
         url_prefix=pdp.WALMART_IP_PREFIX,
@@ -326,7 +326,7 @@ def pdp_copy_results():
     items = [_copy_row_view(r) for r in _copy_batch_rows()]
     return render_template(
         "app/pdp_copy_results.html",
-        breadcrumb="PDP Copy Content Creation",
+        breadcrumb="Content Studio · PDP Copy Content Creation",
         active_nav="pdp-copy",
         items=items,
     )
