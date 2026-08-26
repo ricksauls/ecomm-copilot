@@ -124,6 +124,10 @@ def share_of_shelf_summary(conn: sqlite3.Connection, group_id: int, period: str)
     grand = {k: sum(b[k] for b in cur.values()) for k in ("organic", "sponsored", "total")}
     grand_prior_total = sum(b["total"] for b in prior.values())
 
+    # Daily total-share % per brand over the window, for the per-row trend
+    # sparkline (mirrors the Search Ranking table's `positions`).
+    dates, share_series = _daily_total_share_by_brand(conn, group_id, start, end)
+
     brand_meta = _brand_meta(conn, group_id)
     out = []
     for brand_id, c in cur.items():
@@ -142,6 +146,9 @@ def share_of_shelf_summary(conn: sqlite3.Connection, group_id: int, period: str)
             "total_share": total_share,
             "total_share_prior": prior_share,
             "total_share_delta": round(total_share - prior_share, 1),
+            # Daily total-share % across the window for the trend sparkline.
+            "dates": dates,
+            "shares": share_series.get(brand_id, []),
         })
 
     def _sort_key(r):
@@ -153,13 +160,15 @@ def share_of_shelf_summary(conn: sqlite3.Connection, group_id: int, period: str)
     return out
 
 
-def share_of_shelf_trend(conn: sqlite3.Connection, group_id: int, period: str) -> dict:
-    """Total-share-% per brand per date over the window (for the trend chart).
+def _daily_total_share_by_brand(conn: sqlite3.Connection, group_id: int,
+                                start: str, end: str) -> tuple[list[str], dict]:
+    """Daily total-share-% series per brand over a window.
 
-    Returns ``{"dates": [...], "brands": [{brand_id, brand_name, type, share: [...]}]}``
-    where each share value is that brand's percentage of all slots on that date.
+    Returns ``(dates, {brand_id: [share%, ...]})`` where each list is aligned to
+    ``dates`` and a share is the brand's percentage of all page-1 slots on that
+    date. Shared by the trend chart and the Share-of-Shelf table's per-row
+    sparkline so the two never disagree.
     """
-    start, end = get_date_range(period)
     rows = conn.execute(
         "SELECT date, brand_id, SUM(total_count) AS total "
         "FROM ci_share_of_search WHERE group_id = ? AND date >= ? AND date <= ? "
@@ -168,30 +177,41 @@ def share_of_shelf_trend(conn: sqlite3.Connection, group_id: int, period: str) -
     ).fetchall()
 
     dates = sorted({r["date"] for r in rows})
-    # date -> grand total (for share %), and (brand_id, date) -> total.
     grand_by_date: dict = defaultdict(int)
     by_brand_date: dict = defaultdict(dict)
-    seen_brand_ids: list = []
     for r in rows:
         grand_by_date[r["date"]] += r["total"]
         by_brand_date[r["brand_id"]][r["date"]] = r["total"]
-        if r["brand_id"] not in seen_brand_ids:
-            seen_brand_ids.append(r["brand_id"])
+
+    series_by_brand = {
+        brand_id: [_pct(by_date.get(d, 0), grand_by_date[d]) for d in dates]
+        for brand_id, by_date in by_brand_date.items()
+    }
+    return dates, series_by_brand
+
+
+def share_of_shelf_trend(conn: sqlite3.Connection, group_id: int, period: str) -> dict:
+    """Total-share-% per brand per date over the window (for the trend chart).
+
+    Returns ``{"dates": [...], "brands": [{brand_id, brand_name, type, share: [...]}]}``
+    where each share value is that brand's percentage of all slots on that date.
+    """
+    start, end = get_date_range(period)
+    dates, series_by_brand = _daily_total_share_by_brand(conn, group_id, start, end)
 
     brand_meta = _brand_meta(conn, group_id)
     brands_out = []
     # Group brands (in meta order) first, then Other (None) if present.
-    ordered_ids = [bid for bid in brand_meta if bid in seen_brand_ids]
-    if None in seen_brand_ids:
+    ordered_ids = [bid for bid in brand_meta if bid in series_by_brand]
+    if None in series_by_brand:
         ordered_ids.append(None)
     for brand_id in ordered_ids:
         meta = brand_meta.get(brand_id)
-        series = [_pct(by_brand_date[brand_id].get(d, 0), grand_by_date[d]) for d in dates]
         brands_out.append({
             "brand_id": brand_id,
             "brand_name": meta["name"] if meta else "Other",
             "type": meta["type"] if meta else "other",
-            "share": series,
+            "share": series_by_brand[brand_id],
         })
     return {"dates": dates, "brands": brands_out}
 

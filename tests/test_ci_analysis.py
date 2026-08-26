@@ -73,10 +73,15 @@ def test_share_of_shelf_summary_shares_ordering_and_delta(app):
         assert by_id[mine]["organic_share"] == 50.0  # 4 of 8 organic slots
         assert by_id[comp]["total_share"] == 30.0
         assert by_id[None]["brand_name"] == "Other"
-        # Delta: mine was 20% prior -> +40.0
+        # Delta: mine was 20% prior -> +40.0 (kept for the PDF; page shows a trend)
         assert by_id[mine]["total_share_delta"] == 40.0
         # Ordering: mine first, then competitor, then Other last.
         assert [r["type"] for r in rows] == ["mine", "competitor", "other"]
+        # Trend sparkline data: daily total-share % aligned to `dates`. This window
+        # only has today's slots, so one point at each brand's current share.
+        assert by_id[mine]["dates"] == [_iso(0)]
+        assert by_id[mine]["shares"] == [60.0]
+        assert by_id[comp]["shares"] == [30.0]
 
 
 def test_share_of_shelf_trend_series(app):

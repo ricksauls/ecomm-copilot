@@ -114,8 +114,13 @@
     var range = max - min || 1;
     var stepX = pts.length > 1 ? (W - 2 * pad) / (pts.length - 1) : 0;
 
-    // Invert: a smaller position (better rank) should render higher.
-    function y(v) { return pad + ((v - min) / range) * (H - 2 * pad); }
+    // Orientation: "better" values render toward the top. For rank (default),
+    // smaller is better; for share (data-better="high"), larger is better.
+    var betterHigh = container.getAttribute("data-better") === "high";
+    function y(v) {
+      var t = betterHigh ? (max - v) : (v - min);
+      return pad + (t / range) * (H - 2 * pad);
+    }
 
     var svg = el("svg", { width: W, height: H, viewBox: "0 0 " + W + " " + H });
     var d = "";

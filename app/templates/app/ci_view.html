@@ -55,11 +55,11 @@
   <p class="ci-section-hint">
     Share of all page-1 slots across your tracked keywords, organic vs sponsored.
     Based on {{ sos_summary | sum(attribute='total') }} page-1 placements.
-    Delta compares to the prior {{ period | upper }} window.
+    Trend shows each brand's total share across the {{ period | upper }} window.
   </p>
   <div class="table-scroll">
     <table class="admin-table">
-      <thead><tr><th>Brand</th><th>Type</th><th>Organic</th><th>Sponsored</th><th>Total share</th><th></th><th>Δ vs prior</th></tr></thead>
+      <thead><tr><th>Brand</th><th>Type</th><th>Organic</th><th>Sponsored</th><th>Total share</th><th></th><th>Trend</th></tr></thead>
       <tbody>
         {% for r in sos_summary %}
         <tr>
@@ -73,11 +73,7 @@
               <span class="ci-bar-fill {{ 'mine' if r.type == 'mine' else '' }}" style="width: {{ r.total_share }}%"></span>
             </span>
           </td>
-          <td>
-            {% if r.total_share_delta > 0 %}<span class="ci-delta up">▲ {{ r.total_share_delta }}</span>
-            {% elif r.total_share_delta < 0 %}<span class="ci-delta down">▼ {{ r.total_share_delta | abs }}</span>
-            {% else %}<span class="ci-delta flat">—</span>{% endif %}
-          </td>
+          <td><span class="ci-spark" data-better="high" data-points='{{ r.shares | tojson }}'></span></td>
         </tr>
         {% endfor %}
       </tbody>
