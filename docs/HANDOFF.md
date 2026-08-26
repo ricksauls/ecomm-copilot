@@ -1,15 +1,26 @@
 # ecomm-copilot — Session Handoff
 
-_Last updated: 2026-08-25 (session 3)._
+_Last updated: 2026-08-26 (session 4)._
 
 A working reference for picking up development. Read this first, then
 `CLAUDE.md` (coding standards) and `deploy/DEPLOY.md` (infra).
 
-> **Next session — start here.** §11's carried-over task is **done** (2026-08-25):
-> brand capture + the dashboard "brands · products" subtitle now ship (see §11 for
-> what landed and the follow-ups). Not yet committed/deployed at time of writing —
-> tests pass locally (219) and the change was verified in the local preview. The
-> remaining open roadmap is in §7.
+> **Next session — start here.** Everything below is **live on main and deployed**
+> (each change ships via `git push` → CI → auto-deploy; site returns 200). Session 4
+> (2026-08-26) landed a lot — read the **§7 "Session 2026-08-26" note first**; it's
+> the freshest and most detailed. Headlines: brand capture + a 6-card dashboard;
+> a **View Snapshot** menu; the **Daily Monitoring** view rebuilt to **aggregate
+> over the last completed calendar period** (Week/Month/Quarter/Year, vs prior,
+> per-period trend sparklines with date-labelled hover tooltips); its **PDF**
+> matches; and several breadcrumb/label tweaks. Tests: **221** passing (`ruff` +
+> `pip-audit` clean).
+>
+> **One open operational item (not a feature):** the scoring/copy queues have **no
+> orphan-reclaim** — a deploy that restarts the worker mid-fetch strands that item
+> in `scoring`/`fetching` forever (the CI queue *does* self-heal via
+> `ci_jobs.reclaim_orphaned_runs`). We hit this once (a scored item stuck in
+> `scoring`; the user re-ran it manually). A durable fix is to add the same
+> startup reclaim for `scored_items`/`copy_items`. See §7 session note.
 
 ---
 
@@ -20,7 +31,7 @@ A working reference for picking up development. Read this first, then
   `~/Desktop/ClaudeStuff/ecomm-copilot-clean`.
 - **Stack:** Python / Flask, SQLite, server-rendered Jinja templates, deployed
   by GitHub Actions to a DigitalOcean droplet.
-- **Tests:** 214 passing (`ruff` clean, `pip-audit` clean).
+- **Tests:** 221 passing (`ruff` clean, `pip-audit` clean).
 - **Worker:** installed and running — scoring is self-serve end-to-end (intake →
   queue → background fetch+score → results). One worker only (see §6, parallelism).
 
@@ -43,8 +54,9 @@ A working reference for picking up development. Read this first, then
   reachable by ticking items on the scoring results and clicking "Create new copy
   content" (that path fetches **and** generates in one pass). **Live + verified**
   on the droplet (Tabasco Chipotle: current 82 → projected 96).
-- **Competitive Intelligence** end-to-end, organized into **three rail menus**
-  (groups are tagged by `mode`, each menu manages only its own):
+- **Competitive Intelligence** end-to-end, organized into **four rail menus**
+  (order: One-Time Snapshot → View Snapshot, Daily Monitoring → View Monitoring;
+  groups are tagged by `mode`, each setup menu manages only its own):
   1. **One-Time Snapshot** — configure a group (Brands mine/competitor →
      Products → Keywords), **Run**, see **current-state results only (no
      trends)**, download a **snapshot PDF**. The results page (rebuilt 2026-08-23)
@@ -70,13 +82,22 @@ A working reference for picking up development. Read this first, then
        *clones* the set into a new `mode='monitoring'` group (leaving the snapshot
        intact), enables the sweep, and queues a baseline —
        `ci_config.clone_group_as_monitoring` + `pages.ci_schedule_from_snapshot`.
-  2. **Monitoring Setup** — configure, **Schedule & Run** (turns on the 3×/day
-     sweep at 7 AM / 3 PM / 11 PM CST **and** runs an immediate baseline), shows
-     the **next scheduled run time**.
-  3. **View Monitoring** — pick a monitoring group from a **dropdown**, see the
-     **trend** dashboard (Search Ranking with Δ + sparkline, filterable by brand;
-     Share of Digital Shelf organic/sponsored + trend chart), download a
-     **monitoring PDF**.
+  2. **View Snapshot** — pick a snapshot group from a **dropdown** and see its
+     current-state results (the same five sections as the snapshot results page,
+     no trends). Route `pages.ci_view_snapshot`, template `ci_view_snapshot.html`;
+     the five sections come from the shared partial `_ci_results_sections.html`
+     with `show_trend=False`.
+  3. **Daily Monitoring** (setup; was "Monitoring Setup") — configure, **Schedule &
+     Run** (turns on the 3×/day sweep at 7 AM / 3 PM / 11 PM CST **and** runs an
+     immediate baseline), shows the **next scheduled run time**.
+  4. **View Monitoring** — pick a monitoring group from a **dropdown**; results are
+     **aggregated over the last completed calendar period** (Week Mon–Sun / Month /
+     Quarter / Year), each of the five sections mirroring the snapshot layout **plus
+     a "vs prior" delta column and a per-period trend sparkline** (one point per
+     completed period; hover shows "period · value"). Period buttons **disable until
+     their most recent completed period has data**. Download a **monitoring PDF**
+     that mirrors the page. Same shared partial with `show_trend=True`. See the §7
+     session note for the full model.
   The worker scrapes page-1 Walmart search per keyword, records each card's
   position + organic/sponsored type, attributes each card to a brand, and rolls up
   per-brand share-of-search. The config screen carries a help panel. Monitoring
@@ -91,8 +112,9 @@ A working reference for picking up development. Read this first, then
     `app/ci_scraper.py:build_result_rows` — order is numeric-id → raw-id → URL →
     brand-name. This also counts a brand's untracked SKUs toward its share.
   - **Search Ranking is brand-level and includes competitors** (mine + competitor)
-    so users compare standings. Snapshot shows an organic/sponsored best-position
-    split; monitoring shows Best + Δ vs prior window + a sparkline.
+    so users compare standings. Snapshot/View Snapshot show the run's average
+    ranking; View Monitoring shows the **average over the completed period + a
+    "vs prior" delta + a per-period trend sparkline** (see §7 session note).
   - **Share % denominator = all page-1 placements** (branded + "Other"); the
     placement count is shown on-screen. **PDF export** works for both snapshot and
     monitoring (`.../results.pdf`, `.../view/<id>/results.pdf`).
@@ -240,8 +262,8 @@ tests/               204 tests (auth, jobs, pdp, scoring, fetch, pages, keywords
 **Nav (rail):** **Dashboard** + **Contact Us** (top-level; Contact Us shows an
 unread badge); **Content Studio** section — PDP Content Scoring (built), PDP Image
 Set Creation (placeholder), PDP Copy Content Creation (built); **Competitive
-Intelligence** section — One-Time Snapshot, Monitoring Setup, View Monitoring (all
-built). **Admin** section (below Credits, admins only): Users, Items scored, Copy
+Intelligence** section — One-Time Snapshot, View Snapshot, Daily Monitoring, View
+Monitoring (all built). **Admin** section (below Credits, admins only): Users, Items scored, Copy
 created, **Messages** (unread badge), each with a live count. The **topbar** bell
 shows unread-message counts (admin inbox for admins, own replies for users) plus
 the admins-only new-user badge.
@@ -250,19 +272,25 @@ the admins-only new-user badge.
 products/keywords CRUD, user-scoped/IDOR-checked; groups carry a `mode` =
 snapshot|monitoring; `clone_group_as_monitoring` powers snapshot→monitoring),
 `ci_jobs.py` (run queue + result writers + SoS rollup), `ci_scraper.py`
-(search-page card extraction + pure row builder), `ci_analysis.py` (period
-windows, rank/SoS summaries & trends, `next_monitoring_run`, run-scoped
-`snapshot_*` aggregations — incl. `snapshot_brand_avg_rank`,
-`snapshot_rank_by_keyword_brand`, `snapshot_share_by_keyword`; `snapshot_page1_depth`
-+ pure `build_rank_placement_map` for the placement grid; the older `snapshot_rank`
-is now test-only), `enqueue_monitoring.py` (timer entry point). The snapshot page +
-PDF share `pages._snapshot_data()` (which builds the placement map + thumbnail
-`image_url`/`image_path` per product) so the two never drift.
-Worker drains CI runs in `worker.process_ci_run`. Routes `pages.ci_*` (three
-flows: snapshot/monitoring/view) + templates `templates/app/ci_{snapshot_home,
-monitoring_home,group_config,snapshot_results,view}.html` + `_ci_help.html`;
-static `js/ci_{config,charts,dashboard}.js`; PDFs via
-`pdf_export.build_ci_{snapshot,monitoring}_pdf`. Tables: `ci_groups` (+`mode`),
+(search-page card extraction + pure row builder), `ci_analysis.py` — two families:
+**run-scoped `snapshot_*`** for the snapshot views (`snapshot_brand_avg_rank`,
+`snapshot_rank_by_keyword_brand`, `snapshot_share_of_shelf`, `snapshot_share_by_keyword`,
+`snapshot_page1_depth`, pure `build_rank_placement_map`; `snapshot_rank` is test-only)
+and **calendar-period monitoring** (`PERIODS`/`PERIOD_LABELS`, `period_bounds` /
+`period_label` / `period_has_data` / `available_periods`, date-scoped `_*_range`
+aggregations, and `monitoring_{avg_rank, rank_by_keyword, share_of_shelf,
+share_by_keyword, placement_map}` returning current + `delta` + per-period `trend`);
+plus `next_monitoring_run` / `format_run_time_cst`. `enqueue_monitoring.py` (timer
+entry point). **Snapshot** page + PDF share `pages._snapshot_data()`; **monitoring**
+page + PDF share `pages._monitoring_data()` — so each pair never drifts.
+Worker drains CI runs in `worker.process_ci_run`. Routes `pages.ci_*` (four flows:
+snapshot setup + **view-snapshot**, monitoring setup + **view**) + templates
+`templates/app/ci_{snapshot_home,monitoring_home,group_config,snapshot_results,
+view,view_snapshot}.html` + `_ci_help.html` + the shared `_ci_results_sections.html`
+partial (the 5 sections, `show_trend` toggles the delta/trend columns);
+static `js/ci_{config,charts,dashboard}.js` (the `.ci-spark` sparkline + hover
+tooltip live in `ci_charts.js`); PDFs via `pdf_export.build_ci_{snapshot,monitoring}_pdf`
+(both go through the shared `_ci_results_flow`). Tables: `ci_groups` (+`mode`),
 `ci_brands`, `ci_products`, `ci_keywords`, `ci_runs`, `ci_search_results`,
 `ci_share_of_search`. Deploy: `deploy/ecomm-copilot-ci-*.{service,timer}`.
 
@@ -375,6 +403,92 @@ to the RAM. The queue claim (`jobs.claim_next`) is already concurrency-safe.
 ---
 
 ## 7. Known gaps / next-up roadmap
+
+**Session 2026-08-26 (session 4 — all live on main + deployed).** _Focus: brand
+capture, dashboard, a full rebuild of the Daily Monitoring results into calendar
+period-over-period, and a new View Snapshot menu._ Read this note first.
+
+- **Brand capture (both sources) + brand backfill.** Scored/copy items now store a
+  `brand` (nullable `TEXT` on `scored_items` + `copy_items`, in `_SCHEMA` + additive
+  `db._migrate`). Two sources: (a) the worker reads `product.brand` from the PDP
+  (`fetch._extract_brand`; `PdpRecord.brand`), and (b) the **Copy** intake form has
+  an optional Brand field (`pdp.clean_brand`; trim + 120-char cap). **The Scoring
+  intake has no Brand field** (removed at the user's request) — scored items get
+  their brand only from the PDP. **Reconciliation: the user-entered brand wins** —
+  the worker fills the scraped brand only where the column is blank
+  (`brand = COALESCE(NULLIF(brand,''), ?)` in `jobs.save_result` +
+  `copy_jobs.save_current_copy`). The scoring→copy cross-link carries the brand
+  forward. **Backfill:** the 3 existing prod products were hand-set on the droplet
+  (10294528=Tabasco, 20857711518=PLERISE, 2165321927=F.U. Larry's) via a
+  parameterized `UPDATE`; older rows without a brand stay NULL until re-run.
+- **Dashboard.** Now **6 KPI cards** (added **One-Time Snapshot** =
+  `ci_jobs.count_snapshot_runs_for_user`, **Daily Monitoring** =
+  `ci_config.count_monitoring_groups_for_user`; both with a this-month figure);
+  the KPI grid is `repeat(6,1fr)` with 2-line-reserved card titles (steps to 3 then
+  2 cols responsively). Portfolio **subtitle** = `"<N> brands · <M> products · As of
+  <signup date>"` (brands via `jobs.count_managed_brands`, case-insensitive distinct
+  across both tables; `_format_signup_date`). Breadcrumb now shows **"Dashboard"**;
+  the **Add product** button was removed.
+- **View Snapshot** (new menu + screen). The snapshot counterpart to View
+  Monitoring: a group dropdown → the 5 snapshot sections (no trends). The 5-section
+  markup now lives in one shared partial **`templates/app/_ci_results_sections.html`**
+  (param `show_trend`), included by `ci_view_snapshot.html` (False) **and**
+  `ci_view.html` (True). Route `pages.ci_view_snapshot`; rail order is now the
+  symmetric **One-Time Snapshot → View Snapshot, Daily Monitoring → View Monitoring**.
+- **Daily Monitoring view rebuilt into calendar period-over-period (the big one).**
+  The View Monitoring tables no longer show a single run — they **aggregate over the
+  last *completed* calendar period** and compare to the one before:
+  - **Periods** (`ci_analysis.PERIODS` = `wow/mom/qoq/yoy`, labels Week/Month/
+    Quarter/Year): **Week = Mon–Sun**; Month/Quarter/Year are calendar; always the
+    last *completed* one (never the in-progress current). `period_bounds(period,
+    index, today)` (index 0 = last completed, 1 = prior), `period_label`
+    ("Aug 17–23", "Jul 2026", "Q2 2026", "2025").
+  - **Availability gating:** a period button is a link only once its most recent
+    completed period holds data — `period_has_data` / `available_periods`; the route
+    falls back to the first available period, disables the rest (dashed/faded
+    `.ci-periods .disabled`), and shows a "no completed period yet" empty state when
+    none qualify.
+  - **Each table = aggregate + "vs prior" delta + per-period trend.** Assemblers
+    `ci_analysis.monitoring_{avg_rank, rank_by_keyword, share_of_shelf,
+    share_by_keyword}` return the current-period rows (via `_*_range` date-scoped
+    aggregations that mirror the run-scoped `snapshot_*`), plus `delta` vs the prior
+    period (rank: prior−current so **+ = improved/moved up**; share: current−prior
+    pts so **+ = gained**), plus `trend`/`trend_dates` = **one point per completed
+    period** (`_period_trend`, last `TREND_PERIODS`=6, oldest→newest; `trend_dates`
+    are the period labels shown in the hover tooltip). Placement map from the
+    period's avg via `monitoring_placement_map`. Subtitle names the window
+    ("Aggregated over Jul 2026 · vs Jun 2026").
+  - **Sparkline hover tooltip** (all `.ci-spark` in `ci_charts.js`): each point has a
+    transparent hit-circle + a shared `.ci-spark-tip` div; shows **"label · value"**
+    — `#n` for rank (`data-unit="rank"`), `n%` for share (`data-unit="share"` +
+    `data-better="high"` so a rising share renders up). Point labels come from
+    `data-dates` (period labels; a raw ISO date is formatted `Mon D`, anything else
+    shown as-is).
+  - **Monitoring PDF matches** (`pdf_export.build_ci_monitoring_pdf`): same 5
+    sections via the shared `_ci_results_flow(with_trend=True)`, now with a "vs
+    prior" delta column (`_delta_cell`) and a reportlab per-period sparkline
+    (`_sparkline_drawing`); header names the period. Route `ci_view_pdf` passes
+    `period_label`/`prior_label`.
+  - **Removed dead code** in this rework: the old rolling-window functions
+    (`share_of_shelf_summary`, `rank_summary`, `share_of_shelf_trend`,
+    `get_date_range`/`get_prior_date_range`, `PERIOD_DAYS`, the daily `*_trend_*`
+    helpers, `_daily_total_share_by_brand`, `rank_trend`) and `ci_jobs.latest_done_run`.
+    The dependency-free multi-line trend **chart** (`drawChart`/`[data-ci-chart]` in
+    `ci_charts.js`, and `share_of_shelf_trend`) is gone — the sparklines replaced it.
+    Note `snapshot_rank` remains (test-only, left as-is).
+- **Breadcrumbs / labels:** Content Studio screens lead with **"Content Studio · …"**;
+  Daily Monitoring setup breadcrumb is **"Competitive Intelligence · Daily Monitoring"**.
+- **Ranking-semantics recap (unchanged, worth knowing):** ranking counts only the
+  group's **tracked** items (`ci_analysis._TRACKED_ITEMS_FILTER`); share of shelf
+  counts every SKU (brand-level). A tracked item's *sponsored* slot has an opaque id
+  that can't be tied back, so only its organic placements count toward ranking.
+- **OPEN — worker orphan-reclaim (operational, not a feature).** The scoring/copy
+  queues have no startup reclaim, so a deploy (or OOM) that kills the worker
+  mid-fetch strands that row in `scoring`/`fetching`/`generating` forever; the CI
+  queue self-heals (`ci_jobs.reclaim_orphaned_runs` at `worker.main`). Add the
+  equivalent for `scored_items`/`copy_items` at worker startup. We hit this once this
+  session (a deploy restarted the worker mid-fetch of a scored item; the user re-ran
+  it). Root cause is the ~2 GB RAM; the reclaim is a resilience fix.
 
 **Session 2026-08-24 #2 (all live on main; 16 commits `fba5d6f`..`a4b4185`).**
 _Focus: CI ranking/share semantics, admin consolidation, dashboard._
@@ -636,10 +750,11 @@ cd ~/Desktop/ClaudeStuff/ecomm-copilot-clean
 
 ---
 
-## 11. Brand capture + dashboard "brands · products" subtitle — DONE (2026-08-25)
+## 11. Brand capture + dashboard "brands · products" subtitle — DONE + DEPLOYED
 
-**Status: implemented, tested (219 pass), verified in local preview. Not yet
-committed/deployed.** Both halves the user asked for shipped:
+**Status: live on main and deployed (2026-08-25/26).** The §7 "Session 2026-08-26"
+note has the current summary (incl. the Scoring-form field removal and the prod
+backfill); the detail below is the original build for reference. Both halves shipped:
 
 **1. Capture the brand when scraping.** `fetch._extract_brand` reads
 `product.brand` from `__NEXT_DATA__` (handles the plain-string and nested
