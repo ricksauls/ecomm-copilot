@@ -155,14 +155,9 @@ def pdp_scoring():
                 400,
             )
 
-        # Optional batch-level brand the user typed for these products; applies to
-        # every item in the submission and is filled from the PDP later only where
-        # left blank (see jobs.save_result).
-        brand = pdp.clean_brand(request.form.get("brand"))
-        items = [
-            {"url": url, "item": pdp.item_number_from_url(url), "brand": brand}
-            for url in accepted
-        ]
+        # Scoring intake doesn't collect a brand from the user; the worker fills it
+        # from the PDP during fetch (see jobs.save_result).
+        items = [{"url": url, "item": pdp.item_number_from_url(url)} for url in accepted]
         ids = jobs.enqueue_items(get_db(), g.user["id"], items)
         session[_BATCH_KEY] = ids
         logger.info(

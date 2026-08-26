@@ -21,6 +21,21 @@ def test_copy_intake_renders(client, auth):
     assert b"Get Current Copy Content" in resp.data
     # CSV cap mirrors app.pdp.MAX_ITEMS (100).
     assert b"up to 100" in resp.data
+    # The copy intake keeps the optional brand field.
+    assert b'name="brand"' in resp.data
+
+
+def test_copy_intake_persists_entered_brand(client, auth):
+    auth.register()
+    client.post(
+        "/app/pdp-copy",
+        data={"urls": "https://www.walmart.com/ip/10294528", "brand": "  Tabasco "},
+    )
+    with client.application.app_context():
+        row = get_db().execute(
+            "SELECT brand FROM copy_items WHERE item_id = '10294528'"
+        ).fetchone()
+        assert row["brand"] == "Tabasco"  # trimmed by clean_brand
 
 
 def test_copy_intake_enqueues_and_redirects(client, auth):

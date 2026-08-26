@@ -647,12 +647,13 @@ committed/deployed.** Both halves the user asked for shipped:
 (`scoring.py`); the worker passes `pdp.brand` into `jobs.save_result` and
 `copy_jobs.save_current_copy`.
 
-**2. Capture the brand the user enters at intake.** Both intake forms
-(`pdp_scoring.html`, `pdp_copy.html`) have an optional batch-level **Brand** field
-(above step 1; `.brand-field`/`.brand-input` in `workspace.css`). The route reads
-it via `pdp.clean_brand` (trim + 120-char bound, blank→None) and stores it on every
-enqueued row. The scoring→copy cross-link carries the brand forward from the scored
-row.
+**2. Capture the brand the user enters at intake.** The **Copy** intake form
+(`pdp_copy.html`) has an optional batch-level **Brand** field (above step 1;
+`.brand-field`/`.brand-input` in `workspace.css`); the route reads it via
+`pdp.clean_brand` (trim + 120-char bound, blank→None) and stores it on every
+enqueued row. **The Scoring intake has no brand field** (removed 2026-08-25 at the
+user's request) — scored items get their brand only from the PDP on fetch. The
+scoring→copy cross-link still carries any brand forward from the scored row.
 
 **Reconciliation rule (important):** the **user-entered brand wins**. The worker
 fills the scraped brand only where the column is still blank —
