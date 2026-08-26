@@ -185,6 +185,28 @@ def test_search_url_encodes_spaces():
     assert ci_scraper.search_url("hot sauce") == "https://www.walmart.com/search?q=hot+sauce"
 
 
+def test_build_ad_rows_attributes_brand_by_name():
+    brand_map = {5: _brand(5, "mine", name="Tabasco"), 9: _brand(9, "competitor", name="Frank's RedHot")}
+    ads = [
+        {"ad_type": "headline", "brand_text": "Frank's RedHot", "image_path": "ci_ads/1_2_headline.jpg"},
+        {"ad_type": "video", "brand_text": "Tabasco", "image_path": None},
+    ]
+    rows = ci_scraper.build_ad_rows(ads, run_id=1, group_id=1, keyword_id=2,
+                                    brand_map=brand_map, scrape_date="2026-08-26")
+    assert rows[0]["ad_type"] == "headline" and rows[0]["brand_id"] == 9
+    assert rows[0]["image_path"] == "ci_ads/1_2_headline.jpg"
+    assert rows[1]["ad_type"] == "video" and rows[1]["brand_id"] == 5
+
+
+def test_build_ad_rows_untracked_brand_left_unattributed():
+    # An ad for a brand the group doesn't track is still recorded, brand_id=None.
+    brand_map = {5: _brand(5, "mine", name="Tabasco")}
+    ads = [{"ad_type": "headline", "brand_text": "Cholula", "image_path": None}]
+    rows = ci_scraper.build_ad_rows(ads, run_id=1, group_id=1, keyword_id=2, brand_map=brand_map)
+    assert rows[0]["brand_id"] is None
+    assert rows[0]["brand_text"] == "Cholula"
+
+
 def test_proxy_from_env_unset_is_none(monkeypatch):
     # No proxy configured -> scrape directly (inert), the default.
     monkeypatch.delenv("WALMART_PROXY_SERVER", raising=False)

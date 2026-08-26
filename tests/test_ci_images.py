@@ -61,3 +61,24 @@ def test_save_handles_non_image_bytes():
     # Garbage bytes fail gracefully (best-effort), leaving nothing cached.
     assert ci_images.save_product_image("77", b"not an image") is False
     assert ci_images.has_product_image("77") is False
+
+
+def test_ad_image_relpath_validates_type_and_ids():
+    assert ci_images.ad_image_relpath(3, 7, "headline") == "ci_ads/3_7_headline.jpg"
+    assert ci_images.ad_image_relpath(3, 7, "video") == "ci_ads/3_7_video.jpg"
+    # An unknown ad_type or non-integer id resolves to None, never a path.
+    assert ci_images.ad_image_relpath(3, 7, "banner") is None
+    assert ci_images.ad_image_relpath("../x", 7, "headline") is None
+
+
+def test_save_ad_image_round_trip(tmp_path):
+    rel = ci_images.save_ad_image(3, 7, "headline", _png_bytes(size=(600, 200)))
+    assert rel == "ci_ads/3_7_headline.jpg"
+    path = ci_images.ad_image_abspath(3, 7, "headline")
+    import os
+    assert os.path.isfile(path)
+
+
+def test_save_ad_image_rejects_bad_type_and_bytes():
+    assert ci_images.save_ad_image(3, 7, "banner", _png_bytes()) is None
+    assert ci_images.save_ad_image(3, 7, "headline", b"not an image") is None

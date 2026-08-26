@@ -9,8 +9,11 @@ carries ``item_id``, ``url``, ``title``, ``status``, ``overall`` and a parsed
 
 import io
 import logging
+import os
 from datetime import datetime, timezone
 from xml.sax.saxutils import escape
+
+from app import ci_images
 
 from reportlab.graphics.shapes import Circle, Drawing, PolyLine, Rect, String
 from reportlab.lib import colors
@@ -626,10 +629,45 @@ def _rank_placement_grid(rank_map: dict | None) -> Drawing | Spacer:
     return drawing
 
 
+def _ad_creative_cell(img_ref: dict | None, ad_type: str, count: int, styles: dict):
+    """One ad-type cell: 'N×' plus the captured creative thumbnail (or '—' if none)."""
+    if not count:
+        return Paragraph("&#8212;", styles["cellmuted"])
+    parts = [Paragraph(f"{count}&#215;", styles["cell"])]
+    if img_ref:
+        path = ci_images.ad_image_abspath(img_ref["run_id"], img_ref["keyword_id"], ad_type)
+        if path and os.path.isfile(path):
+            try:
+                iw, ih = ImageReader(path).getSize()
+                w = 150.0
+                img = RLImage(path, width=w, height=(w * ih / iw) if iw else w)
+                img.hAlign = "LEFT"
+                parts.append(img)
+            except Exception:  # noqa: BLE001 - a bad file just drops the thumbnail
+                logger.warning("Could not embed ad thumb %s", path)
+    return parts
+
+
+def _brand_ads_table(brand_ads: list[dict], styles: dict) -> Table:
+    """Brand Advertising Presence: per brand, headline + video ad count and creative."""
+    header = ["Brand", "Type", "Headline ad", "Sponsored video ad"]
+    rows = [header]
+    for r in brand_ads:
+        rows.append([
+            Paragraph(escape(r["brand_name"]), styles["cell"]),
+            Paragraph(escape(r["type"]), styles["cellmuted"]),
+            _ad_creative_cell(r.get("headline_img"), "headline", r.get("headline_count", 0), styles),
+            _ad_creative_cell(r.get("video_img"), "video", r.get("video_count", 0), styles),
+        ])
+    if len(rows) == 1:
+        rows.append([Paragraph("No brand ads seen.", styles["cellmuted"])] + [""] * 3)
+    return _ci_table(rows, [w * inch for w in (1.4, 0.8, 2.3, 2.3)], styles)
+
+
 def _ci_results_flow(group: dict, subtitle: str, styles: dict, *, config_summary: dict,
                      avg_ranks: list[dict], rank_rows: list[dict], sos_rows: list[dict],
                      share_rows: list[dict], brand_sos_rows: list[dict],
-                     rank_map: dict | None, with_trend: bool) -> list:
+                     brand_ads: list[dict], rank_map: dict | None, with_trend: bool) -> list:
     """The shared results flow behind both CI results PDFs.
 
     In page order: the config summary, Overall Search Ranking (table + the
@@ -705,12 +743,23 @@ def _ci_results_flow(group: dict, subtitle: str, styles: dict, *, config_summary
             '<font color="#8c8c8c">■</font> Sponsored share',
             styles["cellmuted"],
         ))
+    # Brand Advertising Presence — headline + sponsored-video ad sightings, with the
+    # captured creative. Only rendered when at least one tracked brand had an ad.
+    if brand_ads:
+        flow.append(PageBreak())
+        flow.append(Paragraph("Brand Advertising Presence", styles["item"]))
+        flow.append(Paragraph(
+            "Headline (Sponsored Brand) and sponsored-video ads seen for your tracked "
+            "brands on page 1, with the captured creative.", styles["cellmuted"]))
+        flow.append(Spacer(1, 6))
+        flow.append(_brand_ads_table(brand_ads, styles))
     return flow
 
 
 def build_ci_snapshot_pdf(group: dict, *, config_summary: dict, avg_ranks: list[dict],
                           rank_rows: list[dict], sos_rows: list[dict],
                           share_rows: list[dict], brand_sos_rows: list[dict] | None = None,
+                          brand_ads: list[dict] | None = None,
                           rank_map: dict | None = None) -> bytes:
     """One-Time Snapshot PDF — mirrors the results page, current-state (no trends)."""
     styles = _styles()
@@ -724,7 +773,7 @@ def build_ci_snapshot_pdf(group: dict, *, config_summary: dict, avg_ranks: list[
         group, "One-Time Snapshot — current state", styles,
         config_summary=config_summary, avg_ranks=avg_ranks, rank_rows=rank_rows,
         sos_rows=sos_rows, share_rows=share_rows, brand_sos_rows=brand_sos_rows or [],
-        rank_map=rank_map, with_trend=False,
+        brand_ads=brand_ads or [], rank_map=rank_map, with_trend=False,
     )
     doc.build(flow)
     logger.info("Built CI snapshot PDF: group=%s", group.get("name"))
@@ -734,6 +783,7 @@ def build_ci_snapshot_pdf(group: dict, *, config_summary: dict, avg_ranks: list[
 def build_ci_monitoring_pdf(group: dict, period: str, *, config_summary: dict,
                             avg_ranks: list[dict], rank_rows: list[dict], sos_rows: list[dict],
                             share_rows: list[dict], brand_sos_rows: list[dict] | None = None,
+                            brand_ads: list[dict] | None = None,
                             rank_map: dict | None = None,
                             period_label: str | None = None,
                             prior_label: str | None = None) -> bytes:
@@ -758,7 +808,8 @@ def build_ci_monitoring_pdf(group: dict, period: str, *, config_summary: dict,
     flow = _ci_results_flow(
         group, subtitle, styles, config_summary=config_summary, avg_ranks=avg_ranks,
         rank_rows=rank_rows, sos_rows=sos_rows, share_rows=share_rows,
-        brand_sos_rows=brand_sos_rows or [], rank_map=rank_map, with_trend=True,
+        brand_sos_rows=brand_sos_rows or [], brand_ads=brand_ads or [],
+        rank_map=rank_map, with_trend=True,
     )
     doc.build(flow)
     logger.info("Built CI monitoring PDF: group=%s period=%s", group.get("name"), period)

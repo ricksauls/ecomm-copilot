@@ -124,6 +124,38 @@ def test_snapshot_results_render_without_trend_markup(client, auth):
     assert b"vs prior" not in resp.data
 
 
+def test_snapshot_shows_brand_ads_section_and_serves_creative(client, auth, monkeypatch, tmp_path):
+    monkeypatch.setenv("MEDIA_DIR", str(tmp_path))
+    auth.register()
+    gid = _snapshot_group(client)
+    today = date.today().isoformat()
+    with client.application.app_context():
+        db = get_db()
+        b = ci_config.add_brand(db, gid, 1, "Tabasco", "mine")
+        ci_config.add_product(db, gid, b, 1, "https://www.walmart.com/ip/x/10294528")
+        kid = ci_config.add_keyword(db, gid, 1, "hot sauce")
+        rid = ci_jobs.enqueue_run(db, gid)
+        rows = [{"run_id": rid, "group_id": gid, "keyword_id": kid, "scraped_at": today,
+                 "position": 1, "position_type": "organic", "item_id": "10294528",
+                 "brand_id": b, "is_new_sku": 0}]
+        ci_jobs.write_search_results(db, rows)
+        ci_jobs.write_share_of_search(db, rid, gid, kid, today, None, rows, {"10294528"})
+        rel = ci_images.save_ad_image(rid, kid, "headline", _png_bytes())
+        ci_jobs.write_ad_units(db, [{"run_id": rid, "group_id": gid, "keyword_id": kid,
+            "scraped_at": today, "ad_type": "headline", "brand_id": b,
+            "brand_text": "Tabasco", "image_path": rel}])
+        ci_jobs.finish_run(db, rid)
+
+    resp = client.get(f"/app/competitive-intel/groups/{gid}/results")
+    assert resp.status_code == 200
+    assert b"Brand Advertising Presence" in resp.data
+    # The captured creative is served same-origin (CSP img-src 'self').
+    img = client.get(f"/media/ci-ad/{rid}/{kid}/headline")
+    assert img.status_code == 200 and img.mimetype == "image/jpeg"
+    # An unknown ad_type is rejected (no such creative).
+    assert client.get(f"/media/ci-ad/{rid}/{kid}/banner").status_code == 404
+
+
 def test_snapshot_results_show_rank_placement_map(client, auth):
     auth.register()
     gid = _snapshot_group(client)

@@ -29,6 +29,15 @@ def _result(db, run_id, gid, kid, d, position, item_id, brand_id, ptype="organic
     )
 
 
+def _ad(db, run_id, gid, kid, d, ad_type, brand_id, image_path=None):
+    db.execute(
+        "INSERT INTO ci_ad_units "
+        "(run_id, group_id, keyword_id, scraped_at, ad_type, brand_id, brand_text, image_path) "
+        "VALUES (?,?,?,?,?,?,?,?)",
+        (run_id, gid, kid, d, ad_type, brand_id, None, image_path),
+    )
+
+
 def _track(db, gid, brand_id, item_id):
     """Register ``item_id`` as a tracked product of ``brand_id``.
 
@@ -183,6 +192,47 @@ def test_monitoring_brand_share_of_shelf_period_delta_and_trend(app):
         assert by["Tabasco"]["trend"] == [40.0, 70.0]
         assert by["Tabasco"]["trend_dates"] == ["Aug 10–16", "Aug 17–23"]
         assert [r["type"] for r in rows] == ["mine", "competitor"]
+
+
+def test_snapshot_brand_ads_counts_and_latest_image(app):
+    with app.app_context():
+        db = get_db()
+        _, gid, mine, comp, _, kid, rid = _setup(db)
+        # Tabasco: 2 headline sightings (2nd carries the image) + 1 video.
+        _ad(db, rid, gid, kid, _iso(0), "headline", mine, image_path=None)
+        _ad(db, rid, gid, kid, _iso(0), "headline", mine, image_path="ci_ads/x.jpg")
+        _ad(db, rid, gid, kid, _iso(0), "video", mine, image_path="ci_ads/v.jpg")
+        # Frank's: 1 headline. An untracked-brand ad (brand_id NULL) is ignored here.
+        _ad(db, rid, gid, kid, _iso(0), "headline", comp, image_path=None)
+        _ad(db, rid, gid, kid, _iso(0), "headline", None, image_path=None)
+        db.commit()
+
+        rows = ci_analysis.snapshot_brand_ads(db, gid, rid)
+        by = {r["brand_name"]: r for r in rows}
+        assert by["Tabasco"]["headline_count"] == 2
+        assert by["Tabasco"]["video_count"] == 1
+        # Latest image ref is the run/keyword that has an image.
+        assert by["Tabasco"]["headline_img"] == {"run_id": rid, "keyword_id": kid}
+        assert by["Frank's"]["headline_count"] == 1
+        assert by["Frank's"]["video_count"] == 0 and by["Frank's"]["video_img"] is None
+        # Only tracked brands surface; mine sorts before competitor.
+        assert [r["type"] for r in rows] == ["mine", "competitor"]
+
+
+def test_monitoring_brand_ads_counts_over_period(app):
+    with app.app_context():
+        db = get_db()
+        _, gid, mine, comp, _, kid, rid = _setup(db)
+        T = date(2026, 8, 26)
+        # Two headline sightings in the last completed week; one in a prior week (excluded).
+        _ad(db, rid, gid, kid, "2026-08-18", "headline", mine)
+        _ad(db, rid, gid, kid, "2026-08-20", "headline", mine)
+        _ad(db, rid, gid, kid, "2026-08-12", "headline", mine)  # prior week, not counted
+        db.commit()
+
+        rows = ci_analysis.monitoring_brand_ads(db, gid, "wow", today=T)
+        by = {r["brand_name"]: r for r in rows}
+        assert by["Tabasco"]["headline_count"] == 2  # only the completed-week sightings
 
 
 def test_snapshot_rank_splits_organic_and_sponsored(app):

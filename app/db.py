@@ -208,6 +208,26 @@ CREATE INDEX IF NOT EXISTS idx_ci_sos_group_brand_date
     ON ci_share_of_search(group_id, brand_id, date);
 CREATE INDEX IF NOT EXISTS idx_ci_sos_run ON ci_share_of_search(run_id);
 
+-- Brand ad sightings on the search page. One row per ad unit seen on a keyword's
+-- page-1 for a run: a headline (Sponsored Brand Ad / "Brand Amplifier") or a
+-- sponsored video ad, attributed to a tracked brand by the ad's own brand name.
+-- Count over a period = number of these rows (one per keyword-appearance);
+-- image_path is the captured creative (latest wins for a given brand+type).
+CREATE TABLE IF NOT EXISTS ci_ad_units (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id      INTEGER NOT NULL REFERENCES ci_runs(id) ON DELETE CASCADE,
+    group_id    INTEGER NOT NULL REFERENCES ci_groups(id) ON DELETE CASCADE,
+    keyword_id  INTEGER NOT NULL REFERENCES ci_keywords(id) ON DELETE CASCADE,
+    scraped_at  TEXT    NOT NULL,                     -- date (YYYY-MM-DD)
+    ad_type     TEXT    NOT NULL,                     -- headline|video
+    brand_id    INTEGER REFERENCES ci_brands(id) ON DELETE SET NULL,
+    brand_text  TEXT,                                 -- the ad's own brand label, as seen
+    image_path  TEXT                                  -- captured creative (relative to MEDIA_DIR)
+);
+CREATE INDEX IF NOT EXISTS idx_ci_ad_units_group_brand_date
+    ON ci_ad_units(group_id, brand_id, scraped_at);
+CREATE INDEX IF NOT EXISTS idx_ci_ad_units_run ON ci_ad_units(run_id);
+
 -- In-app "Contact Us" messaging. A thread is one topic a user raised; messages
 -- are the back-and-forth within it between the user and the admin team. Read
 -- state is tracked per side (the two admins share one inbox) so each side's

@@ -44,13 +44,17 @@ def test_run_scrapes_keyword_and_writes_results(app, monkeypatch):
         db = get_db()
         uid, gid, bid = _seed_group(db)
 
-        # Stub the browser scrape: one matching card (mine) + one "other".
+        # Stub the browser scrape: one matching card (mine) + one "other", plus a
+        # headline ad for the tracked brand (no image bytes -> row without a thumb).
         def fake_scrape(keyword, **kw):
-            return [
-                {"name": "Tabasco", "item_id": "10294528", "listing_type": "organic", "product_url": ""},
-                {"name": "Other", "item_id": "999", "listing_type": "sponsored", "product_url": ""},
-            ]
-        monkeypatch.setattr(ci_scraper, "scrape_keyword_cards", fake_scrape)
+            return {
+                "cards": [
+                    {"name": "Tabasco", "item_id": "10294528", "listing_type": "organic", "product_url": ""},
+                    {"name": "Other", "item_id": "999", "listing_type": "sponsored", "product_url": ""},
+                ],
+                "ads": [{"ad_type": "headline", "brand_text": "Tabasco", "image_bytes": None}],
+            }
+        monkeypatch.setattr(ci_scraper, "scrape_keyword_page", fake_scrape)
         monkeypatch.setattr(ci_scraper, "INTER_KEYWORD_DELAY_S", (0, 0))
 
         rid = ci_jobs.enqueue_run(db, gid, "one_time")
@@ -63,6 +67,9 @@ def test_run_scrapes_keyword_and_writes_results(app, monkeypatch):
             "SELECT * FROM ci_share_of_search WHERE run_id=?", (rid,)).fetchall()}
         assert sos[bid]["organic_count"] == 1
         assert sos[None]["sponsored_count"] == 1
+        # The headline ad was recorded and attributed to the tracked brand.
+        ad = db.execute("SELECT * FROM ci_ad_units WHERE run_id=?", (rid,)).fetchone()
+        assert ad["ad_type"] == "headline" and ad["brand_id"] == bid
 
 
 def test_run_with_all_keywords_blocked_is_marked_error(app, monkeypatch):
@@ -72,7 +79,7 @@ def test_run_with_all_keywords_blocked_is_marked_error(app, monkeypatch):
 
         def blocked(keyword, **kw):
             raise FetchBlocked("bot wall")
-        monkeypatch.setattr(ci_scraper, "scrape_keyword_cards", blocked)
+        monkeypatch.setattr(ci_scraper, "scrape_keyword_page", blocked)
 
         rid = ci_jobs.enqueue_run(db, gid)
         worker.process_ci_run(db, ci_jobs.claim_next_run(db))
@@ -97,8 +104,9 @@ def test_one_bad_keyword_does_not_sink_the_run(app, monkeypatch):
         def flaky(keyword, **kw):
             if keyword == "bad":
                 raise FetchBlocked("blocked")
-            return [{"name": "X", "item_id": "1", "listing_type": "organic", "product_url": ""}]
-        monkeypatch.setattr(ci_scraper, "scrape_keyword_cards", flaky)
+            return {"cards": [{"name": "X", "item_id": "1", "listing_type": "organic",
+                              "product_url": ""}], "ads": []}
+        monkeypatch.setattr(ci_scraper, "scrape_keyword_page", flaky)
         monkeypatch.setattr(ci_scraper, "INTER_KEYWORD_DELAY_S", (0, 0))
 
         rid = ci_jobs.enqueue_run(db, gid)

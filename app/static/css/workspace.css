@@ -1591,6 +1591,18 @@ a:focus-visible,
 .sos-legend-item { display: inline-flex; align-items: center; gap: 6px; }
 .sos-swatch { width: 12px; height: 12px; border-radius: 2px; display: inline-block; }
 
+/* Brand Advertising Presence: a count badge next to a thumbnail of the captured
+   ad creative. The thumbnail scales up on hover so the "Sponsored by <brand>"
+   detail is legible without leaving the table. */
+.ci-ad-cell { display: flex; align-items: center; gap: 10px; }
+.ci-ad-count { font-weight: 600; color: var(--black); white-space: nowrap; }
+.ci-ad-thumb {
+  height: 46px; max-width: 220px; object-fit: contain;
+  border: 1px solid var(--faint-gray); border-radius: 4px; background: #fff;
+  transition: transform var(--fade) var(--ease);
+}
+.ci-ad-thumb:hover { transform: scale(2.4); transform-origin: left center; position: relative; z-index: 5; }
+
 /* Overall Search Ranking placement map: a page-1 result grid (4 across) where a
    brand's average rank lights up its slot. My brand uses the one signal-red
    accent; competitors are ink; empty slots are hairline outlines. */

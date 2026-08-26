@@ -1,0 +1,51 @@
+{# Brand Advertising Presence section, shared by the One-Time Snapshot results page
+   and the View Snapshot / View Monitoring partial. Renders per tracked brand the
+   headline (Sponsored Brand) and sponsored-video ad counts with the captured
+   creative thumbnail. `brand_ads` rows come from ci_analysis.{snapshot,monitoring}_
+   brand_ads. `show_trend`/`period_label` only tune the hint wording. #}
+
+{# One ad-type cell: the count (keyword placements) + a thumbnail of the creative
+   that links to the full image. A brand with no ad of this type shows a muted dash. #}
+{% macro _ad_cell(row, ad_type, img) %}
+  {% set count = row['headline_count'] if ad_type == 'headline' else row['video_count'] %}
+  {% if count %}
+    <div class="ci-ad-cell">
+      <span class="ci-ad-count">{{ count }}×</span>
+      {% if img %}
+      {% set src = url_for('pages.ci_ad_image', run_id=img.run_id, keyword_id=img.keyword_id, ad_type=ad_type) %}
+      <a href="{{ src }}" target="_blank" rel="noopener">
+        <img class="ci-ad-thumb" src="{{ src }}"
+             alt="{{ row.brand_name }} {{ ad_type }} ad" loading="lazy">
+      </a>
+      {% endif %}
+    </div>
+  {% else %}<span class="cell-muted">—</span>{% endif %}
+{% endmacro %}
+
+{% macro brand_ads_section(brand_ads, show_trend=False, period_label='') %}
+{% if brand_ads %}
+<div class="ci-section card card-pad">
+  <div class="ci-section-title">Brand Advertising Presence</div>
+  <p class="ci-section-hint">
+    Headline (Sponsored Brand) and sponsored-video ads seen for your tracked brands
+    on page 1, with the captured creative. The count is how many keyword placements
+    the ad appeared in{% if show_trend %} over {{ period_label }}{% else %} in this run{% endif %}.
+  </p>
+  <div class="table-scroll">
+    <table class="admin-table">
+      <thead><tr><th>Brand</th><th>Type</th><th>Headline ad</th><th>Sponsored video ad</th></tr></thead>
+      <tbody>
+        {% for r in brand_ads %}
+        <tr>
+          <td>{{ r.brand_name }}</td>
+          <td><span class="ci-type {{ 'mine' if r.type == 'mine' else '' }}">{{ r.type }}</span></td>
+          <td>{{ _ad_cell(r, 'headline', r.headline_img) }}</td>
+          <td>{{ _ad_cell(r, 'video', r.video_img) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+{% endmacro %}

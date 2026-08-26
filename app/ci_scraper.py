@@ -146,6 +146,19 @@ def _norm_name(s: str) -> str:
     return "".join(ch for ch in (s or "").lower() if ch.isalnum())
 
 
+def _brand_index(brand_map: dict) -> list[tuple[str, int]]:
+    """Normalized brand-name -> brand_id index, longest name first.
+
+    Longest-first so a specific brand ("frank's red hot") wins over a shorter one
+    it contains. Shared by product-card attribution (:func:`build_result_rows`) and
+    ad attribution (:func:`build_ad_rows`).
+    """
+    return sorted(
+        ((_norm_name(b["name"]), b["id"]) for b in brand_map.values() if b["name"]),
+        key=lambda t: -len(t[0]),
+    )
+
+
 def build_result_rows(cards: list[dict], *, run_id: int, group_id: int, keyword_id: int,
                       item_map: dict, brand_map: dict,
                       seen_ids_by_brand: dict | None = None,
@@ -184,12 +197,8 @@ def build_result_rows(cards: list[dict], *, run_id: int, group_id: int, keyword_
     }
     # Brand-name index for attributing cards we can't match to a tracked product —
     # crucially the SPONSORED slots, which Walmart gives a different item id and a
-    # tracking URL (no /ip/<number>), so id/URL matching never reaches them. Longest
-    # name first so a specific brand ("frank's red hot") wins over a shorter one.
-    brand_index = sorted(
-        ((_norm_name(b["name"]), b["id"]) for b in brand_map.values() if b["name"]),
-        key=lambda t: -len(t[0]),
-    )
+    # tracking URL (no /ip/<number>), so id/URL matching never reaches them.
+    brand_index = _brand_index(brand_map)
 
     def _match_by_id(card: dict) -> dict | None:
         """Match a card to a tracked product by numeric id, raw id, then cleaned URL."""
@@ -276,15 +285,129 @@ def build_result_rows(cards: list[dict], *, run_id: int, group_id: int, keyword_
     return rows
 
 
-def scrape_keyword_cards(keyword: str, *, timeout_ms: int = 30000) -> list[dict]:
-    """Load a keyword's search page in a real browser and return raw card dicts.
+# ── Brand ad units (headline "Brand Amplifier" + sponsored video) ────────────────
 
-    Fresh browser per call (the reference's anti-detection approach — Walmart
-    flags a session after the first scrape). Raises :class:`FetchBlocked` on bot
-    detection and :class:`FetchError` on any other failure. Playwright is imported
-    lazily so this module imports without it (the app degrades to a clear error).
+# Ad types persisted in ci_ad_units.ad_type.
+AD_HEADLINE = "headline"
+AD_VIDEO = "video"
 
-    Slow (seconds per keyword) and serial — call only from the background worker.
+# Extracts the search page's brand ad units. Ported from a live-DOM discovery pass
+# (2026-08): the headline ad is the "Sponsored Brand Ad" card, and the sponsored
+# video ad is the video-player module. Both are client-served (their brand isn't in
+# __NEXT_DATA__), so we read the rendered DOM. Returns, per ad, its type, the brand
+# it advertises (parsed from the "Sponsored by <brand>" line or the logo alt), and a
+# stable selector the caller screenshots for the creative image.
+_EXTRACT_ADS_JS = r"""() => {
+    const ads = [];
+    const bySponsoredBy = (el) => {
+        const m = (el && el.innerText || '').match(/sponsored by\s+([^\n]+)/i);
+        return m ? m[1].trim() : null;
+    };
+
+    // Headline: the Sponsored Brand Ad ("Brand Amplifier") card at the top.
+    const sba = document.querySelector('[data-testid="sba-container"]');
+    if (sba) {
+        let brand = bySponsoredBy(sba);
+        if (!brand) {
+            const logo = sba.querySelector('img[alt]');
+            if (logo) brand = (logo.getAttribute('alt') || '').trim() || null;
+        }
+        ads.push({ad_type: 'headline', brand_text: brand,
+                  selector: '[data-testid="sba-container"]'});
+    }
+
+    // Sponsored video ad: the video-player module. The <video> itself carries no
+    // brand, so look for a "Sponsored by" line on an ancestor (best-effort).
+    const vpw = document.querySelector('[data-testid="VideoPlayerWrapper"]');
+    if (vpw) {
+        let brand = null, n = vpw;
+        for (let d = 0; n && d < 6 && !brand; d++, n = n.parentElement) brand = bySponsoredBy(n);
+        ads.push({ad_type: 'video', brand_text: brand,
+                  selector: '[data-testid="VideoPlayerWrapper"]'});
+    }
+    return ads;
+}"""
+
+
+def build_ad_rows(ads: list[dict], *, run_id: int, group_id: int, keyword_id: int,
+                  brand_map: dict, scrape_date: str | None = None) -> list[dict]:
+    """Turn raw ad descriptors into ci_ad_units row dicts (pure).
+
+    Each ``ad`` is ``{ad_type, brand_text, image_path}``. The ad's own brand label
+    (``brand_text`` — e.g. "Frank's RedHot" from "Sponsored by Frank's RedHot") is
+    matched to one of the group's tracked brands by normalized name, so a headline
+    or video ad for a tracked brand (mine or competitor) is attributed to it. An ad
+    whose brand isn't tracked is still recorded with ``brand_id = None`` (it just
+    won't surface under a tracked brand in the report). ``image_path`` is the saved
+    creative, relative to MEDIA_DIR (the caller captures + saves it).
+    """
+    scrape_date = scrape_date or date.today().isoformat()
+    brand_index = _brand_index(brand_map)
+
+    rows = []
+    for ad in ads:
+        brand_norm = _norm_name(ad.get("brand_text"))
+        brand_id = None
+        if brand_norm:
+            for cand_norm, bid in brand_index:
+                # Match either direction so "Frank's RedHot" ad ties to a "Frank's"
+                # tracked brand and vice versa.
+                if cand_norm and (cand_norm in brand_norm or brand_norm in cand_norm):
+                    brand_id = bid
+                    break
+        rows.append({
+            "run_id": run_id,
+            "group_id": group_id,
+            "keyword_id": keyword_id,
+            "scraped_at": scrape_date,
+            "ad_type": ad["ad_type"],
+            "brand_id": brand_id,
+            "brand_text": (ad.get("brand_text") or None),
+            "image_path": ad.get("image_path"),
+        })
+    return rows
+
+
+def _capture_ads(page) -> list[dict]:
+    """Extract + screenshot the page's brand ad units (best-effort, in-session).
+
+    Ads load lazily, so nudge-scroll to trigger them, read the ad descriptors, then
+    screenshot each ad's element for the creative image. Returns a list of
+    ``{ad_type, brand_text, image_bytes}`` (``image_bytes`` is PNG or ``None`` if the
+    shot failed). Never raises — ads are a bonus on top of the card scrape, so any
+    failure is logged and yields fewer/no ads rather than sinking the keyword.
+    """
+    for y in (400, 1100, 0):  # trigger lazy ad fill, then return to the top
+        page.evaluate(f"window.scrollTo(0, {y})")
+        page.wait_for_timeout(1500)
+    descriptors = page.evaluate(_EXTRACT_ADS_JS) or []
+    ads = []
+    for d in descriptors:
+        image_bytes = None
+        try:
+            image_bytes = page.locator(d["selector"]).first.screenshot(timeout=8000)
+        except Exception:  # noqa: BLE001 - a missed screenshot must not fail the scrape
+            logger.warning("CI ad screenshot failed ad_type=%s selector=%s",
+                           d.get("ad_type"), d.get("selector"))
+        ads.append({"ad_type": d["ad_type"], "brand_text": d.get("brand_text"),
+                    "image_bytes": image_bytes})
+    return ads
+
+
+def scrape_keyword_page(keyword: str, *, timeout_ms: int = 30000,
+                        capture_ads: bool = True) -> dict:
+    """Load a keyword's search page once and return its cards and brand ad units.
+
+    Returns ``{"cards": [...], "ads": [...]}``: ``cards`` are the raw product-card
+    dicts (see :func:`build_result_rows`); ``ads`` are ``{ad_type, brand_text,
+    image_bytes}`` for the headline + sponsored-video ad units (see
+    :func:`build_ad_rows`), captured on the same page load so we don't re-fetch.
+
+    Fresh browser per call (the reference's anti-detection approach — Walmart flags
+    a session after the first scrape). Raises :class:`FetchBlocked` on bot detection
+    or when no cards appear, and :class:`FetchError` on any other failure. Playwright
+    is imported lazily so this module imports without it. Slow (seconds per keyword)
+    and serial — call only from the background worker.
     """
     try:
         from playwright.sync_api import sync_playwright
@@ -301,6 +424,7 @@ def scrape_keyword_cards(keyword: str, *, timeout_ms: int = 30000) -> list[dict]
     proxy = _proxy_from_env()
     logger.info("CI scraping keyword=%r url=%s proxy=%s", keyword, url,
                 proxy["server"] if proxy else "direct")
+    ads: list[dict] = []
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch(
@@ -330,6 +454,14 @@ def scrape_keyword_cards(keyword: str, *, timeout_ms: int = 30000) -> list[dict]
                     cards = page.evaluate(_EXTRACT_JS) or []
                     if cards:
                         break
+
+                # Ad capture rides on the same page load; guarded so it never breaks
+                # the card scrape (which is the run's primary output).
+                if capture_ads and cards:
+                    try:
+                        ads = _capture_ads(page)
+                    except Exception:  # noqa: BLE001 - ads are a bonus, cards are not
+                        logger.warning("CI ad capture failed keyword=%r", keyword)
             finally:
                 browser.close()
     except FetchError:
@@ -343,5 +475,10 @@ def scrape_keyword_cards(keyword: str, *, timeout_ms: int = 30000) -> list[dict]
         raise FetchBlocked(
             f"No product cards found for {keyword!r} (possible block or layout change)"
         )
-    logger.info("CI scraped keyword=%r cards=%d", keyword, len(cards))
-    return cards
+    logger.info("CI scraped keyword=%r cards=%d ads=%d", keyword, len(cards), len(ads))
+    return {"cards": cards, "ads": ads}
+
+
+def scrape_keyword_cards(keyword: str, *, timeout_ms: int = 30000) -> list[dict]:
+    """Cards-only wrapper over :func:`scrape_keyword_page` (skips ad capture)."""
+    return scrape_keyword_page(keyword, timeout_ms=timeout_ms, capture_ads=False)["cards"]

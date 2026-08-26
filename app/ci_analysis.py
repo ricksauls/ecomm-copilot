@@ -655,6 +655,68 @@ def monitoring_brand_share_of_shelf(conn, group_id, period, today=None) -> list[
     return _assemble_share_over_period(conn, group_id, period, today, _brand_share_of_shelf_range)
 
 
+# ── Brand Advertising Presence (headline + sponsored-video ad sightings) ─────────
+
+def _shape_brand_ads(rows: list, brand_meta: dict) -> list[dict]:
+    """Aggregate ci_ad_units rows into per-brand ad presence.
+
+    Per tracked brand: a count of headline and of video ad sightings (one per
+    keyword-appearance), plus a reference to the most recent creative of each type
+    that has a stored image ({run_id, keyword_id}, which locates the JPEG). Rows
+    must arrive ordered by id ascending so the last one seen is the latest. Only
+    tracked brands (brand_id in the group) appear; brands with no ad are omitted.
+    Ordered mine-first, then competitors, alphabetically within each tier.
+    """
+    per: dict = defaultdict(lambda: {"headline_count": 0, "video_count": 0,
+                                     "headline_img": None, "video_img": None})
+    for r in rows:
+        agg = per[r["brand_id"]]
+        ad_type = r["ad_type"]
+        if ad_type not in ("headline", "video"):
+            continue
+        agg[f"{ad_type}_count"] += 1
+        if r["image_path"]:
+            agg[f"{ad_type}_img"] = {"run_id": r["run_id"], "keyword_id": r["keyword_id"]}
+
+    out = []
+    for brand_id, agg in per.items():
+        meta = brand_meta.get(brand_id)
+        if not meta:  # only tracked brands surface in the report
+            continue
+        out.append({"brand_id": brand_id, "brand_name": meta["name"],
+                    "type": meta["type"], **agg})
+    out.sort(key=lambda r: ({"mine": 0, "competitor": 1}.get(r["type"], 2),
+                            r["brand_name"].lower()))
+    return out
+
+
+def _brand_ad_rows(conn: sqlite3.Connection, where: str, params: tuple) -> list:
+    """ci_ad_units rows for tracked brands, oldest first (see :func:`_shape_brand_ads`)."""
+    return conn.execute(
+        "SELECT brand_id, ad_type, run_id, keyword_id, image_path "
+        "FROM ci_ad_units WHERE " + where + " AND brand_id IS NOT NULL ORDER BY id",
+        params,
+    ).fetchall()
+
+
+def snapshot_brand_ads(conn: sqlite3.Connection, group_id: int, run_id: int) -> list[dict]:
+    """Per-brand headline/video ad presence for a single run (One-Time Snapshot)."""
+    rows = _brand_ad_rows(conn, "group_id = ? AND run_id = ?", (group_id, run_id))
+    return _shape_brand_ads(rows, _brand_meta(conn, group_id))
+
+
+def _brand_ads_range(conn, group_id, start, end) -> list[dict]:
+    """Per-brand ad presence over a date range (counts are keyword-appearances)."""
+    rows = _brand_ad_rows(
+        conn, "group_id = ? AND scraped_at >= ? AND scraped_at <= ?", (group_id, start, end))
+    return _shape_brand_ads(rows, _brand_meta(conn, group_id))
+
+
+def monitoring_brand_ads(conn, group_id, period, today=None) -> list[dict]:
+    """Per-brand ad presence over the last completed period (Daily Monitoring)."""
+    return _brand_ads_range(conn, group_id, *period_bounds(period, 0, today))
+
+
 def monitoring_share_by_keyword(conn, group_id, period, today=None) -> list[dict]:
     """Per-keyword Share of Digital Shelf for the last completed period, with delta + trend."""
     cur = _share_by_keyword_range(conn, group_id, *period_bounds(period, 0, today))

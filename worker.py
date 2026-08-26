@@ -241,6 +241,33 @@ def _cache_ci_product_images(run_id: int, item_map: dict) -> None:
             time.sleep(random.uniform(*ci_scraper.INTER_KEYWORD_DELAY_S))
 
 
+def _write_keyword_ads(conn, ads, *, run_id, group_id, keyword_id, brand_map, scrape_date):
+    """Save each captured ad creative, then record the sightings. Best-effort.
+
+    ``ads`` are ``{ad_type, brand_text, image_bytes}`` from the scrape. The image is
+    stored (its relative path goes on the row); the pure builder attributes each ad
+    to a tracked brand by name. Never raises — ad capture is a bonus on top of the
+    keyword's share/ranking data, which is already committed by this point.
+    """
+    if not ads:
+        return
+    try:
+        for ad in ads:
+            rel = None
+            if ad.get("image_bytes"):
+                rel = ci_images.save_ad_image(run_id, keyword_id, ad["ad_type"],
+                                              ad["image_bytes"])
+            ad["image_path"] = rel
+        rows = ci_scraper.build_ad_rows(
+            ads, run_id=run_id, group_id=group_id, keyword_id=keyword_id,
+            brand_map=brand_map, scrape_date=scrape_date,
+        )
+        ci_jobs.write_ad_units(conn, rows)
+    except Exception:  # noqa: BLE001 - never let ad bookkeeping sink the run
+        log.exception("CI run id=%s failed writing ad units keyword_id=%s",
+                      run_id, keyword_id)
+
+
 def process_ci_run(conn: sqlite3.Connection, run: sqlite3.Row) -> None:
     """Scrape every active keyword for a claimed Competitive Intelligence run.
 
@@ -271,7 +298,8 @@ def process_ci_run(conn: sqlite3.Connection, run: sqlite3.Row) -> None:
         succeeded = failed = 0
         for i, kw in enumerate(keyword_rows):
             try:
-                cards = ci_scraper.scrape_keyword_cards(kw["keyword"])
+                page = ci_scraper.scrape_keyword_page(kw["keyword"])
+                cards = page["cards"]
                 rows = ci_scraper.build_result_rows(
                     cards, run_id=run_id, group_id=group_id, keyword_id=kw["id"],
                     item_map=item_map, brand_map=brand_map,
@@ -282,8 +310,14 @@ def process_ci_run(conn: sqlite3.Connection, run: sqlite3.Row) -> None:
                 # tracked walmart_item_ids.
                 ci_jobs.write_share_of_search(conn, run_id, group_id, kw["id"],
                                               scrape_date, slot, rows, set(item_map))
+                # Brand ad units (headline / sponsored video) captured on the same
+                # page load: save each creative screenshot, then record the sighting.
+                _write_keyword_ads(conn, page["ads"], run_id=run_id, group_id=group_id,
+                                   keyword_id=kw["id"], brand_map=brand_map,
+                                   scrape_date=scrape_date)
                 succeeded += 1
-                log.info("CI run id=%s keyword=%r ok — %d cards", run_id, kw["keyword"], len(rows))
+                log.info("CI run id=%s keyword=%r ok — %d cards, %d ad(s)",
+                         run_id, kw["keyword"], len(rows), len(page["ads"]))
             except (FetchBlocked, FetchError) as e:
                 failed += 1
                 log.warning("CI run id=%s keyword=%r failed: %s", run_id, kw["keyword"], e)

@@ -119,3 +119,67 @@ def cache_product_image_from_url(item_id: str, source_url: str) -> bool:
                        item_id, (source_url or "")[:80], e)
         return False
     return save_product_image(item_id, resp.content)
+
+
+# ── Brand ad creatives (headline + sponsored video screenshots) ──────────────────
+
+# Ad creatives are wider banners than product mains, so allow a larger long edge so
+# the "Sponsored by <brand>" text stays legible on the page and in the PDF.
+_AD_MAX_EDGE_PX = 900
+_AD_TYPES = ("headline", "video")
+
+
+def _ad_dir() -> str:
+    return os.path.join(_media_root(), "ci_ads")
+
+
+def ad_image_relpath(run_id: int, keyword_id: int, ad_type: str) -> str | None:
+    """Relative cache path (under MEDIA_DIR) for an ad creative, or ``None`` if the
+    inputs are unsafe. All parts are server-controlled — integer ids and a fixed
+    ad-type enum — so a validated triple can't escape the cache directory.
+    """
+    if ad_type not in _AD_TYPES:
+        return None
+    try:
+        run_id, keyword_id = int(run_id), int(keyword_id)
+    except (TypeError, ValueError):
+        return None
+    return os.path.join("ci_ads", f"{run_id}_{keyword_id}_{ad_type}.jpg")
+
+
+def ad_image_abspath(run_id: int, keyword_id: int, ad_type: str) -> str | None:
+    """Absolute path for an ad creative (for the PDF to embed / the route to serve)."""
+    rel = ad_image_relpath(run_id, keyword_id, ad_type)
+    return os.path.join(_media_root(), rel) if rel else None
+
+
+def save_ad_image(run_id: int, keyword_id: int, ad_type: str, data: bytes) -> str | None:
+    """Downscale and store an ad-creative screenshot as a JPEG. Best-effort.
+
+    Returns the relative path stored on the ci_ad_units row (so the page can serve
+    it same-origin and the PDF can embed it), or ``None`` on any failure — a missed
+    creative just means that ad shows without a thumbnail, never a failed run.
+    """
+    rel = ad_image_relpath(run_id, keyword_id, ad_type)
+    if not rel or not data:
+        logger.warning("Refusing to cache ad image for run=%s kw=%s type=%r",
+                       run_id, keyword_id, ad_type)
+        return None
+    path = os.path.join(_media_root(), rel)
+    try:
+        from PIL import Image
+    except ImportError:  # pragma: no cover - Pillow is a runtime dep
+        return None
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with Image.open(io.BytesIO(data)) as img:
+            img = img.convert("RGB")  # screenshots are opaque PNGs
+            img.thumbnail((_AD_MAX_EDGE_PX, _AD_MAX_EDGE_PX))
+            img.save(path, format="JPEG", quality=_JPEG_QUALITY)
+        logger.info("Cached CI ad image run=%s kw=%s type=%s src_bytes=%d",
+                    run_id, keyword_id, ad_type, len(data))
+        return rel
+    except Exception:  # noqa: BLE001 - best-effort; a decode failure isn't fatal
+        logger.exception("Failed to cache CI ad image run=%s kw=%s type=%s",
+                         run_id, keyword_id, ad_type)
+        return None

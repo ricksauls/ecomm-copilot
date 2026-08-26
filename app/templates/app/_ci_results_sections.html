@@ -1,3 +1,4 @@
+{% import "app/_ci_ads.html" as ci_ads %}
 {# Shared Competitive Intelligence results sections, rendered by both the View
    Snapshot and View Monitoring screens (and mirroring the One-Time Snapshot
    results page). Set `show_trend` before including: monitoring passes True to add
@@ -318,3 +319,6 @@
   </div>
 </div>
 {% endif %}
+
+{# Brand Advertising Presence — headline + sponsored-video ad sightings per brand. #}
+{{ ci_ads.brand_ads_section(brand_ads, show_trend=show_trend, period_label=period_label) }}

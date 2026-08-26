@@ -249,6 +249,25 @@ def write_share_of_search(conn: sqlite3.Connection, run_id: int, group_id: int,
     conn.commit()
 
 
+def write_ad_units(conn: sqlite3.Connection, rows: list[dict]) -> None:
+    """Persist brand ad sightings (headline / sponsored-video) for a keyword scrape.
+
+    One row per ad unit seen on the keyword's page-1 for the run (see
+    :func:`app.ci_scraper.build_ad_rows`). No-op on an empty list (a keyword with no
+    ads), so callers can pass results through unconditionally.
+    """
+    for row in rows:
+        conn.execute(
+            "INSERT INTO ci_ad_units "
+            "(run_id, group_id, keyword_id, scraped_at, ad_type, brand_id, brand_text, image_path) "
+            "VALUES (:run_id, :group_id, :keyword_id, :scraped_at, :ad_type, "
+            ":brand_id, :brand_text, :image_path)",
+            row,
+        )
+    if rows:
+        conn.commit()
+
+
 # ── admin helpers (mirror jobs.list_items / count_items) ─────────────────────────
 
 def seen_item_ids_by_brand(conn: sqlite3.Connection, group_id: int) -> dict[int, set]:
