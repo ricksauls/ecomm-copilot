@@ -128,7 +128,7 @@ def dashboard():
     ]
     return render_template(
         "app/dashboard.html",
-        breadcrumb="",  # no name at the very top (topbar breadcrumb)
+        breadcrumb="Dashboard",
         active_nav="dashboard",
         **view_model,
     )
