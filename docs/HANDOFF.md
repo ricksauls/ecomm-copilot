@@ -1,26 +1,34 @@
 # ecomm-copilot — Session Handoff
 
-_Last updated: 2026-08-26 (session 4)._
+_Last updated: 2026-08-26 (session 5)._
 
 A working reference for picking up development. Read this first, then
 `CLAUDE.md` (coding standards) and `deploy/DEPLOY.md` (infra).
 
 > **Next session — start here.** Everything below is **live on main and deployed**
-> (each change ships via `git push` → CI → auto-deploy; site returns 200). Session 4
-> (2026-08-26) landed a lot — read the **§7 "Session 2026-08-26" note first**; it's
-> the freshest and most detailed. Headlines: brand capture + a 6-card dashboard;
-> a **View Snapshot** menu; the **Daily Monitoring** view rebuilt to **aggregate
-> over the last completed calendar period** (Week/Month/Quarter/Year, vs prior,
-> per-period trend sparklines with date-labelled hover tooltips); its **PDF**
-> matches; and several breadcrumb/label tweaks. Tests: **221** passing (`ruff` +
-> `pip-audit` clean).
+> (each change ships via `git push` → CI → auto-deploy; site returns 200). Session 5
+> (2026-08-26) was a big **dashboard + activity-navigation** pass — read the **§7
+> "Session 2026-08-26 (session 5)" note first**; it's the freshest and most
+> detailed. Headlines: the dashboard body was **rebuilt into five "this month"
+> activity tables** (PDP scored/copy/image-sets + CI snapshot/monitoring), each
+> **collapsible, sortable, capped at 10 rows, with a thumbnail (hover to enlarge)
+> and clickable rows that open that run's results**; two new **"View All …
+> Activity"** screens (Content + Competitive Intelligence) show the same tables
+> all-time; **run grouping** via a new `batch_id` so a row click opens the whole
+> run; and the **worker orphan-reclaim gap is now CLOSED** (scoring + copy queues
+> self-heal on startup, like CI). Tests: **237** passing (`ruff` + `pip-audit`
+> clean).
 >
-> **One open operational item (not a feature):** the scoring/copy queues have **no
-> orphan-reclaim** — a deploy that restarts the worker mid-fetch strands that item
-> in `scoring`/`fetching` forever (the CI queue *does* self-heal via
-> `ci_jobs.reclaim_orphaned_runs`). We hit this once (a scored item stuck in
-> `scoring`; the user re-ran it manually). A durable fix is to add the same
-> startup reclaim for `scored_items`/`copy_items`. See §7 session note.
+> **Heads-up on GitHub Actions:** a multi-hour GitHub Actions **major outage**
+> mid-session stalled the CI→Deploy pipeline (runs stuck `queued`, `workflow_run`
+> chaining dropped). It fully recovered and everything deployed; nothing is wrong
+> with our pipeline. If deploys ever hang again, check githubstatus.com first — and
+> remember `deploy.yml` triggers **only** on `workflow_run` (no manual dispatch),
+> so a clean re-trigger is a fresh push once Actions is healthy, or a manual SSH
+> deploy (`git pull` + restart) if urgent.
+>
+> **No open operational items.** (The prior session's scoring/copy orphan-reclaim
+> gap was fixed this session.)
 
 ---
 
@@ -31,13 +39,25 @@ A working reference for picking up development. Read this first, then
   `~/Desktop/ClaudeStuff/ecomm-copilot-clean`.
 - **Stack:** Python / Flask, SQLite, server-rendered Jinja templates, deployed
   by GitHub Actions to a DigitalOcean droplet.
-- **Tests:** 221 passing (`ruff` clean, `pip-audit` clean).
+- **Tests:** 237 passing (`ruff` clean, `pip-audit` clean).
 - **Worker:** installed and running — scoring is self-serve end-to-end (intake →
   queue → background fetch+score → results). One worker only (see §6, parallelism).
+  On startup it now **reclaims orphaned in-flight work in all three queues**
+  (scoring, copy, CI) so a mid-fetch restart never strands a row — see §7 session 5.
 
 **What works today:**
 - Marketing **landing** page (dark), self-service **auth** (email/password +
   Google SSO), login-guarded **workspace**.
+- **Dashboard** (rebuilt session 5): a 6-card KPI row over **five "this month"
+  activity tables** — PDP Scored / Copy / Image Sets, then CI Snapshot / Monitoring.
+  Each table is **collapsible** (native `<details>`, open by default), **column-
+  sortable**, **capped at 10 rows** (rest scroll under a sticky header), shows a
+  product **thumbnail (hover to enlarge)**, and its **rows are clickable → open
+  that run's results**. Each has a **View all** link to its all-time screen. Two
+  dedicated all-time screens also exist: **View All Content Activity**
+  (`/app/content-activity`, the 3 PDP tables) and **View All Competitive
+  Intelligence Activity** (`/app/competitive-intel/activity`, the 2 CI tables). See
+  §7 session 5.
 - **Contact Us messaging** (in-app, two-way) — users open threads (subject +
   category: question/issue/customization/other) and see replies as a
   conversation; admins get a **Messages** inbox (unread first) and reply as the
@@ -155,8 +175,9 @@ A working reference for picking up development. Read this first, then
   setup-droplet.sh, so the timers persist untouched across deploys).
 - **Xvfb:** `xvfb.service` on `:99` (from the WM scraper) — the worker reuses it.
 - **DB:** SQLite at `DATABASE_URL` (`/home/deploy/apps/ecomm-copilot/app.db`),
-  chmod 600. Tables: `users`, `scored_items`, `keyword_cache`, `copy_items`
-  (Copy Content Creation), the CI set `ci_groups` (+`mode`), `ci_brands`,
+  chmod 600. Tables: `users`, `scored_items` (+`batch_id`), `keyword_cache`,
+  `copy_items` (Copy Content Creation, +`batch_id`), the CI set `ci_groups`
+  (+`mode`), `ci_brands`,
   `ci_products`, `ci_keywords`, `ci_runs`, `ci_search_results`,
   `ci_share_of_search`, and the messaging set `message_threads`, `messages`
   (Contact Us). Schema is created + migrated idempotently at web **and** worker
@@ -222,12 +243,15 @@ app/
                      no traversal), download+downscale to JPEG, has/save/from_url
   keywords.py        keyword discovery: Walmart autocomplete + competitor SERP
                      mining -> ranked target set; cache_key (category-level)
-  jobs.py            scored_items queue (enqueue/claim/save), admin list/count,
-                     keyword_cache get/put
+  jobs.py            scored_items queue (enqueue w/ batch_id/claim/save),
+                     reclaim_orphaned_items, batch_ids_for_item, list_scored_activity
+                     (optional since), dashboard counts, keyword_cache get/put
   copygen.py         AI copy rewrite: PdpRecord + keywords -> Claude (structured
                      output) -> GeneratedCopy. COPYGEN_MODEL, lazy SDK import
   copy_jobs.py       copy_items queue: two-phase fetch->generate lifecycle
-                     (enqueue/claim/save_current/save_generated/request_generation)
+                     (enqueue w/ batch_id/claim/save_current/save_generated/
+                     request_generation), reclaim_orphaned_copy_items,
+                     batch_ids_for_copy_item, list_copy_activity (optional since)
   messages.py        Contact Us model: threads + messages, per-side unread by
                      *message id* (not timestamp — avoids same-second ties),
                      create/reply/mark_read/set_status, unread counts, IDOR-scoped
@@ -236,24 +260,31 @@ app/
                      build_copy_pdf (copy batch), build_ci_snapshot_pdf (+ SoS
                      stacked-bar chart, placement-map grid, product thumbnails),
                      build_ci_monitoring_pdf
-  routes/pages.py    landing, dashboard, PDP scoring + results + results.pdf,
-                     PDP copy (...), scoring create-copy cross-link, CI snapshot/
-                     monitoring/view + PDFs + schedule-from-snapshot,
-                     /media/ci-product/<id> (cached image), Contact Us
-                     (contact_home/create/thread/reply), admin users/items/copy +
-                     admin messages (inbox/thread/reply/status) + delete
-  fixtures.py        demo data for the dashboard
+  routes/pages.py    landing, dashboard (5 "this month" activity tables +
+                     _activity_rows/_ACTIVITY_META shaping), View All screens
+                     (activity_all/<kind>, content_activity, ci_activity), PDP
+                     scoring + results + results.pdf + per-item results
+                     (pdp_scoring_item), PDP copy (... + pdp_copy_item), scoring
+                     create-copy cross-link, CI snapshot/monitoring/view + PDFs +
+                     schedule-from-snapshot, /media/ci-product/<id> (cached image),
+                     Contact Us (contact_home/create/thread/reply), admin
+                     users/items/copy + admin messages + delete
+  fixtures.py        demo data (KPI/agency scaffold; the demo table/sidebar it
+                     also carried are no longer rendered — dashboard body rebuilt)
   templates/…        public_base + landing/signin/signup; app/base + _rail,
-                     _topbar, dashboard, pdp_*, ci_* , admin_users/items/copy,
-                     admin_messages, contact_home, contact_thread (shared
-                     user+admin thread view)
+                     _topbar, dashboard, _dash_tables (shared activity-table
+                     macros), activity_all, content_activity, ci_activity, pdp_*,
+                     ci_*, admin_*, contact_* (shared user+admin thread view)
   static/            css/{tokens,public,workspace}.css,
-                     js/{intake,admin_users,ci_*}.js, img/{logo,favicon,...}
+                     js/{intake,admin_users,ci_*,dashboard}.js, img/{logo,...}
+                     (dashboard.js: sort + 10-row cap + thumbnail hover-preview)
 worker.py            background worker (systemd): drains scoring, copy, and CI
-                     queues. process_ci_run also caches each tracked product's
-                     main image once (_cache_ci_product_images, best-effort)
+                     queues; reclaims orphaned in-flight work in all three on
+                     startup. Caches each fetched item's main image
+                     (_cache_item_image for scoring/copy; _cache_ci_product_images
+                     for CI), best-effort
 deploy/              DEPLOY.md, *.service units, nginx.conf, setup-droplet.sh
-tests/               204 tests (auth, jobs, pdp, scoring, fetch, pages, keywords,
+tests/               237 tests (auth, jobs, pdp, scoring, fetch, pages, keywords,
                      admin, copygen, copy_jobs, copy, ci_config/jobs/scraper/
                      analysis/worker/monitoring/pages, ci_images, messages,
                      messages_pages)
@@ -261,9 +292,13 @@ tests/               204 tests (auth, jobs, pdp, scoring, fetch, pages, keywords
 
 **Nav (rail):** **Dashboard** + **Contact Us** (top-level; Contact Us shows an
 unread badge); **Content Studio** section — PDP Content Scoring (built), PDP Image
-Set Creation (placeholder), PDP Copy Content Creation (built); **Competitive
-Intelligence** section — One-Time Snapshot, View Snapshot, Daily Monitoring, View
-Monitoring (all built). **Admin** section (below Credits, admins only): Users, Items scored, Copy
+Set Creation (placeholder), PDP Copy Content Creation (built), **View All Content
+Activity** (new session 5); **Competitive Intelligence** section — One-Time
+Snapshot, Daily Monitoring, **View All Competitive Intelligence Activity** (new
+session 5). _Session 5 removed the old **View Snapshot** / **View Monitoring** rail
+items — routes `ci_view_snapshot` / `ci_view` still exist; `ci_view` is still
+linked from the monitoring setup/config "View results" buttons, `ci_view_snapshot`
+is now unlinked but intact._ **Admin** section (below Credits, admins only): Users, Items scored, Copy
 created, **Messages** (unread badge), each with a live count. The **topbar** bell
 shows unread-message counts (admin inbox for admins, own replies for users) plus
 the admins-only new-user badge.
@@ -403,6 +438,88 @@ to the RAM. The queue claim (`jobs.claim_next`) is already concurrency-safe.
 ---
 
 ## 7. Known gaps / next-up roadmap
+
+**Session 2026-08-26 (session 5 — all live on main + deployed).** _Focus: the
+dashboard body rebuilt into activity tables, the "View All … Activity" navigation,
+run grouping, and closing the worker orphan-reclaim gap._ Read this note first.
+
+- **Worker orphan-reclaim — CLOSED (the prior session's open item).** The scoring
+  and copy queues now self-heal on startup, matching the CI queue. New
+  `jobs.reclaim_orphaned_items` (fails rows stuck `scoring`) and
+  `copy_jobs.reclaim_orphaned_copy_items` (fails rows stuck `fetching`/
+  `generating`) run at `worker.main` alongside `ci_jobs.reclaim_orphaned_runs`.
+  Orphans are marked `error` (not requeued) so a poison-pill row can't re-crash the
+  worker every restart; the user re-runs deliberately. On the very first deploy it
+  caught 1 real stranded scoring item on the droplet.
+- **Dashboard body rebuilt → five "this month" activity tables.** Replaced the demo
+  "Products losing ground" table + demo sidebar (and the "Export report" button)
+  with five per-user, current-month tables: **PDP Scored** (image·date·brand·
+  product·score), **Copy Created** and **Image Sets Created** (same, no score;
+  Image Sets is an empty-state placeholder until that feature ships), **CI One-Time
+  Snapshot** and **CI Daily Monitoring** (name·date·my-brand·my-items·competitor-
+  brands·competitor-items). The KPI card **"PDP's Scored → N this month" counts
+  distinct *products*** while the table counts *rows* (one per scoring run) — a
+  re-scored product piles up as multiple rows, so the two legitimately differ; this
+  is expected, not a bug.
+- **Table UX (all in `static/js/dashboard.js` + `_dash_tables.html` macros):**
+  **collapsible** (native `<details open>`, no JS), **column-sortable** (click a
+  header; ▲/▼ toggles direction; numeric-aware via a whole-string `Number()` test
+  so ISO dates sort as text; date cells carry the raw ISO in `data-sort` since the
+  visible "Aug 26" has no year), **10-row cap** with the rest scrolling under a
+  sticky header (JS sets `max-height` from the first 10 rows on bodies flagged
+  `.dash-body-capped`), **single-line bold black titles**, **uniform 13px row
+  font**, and a **thumbnail hover-preview** (a `position:fixed` 240px image on
+  `<body>` so table overflow can't clip it).
+- **Product-image cache extended to scored/copy.** `PdpRecord.main_image_url` now
+  carries the PDP main-image URL through `fetch_pdp`; the worker caches it on fetch
+  via the **item-id-keyed** `ci_images` cache (shared with CI — a scored item and a
+  CI product with the same Walmart id share one file), served same-origin at
+  `/media/ci-product/<id>`. Backfilled the 6 existing prod scored/copy items on the
+  droplet (see §9 for the one-off script pattern). Older rows show a placeholder
+  until re-run or backfilled.
+- **Row click → open that run's results.** Each table row is an `<a>` linking to
+  the activity's results. Scored/copy rows go through new per-item routes
+  `pdp_scoring_item` / `pdp_copy_item` (`/app/pdp-scoring/item/<id>`,
+  `/app/pdp-copy/item/<id>`) which point the **session batch** at the run and reuse
+  the existing results page (polling/PDF/layout unchanged); CI snapshot rows →
+  `ci_snapshot_results(group_id)`, monitoring rows → `ci_view(group_id)`.
+  Ownership-checked → a foreign/missing id 404s.
+- **A click opens the *whole run*, not just the one item** — new nullable
+  **`batch_id`** column on `scored_items` + `copy_items` (in `_SCHEMA` + additive
+  `db._migrate`). `enqueue_items` / `enqueue_copy_items` stamp one `uuid4` per
+  submission; `jobs.batch_ids_for_item` / `copy_jobs.batch_ids_for_copy_item`
+  return a run's sibling ids. **Backfill:** existing prod rows were grouped by
+  identical `created_at` second (items enqueued together share it; separate runs
+  are minutes apart) — 7 multi-item runs reconstructed for `ricksauls1@gmail.com`.
+  Only fills NULL `batch_id`; new runs group natively.
+- **Per-table "View all" → all-time screens.** Each dashboard table carries a
+  **View all** link (shared `.wbtn.wbtn-secondary` grey button) to
+  `/app/activity/<kind>` (`activity_all.html`) showing that one activity all-time
+  (uncapped). Kinds: `scored`, `copy`, `images`, `ci-snapshot`, `ci-monitoring`;
+  unknown kinds 404. The dashboard vs all-time split is driven by an optional
+  `since` on the four list helpers (renamed `jobs.list_scored_activity` /
+  `copy_jobs.list_copy_activity`; the two `ci_jobs.list_*_activity_for_user` gained
+  optional `since`). `_activity_rows(kind, since)` is the single shaping entry point
+  (used by dashboard + both View-All screens + the two combined screens below).
+- **Two combined "View All … Activity" screens.** **View All Content Activity**
+  (`/app/content-activity`, rail item under Content Studio) shows the 3 PDP tables
+  all-time; **View All Competitive Intelligence Activity**
+  (`/app/competitive-intel/activity`, rail item under CI) shows the 2 CI tables
+  all-time. Both are dashboard-style and **capped at 10 rows**. Adding the CI screen
+  **removed the old View Snapshot / View Monitoring rail items** (routes intact —
+  see the §3 Nav note).
+- **Shared markup + files.** Table macros live in
+  `templates/app/_dash_tables.html` (`product_table`, `ci_table`, `_summary`;
+  `all_url`/`cap`/optional `sub` params; rows render as `<a>` when a `result_url`
+  is present). New templates: `activity_all.html`, `content_activity.html`,
+  `ci_activity.html`. New static: `static/js/dashboard.js`.
+- **Infra note:** a GitHub Actions **major outage** stalled deploys for hours
+  mid-session (queued runs, dropped `workflow_run` events). It recovered and
+  everything shipped. See the top-of-file heads-up.
+- **Next-ups still open (carried):** the deprecated `actions/checkout` +
+  `actions/setup-python` Node-20 bump (§7 item 6); PDP Image Set Creation is still
+  the only placeholder; the AI qualitative pass, attribute completeness %, and CI
+  next-ups below are unchanged.
 
 **Session 2026-08-26 (session 4 — all live on main + deployed).** _Focus: brand
 capture, dashboard, a full rebuild of the Daily Monitoring results into calendar
