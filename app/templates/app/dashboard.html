@@ -1,4 +1,5 @@
 {% extends "app/base.html" %}
+{% import "app/_dash_tables.html" as t %}
 {% block title %}Dashboard — ecomm-copilot{% endblock %}
 
 {% block pane_content %}
@@ -38,103 +39,32 @@
 </div>
 
 {# --- "This month" activity tables ---
-   Five full-width tables replacing the old demo table: PDP work (scored, copy,
-   image sets) then Competitive Intelligence (snapshot, monitoring). Each renders
-   an empty state when the user has no activity this month. #}
-
-{# The collapsible card header shared by both table kinds: a caret (CSS), the
-   title + subtitle, and a row-count chip. Native <details>/<summary> so it needs
-   no JS (strict CSP forbids inline handlers). #}
-{% macro table_summary(title, sub, count) %}
-  <summary class="dash-summary">
-    <span class="dash-summary-titles">
-      <h2>{{ title }}</h2>
-      <span class="sub">{{ sub }}</span>
-    </span>
-    <span class="dash-count">{{ count }}</span>
-  </summary>
-{% endmacro %}
-
-{# A product-activity table: image · date · brand · product (· score). #}
-{% macro product_table(title, sub, rows, with_score, empty) %}
-<details class="card dash-table" open>
-  {{ table_summary(title, sub, rows | length) }}
-  <div class="dash-body">
-    <div class="dash-cols dash-cols-product{{ ' has-score' if with_score }} dash-head-row">
-      <div class="col" data-nosort>Image</div>
-      <div class="col">Date</div>
-      <div class="col">Brand</div>
-      <div class="col">Product</div>
-      {% if with_score %}<div class="col r">Score</div>{% endif %}
-    </div>
-    {% for row in rows %}
-    <div class="dash-cols dash-cols-product{{ ' has-score' if with_score }} dash-row">
-      <div class="col dash-thumb-cell">
-        {% if row.image_url %}
-          <img class="dash-thumb" src="{{ row.image_url }}" alt="" loading="lazy" />
-        {% else %}
-          <div class="dash-thumb placeholder"></div>
-        {% endif %}
-      </div>
-      <div class="col dash-date" data-sort="{{ row.sort_date }}">{{ row.date }}</div>
-      <div class="col">{{ row.brand }}</div>
-      <div class="col dash-title">{{ row.title }}</div>
-      {% if with_score %}<div class="col r dash-score">{{ row.score }}</div>{% endif %}
-    </div>
-    {% else %}
-    <div class="dash-empty">{{ empty }}</div>
-    {% endfor %}
-  </div>
-</details>
-{% endmacro %}
-
-{# A Competitive Intelligence table: name · date · my brand/items · competitor brand/items. #}
-{% macro ci_table(title, sub, rows) %}
-<details class="card dash-table" open>
-  {{ table_summary(title, sub, rows | length) }}
-  <div class="dash-body">
-    <div class="dash-cols dash-cols-ci dash-head-row">
-      <div class="col">Name</div>
-      <div class="col">Date</div>
-      <div class="col">My brand</div>
-      <div class="col r">My items</div>
-      <div class="col">Competitor brands</div>
-      <div class="col r">Competitor items</div>
-    </div>
-    {% for row in rows %}
-    <div class="dash-cols dash-cols-ci dash-row">
-      <div class="col dash-title">{{ row.name }}</div>
-      <div class="col dash-date" data-sort="{{ row.sort_date }}">{{ row.date }}</div>
-      <div class="col">{{ row.my_brands }}</div>
-      <div class="col r">{{ row.my_items }}</div>
-      <div class="col">{{ row.competitor_brands }}</div>
-      <div class="col r">{{ row.competitor_items }}</div>
-    </div>
-    {% else %}
-    <div class="dash-empty">Nothing this month yet.</div>
-    {% endfor %}
-  </div>
-</details>
-{% endmacro %}
-
+   Five month-scoped tables (PDP scored/copy/image-sets, then CI snapshot/
+   monitoring). Each is capped at 10 rows and carries a "View all" link to its
+   all-time screen. Markup lives in the shared _dash_tables.html macros. #}
 <div class="dash-tables">
   {# Bracket access, not dot: activity.copy would resolve to dict.copy (a method). #}
-  {{ product_table("Products scored", "PDPs scored this month",
-                   activity['scored'], true, "Nothing scored this month yet.") }}
-  {{ product_table("Copy created", "PDPs with new copy created this month",
-                   activity['copy'], false, "No copy created this month yet.") }}
-  {{ product_table("Image sets created", "PDPs with a new image set this month",
-                   activity['image_sets'], false,
-                   "Image Set Creation isn’t available yet.") }}
-  {{ ci_table("Competitive Intelligence — One-Time Snapshot",
-              "Snapshots run this month", activity['ci_snapshot']) }}
-  {{ ci_table("Competitive Intelligence — Daily Monitoring",
-              "Monitoring groups active this month", activity['ci_monitoring']) }}
+  {{ t.product_table("Products scored", "PDPs scored this month",
+       activity['scored'], true, "Nothing scored this month yet.",
+       all_url=url_for('pages.activity_all', kind='scored'), cap=true) }}
+  {{ t.product_table("Copy created", "PDPs with new copy created this month",
+       activity['copy'], false, "No copy created this month yet.",
+       all_url=url_for('pages.activity_all', kind='copy'), cap=true) }}
+  {{ t.product_table("Image sets created", "PDPs with a new image set this month",
+       activity['image_sets'], false, "Image Set Creation isn’t available yet.",
+       all_url=url_for('pages.activity_all', kind='images'), cap=true) }}
+  {{ t.ci_table("Competitive Intelligence — One-Time Snapshot",
+       "Snapshots run this month", activity['ci_snapshot'],
+       all_url=url_for('pages.activity_all', kind='ci-snapshot'), cap=true) }}
+  {{ t.ci_table("Competitive Intelligence — Daily Monitoring",
+       "Monitoring groups active this month", activity['ci_monitoring'],
+       all_url=url_for('pages.activity_all', kind='ci-monitoring'), cap=true) }}
 </div>
 {% endblock %}
 
 {% block scripts %}
-{# Column sorting + the "10 rows then scroll" cap. Progressive enhancement: the
-   server renders rows newest-first, so the tables are useful with JS disabled. #}
+{# Column sorting, the "10 rows then scroll" cap, and image hover-preview.
+   Progressive enhancement: the server renders rows newest-first, so the tables
+   are useful with JS disabled. #}
 <script src="{{ static_url('js/dashboard.js') }}"></script>
 {% endblock %}

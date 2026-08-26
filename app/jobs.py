@@ -161,22 +161,25 @@ def count_managed_brands(conn: sqlite3.Connection, user_id: int,
     return int(row[0])
 
 
-def list_scored_this_month(conn: sqlite3.Connection, user_id: int, since: str,
-                           limit: int = 100) -> list[sqlite3.Row]:
-    """Completed scores for ``user_id`` since ``since`` — the dashboard "scored" table.
+def list_scored_activity(conn: sqlite3.Connection, user_id: int, since: str | None = None,
+                         limit: int = 500) -> list[sqlite3.Row]:
+    """Completed scores for ``user_id`` — the dashboard "scored" table + its View All.
 
-    Only ``scored`` rows (a finished, scored item — not queued/blocked/errored) on
-    or after ``since`` (the month boundary), newest first. Carries the columns the
+    Only ``scored`` rows (a finished, scored item — not queued/blocked/errored),
+    newest first. ``since`` (an ISO date) restricts to the current month for the
+    dashboard; omit it for the all-time View All screen. Carries the columns the
     activity table shows: item id (for the cached thumbnail), title, brand, score,
-    and when it ran. Capped so the table stays bounded.
+    and when it ran. Capped at ``limit`` so the query stays bounded.
     """
-    return conn.execute(
-        "SELECT id, item_id, url, title, brand, overall, created_at "
-        "FROM scored_items "
-        "WHERE user_id = ? AND status = 'scored' AND created_at >= ? "
-        "ORDER BY created_at DESC, id DESC LIMIT ?",
-        (user_id, since, limit),
-    ).fetchall()
+    sql = ("SELECT id, item_id, url, title, brand, overall, created_at "
+           "FROM scored_items WHERE user_id = ? AND status = 'scored'")
+    params: list = [user_id]
+    if since:
+        sql += " AND created_at >= ?"
+        params.append(since)
+    sql += " ORDER BY created_at DESC, id DESC LIMIT ?"
+    params.append(limit)
+    return conn.execute(sql, params).fetchall()
 
 
 def list_items(conn: sqlite3.Connection, limit: int = 200) -> list[sqlite3.Row]:

@@ -153,3 +153,45 @@ def test_security_headers_present(client):
     resp = client.get("/")
     assert resp.headers["X-Content-Type-Options"] == "nosniff"
     assert "Content-Security-Policy" in resp.headers
+
+
+def test_view_all_shows_all_time_records(client, auth, app):
+    # The dashboard table is month-scoped, but each View All screen shows every
+    # record for that activity — including rows from earlier months.
+    from app import jobs
+    from app.db import get_db
+
+    auth.register(email="va@example.com")
+    with app.app_context():
+        db = get_db()
+        uid = db.execute("SELECT id FROM users WHERE email = ?", ("va@example.com",)).fetchone()["id"]
+        ids = jobs.enqueue_items(db, uid, [
+            {"url": "https://www.walmart.com/ip/555", "item": "555", "brand": "Acme"},
+        ])
+        jobs.save_result(db, ids[0], 77, {"overall": 77}, "Old Scored Product")
+        # Backdate to a prior month so "this month" would exclude it.
+        db.execute("UPDATE scored_items SET created_at = '2020-01-05 00:00:00' WHERE id = ?",
+                   (ids[0],))
+        db.commit()
+
+    # Dashboard: this-month table hides the old row but carries the View all link.
+    dash = client.get("/app").data
+    assert b"/app/activity/scored" in dash
+    assert b"Old Scored Product" not in dash
+
+    # View All: all-time, so the old row appears.
+    resp = client.get("/app/activity/scored")
+    assert resp.status_code == 200
+    assert b"Old Scored Product" in resp.data
+    assert b"All activity" in resp.data
+
+
+def test_view_all_unknown_kind_404s(client, auth):
+    auth.register(email="va2@example.com")
+    assert client.get("/app/activity/bogus").status_code == 404
+
+
+def test_view_all_requires_login(client):
+    # Guarded like the rest of the workspace — anonymous is redirected to sign-in.
+    resp = client.get("/app/activity/scored")
+    assert resp.status_code in (301, 302)

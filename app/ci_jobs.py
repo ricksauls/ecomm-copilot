@@ -127,43 +127,53 @@ def reclaim_orphaned_runs(conn: sqlite3.Connection) -> int:
     return len(orphaned)
 
 
-def list_snapshot_activity_for_user(conn: sqlite3.Connection, user_id: int, since: str,
-                                    limit: int = 100) -> list[sqlite3.Row]:
-    """Snapshot runs the user triggered since ``since`` — the dashboard snapshot table.
+def list_snapshot_activity_for_user(conn: sqlite3.Connection, user_id: int,
+                                    since: str | None = None,
+                                    limit: int = 500) -> list[sqlite3.Row]:
+    """Snapshot runs the user triggered — the dashboard snapshot table + its View All.
 
-    One row per run of the user's snapshot-mode groups on or after ``since``,
-    newest first. Carries the group id (to look up its brand config) and name plus
-    the run's fire time (``started_at``, falling back to ``created_at`` for a run
-    that errored before it started). Capped so the table stays bounded.
+    One row per run of the user's snapshot-mode groups, newest first. ``since`` (an
+    ISO date) restricts to the current month for the dashboard; omit it for the
+    all-time View All screen. Carries the group id (to look up its brand config)
+    and name plus the run's fire time (``started_at``, falling back to
+    ``created_at`` for a run that errored before it started). Capped at ``limit``.
     """
-    return conn.execute(
-        "SELECT r.id AS run_id, r.group_id, g.name AS group_name, "
-        "  COALESCE(r.started_at, r.created_at) AS run_at "
-        "FROM ci_runs r JOIN ci_groups g ON g.id = r.group_id "
-        "WHERE g.user_id = ? AND g.mode = 'snapshot' AND r.created_at >= ? "
-        "ORDER BY r.id DESC LIMIT ?",
-        (user_id, since, limit),
-    ).fetchall()
+    sql = ("SELECT r.id AS run_id, r.group_id, g.name AS group_name, "
+           "  COALESCE(r.started_at, r.created_at) AS run_at "
+           "FROM ci_runs r JOIN ci_groups g ON g.id = r.group_id "
+           "WHERE g.user_id = ? AND g.mode = 'snapshot'")
+    params: list = [user_id]
+    if since:
+        sql += " AND r.created_at >= ?"
+        params.append(since)
+    sql += " ORDER BY r.id DESC LIMIT ?"
+    params.append(limit)
+    return conn.execute(sql, params).fetchall()
 
 
-def list_monitoring_activity_for_user(conn: sqlite3.Connection, user_id: int, since: str,
-                                      limit: int = 100) -> list[sqlite3.Row]:
-    """Monitoring groups that ran since ``since`` — the dashboard monitoring table.
+def list_monitoring_activity_for_user(conn: sqlite3.Connection, user_id: int,
+                                      since: str | None = None,
+                                      limit: int = 500) -> list[sqlite3.Row]:
+    """Monitoring groups that ran — the dashboard monitoring table + its View All.
 
     Unlike snapshots (one row per run), monitoring sweeps 3×/day, so this collapses
-    to one row per monitoring-mode group that had at least one run on or after
-    ``since``, dated by its most recent such run. Carries the group id (for its
-    brand config), name, and that latest run time. Capped so the table stays bounded.
+    to one row per monitoring-mode group that had at least one run, dated by its
+    most recent run. ``since`` (an ISO date) restricts to groups with a run in the
+    current month for the dashboard; omit it for the all-time View All screen.
+    Carries the group id (for its brand config), name, and that latest run time.
+    Capped at ``limit``.
     """
-    return conn.execute(
-        "SELECT g.id AS group_id, g.name AS group_name, "
-        "  MAX(COALESCE(r.started_at, r.created_at)) AS run_at "
-        "FROM ci_runs r JOIN ci_groups g ON g.id = r.group_id "
-        "WHERE g.user_id = ? AND g.mode = 'monitoring' AND r.created_at >= ? "
-        "GROUP BY g.id, g.name "
-        "ORDER BY run_at DESC LIMIT ?",
-        (user_id, since, limit),
-    ).fetchall()
+    sql = ("SELECT g.id AS group_id, g.name AS group_name, "
+           "  MAX(COALESCE(r.started_at, r.created_at)) AS run_at "
+           "FROM ci_runs r JOIN ci_groups g ON g.id = r.group_id "
+           "WHERE g.user_id = ? AND g.mode = 'monitoring'")
+    params: list = [user_id]
+    if since:
+        sql += " AND r.created_at >= ?"
+        params.append(since)
+    sql += " GROUP BY g.id, g.name ORDER BY run_at DESC LIMIT ?"
+    params.append(limit)
+    return conn.execute(sql, params).fetchall()
 
 
 def get_run(conn: sqlite3.Connection, run_id: int, user_id: int) -> sqlite3.Row | None:

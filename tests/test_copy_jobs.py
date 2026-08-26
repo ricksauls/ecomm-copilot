@@ -178,5 +178,5 @@ def test_list_copy_created_this_month_only_done_in_window(app):
         db.execute("UPDATE copy_items SET status = 'fetched' WHERE id = ?", (ids[2],))
         db.commit()
 
-        rows = copy_jobs.list_copy_created_this_month(db, uid, since="2020-06-01")
+        rows = copy_jobs.list_copy_activity(db, uid, since="2020-06-01")
         assert [r["id"] for r in rows] == [ids[0]]  # only the recent done row

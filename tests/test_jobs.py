@@ -190,7 +190,7 @@ def test_list_scored_this_month_only_completed_in_window(app):
                    (ids[1],))
         db.commit()
 
-        rows = jobs.list_scored_this_month(db, uid, since="2020-06-01")
+        rows = jobs.list_scored_activity(db, uid, since="2020-06-01")
         assert [r["id"] for r in rows] == [ids[0]]  # only the recent scored row
         assert rows[0]["brand"] == "Tabasco"
         assert rows[0]["overall"] == 82

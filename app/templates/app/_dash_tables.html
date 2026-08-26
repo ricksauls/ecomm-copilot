@@ -1,0 +1,82 @@
+{# Shared activity-table macros, used by the Dashboard (five month-scoped tables)
+   and by each View All screen (one all-time table). Native <details>/<summary>
+   so collapse needs no JS; sorting + the 10-row cap + image hover are layered on
+   in static/js/dashboard.js (progressive enhancement).
+
+   Params:
+   - all_url : if set, a "View all" link is shown in the header (dashboard only).
+   - cap     : if true, the body is marked for JS to cap at 10 visible rows
+               (dashboard); the View All screen leaves it uncapped. #}
+
+{% macro _summary(title, sub, count, all_url) %}
+  <summary class="dash-summary">
+    <span class="dash-summary-titles">
+      <h2>{{ title }}</h2>
+      <span class="sub">{{ sub }}</span>
+    </span>
+    {% if all_url %}<a class="dash-viewall" href="{{ all_url }}">View all</a>{% endif %}
+    <span class="dash-count">{{ count }}</span>
+  </summary>
+{% endmacro %}
+
+{# A product-activity table: image · date · brand · product (· score). #}
+{% macro product_table(title, sub, rows, with_score, empty, all_url='', cap=false) %}
+<details class="card dash-table" open>
+  {{ _summary(title, sub, rows | length, all_url) }}
+  <div class="dash-body{{ ' dash-body-capped' if cap }}">
+    <div class="dash-cols dash-cols-product{{ ' has-score' if with_score }} dash-head-row">
+      <div class="col" data-nosort>Image</div>
+      <div class="col">Date</div>
+      <div class="col">Brand</div>
+      <div class="col">Product</div>
+      {% if with_score %}<div class="col r">Score</div>{% endif %}
+    </div>
+    {% for row in rows %}
+    <div class="dash-cols dash-cols-product{{ ' has-score' if with_score }} dash-row">
+      <div class="col dash-thumb-cell">
+        {% if row.image_url %}
+          <img class="dash-thumb" src="{{ row.image_url }}" alt="" loading="lazy" />
+        {% else %}
+          <div class="dash-thumb placeholder"></div>
+        {% endif %}
+      </div>
+      <div class="col dash-date" data-sort="{{ row.sort_date }}">{{ row.date }}</div>
+      <div class="col">{{ row.brand }}</div>
+      <div class="col dash-title">{{ row.title }}</div>
+      {% if with_score %}<div class="col r dash-score">{{ row.score }}</div>{% endif %}
+    </div>
+    {% else %}
+    <div class="dash-empty">{{ empty }}</div>
+    {% endfor %}
+  </div>
+</details>
+{% endmacro %}
+
+{# A Competitive Intelligence table: name · date · my brand/items · competitor brand/items. #}
+{% macro ci_table(title, sub, rows, empty='Nothing this month yet.', all_url='', cap=false) %}
+<details class="card dash-table" open>
+  {{ _summary(title, sub, rows | length, all_url) }}
+  <div class="dash-body{{ ' dash-body-capped' if cap }}">
+    <div class="dash-cols dash-cols-ci dash-head-row">
+      <div class="col">Name</div>
+      <div class="col">Date</div>
+      <div class="col">My brand</div>
+      <div class="col r">My items</div>
+      <div class="col">Competitor brands</div>
+      <div class="col r">Competitor items</div>
+    </div>
+    {% for row in rows %}
+    <div class="dash-cols dash-cols-ci dash-row">
+      <div class="col dash-title">{{ row.name }}</div>
+      <div class="col dash-date" data-sort="{{ row.sort_date }}">{{ row.date }}</div>
+      <div class="col">{{ row.my_brands }}</div>
+      <div class="col r">{{ row.my_items }}</div>
+      <div class="col">{{ row.competitor_brands }}</div>
+      <div class="col r">{{ row.competitor_items }}</div>
+    </div>
+    {% else %}
+    <div class="dash-empty">{{ empty }}</div>
+    {% endfor %}
+  </div>
+</details>
+{% endmacro %}

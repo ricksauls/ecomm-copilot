@@ -1,0 +1,32 @@
+{% extends "app/base.html" %}
+{% import "app/_dash_tables.html" as t %}
+{% block title %}{{ title }} — ecomm-copilot{% endblock %}
+
+{% block pane_content %}
+{# View All: the full, all-time history for one dashboard activity (the dashboard
+   shows only the current month). One table, uncapped, page-scrolled. #}
+<div class="page-header">
+  <div>
+    <p class="label eyebrow">All activity</p>
+    <h1>{{ title }}</h1>
+    <p class="subtitle">{{ rows | length }} record{{ '' if rows | length == 1 else 's' }}, most recent first</p>
+  </div>
+  <div class="header-buttons">
+    <a href="{{ url_for('pages.dashboard') }}" class="wbtn wbtn-secondary">← Dashboard</a>
+  </div>
+</div>
+
+<div class="dash-tables">
+  {% if layout == 'product' %}
+    {{ t.product_table(title, "All records", rows, with_score, empty) }}
+  {% else %}
+    {{ t.ci_table(title, "All records", rows, empty=empty) }}
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+{# Same enhancement as the dashboard: sortable columns + image hover-preview.
+   The 10-row cap is off here (no cap flag), so all records show and the page scrolls. #}
+<script src="{{ static_url('js/dashboard.js') }}"></script>
+{% endblock %}

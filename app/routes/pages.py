@@ -147,6 +147,42 @@ def _ci_activity_view(db, uid, rows) -> list[dict]:
     return views
 
 
+# Each dashboard activity table + its "View All" screen. Maps the URL kind to its
+# display title, layout family ("product" thumbnail table vs "ci" brand table),
+# whether it shows a score column, and the empty-state message. The dashboard
+# renders all five (month-scoped); a View All renders one (all-time).
+_ACTIVITY_META = {
+    "scored":        ("Products scored", "product", True,  "Nothing scored yet."),
+    "copy":          ("Copy created", "product", False, "No copy created yet."),
+    "images":        ("Image sets created", "product", False,
+                      "Image Set Creation isn’t available yet."),
+    "ci-snapshot":   ("Competitive Intelligence — One-Time Snapshot", "ci", False,
+                      "No snapshots run yet."),
+    "ci-monitoring": ("Competitive Intelligence — Daily Monitoring", "ci", False,
+                      "No monitoring groups yet."),
+}
+
+
+def _activity_rows(db, uid, kind, since):
+    """Shaped rows for one activity kind — month-scoped (``since`` set) or all-time.
+
+    Shared by the dashboard (``since`` = start of month) and the View All screen
+    (``since`` = None). Returns an empty list for the not-yet-built Image Sets
+    feature. Callers validate ``kind`` against :data:`_ACTIVITY_META` first.
+    """
+    if kind == "scored":
+        return _product_activity_view(jobs.list_scored_activity(db, uid, since), with_score=True)
+    if kind == "copy":
+        return _product_activity_view(copy_jobs.list_copy_activity(db, uid, since), with_score=False)
+    if kind == "images":
+        return []  # feature not built yet — always empty
+    if kind == "ci-snapshot":
+        return _ci_activity_view(db, uid, ci_jobs.list_snapshot_activity_for_user(db, uid, since))
+    if kind == "ci-monitoring":
+        return _ci_activity_view(db, uid, ci_jobs.list_monitoring_activity_for_user(db, uid, since))
+    return []
+
+
 @bp.route("/")
 def landing():
     """Marketing landing page. Public, dark surface."""
@@ -208,18 +244,13 @@ def dashboard():
     ]
 
     # "This month" activity tables that replace the old demo "losing ground" table.
-    # Image Set Creation isn't a built feature yet, so its table is always empty
-    # (it renders an empty state) until that pipeline ships.
+    # Each is month-scoped here; its "View all" link opens the all-time screen.
     activity = {
-        "scored": _product_activity_view(
-            jobs.list_scored_this_month(db, uid, month_start), with_score=True),
-        "copy": _product_activity_view(
-            copy_jobs.list_copy_created_this_month(db, uid, month_start), with_score=False),
-        "image_sets": [],
-        "ci_snapshot": _ci_activity_view(
-            db, uid, ci_jobs.list_snapshot_activity_for_user(db, uid, month_start)),
-        "ci_monitoring": _ci_activity_view(
-            db, uid, ci_jobs.list_monitoring_activity_for_user(db, uid, month_start)),
+        "scored": _activity_rows(db, uid, "scored", month_start),
+        "copy": _activity_rows(db, uid, "copy", month_start),
+        "image_sets": _activity_rows(db, uid, "images", month_start),
+        "ci_snapshot": _activity_rows(db, uid, "ci-snapshot", month_start),
+        "ci_monitoring": _activity_rows(db, uid, "ci-monitoring", month_start),
     }
     return render_template(
         "app/dashboard.html",
@@ -227,6 +258,35 @@ def dashboard():
         active_nav="dashboard",
         activity=activity,
         **view_model,
+    )
+
+
+@bp.route("/app/activity/<kind>")
+@login_required
+def activity_all(kind):
+    """View All screen for one dashboard activity: every record, all-time.
+
+    The dashboard tables show only the current month; this shows the full history
+    for the requested ``kind``. Unknown kinds 404. Reuses the shared table macros
+    (`_dash_tables.html`) so the layout matches the dashboard.
+    """
+    meta = _ACTIVITY_META.get(kind)
+    if meta is None:
+        abort(404)
+    title, layout, with_score, empty = meta
+    db = get_db()
+    uid = g.user["id"]
+    rows = _activity_rows(db, uid, kind, since=None)  # all-time
+    logger.info("Serving View All activity=%s user_id=%s rows=%d", kind, uid, len(rows))
+    return render_template(
+        "app/activity_all.html",
+        breadcrumb="Dashboard · " + title,
+        active_nav="dashboard",
+        title=title,
+        layout=layout,
+        with_score=with_score,
+        empty=empty,
+        rows=rows,
     )
 
 
