@@ -129,6 +129,62 @@ def test_monitoring_share_of_shelf_period_delta_and_trend(app):
         assert [r["type"] for r in rows] == ["mine", "competitor"]
 
 
+def test_snapshot_brand_share_of_shelf_counts_all_skus(app):
+    """Brand share counts a brand's UNTRACKED SKUs too (unlike tracked-only share),
+    reading ci_search_results directly; unattributed cards form the 'Other' bucket."""
+    with app.app_context():
+        db = get_db()
+        _, gid, mine, comp, _, kid, rid = _setup(db)  # mine tracks 10294528
+        # Tabasco: its tracked item PLUS an untracked SKU (both brand-attributed).
+        _result(db, rid, gid, kid, _iso(0), 1, "10294528", mine, ptype="organic")
+        _result(db, rid, gid, kid, _iso(0), 2, "t2", mine, ptype="organic")
+        # Frank's: one sponsored SKU. Plus a card tied to no tracked brand -> Other.
+        _result(db, rid, gid, kid, _iso(0), 3, "f1", comp, ptype="sponsored")
+        _result(db, rid, gid, kid, _iso(0), 4, "o1", None, ptype="organic")
+        db.commit()
+
+        rows = ci_analysis.snapshot_brand_share_of_shelf(db, gid, rid)
+        by = {r["brand_name"]: r for r in rows}
+        # 4 placements total; Tabasco 2 (incl. the untracked SKU) = 50%.
+        assert by["Tabasco"]["total"] == 2
+        assert by["Tabasco"]["total_share"] == 50.0
+        # Organic denominator is 3 (2 Tabasco + 1 Other); Tabasco organic share = 66.7%.
+        assert by["Tabasco"]["organic_share"] == 66.7
+        assert by["Frank's"]["total_share"] == 25.0
+        assert by["Frank's"]["sponsored_share"] == 100.0  # the only sponsored card
+        assert by["Other"]["total_share"] == 25.0
+        # Ordering: mine, competitor, then the Other bucket.
+        assert [r["type"] for r in rows] == ["mine", "competitor", "other"]
+
+
+def test_monitoring_brand_share_of_shelf_period_delta_and_trend(app):
+    """Brand-level SoS aggregates ci_search_results over the completed period."""
+    with app.app_context():
+        db = get_db()
+        _, gid, mine, comp, _, kid, rid = _setup(db)
+        T = date(2026, 8, 26)
+
+        def bulk(d, brand_id, n, start_pos):
+            for i in range(n):
+                _result(db, rid, gid, kid, d, start_pos + i, f"{brand_id}-{i}", brand_id)
+
+        # Last completed week (Aug 17–23): Tabasco 7 of 10 = 70%.
+        bulk("2026-08-20", mine, 7, 1)
+        bulk("2026-08-20", comp, 3, 20)
+        # Prior week (Aug 10–16): Tabasco 4 of 10 = 40%.
+        bulk("2026-08-12", mine, 4, 1)
+        bulk("2026-08-12", comp, 6, 20)
+        db.commit()
+
+        rows = ci_analysis.monitoring_brand_share_of_shelf(db, gid, "wow", today=T)
+        by = {r["brand_name"]: r for r in rows}
+        assert by["Tabasco"]["total_share"] == 70.0
+        assert by["Tabasco"]["delta"] == 30.0  # 70 - 40 percentage points gained
+        assert by["Tabasco"]["trend"] == [40.0, 70.0]
+        assert by["Tabasco"]["trend_dates"] == ["Aug 10–16", "Aug 17–23"]
+        assert [r["type"] for r in rows] == ["mine", "competitor"]
+
+
 def test_snapshot_rank_splits_organic_and_sponsored(app):
     with app.app_context():
         db = get_db()

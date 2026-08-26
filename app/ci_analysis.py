@@ -110,22 +110,17 @@ def _sos_totals_by_brand(conn: sqlite3.Connection, group_id: int,
     }
 
 
-def snapshot_share_of_shelf(conn: sqlite3.Connection, group_id: int, run_id: int) -> list[dict]:
-    """Per-brand share of shelf for a single run (current-state, no deltas/trends).
+def _shape_share_rows(counts: dict[int | None, dict], brand_meta: dict) -> list[dict]:
+    """Turn ``{brand_id: {organic,sponsored,total}}`` into sorted share-of-shelf rows.
 
-    Used by the One-Time Snapshot results — one run, so trend/delta are meaningless.
+    Denominators are the grand totals across all brands, so each share is of the
+    whole page-1 shelf. A ``None`` brand_id (a placement attributed to no tracked
+    brand) becomes the "Other" bucket. Ordered mine-first, then competitors, then
+    Other, and within a tier by total share descending. Shared by every share
+    function (tracked-only and brand-level, snapshot and range) so their shaping
+    can't drift.
     """
-    rows = conn.execute(
-        "SELECT brand_id, SUM(organic_count) AS o, SUM(sponsored_count) AS s, "
-        "SUM(total_count) AS t FROM ci_share_of_search "
-        "WHERE group_id = ? AND run_id = ? GROUP BY brand_id",
-        (group_id, run_id),
-    ).fetchall()
-    counts = {r["brand_id"]: {"organic": r["o"] or 0, "sponsored": r["s"] or 0,
-                              "total": r["t"] or 0} for r in rows}
     grand = {k: sum(b[k] for b in counts.values()) for k in ("organic", "sponsored", "total")}
-
-    brand_meta = _brand_meta(conn, group_id)
     out = []
     for brand_id, c in counts.items():
         meta = brand_meta.get(brand_id)
@@ -142,6 +137,57 @@ def snapshot_share_of_shelf(conn: sqlite3.Connection, group_id: int, run_id: int
         })
     out.sort(key=lambda r: ({"mine": 0, "competitor": 1}.get(r["type"], 2), -r["total_share"]))
     return out
+
+
+def _brand_level_counts(conn: sqlite3.Connection, where: str, params: tuple) -> dict[int | None, dict]:
+    """Count each brand's organic/sponsored/total page-1 cards straight from
+    ``ci_search_results`` (so a brand's *untracked* SKUs count too, unlike the
+    tracked-only ``ci_share_of_search`` rollup). ``where`` is the row filter after
+    ``WHERE`` and ``params`` its bound values.
+    """
+    rows = conn.execute(
+        "SELECT brand_id, "
+        "  SUM(CASE WHEN position_type = 'organic' THEN 1 ELSE 0 END) AS o, "
+        "  SUM(CASE WHEN position_type = 'sponsored' THEN 1 ELSE 0 END) AS s, "
+        "  COUNT(*) AS t "
+        "FROM ci_search_results WHERE " + where + " GROUP BY brand_id",
+        params,
+    ).fetchall()
+    return {r["brand_id"]: {"organic": r["o"] or 0, "sponsored": r["s"] or 0, "total": r["t"] or 0}
+            for r in rows}
+
+
+def snapshot_share_of_shelf(conn: sqlite3.Connection, group_id: int, run_id: int) -> list[dict]:
+    """Per-brand share of shelf for a single run (current-state, no deltas/trends).
+
+    Tracked-item-only (reads the ``ci_share_of_search`` rollup): a brand's share is
+    its tracked SKUs' slots ÷ all placements. Used by the One-Time Snapshot results —
+    one run, so trend/delta are meaningless. See :func:`snapshot_brand_share_of_shelf`
+    for the whole-brand counterpart.
+    """
+    rows = conn.execute(
+        "SELECT brand_id, SUM(organic_count) AS o, SUM(sponsored_count) AS s, "
+        "SUM(total_count) AS t FROM ci_share_of_search "
+        "WHERE group_id = ? AND run_id = ? GROUP BY brand_id",
+        (group_id, run_id),
+    ).fetchall()
+    counts = {r["brand_id"]: {"organic": r["o"] or 0, "sponsored": r["s"] or 0,
+                              "total": r["t"] or 0} for r in rows}
+    return _shape_share_rows(counts, _brand_meta(conn, group_id))
+
+
+def snapshot_brand_share_of_shelf(conn: sqlite3.Connection, group_id: int, run_id: int) -> list[dict]:
+    """Brand-level share of shelf for a single run: *all* of a brand's page-1 cards
+    (tracked + untracked) ÷ total placements.
+
+    The whole-brand counterpart to :func:`snapshot_share_of_shelf` (which counts
+    only tracked SKUs). Reads ``ci_search_results`` directly — every card already
+    carries a ``brand_id`` (untracked SKUs are brand-attributed by name in the
+    scraper), and a card matched to no tracked brand falls into the "Other" bucket,
+    so the denominator stays the whole page-1 shelf.
+    """
+    counts = _brand_level_counts(conn, "group_id = ? AND run_id = ?", (group_id, run_id))
+    return _shape_share_rows(counts, _brand_meta(conn, group_id))
 
 
 def snapshot_share_by_keyword(conn: sqlite3.Connection, group_id: int, run_id: int) -> list[dict]:
@@ -465,24 +511,16 @@ def _rank_by_keyword_brand_range(conn, group_id, start, end) -> list[dict]:
 
 
 def _share_of_shelf_range(conn, group_id, start, end) -> list[dict]:
-    """Per-brand organic/sponsored/total share of shelf over a date range."""
+    """Per-brand tracked-item-only share of shelf over a date range."""
     counts = _sos_totals_by_brand(conn, group_id, start, end)
-    grand = {k: sum(b[k] for b in counts.values()) for k in ("organic", "sponsored", "total")}
-    brand_meta = _brand_meta(conn, group_id)
-    out = []
-    for brand_id, c in counts.items():
-        meta = brand_meta.get(brand_id)
-        out.append({
-            "brand_id": brand_id,
-            "brand_name": meta["name"] if meta else "Other",
-            "type": meta["type"] if meta else "other",
-            "organic": c["organic"], "sponsored": c["sponsored"], "total": c["total"],
-            "organic_share": _pct(c["organic"], grand["organic"]),
-            "sponsored_share": _pct(c["sponsored"], grand["sponsored"]),
-            "total_share": _pct(c["total"], grand["total"]),
-        })
-    out.sort(key=lambda r: ({"mine": 0, "competitor": 1}.get(r["type"], 2), -r["total_share"]))
-    return out
+    return _shape_share_rows(counts, _brand_meta(conn, group_id))
+
+
+def _brand_share_of_shelf_range(conn, group_id, start, end) -> list[dict]:
+    """Brand-level share of shelf (all of a brand's page-1 cards) over a date range."""
+    counts = _brand_level_counts(
+        conn, "group_id = ? AND scraped_at >= ? AND scraped_at <= ?", (group_id, start, end))
+    return _shape_share_rows(counts, _brand_meta(conn, group_id))
 
 
 def _share_by_keyword_range(conn, group_id, start, end) -> list[dict]:
@@ -586,15 +624,15 @@ def monitoring_rank_by_keyword(conn, group_id, period, today=None) -> list[dict]
     return out
 
 
-def monitoring_share_of_shelf(conn, group_id, period, today=None) -> list[dict]:
-    """Overall Share of Digital Shelf for the last completed period, with delta + trend.
-
-    Delta is current minus prior total-share (percentage points; positive = gained).
+def _assemble_share_over_period(conn, group_id, period, today, range_fn) -> list[dict]:
+    """Per-brand share for the last completed period with delta + trend, over any
+    share ``range_fn`` (tracked-only or brand-level). Delta is current minus prior
+    total-share (percentage points; positive = gained).
     """
-    cur = _share_of_shelf_range(conn, group_id, *period_bounds(period, 0, today))
-    prior = {r["brand_name"]: r for r in _share_of_shelf_range(conn, group_id, *period_bounds(period, 1, today))}
+    cur = range_fn(conn, group_id, *period_bounds(period, 0, today))
+    prior = {r["brand_name"]: r for r in range_fn(conn, group_id, *period_bounds(period, 1, today))}
     trend = _period_trend(conn, group_id, period, today, key_fn=lambda r: r["brand_name"],
-                          val_fn=lambda r: r["total_share"], range_fn=_share_of_shelf_range)
+                          val_fn=lambda r: r["total_share"], range_fn=range_fn)
     out = []
     for r in cur:
         p = prior.get(r["brand_name"])
@@ -602,6 +640,19 @@ def monitoring_share_of_shelf(conn, group_id, period, today=None) -> list[dict]:
         t = trend.get(r["brand_name"], {"dates": [], "values": []})
         out.append({**r, "delta": delta, "trend": t["values"], "trend_dates": t["dates"]})
     return out
+
+
+def monitoring_share_of_shelf(conn, group_id, period, today=None) -> list[dict]:
+    """Overall (tracked-item-only) Share of Digital Shelf for the last completed
+    period, with delta + trend."""
+    return _assemble_share_over_period(conn, group_id, period, today, _share_of_shelf_range)
+
+
+def monitoring_brand_share_of_shelf(conn, group_id, period, today=None) -> list[dict]:
+    """Brand-level Share of Digital Shelf (all of a brand's cards) for the last
+    completed period, with delta + trend. Whole-brand counterpart to
+    :func:`monitoring_share_of_shelf`."""
+    return _assemble_share_over_period(conn, group_id, period, today, _brand_share_of_shelf_range)
 
 
 def monitoring_share_by_keyword(conn, group_id, period, today=None) -> list[dict]:

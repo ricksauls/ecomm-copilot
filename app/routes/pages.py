@@ -1304,6 +1304,14 @@ def ci_product_image(item_id):
     return send_file(path, mimetype="image/jpeg", max_age=86400)
 
 
+def _sos_chart_scale(sos_rows) -> float:
+    """Tallest organic+sponsored stack among share rows — the stacked-bar chart's
+    y-scale. Bars visualize the table's share columns (not raw counts), so both the
+    tracked-item and brand-level charts scale to their own tallest stack.
+    """
+    return max((r["organic_share"] + r["sponsored_share"] for r in sos_rows), default=0)
+
+
 def _snapshot_data(db, group_id):
     """Gather every section the snapshot results page and its PDF render.
 
@@ -1322,11 +1330,14 @@ def _snapshot_data(db, group_id):
         "keywords": [k["keyword"] for k in ci_config.list_keywords(db, group_id, g.user["id"])],
     }
 
-    sos_summary, avg_ranks, rank_rows, share_rows = [], [], [], []
+    sos_summary, brand_sos_summary, avg_ranks, rank_rows, share_rows = [], [], [], [], []
     rank_map = None
     if run and run["status"] == "done":
         rid = run["id"]
         sos_summary = ci_analysis.snapshot_share_of_shelf(db, group_id, rid)
+        # Brand-level share (all of a brand's SKUs, not just tracked) — the section
+        # appended at the end of the report.
+        brand_sos_summary = ci_analysis.snapshot_brand_share_of_shelf(db, group_id, rid)
         avg_ranks = ci_analysis.snapshot_brand_avg_rank(db, group_id, rid)
         rank_rows = ci_analysis.snapshot_rank_by_keyword_brand(db, group_id, rid)
         share_rows = ci_analysis.snapshot_share_by_keyword(db, group_id, rid)
@@ -1339,6 +1350,7 @@ def _snapshot_data(db, group_id):
         "run": run,
         "config_summary": config_summary,
         "sos_summary": sos_summary,
+        "brand_sos_summary": brand_sos_summary,
         "avg_ranks": avg_ranks,
         "rank_rows": rank_rows,
         "share_rows": share_rows,
@@ -1365,12 +1377,14 @@ def _monitoring_data(db, group_id, period):
     avg_ranks = ci_analysis.monitoring_avg_rank(db, group_id, period)
     rank_rows = ci_analysis.monitoring_rank_by_keyword(db, group_id, period)
     sos_summary = ci_analysis.monitoring_share_of_shelf(db, group_id, period)
+    brand_sos_summary = ci_analysis.monitoring_brand_share_of_shelf(db, group_id, period)
     share_rows = ci_analysis.monitoring_share_by_keyword(db, group_id, period)
     rank_map = ci_analysis.monitoring_placement_map(db, group_id, period, avg_ranks)
 
     return {
         "config_summary": config_summary,
         "sos_summary": sos_summary,
+        "brand_sos_summary": brand_sos_summary,
         "avg_ranks": avg_ranks,
         "rank_rows": rank_rows,
         "share_rows": share_rows,
@@ -1388,8 +1402,9 @@ def ci_snapshot_results(group_id):
 
     # Stacked-bar chart scale: bars visualize the table's organic/sponsored share
     # columns (not raw counts), so scale to the tallest organic+sponsored stack.
-    sos_scale = max((r["organic_share"] + r["sponsored_share"] for r in data["sos_summary"]),
-                    default=0)
+    # The brand-level chart at the end of the report scales independently.
+    sos_scale = _sos_chart_scale(data["sos_summary"])
+    brand_sos_scale = _sos_chart_scale(data["brand_sos_summary"])
 
     run = data["run"]
     logger.info("CI snapshot results: group_id=%s user_id=%s run_id=%s rank_rows=%d",
@@ -1402,12 +1417,14 @@ def ci_snapshot_results(group_id):
         group=group,
         run=run,
         sos_summary=data["sos_summary"],
+        brand_sos_summary=data["brand_sos_summary"],
         config_summary=data["config_summary"],
         avg_ranks=data["avg_ranks"],
         rank_rows=data["rank_rows"],
         share_rows=data["share_rows"],
         rank_map=data["rank_map"],
         sos_scale=sos_scale,
+        brand_sos_scale=brand_sos_scale,
     )
 
 
@@ -1434,6 +1451,7 @@ def ci_snapshot_results_pdf(group_id):
         rank_rows=data["rank_rows"],
         sos_rows=data["sos_summary"],
         share_rows=data["share_rows"],
+        brand_sos_rows=data["brand_sos_summary"],
         rank_map=data["rank_map"],
     )
     filename = f"ci-snapshot-{_slug(group['name'])}-{date.today().isoformat()}.pdf"
@@ -1487,13 +1505,13 @@ def ci_view_snapshot():
     elif groups:
         selected = groups[0]  # default to the newest snapshot group
 
-    data = {"run": None, "config_summary": None, "sos_summary": [], "avg_ranks": [],
-            "rank_rows": [], "share_rows": [], "rank_map": None}
+    data = {"run": None, "config_summary": None, "sos_summary": [], "brand_sos_summary": [],
+            "avg_ranks": [], "rank_rows": [], "share_rows": [], "rank_map": None}
     if selected is not None:
         data = _snapshot_data(db, selected["id"])
 
-    sos_scale = max((r["organic_share"] + r["sponsored_share"] for r in data["sos_summary"]),
-                    default=0)
+    sos_scale = _sos_chart_scale(data["sos_summary"])
+    brand_sos_scale = _sos_chart_scale(data["brand_sos_summary"])
     logger.info("CI view-snapshot user_id=%s group_id=%s run_id=%s",
                 g.user["id"], selected["id"] if selected else None,
                 data["run"]["id"] if data["run"] else None)
@@ -1506,11 +1524,13 @@ def ci_view_snapshot():
         run=data["run"],
         config_summary=data["config_summary"],
         sos_summary=data["sos_summary"],
+        brand_sos_summary=data["brand_sos_summary"],
         avg_ranks=data["avg_ranks"],
         rank_rows=data["rank_rows"],
         share_rows=data["share_rows"],
         rank_map=data["rank_map"],
         sos_scale=sos_scale,
+        brand_sos_scale=brand_sos_scale,
     )
 
 
@@ -1535,8 +1555,8 @@ def ci_view():
     elif groups:
         selected = groups[0]  # default to the newest monitoring group
 
-    data = {"config_summary": None, "sos_summary": [], "avg_ranks": [],
-            "rank_rows": [], "share_rows": [], "rank_map": None}
+    data = {"config_summary": None, "sos_summary": [], "brand_sos_summary": [],
+            "avg_ranks": [], "rank_rows": [], "share_rows": [], "rank_map": None}
     available: list = []
     period = ci_analysis.DEFAULT_PERIOD
     period_label = prior_label = None
@@ -1554,9 +1574,10 @@ def ci_view():
             prior_label = ci_analysis.period_label(period, 1)
 
     # Stacked-bar chart scale: scale to the tallest organic+sponsored stack, so the
-    # bars visualize the table's share columns (same as the snapshot page).
-    sos_scale = max((r["organic_share"] + r["sponsored_share"] for r in data["sos_summary"]),
-                    default=0)
+    # bars visualize the table's share columns (same as the snapshot page). The
+    # brand-level chart at the end of the report scales independently.
+    sos_scale = _sos_chart_scale(data["sos_summary"])
+    brand_sos_scale = _sos_chart_scale(data["brand_sos_summary"])
     logger.info("CI view user_id=%s group_id=%s period=%s available=%s",
                 g.user["id"], selected["id"] if selected else None, period, available)
     return render_template(
@@ -1573,11 +1594,13 @@ def ci_view():
         prior_label=prior_label,
         config_summary=data["config_summary"],
         sos_summary=data["sos_summary"],
+        brand_sos_summary=data["brand_sos_summary"],
         avg_ranks=data["avg_ranks"],
         rank_rows=data["rank_rows"],
         share_rows=data["share_rows"],
         rank_map=data["rank_map"],
         sos_scale=sos_scale,
+        brand_sos_scale=brand_sos_scale,
     )
 
 
@@ -1604,6 +1627,7 @@ def ci_view_pdf(group_id):
         rank_rows=data["rank_rows"],
         sos_rows=data["sos_summary"],
         share_rows=data["share_rows"],
+        brand_sos_rows=data["brand_sos_summary"],
         rank_map=data["rank_map"],
         period_label=ci_analysis.period_label(period),
         prior_label=ci_analysis.period_label(period, 1),

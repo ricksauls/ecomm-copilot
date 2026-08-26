@@ -294,6 +294,69 @@
   </div>
 </div>
 {% endif %}
+
+{# Brand Share of Digital Shelf — closes the report. Unlike "Overall Share of
+   Digital Shelf" (tracked SKUs only), this counts ALL of a brand's page-1
+   placements (every SKU, tracked or not) ÷ the whole shelf. Same table + stacked
+   bar layout, its own independent chart scale. #}
+{% if brand_sos_summary %}
+<div class="ci-section card card-pad">
+  <div class="ci-section-title">Brand Share of Digital Shelf</div>
+  <p class="ci-section-hint">
+    Each brand's whole page-1 presence — every SKU, not just tracked items — as a
+    share of all page-1 slots across your tracked keywords, organic vs sponsored.
+    Based on {{ brand_sos_summary | sum(attribute='total') }} page-1 placements.
+  </p>
+  <div class="table-scroll">
+    <table class="admin-table">
+      <thead><tr><th>Brand</th><th>Type</th><th>Organic</th><th>Sponsored</th><th>Total share</th><th></th></tr></thead>
+      <tbody>
+        {% for r in brand_sos_summary %}
+        <tr>
+          <td>{{ r.brand_name }}</td>
+          <td><span class="ci-type {{ 'mine' if r.type == 'mine' else '' }}">{{ r.type }}</span></td>
+          <td class="cell-muted">{{ r.organic_share }}%</td>
+          <td class="cell-muted">{{ r.sponsored_share }}%</td>
+          <td>{{ r.total_share }}%</td>
+          <td style="width:120px">
+            <span class="ci-bar-track">
+              <span class="ci-bar-fill {{ 'mine' if r.type == 'mine' else '' }}" style="width: {{ r.total_share }}%"></span>
+            </span>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% set scale = brand_sos_scale or 1 %}
+  <div class="sos-chart">
+    <div class="sos-plot" role="img"
+         aria-label="Stacked bar chart of each brand's organic and sponsored share of the page-1 shelf, counting all of the brand's SKUs.">
+      {% for r in brand_sos_summary %}
+      <div class="sos-col">
+        <div class="sos-col-plot">
+          <div class="sos-col-value">{{ r.total_share }}%</div>
+          <div class="sos-bar">
+            {% if r.sponsored_share %}<span class="sos-seg sos-seg-sponsored"
+              style="height: {{ (r.sponsored_share / scale * 180) | round(1) }}px"
+              title="{{ r.brand_name }} — sponsored share {{ r.sponsored_share }}%"></span>{% endif %}
+            {% if r.organic_share %}<span class="sos-seg sos-seg-organic"
+              style="height: {{ (r.organic_share / scale * 180) | round(1) }}px"
+              title="{{ r.brand_name }} — organic share {{ r.organic_share }}%"></span>{% endif %}
+          </div>
+        </div>
+        <div class="sos-col-label">{{ r.brand_name }}</div>
+      </div>
+      {% endfor %}
+    </div>
+    <div class="sos-legend">
+      <span class="sos-legend-item"><span class="sos-swatch sos-seg-organic"></span> Organic share</span>
+      <span class="sos-legend-item"><span class="sos-swatch sos-seg-sponsored"></span> Sponsored share</span>
+    </div>
+  </div>
+</div>
+{% endif %}
 {% endif %}
 {% endblock %}
 

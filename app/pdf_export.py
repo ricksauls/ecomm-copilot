@@ -628,15 +628,18 @@ def _rank_placement_grid(rank_map: dict | None) -> Drawing | Spacer:
 
 def _ci_results_flow(group: dict, subtitle: str, styles: dict, *, config_summary: dict,
                      avg_ranks: list[dict], rank_rows: list[dict], sos_rows: list[dict],
-                     share_rows: list[dict], rank_map: dict | None, with_trend: bool) -> list:
-    """The shared five-section results flow behind both CI results PDFs.
+                     share_rows: list[dict], brand_sos_rows: list[dict],
+                     rank_map: dict | None, with_trend: bool) -> list:
+    """The shared results flow behind both CI results PDFs.
 
     In page order: the config summary, Overall Search Ranking (table + the
     placement-map grid), per-keyword Search Ranking, Overall Share of Digital Shelf
-    (table + the stacked bar chart), and per-keyword Share of Digital Shelf. Page
-    breaks fall after the config summary and after per-keyword Search Ranking so
-    each block starts fresh. ``with_trend`` adds a trend sparkline column to every
-    table — the only thing the Daily Monitoring export adds over the snapshot.
+    (table + the stacked bar chart), per-keyword Share of Digital Shelf, and finally
+    Brand Share of Digital Shelf (all of a brand's SKUs, not just tracked — table +
+    its own stacked bar chart). Page breaks fall after the config summary and after
+    per-keyword Search Ranking so each block starts fresh. ``with_trend`` adds a
+    trend sparkline column to every table — the only thing the Daily Monitoring
+    export adds over the snapshot.
     """
     flow = _ci_header(group, subtitle, styles)
     flow += _summary_flow(config_summary, styles)
@@ -682,12 +685,33 @@ def _ci_results_flow(group: dict, subtitle: str, styles: dict, *, config_summary
     flow.append(Spacer(1, 22))
     flow.append(Paragraph("Share of Digital Shelf", styles["item"]))
     flow.append(_share_by_keyword_table(share_rows, styles, with_trend=with_trend))
+    # Brand Share of Digital Shelf closes the report: a brand's whole page-1
+    # presence (tracked + untracked SKUs) ÷ all placements — table + its own chart.
+    flow.append(PageBreak())
+    flow.append(Paragraph("Brand Share of Digital Shelf", styles["item"]))
+    flow.append(Paragraph(
+        "All of a brand's page-1 placements (every SKU, not just tracked items) as a "
+        "share of the whole shelf.", styles["cellmuted"]))
+    flow.append(Spacer(1, 6))
+    flow.append(_sos_table(brand_sos_rows, styles, with_trend=with_trend))
+    brand_chart = _sos_chart(brand_sos_rows)
+    if not isinstance(brand_chart, Spacer):
+        flow.append(Spacer(1, 10))
+        flow.append(brand_chart)
+        flow.append(Spacer(1, 4))
+        flow.append(Paragraph(
+            '<font color="#050505">■</font> Organic share'
+            ' &#160;&#160;&#160; '
+            '<font color="#8c8c8c">■</font> Sponsored share',
+            styles["cellmuted"],
+        ))
     return flow
 
 
 def build_ci_snapshot_pdf(group: dict, *, config_summary: dict, avg_ranks: list[dict],
                           rank_rows: list[dict], sos_rows: list[dict],
-                          share_rows: list[dict], rank_map: dict | None = None) -> bytes:
+                          share_rows: list[dict], brand_sos_rows: list[dict] | None = None,
+                          rank_map: dict | None = None) -> bytes:
     """One-Time Snapshot PDF — mirrors the results page, current-state (no trends)."""
     styles = _styles()
     buffer = io.BytesIO()
@@ -699,7 +723,8 @@ def build_ci_snapshot_pdf(group: dict, *, config_summary: dict, avg_ranks: list[
     flow = _ci_results_flow(
         group, "One-Time Snapshot — current state", styles,
         config_summary=config_summary, avg_ranks=avg_ranks, rank_rows=rank_rows,
-        sos_rows=sos_rows, share_rows=share_rows, rank_map=rank_map, with_trend=False,
+        sos_rows=sos_rows, share_rows=share_rows, brand_sos_rows=brand_sos_rows or [],
+        rank_map=rank_map, with_trend=False,
     )
     doc.build(flow)
     logger.info("Built CI snapshot PDF: group=%s", group.get("name"))
@@ -708,7 +733,8 @@ def build_ci_snapshot_pdf(group: dict, *, config_summary: dict, avg_ranks: list[
 
 def build_ci_monitoring_pdf(group: dict, period: str, *, config_summary: dict,
                             avg_ranks: list[dict], rank_rows: list[dict], sos_rows: list[dict],
-                            share_rows: list[dict], rank_map: dict | None = None,
+                            share_rows: list[dict], brand_sos_rows: list[dict] | None = None,
+                            rank_map: dict | None = None,
                             period_label: str | None = None,
                             prior_label: str | None = None) -> bytes:
     """Daily Monitoring PDF — the snapshot layout, aggregated over a completed period.
@@ -731,8 +757,8 @@ def build_ci_monitoring_pdf(group: dict, period: str, *, config_summary: dict,
         subtitle += f" (vs {prior_label})"
     flow = _ci_results_flow(
         group, subtitle, styles, config_summary=config_summary, avg_ranks=avg_ranks,
-        rank_rows=rank_rows, sos_rows=sos_rows, share_rows=share_rows, rank_map=rank_map,
-        with_trend=True,
+        rank_rows=rank_rows, sos_rows=sos_rows, share_rows=share_rows,
+        brand_sos_rows=brand_sos_rows or [], rank_map=rank_map, with_trend=True,
     )
     doc.build(flow)
     logger.info("Built CI monitoring PDF: group=%s period=%s", group.get("name"), period)

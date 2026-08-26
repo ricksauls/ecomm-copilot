@@ -112,6 +112,8 @@ def test_snapshot_results_render_without_trend_markup(client, auth):
     assert b"Overall Search Ranking" in resp.data
     # Share of shelf now has an overall section plus a per-keyword breakdown.
     assert b"Overall Share of Digital Shelf" in resp.data
+    # ...and the brand-level section (all of a brand's SKUs) closes the report.
+    assert b"Brand Share of Digital Shelf" in resp.data
     # The old head-to-head "Ranking by Term" section was removed.
     assert b"Ranking by Term" not in resp.data
     # Share of shelf carries a stacked-bar view alongside the table.
@@ -315,6 +317,7 @@ def test_monitoring_view_matches_snapshot_layout_with_trends(client, auth):
     assert b"What this group tracks" in resp.data
     assert b"Overall Search Ranking" in resp.data
     assert b"Overall Share of Digital Shelf" in resp.data
+    assert b"Brand Share of Digital Shelf" in resp.data  # brand-level section (all SKUs)
     assert b"sos-chart" in resp.data
     assert b"rankmap" in resp.data
     # …plus the monitoring extras: the "vs prior" delta column and trend sparklines.
