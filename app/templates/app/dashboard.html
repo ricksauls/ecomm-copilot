@@ -43,21 +43,22 @@
    monitoring). Each is capped at 10 rows and carries a "View all" link to its
    all-time screen. Markup lives in the shared _dash_tables.html macros. #}
 <div class="dash-tables">
-  {# Bracket access, not dot: activity.copy would resolve to dict.copy (a method). #}
-  {{ t.product_table("Products scored", "PDPs scored this month",
+  {# Single title per table (no subtitle); the empty string is the sub arg.
+     Bracket access, not dot: activity.copy would resolve to dict.copy (a method). #}
+  {{ t.product_table("PDP’s Scored This Month", "",
        activity['scored'], true, "Nothing scored this month yet.",
        all_url=url_for('pages.activity_all', kind='scored'), cap=true) }}
-  {{ t.product_table("Copy created", "PDPs with new copy created this month",
+  {{ t.product_table("PDP’s With New Copy Created This Month", "",
        activity['copy'], false, "No copy created this month yet.",
        all_url=url_for('pages.activity_all', kind='copy'), cap=true) }}
-  {{ t.product_table("Image sets created", "PDPs with a new image set this month",
+  {{ t.product_table("PDP’s With New Image Set’s Created This Month", "",
        activity['image_sets'], false, "Image Set Creation isn’t available yet.",
        all_url=url_for('pages.activity_all', kind='images'), cap=true) }}
-  {{ t.ci_table("Competitive Intelligence — One-Time Snapshot",
-       "Snapshots run this month", activity['ci_snapshot'],
+  {{ t.ci_table("Competitive Intelligence Snapshots Created And Run This Month", "",
+       activity['ci_snapshot'],
        all_url=url_for('pages.activity_all', kind='ci-snapshot'), cap=true) }}
-  {{ t.ci_table("Competitive Intelligence — Daily Monitoring",
-       "Monitoring groups active this month", activity['ci_monitoring'],
+  {{ t.ci_table("Competitive Intelligence Daily Monitoring Created This Month", "",
+       activity['ci_monitoring'],
        all_url=url_for('pages.activity_all', kind='ci-monitoring'), cap=true) }}
 </div>
 {% endblock %}

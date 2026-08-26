@@ -30,12 +30,14 @@ def test_dashboard_renders_when_authenticated(client, auth):
     auth.register()
     resp = client.get("/app")
     assert resp.status_code == 200
-    # The five "this month" activity tables replace the old demo table.
-    assert b"Products scored" in resp.data
-    assert b"Copy created" in resp.data
-    assert b"Image sets created" in resp.data
-    assert b"One-Time Snapshot" in resp.data
-    assert b"Daily Monitoring" in resp.data
+    # The five "this month" activity tables replace the old demo table. Assert on
+    # apostrophe-free substrings of each single-line title (the titles use a
+    # curly apostrophe, awkward to match as bytes).
+    assert b"Scored This Month" in resp.data
+    assert b"With New Copy Created This Month" in resp.data
+    assert b"New Image Set" in resp.data
+    assert b"Snapshots Created And Run This Month" in resp.data
+    assert b"Daily Monitoring Created This Month" in resp.data
     # A brand-new account has no activity, so each table shows its empty state.
     assert b"Nothing scored this month yet." in resp.data
     # The demo table and the (non-functional) Export report button are gone.
