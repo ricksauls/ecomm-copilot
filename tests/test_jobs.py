@@ -146,3 +146,26 @@ def test_save_result_and_mark_failed(app):
         assert json.loads(rows[ids[0]]["result_json"])["overall"] == 82
         assert rows[ids[1]]["status"] == "blocked"
         assert rows[ids[1]]["error"] == "bot detection"
+
+
+def test_reclaim_orphaned_items_fails_stranded_scoring_rows(app):
+    # A row left 'scoring' (worker died mid-fetch) is stranded forever; reclaim marks
+    # it 'error' so the user sees the failure and can re-run. Queued/finished rows are
+    # left untouched, and the sweep is idempotent.
+    with app.app_context():
+        db = get_db()
+        uid = create_local_user("orphan@example.com", "password123")
+        ids = jobs.enqueue_items(db, uid, [
+            {"url": "https://www.walmart.com/ip/1", "item": "1"},
+            {"url": "https://www.walmart.com/ip/2", "item": "2"},
+        ])
+        claimed = jobs.claim_next(db)  # -> status 'scoring'
+        assert claimed["id"] == ids[0]
+
+        assert jobs.reclaim_orphaned_items(db) == 1
+        rows = {r["id"]: r for r in jobs.get_items(db, ids, uid)}
+        assert rows[ids[0]]["status"] == "error"
+        assert "Interrupted" in rows[ids[0]]["error"]
+        assert rows[ids[1]]["status"] == "queued"  # never claimed -> untouched
+        # Idempotent: nothing left 'scoring' now.
+        assert jobs.reclaim_orphaned_items(db) == 0

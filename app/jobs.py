@@ -228,3 +228,31 @@ def mark_failed(conn: sqlite3.Connection, row_id: int, status: str, message: str
         (status, message[:500], row_id),
     )
     conn.commit()
+
+
+# Message shown to the user for an item stranded by a mid-fetch worker restart.
+_ORPHAN_MESSAGE = "Interrupted — the worker restarted mid-fetch (marked failed on startup). Re-run this item."
+
+
+def reclaim_orphaned_items(conn: sqlite3.Connection) -> int:
+    """Fail any item still marked ``scoring`` — call once on worker startup.
+
+    With a single worker (see HANDOFF §6), a ``scoring`` row at startup can only be
+    orphaned: the worker that claimed it died mid-fetch (a deploy restart or an OOM
+    kill when headed Chrome spiked memory), so no process will ever finish it. Left
+    alone it sits ``scoring`` forever — the results view flashes it as in-progress
+    indefinitely and the user has no signal to act. Marking it ``error`` surfaces the
+    failure so the user can re-run it. Returns the count reclaimed.
+
+    NB: this assumes one worker. A worker pool (the §6 future) would need a heartbeat
+    or age threshold so a restart can't fail a peer's in-flight item.
+    """
+    updated = conn.execute(
+        "UPDATE scored_items SET status = 'error', error = ?, "
+        "updated_at = datetime('now') WHERE status = 'scoring'",
+        (_ORPHAN_MESSAGE,),
+    )
+    conn.commit()
+    if updated.rowcount:
+        logger.warning("Reclaimed %d orphaned scoring item(s) on startup", updated.rowcount)
+    return updated.rowcount

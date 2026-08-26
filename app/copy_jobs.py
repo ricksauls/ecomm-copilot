@@ -216,3 +216,34 @@ def mark_copy_failed(conn: sqlite3.Connection, row_id: int, status: str, message
         (status, message[:500], row_id),
     )
     conn.commit()
+
+
+# The two in-flight statuses a worker holds a copy row in while doing work; a row
+# left in either at startup was stranded by a mid-flight worker restart.
+_ORPHAN_STATUSES = ("fetching", "generating")
+_ORPHAN_MESSAGE = "Interrupted — the worker restarted mid-run (marked failed on startup). Re-run this item."
+
+
+def reclaim_orphaned_copy_items(conn: sqlite3.Connection) -> int:
+    """Fail any copy row still ``fetching`` or ``generating`` — call on worker startup.
+
+    With a single worker (see HANDOFF §6), a row in an in-flight status at startup can
+    only be orphaned: the worker that claimed it died mid-fetch or mid-generation (a
+    deploy restart or an OOM kill), so no process will ever finish it. Left alone it
+    sits in-progress forever — the results view flashes it indefinitely and the user
+    has no signal to act. Marking it ``error`` surfaces the failure so the user can
+    re-run it. Returns the count reclaimed.
+
+    NB: this assumes one worker. A worker pool (the §6 future) would need a heartbeat
+    or age threshold so a restart can't fail a peer's in-flight row.
+    """
+    placeholders = ",".join("?" for _ in _ORPHAN_STATUSES)
+    updated = conn.execute(
+        f"UPDATE copy_items SET status = 'error', error = ?, "
+        f"updated_at = datetime('now') WHERE status IN ({placeholders})",
+        (_ORPHAN_MESSAGE, *_ORPHAN_STATUSES),
+    )
+    conn.commit()
+    if updated.rowcount:
+        logger.warning("Reclaimed %d orphaned copy item(s) on startup", updated.rowcount)
+    return updated.rowcount

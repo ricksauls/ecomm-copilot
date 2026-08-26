@@ -120,3 +120,46 @@ def test_mark_copy_failed(app):
         row = copy_jobs.get_copy_items(db, ids, uid)[0]
         assert row["status"] == "blocked"
         assert row["error"] == "bot detection"
+
+
+def test_reclaim_orphaned_copy_items_fails_stranded_in_flight_rows(app):
+    # Rows left mid-flight ('fetching' from a queued claim, 'generating' from a
+    # gen_queued claim) are stranded forever when the worker dies; reclaim marks both
+    # 'error'. Queued/resting/done rows are untouched, and the sweep is idempotent.
+    with app.app_context():
+        db = get_db()
+        uid = create_local_user("orphan-copy@example.com", "password123")
+        ids = copy_jobs.enqueue_copy_items(db, uid, _items(2))
+        # Advance the second row to 'gen_queued' so its claim yields 'generating'.
+        db.execute("UPDATE copy_items SET status = 'fetched' WHERE id = ?", (ids[1],))
+        copy_jobs.request_generation(db, [ids[1]], uid)
+
+        first = copy_jobs.claim_next_copy(db)   # queued -> 'fetching'
+        assert first["id"] == ids[0] and first["status"] == "fetching"
+        second = copy_jobs.claim_next_copy(db)  # gen_queued -> 'generating'
+        assert second["id"] == ids[1] and second["status"] == "generating"
+
+        assert copy_jobs.reclaim_orphaned_copy_items(db) == 2
+        rows = {r["id"]: r for r in copy_jobs.get_copy_items(db, ids, uid)}
+        assert rows[ids[0]]["status"] == "error"
+        assert rows[ids[1]]["status"] == "error"
+        assert "Interrupted" in rows[ids[0]]["error"]
+        # Idempotent: nothing left in flight now.
+        assert copy_jobs.reclaim_orphaned_copy_items(db) == 0
+
+
+def test_reclaim_orphaned_copy_items_leaves_resting_rows_alone(app):
+    # A 'fetched' row (resting, waiting for the user) and a 'done' row must survive a
+    # reclaim sweep untouched — only in-flight statuses are orphans.
+    with app.app_context():
+        db = get_db()
+        uid = create_local_user("resting-copy@example.com", "password123")
+        ids = copy_jobs.enqueue_copy_items(db, uid, _items(2))
+        db.execute("UPDATE copy_items SET status = 'fetched' WHERE id = ?", (ids[0],))
+        db.execute("UPDATE copy_items SET status = 'done' WHERE id = ?", (ids[1],))
+        db.commit()
+
+        assert copy_jobs.reclaim_orphaned_copy_items(db) == 0
+        rows = {r["id"]: r for r in copy_jobs.get_copy_items(db, ids, uid)}
+        assert rows[ids[0]]["status"] == "fetched"
+        assert rows[ids[1]]["status"] == "done"

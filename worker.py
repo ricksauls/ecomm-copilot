@@ -296,11 +296,16 @@ def main() -> None:
     """
     conn = connect()
     log.info("PDP worker started (scoring + copy + competitive intelligence)")
-    # A previous worker may have died mid-run (e.g. OOM); clear any run it left
-    # stuck in 'running' so it doesn't block the group's monitoring schedule.
-    reclaimed = ci_jobs.reclaim_orphaned_runs(conn)
-    if reclaimed:
-        log.warning("Startup: reclaimed %d orphaned CI run(s)", reclaimed)
+    # A previous worker may have died mid-flight (a deploy restart or an OOM kill on
+    # the ~2 GB droplet). Reclaim anything it left stuck in an in-flight status so a
+    # scoring/copy item doesn't flash in-progress forever and a CI run doesn't block
+    # its group's monitoring schedule. All three queues self-heal on startup.
+    reclaimed_items = jobs.reclaim_orphaned_items(conn)
+    reclaimed_copy = copy_jobs.reclaim_orphaned_copy_items(conn)
+    reclaimed_runs = ci_jobs.reclaim_orphaned_runs(conn)
+    if reclaimed_items or reclaimed_copy or reclaimed_runs:
+        log.warning("Startup: reclaimed %d scoring item(s), %d copy item(s), %d CI run(s)",
+                    reclaimed_items, reclaimed_copy, reclaimed_runs)
     while True:
         row = jobs.claim_next(conn)
         if row is not None:
