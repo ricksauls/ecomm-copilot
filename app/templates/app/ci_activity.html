@@ -1,0 +1,27 @@
+{% extends "app/base.html" %}
+{% import "app/_dash_tables.html" as t %}
+{% block title %}View All Competitive Intelligence Activity — ecomm-copilot{% endblock %}
+
+{% block pane_content %}
+{# All-time Competitive Intelligence activity: the two CI tables (snapshot,
+   monitoring), set up like the dashboard/View All Content Activity tables but not
+   month-scoped. Each row links to that group's results. Capped at 10 rows. #}
+<div class="page-header">
+  <div>
+    <p class="label eyebrow">Competitive Intelligence</p>
+    <h1>View All Competitive Intelligence Activity</h1>
+    <p class="subtitle">All snapshot and daily-monitoring activity — click a row to open its results</p>
+  </div>
+</div>
+
+<div class="dash-tables">
+  {{ t.ci_table("One-Time Snapshots", "", snapshot, empty="No snapshots run yet.", cap=true) }}
+  {{ t.ci_table("Daily Monitoring", "", monitoring, empty="No monitoring groups yet.", cap=true) }}
+</div>
+{% endblock %}
+
+{% block scripts %}
+{# Same enhancement as the dashboard: sortable columns and clickable rows; the
+   10-row cap is on (cap=true on each table). #}
+<script src="{{ static_url('js/dashboard.js') }}"></script>
+{% endblock %}

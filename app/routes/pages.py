@@ -329,6 +329,28 @@ def content_activity():
     )
 
 
+@bp.route("/app/competitive-intel/activity")
+@login_required
+def ci_activity():
+    """View All Competitive Intelligence Activity: all-time snapshot + monitoring.
+
+    The CI counterpart of View All Content Activity — the two CI tables (One-Time
+    Snapshot, Daily Monitoring), all-time, using the same dashboard-style tables
+    (collapsible, sortable, 10-row cap, row-click opens the group's results). Not
+    month-scoped — ``since=None``.
+    """
+    db = get_db()
+    uid = g.user["id"]
+    logger.info("Serving View All Competitive Intelligence Activity user_id=%s", uid)
+    return render_template(
+        "app/ci_activity.html",
+        breadcrumb="Competitive Intelligence · View All Activity",
+        active_nav="ci-activity",
+        snapshot=_activity_rows(db, uid, "ci-snapshot", since=None),
+        monitoring=_activity_rows(db, uid, "ci-monitoring", since=None),
+    )
+
+
 @bp.route("/app/pdp-scoring", methods=["GET", "POST"])
 @login_required
 def pdp_scoring():
