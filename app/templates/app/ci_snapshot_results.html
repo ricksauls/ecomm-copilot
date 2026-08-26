@@ -10,7 +10,7 @@
        ci_config.js polls and reloads the page when the run finishes. #}
     {% set extracting = run and run.status in ('queued', 'running') %}
     <p class="subtitle {{ 'subtitle-scoring' if extracting else '' }}">
-      {% if extracting %}Extracting data…{% else %}One-Time Snapshot — current state{% endif %}
+      {% if extracting %}Extracting data and creating the report. This can take up to 5 minutes.{% else %}One-Time Snapshot — current state{% endif %}
     </p>
   </div>
   <div class="header-actions">
