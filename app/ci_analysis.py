@@ -458,6 +458,102 @@ def snapshot_rank_by_keyword_brand(conn: sqlite3.Connection, group_id: int, run_
     } for r in rows]
 
 
+# ── Monitoring trend series ──────────────────────────────────────────────────
+# These power the trend sparklines the Daily Monitoring view adds on top of the
+# snapshot layout. Each returns a dict keyed to match a snapshot row so the page
+# can attach the series (brand names / keywords are unique within a group). The
+# values are one point per day the entity was observed, in date order — exactly
+# what the sparkline renderer expects.
+
+
+def rank_trend_by_brand(conn: sqlite3.Connection, group_id: int, period: str) -> dict:
+    """{brand_name: [daily avg tracked-item position]} over the window.
+
+    Trend for the "Overall Search Ranking" table. Per day, a brand's average
+    tracked-item page-1 position (lower is better); untracked SKUs excluded.
+    """
+    start, end = get_date_range(period)
+    rows = conn.execute(
+        "SELECT sr.scraped_at AS d, b.name AS brand_name, AVG(sr.position) AS avg_pos "
+        "FROM ci_search_results sr JOIN ci_brands b ON b.id = sr.brand_id "
+        "WHERE sr.group_id = ? AND sr.scraped_at >= ? AND sr.scraped_at <= ? "
+        "  AND sr." + _TRACKED_ITEMS_FILTER + " "
+        "GROUP BY sr.scraped_at, b.id ORDER BY sr.scraped_at",
+        (group_id, start, end, group_id),
+    ).fetchall()
+    out: dict = defaultdict(list)
+    for r in rows:
+        out[r["brand_name"]].append(round(r["avg_pos"], 1))
+    return dict(out)
+
+
+def rank_trend_by_keyword_brand(conn: sqlite3.Connection, group_id: int, period: str) -> dict:
+    """{(keyword, brand_name): [daily avg position]} over the window.
+
+    Trend for the per-keyword "Search Ranking" table (lower is better).
+    """
+    start, end = get_date_range(period)
+    rows = conn.execute(
+        "SELECT sr.scraped_at AS d, k.keyword AS kw, b.name AS brand_name, "
+        "  AVG(sr.position) AS avg_pos "
+        "FROM ci_search_results sr "
+        "JOIN ci_keywords k ON k.id = sr.keyword_id "
+        "JOIN ci_brands b ON b.id = sr.brand_id "
+        "WHERE sr.group_id = ? AND sr.scraped_at >= ? AND sr.scraped_at <= ? "
+        "  AND sr." + _TRACKED_ITEMS_FILTER + " "
+        "GROUP BY sr.scraped_at, k.id, b.id ORDER BY sr.scraped_at",
+        (group_id, start, end, group_id),
+    ).fetchall()
+    out: dict = defaultdict(list)
+    for r in rows:
+        out[(r["kw"], r["brand_name"])].append(round(r["avg_pos"], 1))
+    return dict(out)
+
+
+def share_trend_by_brand(conn: sqlite3.Connection, group_id: int, period: str) -> dict:
+    """{brand_name: [daily total-share %]} over the window (incl. "Other").
+
+    Trend for the "Overall Share of Digital Shelf" table (higher is better).
+    Reuses the daily share series that feeds the trend chart, keyed by name.
+    """
+    start, end = get_date_range(period)
+    _dates, by_brand_id = _daily_total_share_by_brand(conn, group_id, start, end)
+    brand_meta = _brand_meta(conn, group_id)
+    return {
+        (brand_meta[bid]["name"] if bid in brand_meta else "Other"): series
+        for bid, series in by_brand_id.items()
+    }
+
+
+def share_trend_by_keyword_brand(conn: sqlite3.Connection, group_id: int, period: str) -> dict:
+    """{(keyword, brand_name): [daily total-share %]} over the window (incl. "Other").
+
+    Trend for the per-keyword "Share of Digital Shelf" table. Each day's share is
+    of that keyword's own page-1 slots that day (higher is better).
+    """
+    start, end = get_date_range(period)
+    rows = conn.execute(
+        "SELECT sos.date AS d, k.keyword AS kw, sos.brand_id AS bid, "
+        "  SUM(sos.total_count) AS t "
+        "FROM ci_share_of_search sos JOIN ci_keywords k ON k.id = sos.keyword_id "
+        "WHERE sos.group_id = ? AND sos.date >= ? AND sos.date <= ? "
+        "GROUP BY sos.date, k.id, sos.brand_id ORDER BY sos.date",
+        (group_id, start, end),
+    ).fetchall()
+
+    brand_meta = _brand_meta(conn, group_id)
+    # Per (date, keyword) grand total for the share denominator.
+    grand: dict = defaultdict(int)
+    for r in rows:
+        grand[(r["d"], r["kw"])] += r["t"]
+
+    out: dict = defaultdict(list)
+    for r in rows:
+        name = brand_meta[r["bid"]]["name"] if r["bid"] in brand_meta else "Other"
+        out[(r["kw"], name)].append(_pct(r["t"], grand[(r["d"], r["kw"])]))
+    return dict(out)
+
+
 def _brand_meta(conn: sqlite3.Connection, group_id: int) -> dict[int, dict]:
     """Return {brand_id: {name, type}} for a group, preserving mine-first order."""
     rows = conn.execute(

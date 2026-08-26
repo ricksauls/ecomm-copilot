@@ -1096,6 +1096,63 @@ def _snapshot_data(db, group_id):
     }
 
 
+def _monitoring_data(db, group_id, period):
+    """Gather the Daily Monitoring view's sections.
+
+    Mirrors :func:`_snapshot_data` so the monitoring results match the One-Time
+    Snapshot layout and logic: the current-state figures (overall/per-keyword
+    ranking and share, placement map, config summary) come from the group's latest
+    *completed* run. On top of that it attaches, to each table row, a trend series
+    over the selected ``period`` — the one thing monitoring adds over a snapshot.
+    """
+    run = ci_jobs.latest_done_run(db, group_id)
+
+    # Config summary — always available (it's configuration, not run output).
+    brands = ci_config.list_brands(db, group_id, g.user["id"])
+    config_summary = {
+        "my_brands": [b["name"] for b in brands if b["type"] == "mine"],
+        "competitor_brands": [b["name"] for b in brands if b["type"] != "mine"],
+        "products": _product_views(ci_config.list_products(db, group_id, g.user["id"])),
+        "keywords": [k["keyword"] for k in ci_config.list_keywords(db, group_id, g.user["id"])],
+    }
+
+    sos_summary, avg_ranks, rank_rows, share_rows = [], [], [], []
+    rank_map = None
+    if run:
+        rid = run["id"]
+        sos_summary = ci_analysis.snapshot_share_of_shelf(db, group_id, rid)
+        avg_ranks = ci_analysis.snapshot_brand_avg_rank(db, group_id, rid)
+        rank_rows = ci_analysis.snapshot_rank_by_keyword_brand(db, group_id, rid)
+        share_rows = ci_analysis.snapshot_share_by_keyword(db, group_id, rid)
+        depth = ci_analysis.snapshot_page1_depth(db, group_id, rid)
+        rank_map = ci_analysis.build_rank_placement_map(avg_ranks, depth)
+
+        # Attach the period trend series to each row (empty list = no history yet,
+        # which the template renders as a blank trend cell).
+        rt_brand = ci_analysis.rank_trend_by_brand(db, group_id, period)
+        rt_kw = ci_analysis.rank_trend_by_keyword_brand(db, group_id, period)
+        st_brand = ci_analysis.share_trend_by_brand(db, group_id, period)
+        st_kw = ci_analysis.share_trend_by_keyword_brand(db, group_id, period)
+        for r in avg_ranks:
+            r["trend"] = rt_brand.get(r["brand_name"], [])
+        for r in rank_rows:
+            r["trend"] = rt_kw.get((r["keyword"], r["brand_name"]), [])
+        for r in sos_summary:
+            r["trend"] = st_brand.get(r["brand_name"], [])
+        for r in share_rows:
+            r["trend"] = st_kw.get((r["keyword"], r["brand_name"]), [])
+
+    return {
+        "run": run,
+        "config_summary": config_summary,
+        "sos_summary": sos_summary,
+        "avg_ranks": avg_ranks,
+        "rank_rows": rank_rows,
+        "share_rows": share_rows,
+        "rank_map": rank_map,
+    }
+
+
 @bp.route("/app/competitive-intel/groups/<int:group_id>/results")
 @login_required
 def ci_snapshot_results(group_id):
@@ -1187,7 +1244,12 @@ def _resolve_period(raw: str | None) -> str:
 @bp.route("/app/competitive-intel/view")
 @login_required
 def ci_view():
-    """Pick a monitoring group from a dropdown; show its trend dashboard."""
+    """Pick a monitoring group from a dropdown; show its results dashboard.
+
+    Mirrors the One-Time Snapshot results layout (current-state ranking + share
+    sections from the latest completed run) with a per-row trend sparkline added,
+    over the selected period window.
+    """
     db = get_db()
     groups = ci_config.list_groups(db, g.user["id"], mode="monitoring")
     period = _resolve_period(request.args.get("period"))
@@ -1201,13 +1263,18 @@ def ci_view():
     elif groups:
         selected = groups[0]  # default to the newest monitoring group
 
-    sos_summary, ranks, sos_trend = [], [], {"dates": [], "brands": []}
+    data = {"run": None, "config_summary": None, "sos_summary": [], "avg_ranks": [],
+            "rank_rows": [], "share_rows": [], "rank_map": None}
     if selected is not None:
-        sos_summary = ci_analysis.share_of_shelf_summary(db, selected["id"], period)
-        ranks = ci_analysis.rank_summary(db, selected["id"], period)
-        sos_trend = ci_analysis.share_of_shelf_trend(db, selected["id"], period)
-    logger.info("CI view user_id=%s group_id=%s period=%s",
-                g.user["id"], selected["id"] if selected else None, period)
+        data = _monitoring_data(db, selected["id"], period)
+
+    # Stacked-bar chart scale: scale to the tallest organic+sponsored stack, so the
+    # bars visualize the table's share columns (same as the snapshot page).
+    sos_scale = max((r["organic_share"] + r["sponsored_share"] for r in data["sos_summary"]),
+                    default=0)
+    logger.info("CI view user_id=%s group_id=%s period=%s run_id=%s",
+                g.user["id"], selected["id"] if selected else None, period,
+                data["run"]["id"] if data["run"] else None)
     return render_template(
         "app/ci_view.html",
         breadcrumb="Competitive Intelligence · View Monitoring",
@@ -1216,10 +1283,14 @@ def ci_view():
         selected=selected,
         period=period,
         periods=list(ci_analysis.PERIOD_DAYS.keys()),
-        sos_summary=sos_summary,
-        ranks=ranks,
-        # Serialized for the external chart script (strict CSP: no inline data).
-        sos_trend_json=json.dumps(sos_trend),
+        run=data["run"],
+        config_summary=data["config_summary"],
+        sos_summary=data["sos_summary"],
+        avg_ranks=data["avg_ranks"],
+        rank_rows=data["rank_rows"],
+        share_rows=data["share_rows"],
+        rank_map=data["rank_map"],
+        sos_scale=sos_scale,
     )
 
 

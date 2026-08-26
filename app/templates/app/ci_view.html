@@ -5,7 +5,7 @@
 <div class="page-header">
   <div>
     <h1>View Monitoring</h1>
-    <p class="subtitle">Search Ranking &amp; Share of Digital Shelf over time.</p>
+    <p class="subtitle">Current standing with trend lines over the selected window.</p>
   </div>
   {% if selected %}
   <div class="header-actions">
@@ -41,21 +41,169 @@
   </form>
 </div>
 
-{% if selected and not sos_summary and not ranks %}
-<div class="card card-pad ci-empty">
-  No data yet for this window. Run a check from
-  <a href="{{ url_for('pages.ci_group_config', group_id=selected.id) }}">this group's setup</a>,
-  or widen the period once monitoring has collected a few days.
+{% if selected %}
+{# Config summary: what this group tracks — identical to the One-Time Snapshot. #}
+{% if config_summary and (config_summary.my_brands or config_summary.competitor_brands or config_summary.keywords) %}
+<div class="ci-section card card-pad">
+  <div class="ci-section-title">What this group tracks</div>
+  <dl class="ci-summary">
+    <div class="ci-summary-item">
+      <dt>My brands</dt>
+      <dd>{{ config_summary.my_brands | join(', ') if config_summary.my_brands else '—' }}</dd>
+    </div>
+    <div class="ci-summary-item">
+      <dt>Competitor brands</dt>
+      <dd>{{ config_summary.competitor_brands | join(', ') if config_summary.competitor_brands else '—' }}</dd>
+    </div>
+    <div class="ci-summary-item ci-summary-products">
+      <dt>Items tracked · {{ config_summary.products | length }}</dt>
+      <dd>
+        {% if config_summary.products %}
+        <div class="track-grid">
+          {% for p in config_summary.products %}
+          <div class="track-tile">
+            <div class="track-thumb">
+              {% if p.image_url %}
+              <img src="{{ p.image_url }}" alt="{{ p.name or ('Item ' ~ p.walmart_item_id) }}" loading="lazy">
+              {% else %}
+              <span class="track-thumb-empty" aria-label="No image yet">
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+                  <rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M4 17l5-4 4 3 3-2 4 3"/>
+                </svg>
+              </span>
+              {% endif %}
+            </div>
+            <div class="track-meta">
+              <div class="track-name">{{ p.name or ('Item ' ~ p.walmart_item_id) }}</div>
+              {% if p.name %}<div class="track-id">Item {{ p.walmart_item_id }}</div>{% endif %}
+              <span class="ci-type {{ 'mine' if p.brand_type == 'mine' else '' }}">{{ p.brand_type }}</span>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <span class="ci-summary-sub">No items tracked.</span>
+        {% endif %}
+      </dd>
+    </div>
+    <div class="ci-summary-item">
+      <dt>Search terms</dt>
+      <dd>{{ config_summary.keywords | join(', ') if config_summary.keywords else '—' }}</dd>
+    </div>
+  </dl>
 </div>
 {% endif %}
 
-{% if sos_summary %}
+{% if not run %}
+<div class="card card-pad ci-empty">
+  No completed run yet for this group. Run a check from
+  <a href="{{ url_for('pages.ci_group_config', group_id=selected.id) }}">this group's setup</a>;
+  results and trend lines appear once monitoring has collected data.
+</div>
+{% elif not sos_summary and not avg_ranks and not rank_rows %}
+<div class="card card-pad ci-empty">The latest run returned no data (possible block or empty keywords).</div>
+{% else %}
+
+{# Overall Search Ranking — one average figure per brand, with a rank trend over
+   the window. Same logic/layout as the snapshot, plus the Trend column. #}
+{% if avg_ranks %}
 <div class="ci-section card card-pad">
-  <div class="ci-section-title">Share of Digital Shelf</div>
+  <div class="ci-section-title">Overall Search Ranking</div>
+  <p class="ci-section-hint">
+    Average page-1 ranking per brand across the terms it appears on (terms with no
+    page-1 placement are excluded). Lower is better. Trend spans the {{ period | upper }} window.
+  </p>
+  <div class="table-scroll">
+    <table class="admin-table">
+      <thead><tr><th>Brand</th><th>Type</th><th>Avg ranking</th><th>Trend</th></tr></thead>
+      <tbody>
+        {% for r in avg_ranks %}
+        <tr>
+          <td>{{ r.brand_name }}</td>
+          <td><span class="ci-type {{ 'mine' if r.type == 'mine' else '' }}">{{ r.type }}</span></td>
+          <td>{{ ('#%s' % r.avg_position) if r.avg_position is not none else '—' }}</td>
+          <td><span class="ci-spark" data-points='{{ r.trend | tojson }}'></span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {# Placement map — the current-state page-1 grid, identical to the snapshot. #}
+  {% if rank_map %}
+  <div class="rankmap-wrap">
+    <div class="rankmap-legend">
+      <span class="rankmap-key"><span class="rankmap-swatch mine"></span> My brand</span>
+      <span class="rankmap-key"><span class="rankmap-swatch comp"></span> Competitor</span>
+      <span class="rankmap-key"><span class="rankmap-swatch empty"></span> Other page-1 placement</span>
+    </div>
+    <p class="ci-section-hint">
+      Each tile is one page-1 placement, numbered left to right, top to bottom. A
+      brand sits on the tile its average rank rounds to; the exact average is on the tile.
+    </p>
+    <div class="rankmap" role="img"
+         aria-label="Page-1 result grid marking each brand's average search ranking.">
+      {% for pos in range(1, rank_map.total + 1) %}
+      {% set cell = rank_map.marks.get(pos) %}
+      {% if not cell %}
+      <div class="rankmap-cell empty"><span class="rankmap-num">{{ pos }}</span></div>
+      {% elif cell | length == 1 %}
+      {% set b = cell[0] %}
+      <div class="rankmap-cell {{ 'mine' if b.type == 'mine' else 'comp' }}">
+        <span class="rankmap-num">{{ pos }}</span>
+        <span class="rankmap-brand">{{ b.brand_name }}</span>
+        <span class="rankmap-avg">avg #{{ b.avg_position }}</span>
+      </div>
+      {% else %}
+      <div class="rankmap-cell tie">
+        <span class="rankmap-num">{{ pos }}</span>
+        {% for b in cell %}
+        <span class="rankmap-chip {{ 'mine' if b.type == 'mine' else 'comp' }}">{{ b.brand_name }} · #{{ b.avg_position }}</span>
+        {% endfor %}
+      </div>
+      {% endif %}
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
+{# Search Ranking — per keyword+brand average, with a rank trend column. #}
+{% if rank_rows %}
+<div class="ci-section card card-pad">
+  <div class="ci-section-title">Search Ranking</div>
+  <p class="ci-section-hint">
+    Average page-1 ranking per brand for each keyword. Lower is better. Trend spans
+    the {{ period | upper }} window.
+  </p>
+  <div class="table-scroll">
+    <table class="admin-table">
+      <thead><tr><th>Keyword</th><th>Brand</th><th>Type</th><th>Avg ranking</th><th>Trend</th></tr></thead>
+      <tbody>
+        {% for r in rank_rows %}
+        <tr>
+          <td>{{ r.keyword }}</td>
+          <td>{{ r.brand_name }}</td>
+          <td><span class="ci-type {{ 'mine' if r.type == 'mine' else '' }}">{{ r.type }}</span></td>
+          <td>#{{ r.avg_ranking }}</td>
+          <td><span class="ci-spark" data-points='{{ r.trend | tojson }}'></span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{# Overall Share of Digital Shelf — table + stacked bar chart (current state) plus
+   a share trend column. Same logic/layout as the snapshot, plus Trend. #}
+<div class="ci-section card card-pad">
+  <div class="ci-section-title">Overall Share of Digital Shelf</div>
   <p class="ci-section-hint">
     Share of all page-1 slots across your tracked keywords, organic vs sponsored.
-    Based on {{ sos_summary | sum(attribute='total') }} page-1 placements.
-    Trend shows each brand's total share across the {{ period | upper }} window.
+    Based on {{ sos_summary | sum(attribute='total') }} page-1 placements. Trend
+    spans the {{ period | upper }} window.
   </p>
   <div class="table-scroll">
     <table class="admin-table">
@@ -73,56 +221,71 @@
               <span class="ci-bar-fill {{ 'mine' if r.type == 'mine' else '' }}" style="width: {{ r.total_share }}%"></span>
             </span>
           </td>
-          <td><span class="ci-spark" data-better="high" data-points='{{ r.shares | tojson }}'></span></td>
+          <td><span class="ci-spark" data-better="high" data-points='{{ r.trend | tojson }}'></span></td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
-  <div class="ci-chart" data-ci-chart data-series='{{ sos_trend_json }}' data-y-label="Total share %"></div>
-  <div class="ci-legend" data-ci-legend></div>
-</div>
-{% endif %}
 
-{% if ranks %}
-<div class="ci-section card card-pad">
-  <div class="ci-section-title">Search Ranking</div>
-  <p class="ci-section-hint">
-    Best page-1 position per brand per keyword — yours vs competitors. Lower is
-    better; Δ vs the prior {{ period | upper }} window (positive = moved up).
-  </p>
-  <div class="ci-inline-form" style="margin-top:0">
-    <label class="field-label" for="rank-brand-filter">Brand</label>
-    <select id="rank-brand-filter" class="ci-select">
-      <option value="">All brands</option>
-      {% for b in ranks | map(attribute='brand_name') | unique | sort %}
-      <option value="{{ b }}">{{ b }}</option>
+  {% set scale = sos_scale or 1 %}
+  <div class="sos-chart">
+    <div class="sos-plot" role="img"
+         aria-label="Stacked bar chart of each brand's organic and sponsored share of the page-1 shelf.">
+      {% for r in sos_summary %}
+      <div class="sos-col">
+        <div class="sos-col-plot">
+          <div class="sos-col-value">{{ r.total_share }}%</div>
+          <div class="sos-bar">
+            {% if r.sponsored_share %}<span class="sos-seg sos-seg-sponsored"
+              style="height: {{ (r.sponsored_share / scale * 180) | round(1) }}px"
+              title="{{ r.brand_name }} — sponsored share {{ r.sponsored_share }}%"></span>{% endif %}
+            {% if r.organic_share %}<span class="sos-seg sos-seg-organic"
+              style="height: {{ (r.organic_share / scale * 180) | round(1) }}px"
+              title="{{ r.brand_name }} — organic share {{ r.organic_share }}%"></span>{% endif %}
+          </div>
+        </div>
+        <div class="sos-col-label">{{ r.brand_name }}</div>
+      </div>
       {% endfor %}
-    </select>
+    </div>
+    <div class="sos-legend">
+      <span class="sos-legend-item"><span class="sos-swatch sos-seg-organic"></span> Organic share</span>
+      <span class="sos-legend-item"><span class="sos-swatch sos-seg-sponsored"></span> Sponsored share</span>
+    </div>
   </div>
-  <div class="table-scroll" style="margin-top:12px">
-    <table class="admin-table" id="rank-table">
-      <thead><tr><th>Brand</th><th>Type</th><th>Keyword</th><th>Position</th><th>Δ</th><th>Trend</th></tr></thead>
+</div>
+
+{# Share of Digital Shelf per keyword, with a share trend column. #}
+{% if share_rows %}
+<div class="ci-section card card-pad">
+  <div class="ci-section-title">Share of Digital Shelf</div>
+  <p class="ci-section-hint">
+    Per-keyword share of that keyword's page-1 slots, by brand. Organic and
+    sponsored are shares of that channel's slots for the keyword. Trend spans the
+    {{ period | upper }} window.
+  </p>
+  <div class="table-scroll">
+    <table class="admin-table">
+      <thead><tr><th>Keyword</th><th>Brand</th><th>Type</th><th>Organic</th><th>Sponsored</th><th>Total share</th><th>Trend</th></tr></thead>
       <tbody>
-        {% for r in ranks %}
-        <tr data-brand="{{ r.brand_name }}">
+        {% for r in share_rows %}
+        <tr>
+          <td>{{ r.keyword }}</td>
           <td>{{ r.brand_name }}</td>
           <td><span class="ci-type {{ 'mine' if r.type == 'mine' else '' }}">{{ r.type }}</span></td>
-          <td>{{ r.keyword }}</td>
-          <td>#{{ r.current_position }}</td>
-          <td>
-            {% if r.delta is none %}<span class="ci-delta flat">new</span>
-            {% elif r.delta > 0 %}<span class="ci-delta up">▲ {{ r.delta }}</span>
-            {% elif r.delta < 0 %}<span class="ci-delta down">▼ {{ r.delta | abs }}</span>
-            {% else %}<span class="ci-delta flat">—</span>{% endif %}
-          </td>
-          <td><span class="ci-spark" data-points='{{ r.positions | tojson }}'></span></td>
+          <td class="cell-muted">{{ r.organic_share }}%</td>
+          <td class="cell-muted">{{ r.sponsored_share }}%</td>
+          <td>{{ r.total_share }}%</td>
+          <td><span class="ci-spark" data-better="high" data-points='{{ r.trend | tojson }}'></span></td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
 </div>
+{% endif %}
+{% endif %}
 {% endif %}
 {% endif %}
 {% endblock %}
