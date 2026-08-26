@@ -38,8 +38,11 @@ def test_dashboard_renders_when_authenticated(client, auth):
     assert b"Daily Monitoring" in resp.data
     # A brand-new account has no activity, so each table shows its empty state.
     assert b"Nothing scored this month yet." in resp.data
-    # The demo table is gone.
+    # The demo table and the (non-functional) Export report button are gone.
     assert b"Products losing ground" not in resp.data
+    assert b"Export report" not in resp.data
+    # The sort + row-cap enhancement script is wired in.
+    assert b"js/dashboard.js" in resp.data
 
 
 def test_dashboard_is_personalized_to_the_user(client, auth):

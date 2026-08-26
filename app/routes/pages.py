@@ -107,6 +107,9 @@ def _product_activity_view(rows, *, with_score: bool) -> list[dict]:
         view = {
             "image_url": _item_image_url(r["item_id"]),
             "date": _format_activity_date(r["created_at"]),
+            # Raw timestamp for client-side sorting: the display date ("Aug 26")
+            # has no year, so sort on the ISO value instead.
+            "sort_date": r["created_at"] or "",
             "brand": (r["brand"] or "").strip() or "—",
             "title": r["title"] or r["item_id"] or r["url"],
             "item_id": r["item_id"],
@@ -134,6 +137,8 @@ def _ci_activity_view(db, uid, rows) -> list[dict]:
         views.append({
             "name": r["group_name"],
             "date": _format_activity_date(r["run_at"]),
+            # Raw timestamp for client-side sorting (see _product_activity_view).
+            "sort_date": r["run_at"] or "",
             "my_brands": ", ".join(b["name"] for b in mine) or "—",
             "my_items": sum(b["product_count"] for b in mine),
             "competitor_brands": ", ".join(b["name"] for b in competitors) or "—",

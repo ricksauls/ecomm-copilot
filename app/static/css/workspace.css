@@ -467,6 +467,10 @@ body.workspace {
 }
 .dash-body {
   padding-bottom: 6px;
+  /* JS caps the height at ~10 rows and adds .dash-body-scroll; beyond that the
+     extra rows scroll while the header stays pinned. With no cap set there's no
+     scrollbar (content defines the height). */
+  overflow-y: auto;
 }
 .dash-cols {
   display: grid;
@@ -482,16 +486,41 @@ body.workspace {
 .dash-cols-ci {
   grid-template-columns: 1.4fr 70px 1.2fr 72px 1.4fr 96px;
 }
+/* Header stays pinned while the capped body scrolls; its surface background
+   hides rows passing underneath. */
 .dash-head-row {
-  padding: 0 22px 9px;
+  padding: 4px 22px 9px;
   border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface);
 }
 .dash-head-row .col {
   font-size: 9.5px;
-  font-weight: 500;
+  font-weight: 700; /* bold column headers */
   letter-spacing: 0.11em;
   text-transform: uppercase;
   color: var(--cool-gray);
+}
+/* Sortable headers (all but Image): clickable, with a caret on the active one. */
+.dash-head-row .col.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+.dash-head-row .col.sortable:hover {
+  color: var(--black);
+}
+.dash-head-row .col[data-dir]::after {
+  font-size: 8px;
+  margin-left: 3px;
+  color: var(--mid-gray);
+}
+.dash-head-row .col[data-dir="asc"]::after {
+  content: "\25B2"; /* ▲ */
+}
+.dash-head-row .col[data-dir="desc"]::after {
+  content: "\25BC"; /* ▼ */
 }
 .dash-head-row .col.r,
 .dash-row .col.r {
@@ -500,7 +529,10 @@ body.workspace {
 .dash-row {
   padding: 12px 22px;
   border-bottom: 1px solid var(--divider);
+  /* All cells share one font — 13px, normal weight, default ink — matching the
+     Brand cell (no per-column emphasis on date/title/score). */
   font-size: 13px;
+  font-weight: 400;
 }
 .dash-row:last-child {
   border-bottom: 0;
@@ -512,18 +544,6 @@ body.workspace {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.dash-title {
-  font-weight: 500;
-}
-.dash-date {
-  color: var(--cool-gray);
-  font-size: 12px;
-}
-.dash-score {
-  font-size: 16px;
-  font-weight: 600;
-  letter-spacing: -0.02em;
 }
 /* Thumbnails: contain on white so a non-square main image isn't distorted. */
 .dash-thumb-cell {
