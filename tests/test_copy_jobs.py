@@ -163,3 +163,20 @@ def test_reclaim_orphaned_copy_items_leaves_resting_rows_alone(app):
         rows = {r["id"]: r for r in copy_jobs.get_copy_items(db, ids, uid)}
         assert rows[ids[0]]["status"] == "fetched"
         assert rows[ids[1]]["status"] == "done"
+
+
+def test_list_copy_created_this_month_only_done_in_window(app):
+    # Only 'done' rows (copy actually generated) within the window are listed;
+    # fetched/queued rows and out-of-window rows are excluded.
+    with app.app_context():
+        db = get_db()
+        uid = create_local_user("copymonth@example.com", "password123")
+        ids = copy_jobs.enqueue_copy_items(db, uid, _items(3))
+        db.execute("UPDATE copy_items SET status = 'done' WHERE id = ?", (ids[0],))
+        db.execute("UPDATE copy_items SET status = 'done', created_at = '2020-01-01 00:00:00' "
+                   "WHERE id = ?", (ids[1],))
+        db.execute("UPDATE copy_items SET status = 'fetched' WHERE id = ?", (ids[2],))
+        db.commit()
+
+        rows = copy_jobs.list_copy_created_this_month(db, uid, since="2020-06-01")
+        assert [r["id"] for r in rows] == [ids[0]]  # only the recent done row

@@ -127,3 +127,29 @@ def test_list_and_count_runs_for_admin(app):
         rows = ci_jobs.list_runs(db)
         assert rows[0]["group_name"] == "G"
         assert rows[0]["user_email"] == "admin-view@example.com"
+
+
+def test_snapshot_and_monitoring_activity_lists(app):
+    # Snapshot activity is one row per run; monitoring collapses to one row per
+    # group (its latest run this month). Each is scoped to its own group mode and
+    # to the window.
+    with app.app_context():
+        db = get_db()
+        uid = create_local_user("act@example.com", "password123")
+        snap = ci_config.create_group(db, uid, "Snap", mode="snapshot")
+        mon = ci_config.create_group(db, uid, "Mon", mode="monitoring")
+        r1 = ci_jobs.enqueue_run(db, snap, "one_time")
+        r2 = ci_jobs.enqueue_run(db, snap, "one_time")
+        ci_jobs.enqueue_run(db, mon, "monitoring", slot="morning")
+        ci_jobs.enqueue_run(db, mon, "monitoring", slot="night")
+
+        snaps = ci_jobs.list_snapshot_activity_for_user(db, uid, since="2020-01-01")
+        assert [s["run_id"] for s in snaps] == [r2, r1]  # newest first, snapshot only
+        assert snaps[0]["group_name"] == "Snap"
+
+        mons = ci_jobs.list_monitoring_activity_for_user(db, uid, since="2020-01-01")
+        assert [m["group_name"] for m in mons] == ["Mon"]  # 2 runs -> 1 collapsed row
+
+        # Window filter excludes everything created before `since`.
+        assert ci_jobs.list_snapshot_activity_for_user(db, uid, since="2099-01-01") == []
+        assert ci_jobs.list_monitoring_activity_for_user(db, uid, since="2099-01-01") == []

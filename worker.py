@@ -88,6 +88,22 @@ def resolve_keywords(conn: sqlite3.Connection, row_id: int, pdp) -> list[str] | 
         return None
 
 
+def _cache_item_image(item_id: str | None, image_url: str | None) -> None:
+    """Best-effort: cache a scored/copy item's main image for the dashboard tables.
+
+    Reuses the item-id-keyed product-image cache shared with Competitive
+    Intelligence, so an item scored here and tracked in a CI group share one file.
+    Skips when there's no item id/URL or the image is already cached; never raises
+    — a missing thumbnail must not fail the scoring/copy job that produced it.
+    """
+    if not item_id or not image_url or ci_images.has_product_image(item_id):
+        return
+    try:
+        ci_images.cache_product_image_from_url(item_id, image_url)
+    except Exception:  # noqa: BLE001 - image caching must never fail the job
+        log.exception("Failed to cache item image item_id=%s", item_id)
+
+
 def process_one(conn: sqlite3.Connection, row: sqlite3.Row) -> None:
     """Fetch, score, and persist one claimed item. Never raises."""
     row_id = row["id"]
@@ -97,6 +113,7 @@ def process_one(conn: sqlite3.Connection, row: sqlite3.Row) -> None:
         result = score_pdp(pdp)
         jobs.save_result(conn, row_id, result.overall, result_to_dict(result),
                          pdp.title, brand=pdp.brand)
+        _cache_item_image(row["item_id"], pdp.main_image_url)
         log.info("Scored id=%s item=%s overall=%s", row_id, row["item_id"], result.overall)
     except FetchBlocked as e:
         log.warning("Blocked id=%s: %s", row_id, e)
@@ -135,6 +152,7 @@ def _copy_fetch(conn: sqlite3.Connection, row: sqlite3.Row) -> None:
             current_overall=current_score.overall, keywords=found, next_status=next_status,
             brand=pdp.brand,
         )
+        _cache_item_image(row["item_id"], pdp.main_image_url)
         log.info("Fetched current copy id=%s overall=%s next=%s",
                  row_id, current_score.overall, next_status)
     except FetchBlocked as e:

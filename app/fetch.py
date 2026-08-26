@@ -300,7 +300,8 @@ def parse_product(product: dict, *, url: str = "", item_id: str | None = None,
                    max_image_px: int = 0,
                    spec_pairs: list[dict] | None = None,
                    bullets: list[str] | None = None,
-                   main_image_white_bg: bool | None = None) -> PdpRecord:
+                   main_image_white_bg: bool | None = None,
+                   main_image_url: str | None = None) -> PdpRecord:
     """Map a Walmart ``__NEXT_DATA__`` product object to a :class:`PdpRecord`.
 
     ``max_image_px`` is passed in because image dimensions aren't in the JSON —
@@ -340,6 +341,7 @@ def parse_product(product: dict, *, url: str = "", item_id: str | None = None,
         attributes_present=attrs,
         attributes_measured=attrs_measured,
         main_image_white_bg=main_image_white_bg,
+        main_image_url=main_image_url,
     )
 
 
@@ -423,6 +425,7 @@ def fetch_pdp(url: str, item_id: str | None = None, *, timeout_ms: int = 35000) 
     return parse_product(
         product, url=url, item_id=item_id, max_image_px=max_px,
         spec_pairs=spec_pairs, bullets=bullets, main_image_white_bg=white_bg,
+        main_image_url=image_urls[0] if image_urls else None,
     )
 
 

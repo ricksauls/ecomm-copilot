@@ -67,6 +67,81 @@ def _format_signup_date(created_at: str | None) -> str:
         return created_at[:10]
 
 
+def _format_activity_date(ts: str | None) -> str:
+    """Render a stored UTC timestamp as a short "Aug 26" for the activity tables.
+
+    The tables only cover the current month, so the year is redundant. Fail-safe:
+    an unexpected value falls back to its date portion rather than 500-ing the
+    dashboard over a cosmetic cell.
+    """
+    from datetime import datetime
+
+    if not ts:
+        return "—"
+    try:
+        return datetime.strptime(ts[:19], "%Y-%m-%d %H:%M:%S").strftime("%b %-d")
+    except (ValueError, TypeError):
+        return ts[:10]
+
+
+def _item_image_url(item_id):
+    """Same-origin URL for an item's cached main image, or ``None`` if uncached.
+
+    Scored/copy items share the item-id-keyed product-image cache with CI (the
+    worker fills it on fetch), so the same route serves all three. ``None`` lets
+    the template fall back to a placeholder tile.
+    """
+    if item_id and ci_images.has_product_image(item_id):
+        return url_for("pages.ci_product_image", item_id=item_id)
+    return None
+
+
+def _product_activity_view(rows, *, with_score: bool) -> list[dict]:
+    """Shape scored/copy rows for a dashboard activity table.
+
+    Common columns are image, date, brand, and title; the scored table adds a
+    score. A blank brand renders as an em dash so the column never looks broken.
+    """
+    views = []
+    for r in rows:
+        view = {
+            "image_url": _item_image_url(r["item_id"]),
+            "date": _format_activity_date(r["created_at"]),
+            "brand": (r["brand"] or "").strip() or "—",
+            "title": r["title"] or r["item_id"] or r["url"],
+            "item_id": r["item_id"],
+        }
+        if with_score:
+            view["score"] = r["overall"]
+        views.append(view)
+    return views
+
+
+def _ci_activity_view(db, uid, rows) -> list[dict]:
+    """Shape CI snapshot/monitoring activity rows with their brand config.
+
+    Each row gains the group's mine-vs-competitor brand names and tracked-item
+    counts (from :func:`ci_config.list_brands`, which carries a per-brand product
+    count). ``list_brands`` is ownership-checked, so only the caller's own groups
+    resolve. Brand names are comma-joined for the cell; an em dash stands in when a
+    side has no brands configured yet.
+    """
+    views = []
+    for r in rows:
+        brands = ci_config.list_brands(db, r["group_id"], uid)
+        mine = [b for b in brands if b["type"] == "mine"]
+        competitors = [b for b in brands if b["type"] != "mine"]
+        views.append({
+            "name": r["group_name"],
+            "date": _format_activity_date(r["run_at"]),
+            "my_brands": ", ".join(b["name"] for b in mine) or "—",
+            "my_items": sum(b["product_count"] for b in mine),
+            "competitor_brands": ", ".join(b["name"] for b in competitors) or "—",
+            "competitor_items": sum(b["product_count"] for b in competitors),
+        })
+    return views
+
+
 @bp.route("/")
 def landing():
     """Marketing landing page. Public, dark surface."""
@@ -126,10 +201,26 @@ def dashboard():
              ci_config.count_monitoring_groups_for_user(db, uid),
              ci_config.count_monitoring_groups_for_user(db, uid, since=month_start)),
     ]
+
+    # "This month" activity tables that replace the old demo "losing ground" table.
+    # Image Set Creation isn't a built feature yet, so its table is always empty
+    # (it renders an empty state) until that pipeline ships.
+    activity = {
+        "scored": _product_activity_view(
+            jobs.list_scored_this_month(db, uid, month_start), with_score=True),
+        "copy": _product_activity_view(
+            copy_jobs.list_copy_created_this_month(db, uid, month_start), with_score=False),
+        "image_sets": [],
+        "ci_snapshot": _ci_activity_view(
+            db, uid, ci_jobs.list_snapshot_activity_for_user(db, uid, month_start)),
+        "ci_monitoring": _ci_activity_view(
+            db, uid, ci_jobs.list_monitoring_activity_for_user(db, uid, month_start)),
+    }
     return render_template(
         "app/dashboard.html",
         breadcrumb="Dashboard",
         active_nav="dashboard",
+        activity=activity,
         **view_model,
     )
 

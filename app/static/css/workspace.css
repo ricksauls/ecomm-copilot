@@ -400,163 +400,114 @@ body.workspace {
 }
 
 /* --- Main row: table + sidebar --- */
-.main-row {
-  display: grid;
-  grid-template-columns: 1fr 340px;
+/* --- Dashboard "this month" activity tables ---
+   Five full-width stacked tables (PDP scored/copy/image-sets, then CI
+   snapshot/monitoring). Grid rows share .dash-cols; a layout modifier supplies
+   the column template so the product and CI tables can differ. */
+.dash-tables {
+  display: flex;
+  flex-direction: column;
   gap: 14px;
 }
-
-/* Products losing ground table */
-.table-card {
+.dash-table {
   padding: 22px 0 6px;
 }
-.table-head {
-  padding: 0 22px 16px;
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
+.dash-table-head {
+  padding: 0 22px 14px;
 }
-.table-head h2 {
+.dash-table-head h2 {
   font-size: 15px;
   font-weight: 600;
   margin: 0;
 }
-.table-head .sub {
+.dash-table-head .sub {
   font-size: 12.5px;
   color: var(--cool-gray);
   margin: 4px 0 0;
 }
-.table-head .all-link {
-  font-size: 12.5px;
-  font-weight: 500;
-  color: var(--black);
-  text-decoration: none;
-}
-.table-head .all-link:hover {
-  color: var(--signal-red);
-}
-.table-cols {
+.dash-cols {
   display: grid;
-  grid-template-columns: 1fr 78px 96px 150px;
   align-items: center;
+  gap: 12px;
 }
-.table-header-row {
+.dash-cols-product {
+  grid-template-columns: 44px 58px 1.2fr 2fr;
+}
+.dash-cols-product.has-score {
+  grid-template-columns: 44px 58px 1.2fr 2fr 56px;
+}
+.dash-cols-ci {
+  grid-template-columns: 1.4fr 70px 1.2fr 72px 1.4fr 96px;
+}
+.dash-head-row {
   padding: 0 22px 9px;
   border-bottom: 1px solid var(--border);
 }
-.table-header-row .col {
+.dash-head-row .col {
   font-size: 9.5px;
   font-weight: 500;
   letter-spacing: 0.11em;
   text-transform: uppercase;
   color: var(--cool-gray);
 }
-.table-header-row .col.r,
-.table-row .col.r {
+.dash-head-row .col.r,
+.dash-row .col.r {
   text-align: right;
 }
-.table-row {
-  padding: 15px 22px;
+.dash-row {
+  padding: 12px 22px;
   border-bottom: 1px solid var(--divider);
-  cursor: pointer;
-  text-decoration: none;
-  color: inherit;
-  transition: background var(--fade) var(--ease);
+  font-size: 13px;
 }
-.table-row:last-child {
+.dash-row:last-child {
   border-bottom: 0;
 }
-.table-row:hover {
-  background: var(--row-hover);
-}
-.product-cell {
-  display: flex;
-  align-items: center;
-  gap: 12px;
+/* Every cell truncates rather than wraps so a long title or brand list can't
+   break the grid's row height; the full value is still in the DOM/title. */
+.dash-row .col {
   min-width: 0;
-}
-.product-thumb {
-  width: 34px;
-  height: 34px;
-  flex-shrink: 0;
-  background: var(--placeholder);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-chip);
-}
-.product-lines {
-  min-width: 0;
-}
-.product-name {
-  font-size: 13.5px;
-  font-weight: 500;
-  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.product-meta {
-  font-size: 11.5px;
+.dash-title {
+  font-weight: 500;
+}
+.dash-date {
   color: var(--cool-gray);
+  font-size: 12px;
 }
-.col-score {
+.dash-score {
   font-size: 16px;
   font-weight: 600;
   letter-spacing: -0.02em;
 }
-.col-gap {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--mid-gray);
+/* Thumbnails: contain on white so a non-square main image isn't distorted. */
+.dash-thumb-cell {
+  overflow: visible;
 }
-.col-gap.worst {
-  color: var(--signal-red); /* only the worst row's gap is red */
+.dash-thumb {
+  width: 34px;
+  height: 34px;
+  object-fit: contain;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-chip);
+  display: block;
 }
-.col-rec {
+.dash-thumb.placeholder {
+  background: var(--placeholder);
+}
+.dash-empty {
+  padding: 20px 22px;
   font-size: 12.5px;
-  font-weight: 500;
-  color: var(--black);
-}
-
-/* Sidebar cards */
-.sidebar {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-.seasonal h3 {
-  font-size: 17px;
-  font-weight: 600;
-  letter-spacing: -0.02em;
-  line-height: 1.25;
-  margin: 0;
-}
-.seasonal p {
-  font-size: 13px;
-  color: var(--mid-gray);
-  margin: 12px 0 16px;
-  text-wrap: pretty;
-}
-.activity .item {
-  padding: 14px 0;
-  border-bottom: 1px solid var(--divider);
-}
-.activity .item:last-child {
-  border-bottom: 0;
-}
-.activity .item .title {
-  font-size: 13px;
-  font-weight: 500;
-}
-.activity .item .meta {
-  font-size: 11.5px;
   color: var(--cool-gray);
-  margin-top: 3px;
 }
 
 /* Keyboard focus visibility */
 a:focus-visible,
 .wbtn:focus-visible,
-.client-toggle:focus-visible,
-.table-row:focus-visible {
+.client-toggle:focus-visible {
   outline: 2px solid var(--cool-gray);
   outline-offset: 2px;
 }
@@ -567,9 +518,6 @@ a:focus-visible,
 @media (max-width: 1100px) {
   .kpi-row {
     grid-template-columns: repeat(3, 1fr);
-  }
-  .main-row {
-    grid-template-columns: 1fr;
   }
 }
 @media (max-width: 760px) {

@@ -66,6 +66,10 @@ class PdpRecord:
     # main-image requirement), measured by border-pixel analysis in the fetch
     # layer. ``None`` means it wasn't measured, so imagery scores without it.
     main_image_white_bg: bool | None = None
+    # URL of the PDP's main image, carried through so the worker can cache a local
+    # thumbnail (same-origin, CSP-safe) for the dashboard's activity tables. The
+    # scorer doesn't use it; ``None`` when the page exposed no images.
+    main_image_url: str | None = None
 
 
 @dataclass

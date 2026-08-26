@@ -194,6 +194,24 @@ def count_copy_products(conn: sqlite3.Connection, user_id: int,
     return int(conn.execute(sql, params).fetchone()[0])
 
 
+def list_copy_created_this_month(conn: sqlite3.Connection, user_id: int, since: str,
+                                 limit: int = 100) -> list[sqlite3.Row]:
+    """Copy actually created for ``user_id`` since ``since`` — the dashboard "copy" table.
+
+    Only ``done`` rows (new copy was generated — not merely fetched or in flight)
+    on or after ``since``, newest first. Carries the columns the activity table
+    shows: item id (for the cached thumbnail), title, brand, and when it ran.
+    Capped so the table stays bounded.
+    """
+    return conn.execute(
+        "SELECT id, item_id, url, title, brand, created_at "
+        "FROM copy_items "
+        "WHERE user_id = ? AND status = 'done' AND created_at >= ? "
+        "ORDER BY created_at DESC, id DESC LIMIT ?",
+        (user_id, since, limit),
+    ).fetchall()
+
+
 def list_copy_items(conn: sqlite3.Connection, limit: int = 200) -> list[sqlite3.Row]:
     """Return recent copy items across all users (with submitter email) for admin.
 

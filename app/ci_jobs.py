@@ -127,6 +127,45 @@ def reclaim_orphaned_runs(conn: sqlite3.Connection) -> int:
     return len(orphaned)
 
 
+def list_snapshot_activity_for_user(conn: sqlite3.Connection, user_id: int, since: str,
+                                    limit: int = 100) -> list[sqlite3.Row]:
+    """Snapshot runs the user triggered since ``since`` — the dashboard snapshot table.
+
+    One row per run of the user's snapshot-mode groups on or after ``since``,
+    newest first. Carries the group id (to look up its brand config) and name plus
+    the run's fire time (``started_at``, falling back to ``created_at`` for a run
+    that errored before it started). Capped so the table stays bounded.
+    """
+    return conn.execute(
+        "SELECT r.id AS run_id, r.group_id, g.name AS group_name, "
+        "  COALESCE(r.started_at, r.created_at) AS run_at "
+        "FROM ci_runs r JOIN ci_groups g ON g.id = r.group_id "
+        "WHERE g.user_id = ? AND g.mode = 'snapshot' AND r.created_at >= ? "
+        "ORDER BY r.id DESC LIMIT ?",
+        (user_id, since, limit),
+    ).fetchall()
+
+
+def list_monitoring_activity_for_user(conn: sqlite3.Connection, user_id: int, since: str,
+                                      limit: int = 100) -> list[sqlite3.Row]:
+    """Monitoring groups that ran since ``since`` — the dashboard monitoring table.
+
+    Unlike snapshots (one row per run), monitoring sweeps 3×/day, so this collapses
+    to one row per monitoring-mode group that had at least one run on or after
+    ``since``, dated by its most recent such run. Carries the group id (for its
+    brand config), name, and that latest run time. Capped so the table stays bounded.
+    """
+    return conn.execute(
+        "SELECT g.id AS group_id, g.name AS group_name, "
+        "  MAX(COALESCE(r.started_at, r.created_at)) AS run_at "
+        "FROM ci_runs r JOIN ci_groups g ON g.id = r.group_id "
+        "WHERE g.user_id = ? AND g.mode = 'monitoring' AND r.created_at >= ? "
+        "GROUP BY g.id, g.name "
+        "ORDER BY run_at DESC LIMIT ?",
+        (user_id, since, limit),
+    ).fetchall()
+
+
 def get_run(conn: sqlite3.Connection, run_id: int, user_id: int) -> sqlite3.Row | None:
     """Return a run joined to its group, only if ``user_id`` owns the group (IDOR)."""
     return conn.execute(

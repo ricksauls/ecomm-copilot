@@ -161,6 +161,24 @@ def count_managed_brands(conn: sqlite3.Connection, user_id: int,
     return int(row[0])
 
 
+def list_scored_this_month(conn: sqlite3.Connection, user_id: int, since: str,
+                           limit: int = 100) -> list[sqlite3.Row]:
+    """Completed scores for ``user_id`` since ``since`` — the dashboard "scored" table.
+
+    Only ``scored`` rows (a finished, scored item — not queued/blocked/errored) on
+    or after ``since`` (the month boundary), newest first. Carries the columns the
+    activity table shows: item id (for the cached thumbnail), title, brand, score,
+    and when it ran. Capped so the table stays bounded.
+    """
+    return conn.execute(
+        "SELECT id, item_id, url, title, brand, overall, created_at "
+        "FROM scored_items "
+        "WHERE user_id = ? AND status = 'scored' AND created_at >= ? "
+        "ORDER BY created_at DESC, id DESC LIMIT ?",
+        (user_id, since, limit),
+    ).fetchall()
+
+
 def list_items(conn: sqlite3.Connection, limit: int = 200) -> list[sqlite3.Row]:
     """Return recent items across all users (with submitter email) for admin.
 

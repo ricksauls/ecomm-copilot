@@ -169,3 +169,28 @@ def test_reclaim_orphaned_items_fails_stranded_scoring_rows(app):
         assert rows[ids[1]]["status"] == "queued"  # never claimed -> untouched
         # Idempotent: nothing left 'scoring' now.
         assert jobs.reclaim_orphaned_items(db) == 0
+
+
+def test_list_scored_this_month_only_completed_in_window(app):
+    # Only 'scored' rows created within the window are listed; queued/blocked rows
+    # and rows from before the window are excluded.
+    with app.app_context():
+        db = get_db()
+        uid = create_local_user("month@example.com", "password123")
+        ids = jobs.enqueue_items(db, uid, [
+            {"url": "https://www.walmart.com/ip/1", "item": "1", "brand": "Tabasco"},
+            {"url": "https://www.walmart.com/ip/2", "item": "2"},
+            {"url": "https://www.walmart.com/ip/3", "item": "3"},
+        ])
+        jobs.save_result(db, ids[0], 82, {"overall": 82}, "Tabasco Chipotle")
+        jobs.save_result(db, ids[1], 70, {"overall": 70}, "Old Item")
+        jobs.mark_failed(db, ids[2], "blocked", "bot detection")
+        # Backdate the second scored row to before the window.
+        db.execute("UPDATE scored_items SET created_at = '2020-01-01 00:00:00' WHERE id = ?",
+                   (ids[1],))
+        db.commit()
+
+        rows = jobs.list_scored_this_month(db, uid, since="2020-06-01")
+        assert [r["id"] for r in rows] == [ids[0]]  # only the recent scored row
+        assert rows[0]["brand"] == "Tabasco"
+        assert rows[0]["overall"] == 82

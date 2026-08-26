@@ -30,9 +30,16 @@ def test_dashboard_renders_when_authenticated(client, auth):
     auth.register()
     resp = client.get("/app")
     assert resp.status_code == 200
-    assert b"Products losing ground" in resp.data
-    # The worst-row gap should be present.
-    assert b"\xe2\x88\x9217" in resp.data  # U+2212 17
+    # The five "this month" activity tables replace the old demo table.
+    assert b"Products scored" in resp.data
+    assert b"Copy created" in resp.data
+    assert b"Image sets created" in resp.data
+    assert b"One-Time Snapshot" in resp.data
+    assert b"Daily Monitoring" in resp.data
+    # A brand-new account has no activity, so each table shows its empty state.
+    assert b"Nothing scored this month yet." in resp.data
+    # The demo table is gone.
+    assert b"Products losing ground" not in resp.data
 
 
 def test_dashboard_is_personalized_to_the_user(client, auth):
