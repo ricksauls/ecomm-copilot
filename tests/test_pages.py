@@ -296,7 +296,7 @@ def test_content_activity_shows_all_three_tables_all_time(client, auth, app):
 
     resp = client.get("/app/content-activity")
     assert resp.status_code == 200
-    assert b"View Content Activity" in resp.data
+    assert b"View All Content Activity" in resp.data
     assert b"Products Scored" in resp.data
     assert b"Copy Created" in resp.data
     assert b"Image Sets Created" in resp.data

@@ -1,24 +1,25 @@
 {% extends "app/base.html" %}
 {% import "app/_dash_tables.html" as t %}
-{% block title %}View Content Activity — ecomm-copilot{% endblock %}
+{% block title %}View All Content Activity — ecomm-copilot{% endblock %}
 
 {% block pane_content %}
 {# All-time Content Studio activity: the three PDP tables (scored, copy, image
    sets), set up like the dashboard tables but not month-scoped. Each row links to
-   that run's results. Uncapped — every record shows and the page scrolls. #}
+   that run's results. Capped at 10 rows (cap=true) with the rest reachable by
+   scrolling, matching the dashboard. #}
 <div class="page-header">
   <div>
     <p class="label eyebrow">Content Studio</p>
-    <h1>View Content Activity</h1>
+    <h1>View All Content Activity</h1>
     <p class="subtitle">All PDP scoring, copy, and image-set activity — click a row to open its results</p>
   </div>
 </div>
 
 <div class="dash-tables">
-  {{ t.product_table("Products Scored", "", scored, true, "Nothing scored yet.") }}
-  {{ t.product_table("Copy Created", "", copy, false, "No copy created yet.") }}
+  {{ t.product_table("Products Scored", "", scored, true, "Nothing scored yet.", cap=true) }}
+  {{ t.product_table("Copy Created", "", copy, false, "No copy created yet.", cap=true) }}
   {{ t.product_table("Image Sets Created", "", images, false,
-                     "Image Set Creation isn’t available yet.") }}
+                     "Image Set Creation isn’t available yet.", cap=true) }}
 </div>
 {% endblock %}
 

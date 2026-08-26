@@ -309,19 +309,19 @@ def activity_all(kind):
 @bp.route("/app/content-activity")
 @login_required
 def content_activity():
-    """View Content Activity: all-time PDP scoring / copy / image-set activity.
+    """View All Content Activity: all-time PDP scoring / copy / image-set activity.
 
     The dashboard's Content Studio tables show only the current month; this shows
     the full history for all three in one place, using the same dashboard-style
-    tables (collapsible, sortable, row-click opens the run's results). Not
-    month-scoped — ``since=None``.
+    tables (collapsible, sortable, 10-row cap, row-click opens the run's results).
+    Not month-scoped — ``since=None``.
     """
     db = get_db()
     uid = g.user["id"]
-    logger.info("Serving View Content Activity user_id=%s", uid)
+    logger.info("Serving View All Content Activity user_id=%s", uid)
     return render_template(
         "app/content_activity.html",
-        breadcrumb="Content Studio · View Content Activity",
+        breadcrumb="Content Studio · View All Content Activity",
         active_nav="content-activity",
         scored=_activity_rows(db, uid, "scored", since=None),
         copy=_activity_rows(db, uid, "copy", since=None),
