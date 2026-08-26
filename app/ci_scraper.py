@@ -19,6 +19,7 @@ wm-dot-com-competitive-intelligence ``daily.py`` scraper.
 """
 
 import logging
+import os
 import random
 from datetime import date
 
@@ -26,6 +27,34 @@ from app.fetch import _BLOCK_MARKERS, FetchBlocked, FetchError
 from app.pdp import item_number_from_url
 
 logger = logging.getLogger(__name__)
+
+
+def _proxy_from_env() -> dict | None:
+    """Playwright proxy config from env, or ``None`` when unset (the default).
+
+    Walmart's ad exchange serves headline/sponsored-video creatives only to
+    residential-looking clients, so a residential proxy is what makes those ads
+    actually render for the scraper — a datacenter IP (our droplet) gets ~zero
+    fill. Configure it in the droplet's ``.env``:
+
+        WALMART_PROXY_SERVER   e.g. "http://gate.provider.com:7000"  (required)
+        WALMART_PROXY_USERNAME provider username                     (optional)
+        WALMART_PROXY_PASSWORD provider password                     (optional)
+
+    When ``WALMART_PROXY_SERVER`` is empty the scraper runs directly, exactly as
+    before, so this is inert until an endpoint is supplied. The password is never
+    logged (see :func:`scrape_keyword_cards`).
+    """
+    server = os.environ.get("WALMART_PROXY_SERVER", "").strip()
+    if not server:
+        return None
+    proxy = {"server": server}
+    username = os.environ.get("WALMART_PROXY_USERNAME", "").strip()
+    if username:
+        # Only attach credentials when a username is set; password may be blank.
+        proxy["username"] = username
+        proxy["password"] = os.environ.get("WALMART_PROXY_PASSWORD", "")
+    return proxy
 
 # Politeness delays (seconds): a pause after load before reading, and the wait
 # the worker leaves between keywords. Matches the reference scraper's cadence.
@@ -266,13 +295,19 @@ def scrape_keyword_cards(keyword: str, *, timeout_ms: int = 30000) -> list[dict]
         ) from e
 
     url = search_url(keyword)
-    logger.info("CI scraping keyword=%r url=%s", keyword, url)
+    # A residential proxy (when configured) is what lets Walmart's ad exchange serve
+    # headline/sponsored-video ads to the scrape; set at launch so every request in
+    # the session routes through it. Log the server but never the password.
+    proxy = _proxy_from_env()
+    logger.info("CI scraping keyword=%r url=%s proxy=%s", keyword, url,
+                proxy["server"] if proxy else "direct")
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch(
                 channel="chrome",
                 headless=False,
                 args=["--disable-blink-features=AutomationControlled"],
+                **({"proxy": proxy} if proxy else {}),
             )
             try:
                 context = browser.new_context(

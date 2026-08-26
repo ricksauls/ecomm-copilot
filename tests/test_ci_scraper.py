@@ -183,3 +183,26 @@ def test_untracked_competitor_not_flagged():
 
 def test_search_url_encodes_spaces():
     assert ci_scraper.search_url("hot sauce") == "https://www.walmart.com/search?q=hot+sauce"
+
+
+def test_proxy_from_env_unset_is_none(monkeypatch):
+    # No proxy configured -> scrape directly (inert), the default.
+    monkeypatch.delenv("WALMART_PROXY_SERVER", raising=False)
+    assert ci_scraper._proxy_from_env() is None
+    # A blank/whitespace server is treated as unset, not a bad proxy.
+    monkeypatch.setenv("WALMART_PROXY_SERVER", "   ")
+    assert ci_scraper._proxy_from_env() is None
+
+
+def test_proxy_from_env_server_only(monkeypatch):
+    monkeypatch.setenv("WALMART_PROXY_SERVER", "http://gate.example.com:7000")
+    monkeypatch.delenv("WALMART_PROXY_USERNAME", raising=False)
+    assert ci_scraper._proxy_from_env() == {"server": "http://gate.example.com:7000"}
+
+
+def test_proxy_from_env_with_credentials(monkeypatch):
+    monkeypatch.setenv("WALMART_PROXY_SERVER", "http://gate.example.com:7000")
+    monkeypatch.setenv("WALMART_PROXY_USERNAME", "user123")
+    monkeypatch.setenv("WALMART_PROXY_PASSWORD", "secret")
+    assert ci_scraper._proxy_from_env() == {
+        "server": "http://gate.example.com:7000", "username": "user123", "password": "secret"}
