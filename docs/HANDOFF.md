@@ -1,34 +1,48 @@
 # ecomm-copilot — Session Handoff
 
-_Last updated: 2026-08-26 (session 5)._
+_Last updated: 2026-08-26 (session 6)._
 
 A working reference for picking up development. Read this first, then
 `CLAUDE.md` (coding standards) and `deploy/DEPLOY.md` (infra).
 
 > **Next session — start here.** Everything below is **live on main and deployed**
-> (each change ships via `git push` → CI → auto-deploy; site returns 200). Session 5
-> (2026-08-26) was a big **dashboard + activity-navigation** pass — read the **§7
-> "Session 2026-08-26 (session 5)" note first**; it's the freshest and most
-> detailed. Headlines: the dashboard body was **rebuilt into five "this month"
-> activity tables** (PDP scored/copy/image-sets + CI snapshot/monitoring), each
-> **collapsible, sortable, capped at 10 rows, with a thumbnail (hover to enlarge)
-> and clickable rows that open that run's results**; two new **"View All …
-> Activity"** screens (Content + Competitive Intelligence) show the same tables
-> all-time; **run grouping** via a new `batch_id` so a row click opens the whole
-> run; and the **worker orphan-reclaim gap is now CLOSED** (scoring + copy queues
-> self-heal on startup, like CI). Tests: **237** passing (`ruff` + `pip-audit`
-> clean).
+> (each change ships via `git push` → CI → auto-deploy; site returns 200). Session 6
+> (2026-08-26) added two Competitive Intelligence report features + polish — read the
+> **§7 "Session 2026-08-26 (session 6)" note first**; it's the freshest and most
+> detailed. Headlines:
+> 1. **Brand-level Share of Digital Shelf** — a new section at the END of both the
+>    snapshot and monitoring reports showing a brand's WHOLE page-1 presence (all
+>    SKUs, tracked + untracked) ÷ the shelf, complementing the existing tracked-only
+>    share. Page + PDF (its own page). No new scraping — reads `ci_search_results`.
+> 2. **Brand Advertising Presence** — headline (Sponsored Brand / "Brand Amplifier")
+>    and sponsored-video ad **detection + creative-image capture + per-brand counts**
+>    on the search page. New `ci_ad_units` table, images under `MEDIA_DIR/ci_ads/`,
+>    section at the end of snapshot + monitoring (page + PDF). **Requires a
+>    residential proxy** (see below) — Walmart serves these ads only to residential
+>    IPs, so the datacenter droplet got zero fill without it.
+> 3. Small UI: Contact Us rail sub-label; PDP scoring/copy flashing message now sets
+>    a time expectation ("up to 1 minute per item"); snapshot in-progress copy is now
+>    "Extracting data and creating the report… / This can take up to 5 minutes."
 >
-> **Heads-up on GitHub Actions:** a multi-hour GitHub Actions **major outage**
-> mid-session stalled the CI→Deploy pipeline (runs stuck `queued`, `workflow_run`
-> chaining dropped). It fully recovered and everything deployed; nothing is wrong
-> with our pipeline. If deploys ever hang again, check githubstatus.com first — and
-> remember `deploy.yml` triggers **only** on `workflow_run` (no manual dispatch),
-> so a clean re-trigger is a fresh push once Actions is healthy, or a manual SSH
-> deploy (`git pull` + restart) if urgent.
+> Tests: **252** passing (`ruff` + `pip-audit` clean).
 >
-> **No open operational items.** (The prior session's scoring/copy orphan-reclaim
-> gap was fixed this session.)
+> **NEW infra — residential proxy (metered).** A live **Oxylabs** residential proxy
+> is configured in the droplet `.env` (`WALMART_PROXY_*`, see §2) and the CI scraper
+> routes **every** search scrape through it (config-gated — inert if unset). This is
+> what makes Walmart serve the headline/video ads. **It costs per-GB and now runs on
+> every scrape, incl. the 3×/day monitoring sweeps.** A "Press & Hold" bot-challenge
+> fires intermittently during ad capture; the scraper detects it (iframe-aware) and
+> skips the creative screenshot (count kept, no marred image) — see §9.
+>
+> **Deploy caution (worker restarts):** `deploy.yml` restarts the worker, which
+> **orphans any in-flight CI run** (the reclaim logic marks it `error`). Before
+> pushing while runs may be happening, check for an active run first:
+> `ssh droplet-deploy 'cd /home/deploy/apps/ecomm-copilot && venv/bin/python -c "import sqlite3,os;c=sqlite3.connect(os.environ.get(\"DATABASE_URL\") or \"app.db\");print([r[0] for r in c.execute(\"SELECT id FROM ci_runs WHERE status IN (\x27queued\x27,\x27running\x27)\")])"'`
+>
+> **No open operational items.** Open enhancement (optional): raise the ad-creative
+> image hit-rate (retry a challenged keyword's capture with a fresh session/IP, or
+> tune Oxylabs rotation). Video-ad brand attribution is best-effort + not yet seen
+> live. See §7 session 6.
 
 ---
 
@@ -39,7 +53,7 @@ A working reference for picking up development. Read this first, then
   `~/Desktop/ClaudeStuff/ecomm-copilot-clean`.
 - **Stack:** Python / Flask, SQLite, server-rendered Jinja templates, deployed
   by GitHub Actions to a DigitalOcean droplet.
-- **Tests:** 237 passing (`ruff` clean, `pip-audit` clean).
+- **Tests:** 252 passing (`ruff` clean, `pip-audit` clean).
 - **Worker:** installed and running — scoring is self-serve end-to-end (intake →
   queue → background fetch+score → results). One worker only (see §6, parallelism).
   On startup it now **reclaims orphaned in-flight work in all three queues**
@@ -179,20 +193,28 @@ A working reference for picking up development. Read this first, then
   `copy_items` (Copy Content Creation, +`batch_id`), the CI set `ci_groups`
   (+`mode`), `ci_brands`,
   `ci_products`, `ci_keywords`, `ci_runs`, `ci_search_results`,
-  `ci_share_of_search`, and the messaging set `message_threads`, `messages`
+  `ci_share_of_search`, **`ci_ad_units`** (session 6 — brand ad sightings:
+  run/group/keyword/ad_type[headline|video]/brand_id/brand_text/image_path), and the
+  messaging set `message_threads`, `messages`
   (Contact Us). Schema is created + migrated idempotently at web **and** worker
   startup (`db.ensure_schema` = `_SCHEMA` + `_migrate`).
-- **Media dir (cached product images):** `$MEDIA_DIR` (default `media/` next to
-  `app.db` → `/home/deploy/apps/ecomm-copilot/media/ci_products/<item_id>.jpg`).
-  Worker-populated, outside the repo (survives git-pull deploys), created on
-  first write. Zero-config; delete a file to force a re-fetch. See §3 + DEPLOY.md.
+- **Media dir (cached images):** `$MEDIA_DIR` (default `media/` next to `app.db`).
+  Two subdirs: `media/ci_products/<item_id>.jpg` (tracked-product mains) and, new in
+  session 6, `media/ci_ads/<run>_<kw>_<type>.jpg` (captured ad creatives). Worker-
+  populated, outside the repo (survives git-pull deploys), created on first write.
+  Delete a file to force a re-fetch. See §3 + DEPLOY.md.
 - **Secrets / config** in `/home/deploy/apps/ecomm-copilot/.env` (chmod 600,
   never committed): `SECRET_KEY`, `DATABASE_URL`, `APP_URL`,
   `GOOGLE_CLIENT_ID/SECRET`, **`ADMIN_EMAILS`** (comma-separated allowlist =
-  `ricksauls@cox.net,ricksauls1@gmail.com`), and — for Copy Content Creation —
+  `ricksauls@cox.net,ricksauls1@gmail.com`), — for Copy Content Creation —
   **`ANTHROPIC_API_KEY`** (the AI copy generator; the worker fails those items
   loudly if it's unset) and optional **`COPYGEN_MODEL`** (defaults to
-  `claude-opus-5`; set it to switch models, e.g. a cheaper one for big batches).
+  `claude-opus-5`), — and, new in session 6, the **residential proxy** used by the
+  CI scraper so Walmart serves the headline/video ads: **`WALMART_PROXY_SERVER`**
+  (live Oxylabs endpoint `http://pr.oxylabs.io:7777`), **`WALMART_PROXY_USERNAME`**,
+  **`WALMART_PROXY_PASSWORD`**. Config-gated: unset → scrape direct (no ads). It's
+  **metered per-GB and runs on every CI scrape** (see §9 for the proxy + captcha
+  notes).
 - **SSH from the Mac:** `ssh droplet-deploy` (key `~/.ssh/deploy_wm_ci`, **no
   passphrase**). Passwordless — that's the way in; you can drive the droplet
   directly. Root is only via the DO web Console (the `deploy` **sudo** password
@@ -327,7 +349,15 @@ static `js/ci_{config,charts,dashboard}.js` (the `.ci-spark` sparkline + hover
 tooltip live in `ci_charts.js`); PDFs via `pdf_export.build_ci_{snapshot,monitoring}_pdf`
 (both go through the shared `_ci_results_flow`). Tables: `ci_groups` (+`mode`),
 `ci_brands`, `ci_products`, `ci_keywords`, `ci_runs`, `ci_search_results`,
-`ci_share_of_search`. Deploy: `deploy/ecomm-copilot-ci-*.{service,timer}`.
+`ci_share_of_search`, `ci_ad_units`. Deploy: `deploy/ecomm-copilot-ci-*.{service,timer}`.
+**Session 6 additions** (see §7): brand-level share (`ci_analysis.{snapshot,
+monitoring}_brand_share_of_shelf`); ad detection (`ci_scraper.{scrape_keyword_page,
+build_ad_rows,_capture_ads,_challenge_overlay_present,_proxy_from_env}`,
+`ci_images.{save_ad_image,ad_image_relpath,ad_image_abspath}`,
+`ci_jobs.write_ad_units`, `ci_analysis.{snapshot,monitoring}_brand_ads`,
+`worker._write_keyword_ads`, route `pages.ci_ad_image`, macro
+`templates/app/_ci_ads.html`, `pdf_export._brand_ads_table`). Both new sections
+append to `_ci_results_sections.html` + `ci_snapshot_results.html` + `_ci_results_flow`.
 
 ---
 
@@ -438,6 +468,69 @@ to the RAM. The queue claim (`jobs.claim_next`) is already concurrency-safe.
 ---
 
 ## 7. Known gaps / next-up roadmap
+
+**Session 2026-08-26 (session 6 — all live on main + deployed).** _Focus: two new
+Competitive Intelligence report sections — brand-level Share of Digital Shelf, and
+Brand Advertising Presence (headline + sponsored-video ad detection via a residential
+proxy) — plus UI polish._ Read this note first. Commits `edef727`..`67ded5b`.
+
+- **Brand-level Share of Digital Shelf (new section, end of snapshot + monitoring).**
+  The existing "Overall Share of Digital Shelf" is **tracked-item-only** (a brand's
+  tracked SKUs' slots ÷ all placements). The new **"Brand Share of Digital Shelf"**
+  counts **all** of a brand's page-1 cards (tracked + untracked SKUs) ÷ the whole
+  shelf — the whole-brand view, so competitors whose SKUs aren't individually tracked
+  finally show their real presence. **No new scraping/schema**: the scraper already
+  brand-attributes every card, so this reads `ci_search_results` directly.
+  `ci_analysis.snapshot_brand_share_of_shelf` / `monitoring_brand_share_of_shelf`
+  (+ shared `_shape_share_rows`, `_brand_level_counts`, `_assemble_share_over_period`
+  — the old tracked-only functions were refactored onto the same helpers so they
+  can't drift). Rendered on the page (`ci_snapshot_results.html` inline + the shared
+  `_ci_results_sections.html` partial with delta/trend for monitoring) and in the PDF
+  (`_ci_results_flow`, its **own page** via a PageBreak). `pages._snapshot_data` /
+  `_monitoring_data` expose `brand_sos_summary`; routes pass an independent chart scale.
+- **Brand Advertising Presence (new section + whole new capability).** Detects the
+  search page's **headline ad** (Sponsored Brand Ad, `div[data-testid="sba-container"]`;
+  brand from its "Sponsored by <brand>" line / logo alt) and **sponsored video ad**
+  (`div[data-testid="VideoPlayerWrapper"]`), screenshots each creative, attributes it
+  to a tracked brand by name, and reports per brand a **count** (one per keyword-
+  appearance) + the latest creative thumbnail. Flow: `ci_scraper.scrape_keyword_page()`
+  returns `{cards, ads}` from ONE page load (`scrape_keyword_cards` is now a thin
+  wrapper); pure `build_ad_rows()` attributes brand (shared `_brand_index`);
+  `worker._write_keyword_ads` saves each creative via `ci_images.save_ad_image()`
+  (→ `media/ci_ads/`, served same-origin at `/media/ci-ad/<run>/<kw>/<type>`,
+  path-guarded) and records rows via `ci_jobs.write_ad_units`; `ci_analysis.
+  {snapshot,monitoring}_brand_ads` aggregate; report section via the shared
+  `templates/app/_ci_ads.html` macro (page) + `pdf_export._brand_ads_table`
+  (PDF, own page, creatives embedded). New table `ci_ad_units` (§2). **Live-validated**
+  (runs 17/18): real headline ads captured + attributed (Frank's RedHot/Tabasco →
+  tracked; Pace/Ragu/V8 Red → `brand_id` NULL, recorded but not shown).
+  - **Requires the residential proxy (§2, §9).** Walmart's ad exchange serves these
+    creatives only to residential IPs; the datacenter droplet got **zero** ad fill
+    until the Oxylabs proxy was wired in. Ads are client-served, so parse the rendered
+    DOM (NOT `__NEXT_DATA__`, whose `adsContext.brand` stays empty).
+  - **"Press & Hold" captcha (handled).** A PerimeterX bot-challenge fires
+    intermittently during ad capture (it renders in an **iframe**). `ci_scraper.
+    _challenge_overlay_present` is iframe-aware (scans frame URLs + text); when a
+    challenge is present the creative screenshot is **skipped** (count/brand still
+    recorded, no marred image) and the captcha is never interacted with. So clean
+    creatives land on un-challenged sessions (accumulating over monitoring's 3×/day
+    runs); counts always work. "Capture early" does NOT help — the ad lazy-loads only
+    after scroll. See §9.
+  - **Video ads:** none seen live yet (campaign-dependent); video brand attribution
+    is best-effort (the `<video>` has no brand text; falls back to a "Sponsored by"
+    line on an ancestor). Refine when one appears.
+- **UI polish.** Contact Us rail item gained a muted sub-label "(questions, issues,
+  customizations etc.)"; PDP scoring/copy flashing subtitles now set a time
+  expectation ("… this can take up to 1 minute per item"); the One-Time Snapshot
+  in-progress subtitle + card now read "Extracting data and creating the report… /
+  This can take up to 5 minutes."; and the redundant "Snapshot queued — results appear
+  as the worker finishes" flash was removed ("worker" is internal jargon; the page's
+  own in-progress message already confirms the run started).
+- **Next-ups (carried + new):** the deprecated `actions/checkout` + `actions/
+  setup-python` Node-20 bump is still open; PDP Image Set Creation is still the only
+  placeholder; **new optional CI enhancement** — raise the ad-creative image hit-rate
+  (retry a challenged keyword's capture with a fresh session/IP, or tune Oxylabs
+  rotation), and validate video-ad brand attribution once one appears live.
 
 **Session 2026-08-26 (session 5 — all live on main + deployed).** _Focus: the
 dashboard body rebuilt into activity tables, the "View All … Activity" navigation,
@@ -855,6 +948,23 @@ cd ~/Desktop/ClaudeStuff/ecomm-copilot-clean
   Served from `/media/ci-product/<id>` (same-origin; CSP already allows `img-src 'self'`).
   The `sqlite3` CLI is **not** installed on the droplet — inspect the DB with
   `venv/bin/python -c "import sqlite3; ..."` instead.
+- **CI ad capture needs the residential proxy, and it's metered (session 6):**
+  Walmart serves headline/video ads only to residential IPs. `WALMART_PROXY_*` in the
+  droplet `.env` (live Oxylabs) makes `ci_scraper.scrape_keyword_page` route through
+  it (config-gated: unset → direct scrape, no ads). It bills per-GB and runs on
+  **every** CI scrape, incl. the 3×/day monitoring timers. To check the exit is
+  residential: `ssh droplet-deploy 'set -a; . /home/deploy/apps/ecomm-copilot/.env; set +a; curl -s -x "$WALMART_PROXY_SERVER" -U "$WALMART_PROXY_USERNAME:$WALMART_PROXY_PASSWORD" https://ip.oxylabs.io/location'`.
+- **"Press & Hold" captcha renders in an IFRAME:** a PerimeterX bot-challenge fires
+  intermittently *during ad capture* (after the load-time block check). Its text
+  isn't in the main-page body (it's in an iframe), so `ci_scraper.
+  _challenge_overlay_present` scans **frame URLs + frame text** too; a challenged
+  capture **skips the creative screenshot** (count/brand kept, no marred image) and
+  **never touches the captcha** (per the no-CAPTCHA rule). Marred creatives already
+  stored can be cleaned by nulling `ci_ad_units.image_path` for the run + deleting
+  `media/ci_ads/<run>_*.jpg`.
+- **Deploy restarts the worker → orphans an in-flight CI run** (reclaim marks it
+  `error`). Before pushing while runs may be happening, check for an active run first
+  (see the top-of-file "Deploy caution" one-liner).
 
 ---
 
