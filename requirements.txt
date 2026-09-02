@@ -1,7 +1,7 @@
 # Runtime dependencies. Pin exact versions so builds are reproducible and a
 # compromised new release can't silently enter the app (see security-standards).
 Flask==3.1.3
-gunicorn==22.0.0
+gunicorn==26.2.0
 python-dotenv==1.2.2
 
 # Auth: Werkzeug (ships with Flask) hashes passwords; Authlib + requests power
