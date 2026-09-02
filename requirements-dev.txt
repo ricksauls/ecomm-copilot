@@ -1,5 +1,5 @@
 # Development / CI tooling, kept separate from runtime deps.
 -r requirements.txt
 pytest==9.0.3
-ruff==0.6.2
+ruff==0.16.5
 pip-audit==2.7.3
