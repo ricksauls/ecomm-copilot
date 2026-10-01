@@ -26,9 +26,11 @@
 <div class="page-header">
   <div>
     <h1>Product Detail Page Content Scores</h1>
-    <p class="subtitle {{ 'subtitle-scoring' if pending else '' }}">
+    {# Static subtitle — the progress bar below carries the "in progress" cue, so
+       the text no longer flashes (unlike the Copy/CI screens, which still do). #}
+    <p class="subtitle">
       {{ items | length }} item{{ '' if items | length == 1 else 's' }}
-      {% if pending %}· scoring in progress — this can take up to 1 minute per item{% else %}· complete{% endif %}
+      {% if pending %}· scoring in progress — about 1 minute per 5 items{% else %}· complete{% endif %}
     </p>
   </div>
   <div class="header-buttons">
@@ -41,6 +43,21 @@
     <a href="{{ url_for('pages.pdp_scoring') }}" class="wbtn wbtn-secondary">Score more</a>
   </div>
 </div>
+
+{% if pending %}
+{# Batch progress. Server-rendered: the page already reloads every 5s while
+   pending (see head_extra), so the fill advances on each poll — no JS needed,
+   CSP-safe. 'done' counts items that reached a terminal state (scored, blocked,
+   or errored). #}
+{% set total = items | length %}
+{% set done = items | rejectattr('status', 'in', ['queued', 'scoring']) | list | length %}
+{% set pct = ((done / total * 100) | round(0, 'floor') | int) if total else 0 %}
+<div class="pdp-progress" role="progressbar" aria-valuemin="0" aria-valuemax="{{ total }}"
+     aria-valuenow="{{ done }}" aria-label="Scoring progress">
+  <div class="pdp-progress-track"><span style="width: {{ pct }}%;"></span></div>
+  <span class="pdp-progress-label">{{ done }} of {{ total }} scored</span>
+</div>
+{% endif %}
 
 {% if not items %}
 <div class="card card-pad">

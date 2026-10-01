@@ -129,14 +129,17 @@ def test_results_pdf_download(client, auth, app):
     assert "attachment" in resp.headers.get("Content-Disposition", "")
 
 
-def test_results_subtitle_flashes_while_pending(client, auth):
-    # A freshly enqueued (unscored) batch is pending, so the subtitle carries the
-    # flash class that CSS animates.
+def test_results_shows_progress_while_pending(client, auth):
+    # A freshly enqueued (unscored) batch is pending: the subtitle shows the
+    # in-progress text and a progress bar (0 of 1 so far), and no longer uses the
+    # flashing class (that cue moved to the progress bar on this screen).
     auth.register()
     client.post("/app/pdp-scoring", data={"urls": "https://www.walmart.com/ip/12345"})
     resp = client.get("/app/pdp-scoring/results")
-    assert b"subtitle-scoring" in resp.data
     assert b"scoring in progress" in resp.data
+    assert b'role="progressbar"' in resp.data
+    assert b"0 of 1 scored" in resp.data
+    assert b"subtitle-scoring" not in resp.data  # no text flashing on this screen
 
 
 def test_results_pdf_requires_login(client):
