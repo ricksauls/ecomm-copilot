@@ -133,7 +133,7 @@ def test_admin_activity_consolidated_view(client, auth, app):
     # Seeded rows surface in their sections.
     assert b"Snap Group" in data and b"Mon Group" in data
     # Image Sets section renders even though the feature isn't built.
-    assert b"PDP Image Set Creation isn't built yet" in data
+    assert b"Product Detail Page Image Set Creation isn't built yet" in data
 
 
 def test_admin_nav_visibility(client, auth, app):

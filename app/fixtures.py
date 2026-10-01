@@ -48,7 +48,7 @@ def get_dashboard():
                 "item": "#WM-4471902",
                 "score": "72",
                 "gap": "\u221217",
-                "recommended": "PDP image set",
+                "recommended": "Product Detail Page image set",
                 "worst": True,  # Only the worst row's gap is rendered in signal red.
             },
             {

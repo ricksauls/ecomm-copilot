@@ -242,13 +242,13 @@ def dashboard():
         _kpi("Products managed",
              jobs.count_managed_products(db, uid),
              jobs.count_managed_products(db, uid, since=month_start)),
-        _kpi("PDP's scored",
+        _kpi("Product Detail Pages scored",
              jobs.count_scored_products(db, uid),
              jobs.count_scored_products(db, uid, since=month_start)),
-        _kpi("PDP's copy created",
+        _kpi("Product Detail Pages copy created",
              copy_jobs.count_copy_products(db, uid),
              copy_jobs.count_copy_products(db, uid, since=month_start)),
-        _kpi("PDP's images created", 0, 0),
+        _kpi("Product Detail Pages images created", 0, 0),
         # Competitive Intelligence activity: snapshots the user has run and the
         # daily-monitoring schedules they have active.
         _kpi("One-Time Snapshot",
@@ -371,7 +371,7 @@ def pdp_scoring():
             return (
                 render_template(
                     "app/pdp_scoring.html",
-                    breadcrumb="Content Studio · PDP Content Scoring",
+                    breadcrumb="Content Studio · Product Detail Page Content Scoring",
                     active_nav="pdp-scoring",
                     submitted=False,
                     max_items=pdp.MAX_ITEMS,
@@ -396,7 +396,7 @@ def pdp_scoring():
     logger.info("Serving PDP Content Scoring intake")
     return render_template(
         "app/pdp_scoring.html",
-        breadcrumb="Content Studio · PDP Content Scoring",
+        breadcrumb="Content Studio · Product Detail Page Content Scoring",
         active_nav="pdp-scoring",
         submitted=False,
         max_items=pdp.MAX_ITEMS,
@@ -443,7 +443,7 @@ def pdp_scoring_results():
     items = [_row_view(r) for r in _batch_rows()]
     return render_template(
         "app/pdp_results.html",
-        breadcrumb="Content Studio · PDP Content Scoring",
+        breadcrumb="Content Studio · Product Detail Page Content Scoring",
         active_nav="pdp-scoring",
         items=items,
         summary=_score_summary(items),
@@ -532,7 +532,7 @@ def pdp_copy():
             return (
                 render_template(
                     "app/pdp_copy.html",
-                    breadcrumb="Content Studio · PDP Copy Content Creation",
+                    breadcrumb="Content Studio · Product Detail Page Copy Content Creation",
                     active_nav="pdp-copy",
                     max_items=pdp.MAX_ITEMS,
                     error="No valid item URLs were provided.",
@@ -556,7 +556,7 @@ def pdp_copy():
     logger.info("Serving PDP Copy Content Creation intake")
     return render_template(
         "app/pdp_copy.html",
-        breadcrumb="Content Studio · PDP Copy Content Creation",
+        breadcrumb="Content Studio · Product Detail Page Copy Content Creation",
         active_nav="pdp-copy",
         max_items=pdp.MAX_ITEMS,
         url_prefix=pdp.WALMART_IP_PREFIX,
@@ -570,7 +570,7 @@ def pdp_copy_results():
     items = [_copy_row_view(r) for r in _copy_batch_rows()]
     return render_template(
         "app/pdp_copy_results.html",
-        breadcrumb="Content Studio · PDP Copy Content Creation",
+        breadcrumb="Content Studio · Product Detail Page Copy Content Creation",
         active_nav="pdp-copy",
         items=items,
     )

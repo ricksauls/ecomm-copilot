@@ -16,7 +16,7 @@ def test_copy_intake_renders(client, auth):
     auth.register()
     resp = client.get("/app/pdp-copy")
     assert resp.status_code == 200
-    assert b"Create PDP Copy Content" in resp.data
+    assert b"Create Product Detail Page Copy Content" in resp.data
     # The fetch button carries the exact requested label.
     assert b"Get Current Copy Content" in resp.data
     # CSV cap mirrors app.pdp.MAX_ITEMS (100).

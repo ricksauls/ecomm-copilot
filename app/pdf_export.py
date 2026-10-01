@@ -183,13 +183,13 @@ def build_copy_pdf(items: list[dict]) -> bytes:
 
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
-        buffer, pagesize=letter, title="PDP Copy Content",
+        buffer, pagesize=letter, title="Product Detail Page Copy Content",
         leftMargin=0.75 * inch, rightMargin=0.75 * inch,
         topMargin=0.7 * inch, bottomMargin=0.7 * inch,
     )
 
     flow = [
-        Paragraph("PDP Copy Content", styles["h1"]),
+        Paragraph("Product Detail Page Copy Content", styles["h1"]),
         Paragraph(
             "Generated " + datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
             + f" · {len(done)} item{'' if len(done) == 1 else 's'}",

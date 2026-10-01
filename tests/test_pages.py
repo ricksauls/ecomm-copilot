@@ -70,7 +70,7 @@ def test_pdp_scoring_page_renders(client, auth):
     auth.register()
     resp = client.get("/app/pdp-scoring")
     assert resp.status_code == 200
-    assert b"Score PDPs (Product Detail Pages)" in resp.data
+    assert b"Score Product Detail Pages" in resp.data
     # The eyebrow line is gone (the rail nav item keeps its own label).
     assert b"(Product Detail Page) Content Scoring" not in resp.data
     assert b"Search products, brands" not in resp.data
