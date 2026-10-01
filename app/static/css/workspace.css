@@ -1117,6 +1117,352 @@ a:focus-visible,
   letter-spacing: 0;
 }
 
+/* ── PDP Content Scores: dense results table (2026-10-01) ────────────────────
+   Replaces the one-tall-card-per-item layout so hundreds of items stay
+   scannable: a summary strip, then one compact two-line-equivalent row per item
+   (big overall number + bar, five per-dimension mini-bars), with the verbose
+   recommendations tucked into a per-row detail panel that expands on click.
+   Column-sort / filter / expand are progressive enhancement (pdp_results.js);
+   with JS off every panel stays open (see the template's <noscript>). */
+
+/* Summary strip: average score + band counts + the filter field. */
+.pdp-stats {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.pdp-stat {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+}
+.pdp-stat-num {
+  font-size: 34px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  color: var(--black);
+}
+.pdp-stat-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--cool-gray);
+  margin-top: 5px;
+}
+.pdp-stat-bands {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+.pdp-band {
+  font-size: 12.5px;
+  color: var(--mid-gray);
+}
+.pdp-band b {
+  font-size: 15px;
+  font-weight: 700;
+  margin-right: 3px;
+}
+.pdp-band small {
+  color: var(--cool-gray);
+}
+/* On-palette banding: brand blue = strong, slate = moderate, signal red = weak. */
+.pdp-band-strong b {
+  color: var(--accent);
+}
+.pdp-band-moderate b {
+  color: var(--mid-gray);
+}
+.pdp-band-weak b {
+  color: var(--signal-red);
+}
+.pdp-stat-tools {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+.pdp-filter {
+  width: 260px;
+  max-width: 100%;
+  font-size: 13px;
+  padding: 7px 10px;
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-chip);
+  background: var(--surface);
+  color: var(--black);
+}
+.pdp-filter:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* The table card. The body scrolls (both axes) with its header pinned, so a long
+   batch stays inside a self-contained region rather than running the whole page. */
+.pdp-table {
+  padding: 0;
+  overflow: hidden; /* clip the pinned header to the card's rounded corners */
+}
+.pdp-body {
+  overflow: auto;
+  max-height: calc(100vh - 300px);
+}
+/* Header + every summary row share this grid so columns line up. min-width keeps
+   the dimension columns legible; the body scrolls horizontally below it. */
+.pdp-cols {
+  display: grid;
+  grid-template-columns: 30px 44px minmax(190px, 1.6fr) 96px repeat(5, 76px) 92px 26px;
+  align-items: center;
+  gap: 12px;
+  min-width: 960px;
+}
+.pdp-head-row {
+  padding: 10px 22px;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface);
+}
+.pdp-head-row .col {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--black);
+  line-height: 1.25;
+}
+.pdp-head-row .col.c {
+  text-align: center;
+}
+.pdp-head-row .col.r {
+  text-align: right;
+}
+/* Sortable headers get a pointer + an active-direction caret, matching the
+   dashboard tables. */
+.pdp-head-row .col.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+.pdp-head-row .col.sortable:hover {
+  color: var(--signal-red);
+}
+.pdp-head-row .col[data-dir]::after {
+  font-size: 8px;
+  margin-left: 3px;
+  color: var(--mid-gray);
+}
+.pdp-head-row .col[data-dir="asc"]::after {
+  content: "\25B2";
+}
+.pdp-head-row .col[data-dir="desc"]::after {
+  content: "\25BC";
+}
+
+/* One item = a summary row (+ an optional detail panel). */
+.pdp-item {
+  border-bottom: 1px solid var(--divider);
+}
+.pdp-item:last-child {
+  border-bottom: 0;
+}
+.pdp-item.pdp-hidden {
+  display: none;
+}
+.pdp-summary {
+  padding: 10px 22px;
+}
+.pdp-item.has-detail .pdp-summary {
+  cursor: pointer;
+}
+.pdp-item.has-detail .pdp-summary:hover {
+  background: var(--row-hover);
+}
+.pdp-summary .col {
+  min-width: 0;
+}
+.pdp-summary .col.c {
+  justify-self: center;
+}
+.pdp-summary .col.r {
+  justify-self: end;
+}
+.pdp-sel-cell,
+.pdp-sel-head {
+  display: flex;
+  justify-content: center;
+}
+/* Thumbnails reuse the dashboard .dash-thumb styling + hover-enlarge. */
+.pdp-thumb-cell {
+  display: flex;
+}
+/* Product cell: item-number chip over a title that links to the PDP. */
+.pdp-item-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.pdp-item-no {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--cool-gray);
+}
+.pdp-item-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--black);
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pdp-item-title:hover {
+  color: var(--accent);
+}
+/* Overall: the big score the user wanted kept prominent, plus a thin bar. */
+.pdp-overall-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+.pdp-overall-num {
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  color: var(--black);
+}
+.pdp-overall-num small {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--cool-gray);
+  margin-left: 1px;
+}
+.pdp-overall-bar {
+  display: block;
+  width: 100%;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--placeholder);
+  overflow: hidden;
+}
+.pdp-overall-bar span {
+  display: block;
+  height: 100%;
+  background: var(--black);
+}
+/* Per-dimension mini-bar + score, centred under its header column. */
+.pdp-dim-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+.pdp-mini {
+  display: block;
+  width: 48px;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--placeholder);
+  overflow: hidden;
+}
+.pdp-mini span {
+  display: block;
+  height: 100%;
+  background: var(--black);
+}
+.pdp-dim-score {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--mid-gray);
+}
+.pdp-dim-empty {
+  font-size: 12px;
+  color: var(--cool-gray);
+}
+.pdp-status-cell .status-badge {
+  display: inline-block;
+}
+/* Expand caret — rotates when its row opens. */
+.pdp-caret-cell {
+  display: flex;
+  justify-content: center;
+}
+.pdp-caret {
+  width: 0;
+  height: 0;
+  border-left: 5px solid var(--mid-gray);
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  cursor: pointer;
+  transition: transform var(--fade) var(--ease);
+}
+.pdp-item.pdp-open .pdp-caret {
+  transform: rotate(90deg);
+}
+
+/* Detail panel: per-dimension recommendations. Collapsed only when JS is active
+   (.pdp-js) and the row isn't open; otherwise visible (incl. the no-JS path). */
+.pdp-js .pdp-item:not(.pdp-open) .pdp-detail {
+  display: none;
+}
+.pdp-detail {
+  padding: 4px 22px 18px;
+  background: var(--row-hover);
+}
+.pdp-recs {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 14px 28px;
+}
+.pdp-rec-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 4px;
+  margin-bottom: 6px;
+}
+.pdp-rec-name {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--black);
+}
+.pdp-rec-score {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--mid-gray);
+}
+.pdp-rec-score.muted {
+  font-weight: 400;
+  font-style: italic;
+  color: var(--cool-gray);
+}
+.pdp-rec-none {
+  margin: 0;
+  font-size: 12px;
+  color: var(--cool-gray);
+}
+/* Non-scored rows (blocked/error): a short reason under the row. */
+.pdp-note {
+  margin: 0;
+  padding: 0 22px 14px;
+  font-size: 12.5px;
+  color: var(--cool-gray);
+}
+.pdp-note.warn {
+  color: var(--signal-red);
+}
+
 /* ── Admin: rail section, count badges, notification, tables ─────────────────
    Added 2026-08-21 for the admin screens (Users, Items scored). */
 

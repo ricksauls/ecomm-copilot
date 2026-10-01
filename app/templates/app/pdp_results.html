@@ -1,8 +1,18 @@
 {% extends "app/base.html" %}
-{% block title %}PDP Scores — DISCOtech{% endblock %}
+{% block title %}Product Detail Page Content Scores — DISCOtech{% endblock %}
 
 {% set pending = items | selectattr('status', 'in', ['queued', 'scoring']) | list | length > 0 %}
 {% set has_scored = items | selectattr('status', 'equalto', 'scored') | list | length > 0 %}
+
+{# Dimension columns, in scoring order, as (key, label). Drives both the sortable
+   header and each row's per-dimension cells so the two stay aligned. #}
+{% set DIMS = [
+  ('imagery', 'Imagery'),
+  ('attributes', 'Attributes'),
+  ('title', 'Title'),
+  ('key_features', 'Key features'),
+  ('description', 'Description'),
+] %}
 
 {% block head_extra %}
 {# While any item is still scoring, refresh so results appear as the worker
@@ -13,7 +23,7 @@
 {% block pane_content %}
 <div class="page-header">
   <div>
-    <h1>PDP (Product Detail Page) Scores</h1>
+    <h1>Product Detail Page Content Scores</h1>
     <p class="subtitle {{ 'subtitle-scoring' if pending else '' }}">
       {{ items | length }} item{{ '' if items | length == 1 else 's' }}
       {% if pending %}· scoring in progress — this can take up to 1 minute per item{% else %}· complete{% endif %}
@@ -37,7 +47,28 @@
 {% endif %}
 
 {% if has_scored %}
-<p class="copy-select-hint">Tick items and choose <strong>Create new copy content</strong> to rewrite their Title, Description, and Key Features.</p>
+{# At-a-glance health of the batch: average score + how the scored items split
+   across the three bands. Counts come from the route (_score_summary). #}
+<div class="pdp-stats card card-pad">
+  <div class="pdp-stat">
+    <span class="pdp-stat-num">{{ summary.avg if summary.avg is not none else '—' }}</span>
+    <span class="pdp-stat-label">Average score</span>
+  </div>
+  <div class="pdp-stat-bands">
+    <span class="pdp-band pdp-band-strong"><b>{{ summary.bands.strong }}</b> strong <small>(80+)</small></span>
+    <span class="pdp-band pdp-band-moderate"><b>{{ summary.bands.moderate }}</b> moderate <small>(60–79)</small></span>
+    <span class="pdp-band pdp-band-weak"><b>{{ summary.bands.weak }}</b> needs work <small>(&lt;60)</small></span>
+  </div>
+  <div class="pdp-stat-tools">
+    {# Bulk controls + filter. All three are progressive enhancement wired by
+       pdp_results.js; with JS off every panel is already open and the filter is
+       simply inert (no server round-trip exists for it). #}
+    <button type="button" class="wbtn wbtn-secondary pdp-expand-all" aria-expanded="false">Expand all</button>
+    <input type="search" class="pdp-filter" placeholder="Filter by product or item #" aria-label="Filter results" autocomplete="off" />
+  </div>
+</div>
+
+<p class="copy-select-hint">Tick items and choose <strong>Create new copy content</strong> to rewrite their Title, Description, and Key Features. Click a row to see its recommendations.</p>
 {% endif %}
 
 {# Selection form: the per-item checkboxes below post together to the copy flow.
@@ -45,67 +76,131 @@
 <form id="copy-select-form" method="post" action="{{ url_for('pages.pdp_scoring_create_copy') }}">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
 
-{% for it in items %}
-<div class="card card-pad score-card">
-  <div class="score-card-head">
-    <div class="score-id">
-      {% if it.status == 'scored' %}
-      <label class="copy-select" title="Select for copy rewrite">
-        <input type="checkbox" name="item_ids" value="{{ it.id }}" />
-      </label>
-      {% endif %}
-      {% if it.item_id %}<span class="item-no">Item #{{ it.item_id }}</span>{% endif %}
-      <a href="{{ it.url }}" class="item-url" target="_blank" rel="noopener noreferrer">{{ it.url }}</a>
-      {# Product name (filled once scored) — identifies the item far better than
-         the URL alone. #}
-      {% if it.title %}<span class="item-title">{{ it.title }}</span>{% endif %}
+{% if items %}
+<div class="card pdp-table">
+  <div class="pdp-body">
+    {# Column headers double as sort controls (pdp_results.js). Non-sortable
+       columns — select, image, caret — carry data-nosort. #}
+    <div class="pdp-cols pdp-head-row">
+      <div class="col pdp-sel-head" data-nosort>
+        {% if has_scored %}<input type="checkbox" class="pdp-select-all" aria-label="Select all items for copy rewrite" title="Select all" />{% endif %}
+      </div>
+      <div class="col" data-nosort>Image</div>
+      <div class="col">Product</div>
+      <div class="col r">Overall</div>
+      {% for key, label in DIMS %}<div class="col c">{{ label }}</div>{% endfor %}
+      <div class="col">Status</div>
+      <div class="col" data-nosort></div>
     </div>
-    <span class="status-badge status-{{ it.status }}">
-      {% if it.status == 'queued' %}Queued
-      {% elif it.status == 'scoring' %}Scoring…
-      {% elif it.status == 'scored' %}Scored
-      {% elif it.status == 'blocked' %}Couldn’t fetch
-      {% else %}Error{% endif %}
-    </span>
-  </div>
 
-  {% if it.status == 'scored' and it.result %}
-  <div class="score-body">
-    <div class="overall">
-      <div class="overall-num">{{ it.overall }}</div>
-      <div class="overall-max">/ 100</div>
-    </div>
-    <div class="dims">
-      {% for d in it.result.dimensions %}
-      <div class="dim-row">
-        <div class="dim-row-head">
-          <span class="dim-row-name">{{ d.label }}</span>
-          {% if d.available %}
-          <span class="dim-row-score">{{ d.score }}</span>
-          {% else %}
-          <span class="dim-row-score muted">not measured yet</span>
+    {% for it in items %}
+    {% set scored = it.status == 'scored' and it.result %}
+    <div class="pdp-item{{ ' has-detail' if scored }}"
+         data-search="{{ ((it.title or '') ~ ' #' ~ (it.item_id or '') ~ ' ' ~ it.url) | lower }}">
+      <div class="pdp-cols pdp-summary">
+        {# Select — only scored items can be sent to copy rewrite. #}
+        <div class="col pdp-sel-cell">
+          {% if scored %}
+          <label class="copy-select" title="Select for copy rewrite">
+            <input type="checkbox" name="item_ids" value="{{ it.id }}" />
+          </label>
           {% endif %}
         </div>
-        {% if d.available %}
-        <div class="score-bar"><span style="width: {{ d.score }}%;"></span></div>
-        {% endif %}
-        {% if d.recommendations %}
-        <ul class="dim-recs">
-          {% for rec in d.recommendations %}<li>{{ rec }}</li>{% endfor %}
-        </ul>
-        {% endif %}
+        {# Image. #}
+        <div class="col pdp-thumb-cell">
+          {% if it.image_url %}
+          <img class="dash-thumb" src="{{ it.image_url }}" alt="" loading="lazy" />
+          {% else %}
+          <div class="dash-thumb placeholder"></div>
+          {% endif %}
+        </div>
+        {# Product: title (or URL) links to the PDP; item number as a chip. #}
+        <div class="col pdp-item-cell">
+          {% if it.item_id %}<span class="pdp-item-no">#{{ it.item_id }}</span>{% endif %}
+          <a class="pdp-item-title" href="{{ it.url }}" target="_blank" rel="noopener noreferrer"
+             title="{{ it.title or it.url }}">{{ it.title or it.url }}</a>
+        </div>
+        {# Overall: the big score number kept front-and-centre, plus a thin bar. #}
+        <div class="col r pdp-overall-cell" data-sort="{{ it.overall if it.overall is not none else -1 }}">
+          {% if scored %}
+          <span class="pdp-overall-num">{{ it.overall }}<small>/100</small></span>
+          <span class="pdp-overall-bar"><span style="width: {{ it.overall }}%;"></span></span>
+          {% else %}
+          <span class="pdp-dim-empty">—</span>
+          {% endif %}
+        </div>
+        {# Per-dimension mini-bars, aligned to the DIMS header columns. #}
+        {% for key, label in DIMS %}
+          {% set match = (it.result.dimensions | selectattr('key', 'equalto', key) | list) if scored else [] %}
+          {% set d = match[0] if match else none %}
+          <div class="col c pdp-dim-cell" data-sort="{{ d.score if (d and d.available) else -1 }}">
+            {% if d and d.available %}
+            <span class="pdp-mini"><span style="width: {{ d.score }}%;"></span></span>
+            <span class="pdp-dim-score">{{ d.score }}</span>
+            {% else %}
+            <span class="pdp-dim-empty" title="Not measured yet">—</span>
+            {% endif %}
+          </div>
+        {% endfor %}
+        {# Status. #}
+        <div class="col pdp-status-cell">
+          <span class="status-badge status-{{ it.status }}">
+            {% if it.status == 'queued' %}Queued
+            {% elif it.status == 'scoring' %}Scoring…
+            {% elif it.status == 'scored' %}Scored
+            {% elif it.status == 'blocked' %}Couldn’t fetch
+            {% else %}Error{% endif %}
+          </span>
+        </div>
+        {# Expand caret — only scored rows have a detail panel to reveal. #}
+        <div class="col pdp-caret-cell">
+          {% if scored %}<span class="pdp-caret" role="button" tabindex="0" aria-label="Show recommendations"></span>{% endif %}
+        </div>
       </div>
-      {% endfor %}
+
+      {% if scored %}
+      {# Detail: per-dimension recommendations. Collapsed by pdp_results.js;
+         with JS off it stays open (no content is JS-gated). #}
+      <div class="pdp-detail">
+        <div class="pdp-recs">
+          {% for d in it.result.dimensions %}
+          <div class="pdp-rec-dim">
+            <div class="pdp-rec-head">
+              <span class="pdp-rec-name">{{ d.label }}</span>
+              {% if d.available %}<span class="pdp-rec-score">{{ d.score }}/100</span>{% else %}<span class="pdp-rec-score muted">not measured yet</span>{% endif %}
+            </div>
+            {% if d.recommendations %}
+            <ul class="dim-recs">
+              {% for rec in d.recommendations %}<li>{{ rec }}</li>{% endfor %}
+            </ul>
+            {% elif d.available %}
+            <p class="pdp-rec-none">No changes recommended — this dimension looks good.</p>
+            {% endif %}
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% elif it.status == 'blocked' %}
+      <p class="pdp-note warn">Walmart blocked the fetch. Try again shortly.</p>
+      {% elif it.status == 'error' %}
+      <p class="pdp-note warn">Couldn’t score this item{% if it.error %}: {{ it.error }}{% endif %}.</p>
+      {% endif %}
     </div>
+    {% endfor %}
   </div>
-  {% elif it.status in ('queued', 'scoring') %}
-  <p class="score-pending">Fetching the PDP and scoring it — this can take a moment per item.</p>
-  {% elif it.status == 'blocked' %}
-  <p class="score-pending warn">Walmart blocked the fetch. Try again shortly.</p>
-  {% else %}
-  <p class="score-pending warn">Couldn’t score this item{% if it.error %}: {{ it.error }}{% endif %}.</p>
-  {% endif %}
 </div>
-{% endfor %}
+{% endif %}
 </form>
+
+{# No-JS fallback: the detail panels are collapsed only once pdp_results.js marks
+   the page (.pdp-js). Without JS that class never appears, so this keeps every
+   panel visible — CSP allows inline <style> (style-src 'unsafe-inline'). #}
+<noscript><style>.pdp-detail { display: block !important; }</style></noscript>
+{% endblock %}
+
+{% block scripts %}
+{# dashboard.js supplies the shared thumbnail hover-to-enlarge (keyed on
+   .dash-thumb); pdp_results.js adds this table's sort, filter, and row expand. #}
+<script src="{{ static_url('js/dashboard.js') }}"></script>
+<script src="{{ static_url('js/pdp_results.js') }}"></script>
 {% endblock %}

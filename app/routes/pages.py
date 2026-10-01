@@ -410,16 +410,43 @@ def _batch_rows():
     return jobs.get_items(get_db(), ids, g.user["id"])
 
 
+# Score bands for the results summary strip, as (name, inclusive floor) ordered
+# high → low so the first match wins. Thresholds are deliberately coarse — the
+# strip is an at-a-glance health read, not a precise grading scale.
+_SCORE_BANDS = (("strong", 80), ("moderate", 60), ("weak", 0))
+
+
+def _score_summary(items: list[dict]) -> dict:
+    """Aggregate a scored batch for the results-page summary strip.
+
+    Only items that finished scoring contribute to the average and the band
+    counts; queued / blocked / errored items are reported separately so the
+    strip never implies a score they don't have.
+    """
+    scored = [
+        it for it in items if it["status"] == "scored" and it["overall"] is not None
+    ]
+    bands = {name: 0 for name, _ in _SCORE_BANDS}
+    for it in scored:
+        for name, floor in _SCORE_BANDS:
+            if it["overall"] >= floor:
+                bands[name] += 1
+                break
+    avg = round(sum(it["overall"] for it in scored) / len(scored)) if scored else None
+    return {"total": len(items), "scored": len(scored), "avg": avg, "bands": bands}
+
+
 @bp.route("/app/pdp-scoring/results")
 @login_required
 def pdp_scoring_results():
     """Show the most recent scoring batch and poll until every item finishes."""
-    rows = _batch_rows()
+    items = [_row_view(r) for r in _batch_rows()]
     return render_template(
         "app/pdp_results.html",
         breadcrumb="Content Studio · PDP Content Scoring",
         active_nav="pdp-scoring",
-        items=[_row_view(r) for r in rows],
+        items=items,
+        summary=_score_summary(items),
     )
 
 
@@ -952,6 +979,10 @@ def _row_view(row) -> dict:
         "overall": row["overall"],
         "error": row["error"],
         "result": result,
+        # Same-origin cached thumbnail (shared item-image cache), or None so the
+        # template falls back to a placeholder tile. Lets the dense results table
+        # identify items visually without an extra fetch.
+        "image_url": _item_image_url(row["item_id"]),
     }
 
 
