@@ -55,7 +55,7 @@
 <div class="pdp-progress" role="progressbar" aria-valuemin="0" aria-valuemax="{{ total }}"
      aria-valuenow="{{ done }}" aria-label="Scoring progress">
   <div class="pdp-progress-track"><span style="width: {{ pct }}%;"></span></div>
-  <span class="pdp-progress-label">{{ done }} of {{ total }} scored</span>
+  <span class="pdp-progress-label">{{ done }} of {{ total }} scored{% if summary.eta %} · {{ summary.eta }}{% endif %}</span>
 </div>
 {% endif %}
 

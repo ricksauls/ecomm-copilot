@@ -139,7 +139,18 @@ def test_results_shows_progress_while_pending(client, auth):
     assert b"scoring in progress" in resp.data
     assert b'role="progressbar"' in resp.data
     assert b"0 of 1 scored" in resp.data
+    assert b"less than a minute left" in resp.data  # ETA for one remaining item
     assert b"subtitle-scoring" not in resp.data  # no text flashing on this screen
+
+
+def test_eta_label_thresholds():
+    from app.routes.pages import _eta_label
+
+    assert _eta_label(0) is None            # nothing left -> no estimate
+    assert _eta_label(1) == "less than a minute left"   # 12s
+    assert _eta_label(4) == "less than a minute left"   # 48s
+    assert _eta_label(5) == "about 1 min left"          # 60s
+    assert _eta_label(25) == "about 5 min left"         # 300s
 
 
 def test_results_pdf_requires_login(client):

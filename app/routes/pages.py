@@ -415,13 +415,34 @@ def _batch_rows():
 # strip is an at-a-glance health read, not a precise grading scale.
 _SCORE_BANDS = (("strong", 80), ("moderate", 60), ("weak", 0))
 
+# Rough wall-clock budget per not-yet-scored item, used only for the progress
+# bar's "time left" estimate. ~12s/item ≈ 5 items/minute, which is what the
+# concurrent worker sustains and what the in-progress copy promises. Deliberately
+# approximate — real per-item time swings with Walmart latency and cache hits.
+_SECONDS_PER_ITEM = 12
+
+
+def _eta_label(remaining: int) -> str | None:
+    """A coarse 'time left' for a still-scoring batch, or None when nothing's left.
+
+    Rounded to the minute and prefixed 'about' so it reads as an estimate rather
+    than a countdown; under a minute it says so instead of showing seconds.
+    """
+    if remaining <= 0:
+        return None
+    seconds = remaining * _SECONDS_PER_ITEM
+    if seconds < 60:
+        return "less than a minute left"
+    return f"about {round(seconds / 60)} min left"
+
 
 def _score_summary(items: list[dict]) -> dict:
-    """Aggregate a scored batch for the results-page summary strip.
+    """Aggregate a scored batch for the results-page summary strip + progress bar.
 
     Only items that finished scoring contribute to the average and the band
     counts; queued / blocked / errored items are reported separately so the
-    strip never implies a score they don't have.
+    strip never implies a score they don't have. ``pending`` (queued + scoring)
+    drives the progress bar's remaining-work estimate.
     """
     scored = [
         it for it in items if it["status"] == "scored" and it["overall"] is not None
@@ -433,7 +454,15 @@ def _score_summary(items: list[dict]) -> dict:
                 bands[name] += 1
                 break
     avg = round(sum(it["overall"] for it in scored) / len(scored)) if scored else None
-    return {"total": len(items), "scored": len(scored), "avg": avg, "bands": bands}
+    pending = sum(1 for it in items if it["status"] in ("queued", "scoring"))
+    return {
+        "total": len(items),
+        "scored": len(scored),
+        "avg": avg,
+        "bands": bands,
+        "pending": pending,
+        "eta": _eta_label(pending),
+    }
 
 
 @bp.route("/app/pdp-scoring/results")
