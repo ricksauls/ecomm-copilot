@@ -97,13 +97,13 @@ def build_results_pdf(items: list[dict]) -> bytes:
 
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
-        buffer, pagesize=letter, title="PDP Content Scores",
+        buffer, pagesize=letter, title="Product Detail Page Content Scores",
         leftMargin=0.75 * inch, rightMargin=0.75 * inch,
         topMargin=0.7 * inch, bottomMargin=0.7 * inch,
     )
 
     flow = [
-        Paragraph("PDP (Product Detail Page) Scores", styles["h1"]),
+        Paragraph("Product Detail Page Content Scores", styles["h1"]),
         Paragraph(
             "Generated " + datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
             + f" · {len(scored)} item{'' if len(scored) == 1 else 's'}",
