@@ -1,5 +1,5 @@
 {% extends "public_base.html" %}
-{% block title %}Sign in — ecomm-copilot{% endblock %}
+{% block title %}Sign in — DISCOtech{% endblock %}
 
 {% block content %}
 <div class="signin">
@@ -8,9 +8,9 @@
        tied to any one account's numbers. #}
   <div class="signin-left">
     <a href="{{ url_for('pages.landing') }}" class="wordmark" style="align-self: flex-start;"
-       aria-label="ecomm-copilot home">
-      <img src="{{ static_url('img/ecomm-copilot-logo.png') }}"
-           alt="ecomm-copilot" class="brand-logo" />
+       aria-label="DISCOtech home">
+      <img src="{{ static_url('img/discotech-wordmark.png') }}"
+           alt="DISCOtech" class="brand-logo" />
     </a>
     <div class="spacer"></div>
     <div class="signin-pitch">
@@ -66,7 +66,7 @@
     {% endif %}
 
     <p class="fine-print">
-      New to ecomm-copilot?
+      New to DISCOtech?
       <a href="{{ url_for('auth.signup') }}">Request access</a>
     </p>
   </div>

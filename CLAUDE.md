@@ -1,4 +1,4 @@
-# ecomm-copilot
+# DISCOtech (ecomm-copilot)
 
 A Python / Flask web application, deployed via GitHub Actions.
 

@@ -1,4 +1,4 @@
-"""Fixture data for the ecomm-copilot screens.
+"""Fixture data for the DISCOtech screens.
 
 Everything here is realistic stand-in content for the pet-water-fountain demo
 scenario described in the design handoff. It exists so the templates can render

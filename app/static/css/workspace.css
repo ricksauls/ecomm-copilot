@@ -42,7 +42,7 @@ body.workspace {
   color: var(--canvas);
 }
 /* Brand logo lockup in the rail. Sized by height; width follows the image's
-   ~4:1 aspect. The rail is on --black, matching the artwork. */
+   aspect ratio. The rail is on --black, matching the artwork's dark variant. */
 .rail-brand .name .brand-logo {
   height: 48px;
   width: auto;
@@ -112,7 +112,7 @@ body.workspace {
   background: var(--graphite);
 }
 .nav-item.active .mark {
-  background: var(--signal-red);
+  background: var(--accent);
 }
 
 .rail-spacer {
@@ -1604,13 +1604,13 @@ a:focus-visible,
 .ci-ad-thumb:hover { transform: scale(2.4); transform-origin: left center; position: relative; z-index: 5; }
 
 /* Overall Search Ranking placement map: a page-1 result grid (4 across) where a
-   brand's average rank lights up its slot. My brand uses the one signal-red
-   accent; competitors are ink; empty slots are hairline outlines. */
+   brand's average rank lights up its slot. My brand uses the brand's electric-
+   blue accent; competitors are ink; empty slots are hairline outlines. */
 .rankmap-wrap { margin-top: 18px; }
 .rankmap-legend { display: flex; flex-wrap: wrap; gap: 16px; font-size: 12px; color: var(--mid-gray); margin-bottom: 8px; }
 .rankmap-key { display: inline-flex; align-items: center; gap: 7px; }
 .rankmap-swatch { width: 13px; height: 13px; border-radius: 3px; display: inline-block; }
-.rankmap-swatch.mine { background: var(--signal-red); }
+.rankmap-swatch.mine { background: var(--accent); }
 .rankmap-swatch.comp { background: var(--black); }
 .rankmap-swatch.empty { border: 1px solid var(--control-border); }
 .rankmap { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 10px; }
@@ -1629,7 +1629,7 @@ a:focus-visible,
 .rankmap-cell.empty { border: 1px solid var(--control-border); }
 /* Top padding keeps the centered brand label clear of the corner slot number,
    even when a long name wraps to two lines. */
-.rankmap-cell.mine { background: var(--signal-red); color: #ffffff; padding-top: 18px; }
+.rankmap-cell.mine { background: var(--accent); color: #ffffff; padding-top: 18px; }
 .rankmap-cell.comp { background: var(--black); color: var(--canvas); padding-top: 18px; }
 .rankmap-cell.tie { border: 1px solid var(--control-border); gap: 4px; padding-top: 18px; }
 .rankmap-num { position: absolute; top: 6px; left: 8px; font-size: 11px; opacity: 0.7; }
@@ -1639,7 +1639,7 @@ a:focus-visible,
 .rankmap-avg { font-size: 11px; opacity: 0.9; margin-top: 3px; }
 /* Tie: one chip per brand sharing the slot, each colored by its own type. */
 .rankmap-chip { font-size: 11px; font-weight: 500; line-height: 1.2; padding: 2px 7px; border-radius: 999px; color: #ffffff; }
-.rankmap-chip.mine { background: var(--signal-red); }
+.rankmap-chip.mine { background: var(--accent); }
 .rankmap-chip.comp { background: var(--black); }
 
 .ci-periods { display: inline-flex; gap: 4px; }

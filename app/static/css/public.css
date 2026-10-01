@@ -48,8 +48,8 @@ body.public {
   display: inline-flex;
   align-items: center;
 }
-/* Brand logo lockup (icon + wordmark). Sized by height; width follows the
-   image's ~4:1 aspect. Renders on dark surfaces, matching the artwork. */
+/* Brand logo lockup. Sized by height; width follows the image's aspect
+   ratio. Renders on dark surfaces, matching the artwork's dark variant. */
 .brand-logo {
   height: 52px;
   width: auto;
@@ -159,7 +159,7 @@ body.public {
 
 /* --- Hero --- */
 .hero {
-  padding: 96px 0 104px;
+  padding: 48px 0 104px;
 }
 /* Two-column on wide viewports (copy left, image right); collapses to a single
  * stacked column in the max-width: 900px block below. */
@@ -228,6 +228,20 @@ body.public {
   max-width: 520px;
   margin: 20px 0 0;
 }
+/* Brand micro-tagline: bold, letter-spaced, filled with the brand gradient
+   (matches the "GET FOUND. GET CHOSEN." treatment in the logo lockup's SVG
+   source — same 4-stop cyan-to-magenta gradient, left to right). */
+.hero-tagline {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  margin: 20px 0 0;
+  background: linear-gradient(90deg, #18d7f5, #2e6dff, #8a2be2, #ec4899);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
 .cta-row {
   display: flex;
   gap: 12px;
@@ -269,7 +283,7 @@ body.public {
   color: var(--cool-gray);
 }
 .step-num.accent {
-  color: var(--signal-red);
+  color: var(--accent);
 }
 .step h4 {
   font-size: 18px;

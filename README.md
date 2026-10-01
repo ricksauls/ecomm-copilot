@@ -1,4 +1,4 @@
-# ecomm-copilot
+# DISCOtech (ecomm-copilot)
 
 An agency-facing retail intelligence and creative production platform. Agencies
 manage a portfolio of client brands and their Walmart product listings, run

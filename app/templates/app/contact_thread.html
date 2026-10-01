@@ -1,5 +1,5 @@
 {% extends "app/base.html" %}
-{% block title %}{{ thread.subject }} — ecomm-copilot{% endblock %}
+{% block title %}{{ thread.subject }} — DISCOtech{% endblock %}
 
 {% set viewer_role = 'admin' if admin_view else 'user' %}
 {% set back_href = url_for('pages.admin_messages') if admin_view else url_for('pages.contact_home') %}
@@ -46,7 +46,7 @@
     <div class="msg-bubble-row {{ 'msg-out' if m.sender_role == viewer_role else 'msg-in' }}">
       <div class="msg-bubble">
         <div class="msg-bubble-meta">
-          {% if m.sender_role == 'admin' %}ecomm-copilot team{% else %}{{ m.sender_email or 'You' }}{% endif %}
+          {% if m.sender_role == 'admin' %}DISCOtech team{% else %}{{ m.sender_email or 'You' }}{% endif %}
           · <span class="cell-muted">{{ m.created_at }}</span>
         </div>
         <div class="msg-bubble-body">{{ m.body }}</div>

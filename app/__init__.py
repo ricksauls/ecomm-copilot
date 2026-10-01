@@ -1,4 +1,4 @@
-"""Application factory for the ecomm-copilot web app.
+"""Application factory for the DISCOtech web app.
 
 Wires up logging, configuration, security-relevant response headers, error
 handlers, and the page blueprint. Import ``create_app`` and call it to get a

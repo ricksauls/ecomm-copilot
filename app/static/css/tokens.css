@@ -1,14 +1,24 @@
-/* Design tokens for ecomm-copilot.
+/* Design tokens for DISCOtech (formerly ecomm-copilot).
  *
- * Every value here is transcribed from the design handoff. This file is the
- * single source of truth for color, type, and spacing: components reference
- * these custom properties rather than hardcoding hex or px values, so the
- * palette can be re-themed from one place (the handoff explicitly calls for
- * tokenising from the start rather than hardcoding).
+ * This file is the single source of truth for color, type, and spacing:
+ * components reference these custom properties rather than hardcoding hex or
+ * px values, so the palette can be re-themed from one place. Retheming to the
+ * DISCOtech brand palette (2026-09-30) changed only the values below — every
+ * variable keeps its original name, so no call site elsewhere in this file
+ * (or in the JS chart helpers) needed to move.
  *
- * The five-color system has no positive/negative pair by design. Signal red is
- * the only accent; improvements (+3, +6.3) render in neutral mid-gray, not a
- * success green. Do not add a sixth color in a component. */
+ * --signal-red is unchanged and keeps its original job: warnings, validation
+ * errors, destructive-action hover, decline deltas, and unread/alert badges.
+ * Red was deliberately NOT retired in favor of a brand color there — it's the
+ * one hue users already read as "something needs attention," and swapping it
+ * for magenta/violet would quietly make error states less recognizable.
+ * --accent is new: the brand's Electric Blue, used only where the intent was
+ * always decorative/identity rather than a warning — the red-rule accent bar,
+ * the active-nav-item dot, the landing page's step-number accent, and "this
+ * is my brand" highlighting in Competitive Intelligence (which used to be an
+ * arbitrary red; tying it to the real brand color is a small coherence win).
+ * Everything else that used red for interactive hover feedback (sortable
+ * column headers, "add" links, chip close buttons, etc.) was left as-is. */
 
 /* --- Self-hosted Inter, four weights. No CDN: the app must render offline. --- */
 @font-face {
@@ -41,20 +51,21 @@
 }
 
 :root {
-  /* --- Color: the five-color system plus its light-surface derivations --- */
-  --black: #050505;          /* nav rail bg; primary button fill; primary text on light */
-  --graphite: #121212;       /* raised surfaces inside the dark rail only */
-  --faint-gray: #2a2a2a;     /* hairlines inside the dark rail; avatar chip fill */
-  --mid-gray: #4a4a4a;       /* secondary body text on light; secondary numerics */
-  --cool-gray: #8c8c8c;      /* labels, captions, metadata, muted nav items */
-  --canvas: #f3f3f3;         /* page background; text color on the dark rail */
-  --surface: #ffffff;        /* card fill */
-  --border: #e1e1e1;         /* card borders; table header rules on light */
-  --divider: #efefef;        /* table row dividers (lighter than border) */
-  --placeholder: #ededed;    /* image placeholder fill; empty data-bar track */
-  --control-border: #c9c9c9; /* outline button borders; chip borders */
-  --row-hover: #fafafa;      /* table row hover; the highlighted "this is you" row */
-  --signal-red: #ff3b30;     /* the only accent; used at most once or twice per view */
+  /* --- Color: DISCOtech brand palette --- */
+  --black: #0b1220;          /* Midnight — nav rail bg; primary button fill; primary text on light */
+  --graphite: #132a52;       /* Navy — raised surfaces inside the dark rail only */
+  --faint-gray: #1e3a66;     /* hairlines inside the dark rail; avatar chip fill */
+  --mid-gray: #64748b;       /* Slate — secondary body text on light; secondary numerics */
+  --cool-gray: #94a3b8;      /* labels, captions, metadata, muted nav items */
+  --canvas: #eaeff7;         /* Light Gray — page background; text color on the dark rail */
+  --surface: #ffffff;        /* White — card fill */
+  --border: #d7deea;         /* card borders; table header rules on light */
+  --divider: #eef2f8;        /* table row dividers (lighter than border) */
+  --placeholder: #e7ecf3;    /* image placeholder fill; empty data-bar track */
+  --control-border: #c7d2e0; /* outline button borders; chip borders */
+  --row-hover: #f6f8fc;      /* table row hover; the highlighted "this is you" row */
+  --signal-red: #ff3b30;     /* warnings, validation errors, destructive hover, decline deltas, alert badges */
+  --accent: #2e6dff;         /* Electric Blue — brand-identity accent (see file header) */
 
   /* --- Typography --- */
   --font: "Inter", system-ui, sans-serif;
@@ -118,12 +129,14 @@ body {
   color: var(--cool-gray);
 }
 
-/* The 32x2px red rule that sits above a card headline when it needs an accent.
- * This is the only accent-card treatment; no left-border accent cards. */
+/* The 32x2px rule that sits above a card headline when it needs an accent.
+ * This is the only accent-card treatment; no left-border accent cards.
+ * Kept the name "red-rule" (it's referenced by that class across every
+ * template) even though it now renders in the brand's electric blue. */
 .red-rule {
   width: 32px;
   height: 2px;
-  background: var(--signal-red);
+  background: var(--accent);
   border: 0;
   margin: 9px 0;
 }

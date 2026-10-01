@@ -1,5 +1,5 @@
 {% extends "app/base.html" %}
-{% block title %}PDP Copy — ecomm-copilot{% endblock %}
+{% block title %}PDP Copy — DISCOtech{% endblock %}
 
 {# Pending while any item is still fetching or generating. #}
 {% set pending = items | selectattr('status', 'in', ['queued', 'fetching', 'gen_queued', 'generating']) | list | length > 0 %}

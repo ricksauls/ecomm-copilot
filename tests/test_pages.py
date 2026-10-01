@@ -9,7 +9,7 @@ def test_landing_renders(client):
     resp = client.get("/")
     assert resp.status_code == 200
     # Verbatim hero copy from the design.
-    assert b"Your eCommerce Team, Amplified." in resp.data
+    assert b"Your eCommerce CoPilot." in resp.data
 
 
 def test_static_assets_are_cache_busted(client):

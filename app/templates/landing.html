@@ -1,5 +1,5 @@
 {% extends "public_base.html" %}
-{% block title %}ecomm-copilot — Your eCommerce Team, Amplified.{% endblock %}
+{% block title %}DISCOtech — Your eCommerce CoPilot.{% endblock %}
 
 {# The design system's arrow glyph, used on CTAs. Reused inline where needed. #}
 {% set arrow %}
@@ -10,9 +10,9 @@
 {% block content %}
 <header class="site-header">
   <div class="public-wrap">
-    <a href="{{ url_for('pages.landing') }}" class="wordmark" aria-label="ecomm-copilot home">
-      <img src="{{ static_url('img/ecomm-copilot-logo.png') }}"
-           alt="ecomm-copilot" class="brand-logo" />
+    <a href="{{ url_for('pages.landing') }}" class="wordmark" aria-label="DISCOtech home">
+      <img src="{{ static_url('img/discotech-wordmark.png') }}"
+           alt="DISCOtech" class="brand-logo" />
     </a>
     <nav class="site-nav">
       <a href="#how-it-works">How it works</a>
@@ -34,11 +34,8 @@
         <div class="hero-copy">
           <p class="label">For retail agencies and brand teams</p>
           <hr class="red-rule" style="margin: 20px 0 24px;" />
-          <h1>Your eCommerce Team, Amplified.</h1>
-          <p class="sub">
-            See which listings are losing ground on Walmart, understand exactly why,
-            and implement the specific solution that closes the gap.
-          </p>
+          <h1>Your eCommerce CoPilot.</h1>
+          <p class="hero-tagline">Get found. Get chosen.</p>
           <div class="cta-row">
             <a href="{{ url_for('auth.signup') }}" class="btn btn-primary btn-lg">
               Request access {{ arrow }}
@@ -185,10 +182,10 @@
 <footer class="site-footer">
   <div class="public-wrap">
     <span class="wordmark">
-      <img src="{{ static_url('img/ecomm-copilot-logo.png') }}"
-           alt="ecomm-copilot" class="brand-logo brand-logo-sm" />
+      <img src="{{ static_url('img/discotech-wordmark.png') }}"
+           alt="DISCOtech" class="brand-logo brand-logo-sm" />
     </span>
-    <span class="footer-tag">Your eCommerce Team, Amplified.</span>
+    <span class="footer-tag">Your eCommerce CoPilot.</span>
     <div class="footer-links">
       {# Non-clickable for now — no Privacy/Terms pages yet. #}
       <span>Privacy</span>

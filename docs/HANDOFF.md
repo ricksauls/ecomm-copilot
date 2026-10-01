@@ -1,15 +1,21 @@
-# ecomm-copilot — Session Handoff
+# DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-08-26 (session 6)._
+_Last updated: 2026-09-30 (session 7 — DISCOtech rebrand)._
 
 A working reference for picking up development. Read this first, then
 `CLAUDE.md` (coding standards) and `deploy/DEPLOY.md` (infra).
 
-> **Next session — start here.** Everything below is **live on main and deployed**
-> (each change ships via `git push` → CI → auto-deploy; site returns 200). Session 6
-> (2026-08-26) added two Competitive Intelligence report features + polish — read the
-> **§7 "Session 2026-08-26 (session 6)" note first**; it's the freshest and most
-> detailed. Headlines:
+> **Next session — start here.** Session 7 (2026-09-30) did a **visual-only rebrand**
+> to "DISCOtech" — new logo, color palette, and copy. **Read §12 "Session
+> 2026-09-30 — DISCOtech rebrand" first**; it's the freshest and most detailed.
+>
+> **Session 7 is committed locally, not yet pushed.** Pushing to `main`
+> auto-deploys (see §2/§9 "Deploy caution") — decide when ready, check for an
+> active CI run first if deploying. Until pushed, none of this has touched CI
+> or the droplet. Tests: **252** passing.
+>
+> Everything from Session 6 (2026-08-26) below is still accurate and **is** live
+> on main/deployed — that work hasn't changed. Headlines from session 6:
 > 1. **Brand-level Share of Digital Shelf** — a new section at the END of both the
 >    snapshot and monitoring reports showing a brand's WHOLE page-1 presence (all
 >    SKUs, tracked + untracked) ÷ the shelf, complementing the existing tracked-only
@@ -965,6 +971,24 @@ cd ~/Desktop/ClaudeStuff/ecomm-copilot-clean
 - **Deploy restarts the worker → orphans an in-flight CI run** (reclaim marks it
   `error`). Before pushing while runs may be happening, check for an active run first
   (see the top-of-file "Deploy caution" one-liner).
+- **Recoloring a logo's text when the ring's own shading is nearly the same
+  color (session 7):** don't try to protect the ring by *position* (a bounding
+  box or circle) — any fixed-radius margin either leaves a decorative
+  accent-shape un-recolored (looks like a hole punched in the letters) or, if
+  tightened, eats into the letterform where it intentionally sits close to the
+  ring. Classify by **color** instead: sample real pixels to find where the
+  letter's dark fill and the ring's darkest shadow actually diverge in HLS
+  lightness (here: letters ≤0.13, ring shadow ≥0.15 — a real but narrow gap),
+  threshold on that, and use **zero dilation** on the protected zone (any
+  margin re-opens a notch where the letterform intentionally sits close to the
+  ring) — clean up stray antialiased pixels with a small closing on the
+  recolor mask instead. Reusable script: `scripts/recolor_wordmark.py`. See
+  §12 for the full story.
+- **Templates/CSS edits need a dev-server restart to appear** (`python
+  app.run()` doesn't set `TEMPLATES_AUTO_RELOAD`, so Jinja's compiled-template
+  cache goes stale) — a browser refresh alone won't show the change. Swapping a
+  static *file* (an image, unchanged filename) does not need a restart —
+  `static_url()`'s mtime-based cache-buster handles that.
 
 ---
 
@@ -1071,3 +1095,179 @@ title; `result_json` has no brand). So:
 placeholder (`href="#"`); the "PDP's images created" KPI and the creative side of
 these brand/product counts stay 0 until that feature is built. The dashboard's
 "Products losing ground" table and the remaining fixture bits are still demo data.
+
+---
+
+## 12. Session 2026-09-30 — DISCOtech rebrand (committed, not yet pushed)
+
+**Status: visual rebrand complete, verified locally (252 tests pass),
+committed to `main` locally.** Touched ~30 templates/CSS/Python files, deleted
+2 (old logo/favicon PNGs), added 3 (the final logo/favicon assets) + the
+`scripts/` directory. **Not yet pushed** — decide on that first (see the
+top-of-file banner).
+
+**Scope agreed with the user:** full rebrand of name/logo/colors/typography/copy
+*in the app and docs only*. The GitHub repo name, the droplet's systemd units
+(`ecomm-copilot.service`, `ecomm-copilot-worker.service`), the nginx site, env
+var names, and the domain (`ecomm-copilot.com`) are all **deliberately
+untouched** — that's a separate, later pass to do together with the domain
+swap, since it touches shared production infra (see §2/§9). `deploy/DEPLOY.md`
+and the systemd-unit comments in `worker.py`/`enqueue_monitoring.py` still say
+"ecomm-copilot" on purpose — they describe what's actually running.
+
+### What changed
+
+**1. Text rename.** "ecomm-copilot" → "DISCOtech" across every template
+`<title>`, alt text, and visible copy (bulk sed on the common
+`— ecomm-copilot{% endblock %}` title suffix, plus a few one-off strings:
+`signin.html` "New to...", `contact_thread.html` "...team"). Old tagline "Your
+eCommerce Team, Amplified." → "Your eCommerce CoPilot." (landing `<h1>` +
+`_rail.html` tagline + footer). `README.md`/`CLAUDE.md` headers → "DISCOtech
+(ecomm-copilot)" (keeps the real repo/folder name visible since that hasn't
+changed yet). Two Python docstrings (`app/__init__.py`, `app/fixtures.py`)
+renamed; the systemd-referencing comments were **not** touched (see above).
+
+**2. Color palette (`tokens.css`).** Every CSS custom-property **name** is
+unchanged — only the hex **values** moved — so none of the ~400 `var(--x)` call
+sites elsewhere in the CSS needed to change. New values: `--black`→Midnight
+`#0B1220`, `--graphite`→Navy `#132A52`, `--mid-gray`→Slate `#64748B`,
+`--canvas`→Light Gray `#EAEFF7`, plus a few derived neutrals to fill gaps the
+named palette didn't cover (`--faint-gray`, `--cool-gray`, `--border`,
+`--divider`, `--placeholder`, `--control-border`, `--row-hover`). One **new**
+token, `--accent` (Electric Blue `#2E6DFF`), was split out for the handful of
+spots that were always brand-identity, not a warning: `.red-rule`, the
+active-nav-item dot (`.nav-item.active .mark`), the landing page's step-number
+accent (`.step-num.accent`), and "this is my brand" highlighting in the CI rank
+map (`.rankmap-*.mine`). **`--signal-red` was deliberately left red** and kept
+every other job — validation errors, `status-blocked`/`status-error` badges,
+decline deltas, unread/alert dots, destructive-hover, and generic interactive
+hover (sortable headers, "add" links, etc.). Rationale: red is the one hue
+users already read as "needs attention"; swapping it for a brand color would
+quietly make error states less recognizable. `app/static/js/ci_charts.js`'s
+hardcoded hex (`MINE`, grid stroke, axis-label fill) were synced to match so
+the dependency-free SVG charts don't drift from the CSS tokens.
+
+**3. Logo — the long way round.** The user went through several rounds of
+asset deliveries; what's actually in the repo now is the end state. Read this
+if the logo ever needs to be regenerated or a defect shows up again:
+
+- **Only one logo asset ships in the app:** `app/static/img/discotech-wordmark.png`
+  (2400×655, white text, transparent bg) — used via plain `<img>` in
+  `_rail.html`, `landing.html` (header + footer), `signin.html`, `signup.html`,
+  all sized by CSS (`.brand-logo { height: 48–52px; width: auto; }`). No SVG
+  ships in the repo — the earlier vector approach (outlined `<text>` paths,
+  `inline_svg()` Jinja helper) was tried and then abandoned in favor of this
+  raster file; `inline_svg()` was removed from `app/__init__.py` again when
+  that happened. Don't reintroduce it without reason.
+- **Why raster, not vector:** the user's actual source of truth is an
+  AI-rendered master image with a richer glossy/glow 3D "disco ball" look than
+  hand-coded SVG gradients can reproduce. The clean master lives at
+  `~/Desktop/Work - Income/DISCOtech (ecomm-copilot)/Branding/Web-Ready
+  Creative/logos/discotech-wordmark-2400.png` (dark-navy text, meant for a
+  *light* background — the opposite of what this app's chrome needs).
+- **The recolor problem (the hard part).** The app needs white text on dark
+  surfaces, but the source only has dark-navy text. A naive "recolor dark
+  pixels to white" pass is unsafe because **the ring's own internal shadow
+  band is almost the same dark navy as the letters** — several failed
+  attempts before landing on the right method:
+  - A rectangular column cut to protect the ring left a visible dark triangular
+    notch (a decorative accent flanking the ring) biting into the "C" and "t"
+    once their surroundings turned white.
+  - A padded circle had the same problem — the accent sat inside the padding.
+  - Flood-filling connected components (to tell "ring" from "letter" by
+    touching-vs-separate) failed because the ring's soft outer **glow**
+    (desaturated, low-opacity) forms a continuous alpha>40 bridge all the way
+    to the nearby letters, merging them into one component.
+  - **What worked:** classify every pixel by its own HLS color, not its
+    position. Sampled real pixels to find the dividing line: letter-navy fill
+    tops out at **lightness 0.13**; the ring's own darkest shadow starts at
+    **lightness 0.15** — a real, if narrow, gap. A pixel is "ring, protect it"
+    when `saturation > 0.30 and lightness > 0.14`; everything else opaque gets
+    recolored to white. **No dilation** on that protected zone — even 1px
+    re-opens a visible notch at the two spots where the letterform
+    intentionally almost touches the ring. A small closing (7×7) on the
+    *recolor* mask afterward mops up the last handful of antialiased stray
+    pixels without that risk. The working script (verified byte-identical to
+    the installed asset) is saved at `scripts/recolor_wordmark.py` — re-run it
+    against an updated source master if the logo ever changes again, don't
+    re-derive this from scratch. It needs numpy/scipy, which aren't app
+    dependencies — see the script's docstring.
+  - Verify any future regeneration by scanning for stray navy pixels **outside
+    a generous ring-centered exclusion circle** (this bit us once — too tight
+    an exclusion radius makes the scan blind to the exact defect near the
+    ring). Check all four letter-tip contact points: top and bottom horns of
+    "C", left edge and top of "t".
+- **The favicon's delivered asset was also broken.** The user's
+  `favicons/favicon.ico` was cropped from the full lockup+tagline composite,
+  not an isolated icon — it showed fragments of "tech" and "...merce Co..."
+  bleeding in at the edges. `favicons/favicon-512.png`, however, **was**
+  clean. Fix: built a fresh multi-size `.ico` (16/32/48/64) with Pillow
+  directly from `favicon-512.png`, not from the delivered `.ico`. Both files
+  now live in `app/static/img/` (`favicon.ico`, `favicon-512.png`); linked via
+  two `<link rel="icon">` tags in `base.html`/`public_base.html`.
+- **Three more asset folders surfaced in `~/Downloads` mid-session that are
+  NOT used and should not be used:**
+  - `DISCOtech_vector_logo_rebuild/` — byte-identical to a vector file already
+    evaluated and abandoned earlier in the session. Not a new fix.
+  - `DISCOtech_web_assets_fixed_v2 2/` and `.../fixed_v2 3/` — attempt to fix
+    the favicon/crop issues but introduce **new** problems: visible
+    noise/fringing around the glow (same bad-cutout pattern as one of the
+    earlier flawed ChatGPT exports), washed-out low-contrast letters, and a
+    sliver of the tagline text bleeding into the bottom of the wordmark crop.
+    Confirmed by direct inspection — don't switch to these without asking the
+    user to regenerate them properly first.
+
+**4. Landing page copy + spacing.** `.hero` top padding `96px → 48px`
+(`public.css`) to tighten the gap under the sticky header. The descriptive
+sub-paragraph ("See which listings are losing ground…") was replaced with a
+short brand tagline, styled to match the actual gradient treatment from the
+logo lockup's SVG source (new `.hero-tagline` class: bold, uppercase,
+`letter-spacing: 0.14em`, text filled with the same 4-stop
+cyan→blue→violet→magenta `linear-gradient` via `background-clip: text`, not
+plain gray body text).
+
+**5. Cleanup.** `git rm`'d the old `ecomm-copilot-logo.png` and `favicon.png`
+(confirmed unreferenced first). Removed several now-superseded intermediate
+SVG files from earlier in the session (never committed, so plain `rm`).
+
+### Verification
+
+All done against the local dev server (`.claude/launch.json` → `ecomm-copilot`,
+port 5001; **note:** `ecomm-copilot-preview` on port 5050 may be in use by
+another session — use the `ecomm-copilot` entry or free the port). Checked the
+landing page, sign-in/sign-up, and the authenticated dashboard/rail at mobile
+(375px), narrow desktop (560–900px), and full desktop (1280px) widths. A
+throwaway local account exists in the dev DB from testing:
+`rebrand-check@example.com` / `TempPass!2345` — fine to leave or delete.
+
+**Static-asset note:** template/CSS/Python edits need a dev-server **restart**
+to show up (`TEMPLATES_AUTO_RELOAD` isn't forced on, so Jinja caches
+compiled templates) — a plain browser refresh is not enough after editing a
+`.html` or `.py` file. Swapping a static image file (like the logo PNG) does
+**not** need a restart; `static_url()`'s `?v=<mtime>` cache-buster handles that
+on its own.
+
+### Commit message used
+
+```
+Rebrand to DISCOtech: logo, color palette, and landing copy
+
+Visual-only rebrand — name/logo/colors/typography/copy change in the app
+and docs. Repo name, droplet services, domain, and env vars are untouched
+on purpose; that's a separate pass alongside the eventual domain swap.
+```
+
+Single commit on `main`, local only — see `git log -1` for the hash; not yet
+pushed.
+
+### Next session should probably
+
+1. **Decide on pushing/deploying.** Pushing to `main` auto-deploys (see §2/§9
+   "Deploy caution") — check for an active CI run first if deploying.
+2. If the result still isn't quite right anywhere, the exact recolor
+   parameters are documented above — don't start over from scratch.
+3. Whenever the domain/repo rename happens: update `deploy/DEPLOY.md`, the
+   systemd unit names, nginx site config, GitHub repo name, and the
+   `worker.py`/`enqueue_monitoring.py` comments together, in one coordinated
+   pass (see the "Scope agreed" note above for why these were held back).
+4. Nothing else from §7's roadmap changed this session — it's all still open.

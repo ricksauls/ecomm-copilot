@@ -1,5 +1,5 @@
 {% extends "app/base.html" %}
-{% block title %}PDP Scores — ecomm-copilot{% endblock %}
+{% block title %}PDP Scores — DISCOtech{% endblock %}
 
 {% set pending = items | selectattr('status', 'in', ['queued', 'scoring']) | list | length > 0 %}
 {% set has_scored = items | selectattr('status', 'equalto', 'scored') | list | length > 0 %}
