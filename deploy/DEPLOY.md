@@ -94,6 +94,28 @@ PDP scoring runs in a **separate background service** (`ecomm-copilot-worker`),
 not in the web workers, because it drives a real browser (~seconds per item).
 `setup-droplet.sh` installs and starts it alongside the web service.
 
+**Concurrency.** The worker scores several items at once — a thread pool *inside
+the one process*, set by `SCORING_CONCURRENCY` (default **3**, hard-capped at 10).
+Each concurrent score is a full headed Chrome, so this is **memory-bound**: on the
+current ~2 GB shared droplet keep it at **2–3**. Going higher (up to 10) needs more
+RAM first — resize the droplet, then set the value in `.env` and restart the
+worker:
+
+```bash
+# in /home/deploy/apps/ecomm-copilot/.env
+SCORING_CONCURRENCY=3
+```
+
+```bash
+sudo systemctl restart ecomm-copilot-worker
+```
+
+Higher concurrency also means more simultaneous requests to Walmart from one
+datacenter IP; watch the worker log for a rise in `blocked` results and dial back
+if needed. The SQLite DB runs in **WAL mode** with a busy timeout (set in
+`db.tune_connection`) so the pool's threads and the web app can read/write
+concurrently without "database is locked".
+
 Requirements on the droplet:
 - **Playwright** (installed into the venv by `pip install -r requirements.txt`
   on deploy) plus a real Chrome — it uses `channel="chrome"`, the same system

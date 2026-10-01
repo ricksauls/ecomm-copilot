@@ -264,17 +264,46 @@ CREATE INDEX IF NOT EXISTS idx_messages_thread ON messages(thread_id, id);
 """
 
 
+# How long a connection waits on a competing writer's lock before raising
+# "database is locked". The scoring worker now writes from several threads at
+# once (save_result / mark_failed) while the web app reads and writes; those
+# writes are sub-millisecond, so 5s is ample headroom and keeps either side from
+# erroring under contention.
+_BUSY_TIMEOUT_MS = 5000
+
+
+def tune_connection(conn: sqlite3.Connection) -> None:
+    """Apply the pragmas every connection needs: FK enforcement, a busy timeout,
+    and WAL journaling.
+
+    WAL lets readers proceed while a writer holds the lock — essential now that
+    the scoring worker writes concurrently from a thread pool while the web app
+    serves reads. WAL is a persistent, database-level mode (setting it on any one
+    connection sticks for the file), but we apply it on every connection so a
+    fresh database (tests, a newly provisioned droplet) gets it regardless of who
+    connects first. Best-effort on WAL: a platform that can't enable it falls back
+    to the default journal rather than failing the connection.
+    """
+    conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute(f"PRAGMA busy_timeout = {_BUSY_TIMEOUT_MS}")
+    try:
+        conn.execute("PRAGMA journal_mode = WAL")
+    except sqlite3.OperationalError as e:
+        logger.warning("Could not enable WAL journaling: %s", e)
+
+
 def get_db() -> sqlite3.Connection:
     """Return the request-scoped SQLite connection, opening it on first use.
 
-    Rows come back as ``sqlite3.Row`` so callers can use column names.
-    Foreign-key enforcement is turned on per connection (SQLite defaults it off).
+    Rows come back as ``sqlite3.Row`` so callers can use column names. Shared
+    connection pragmas (FK enforcement, busy timeout, WAL) come from
+    :func:`tune_connection`.
     """
     if "db" not in g:
         database = g.get("_database_path") or _database_path()
         conn = sqlite3.connect(database)
         conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys = ON")
+        tune_connection(conn)
         g.db = conn
     return g.db
 
@@ -368,6 +397,9 @@ def init_db(app: Flask) -> None:
     database = app.config["DATABASE"]
     conn = sqlite3.connect(database)
     try:
+        # Tune first so WAL is established on the file at startup, before the
+        # worker threads and web requests start contending for it.
+        tune_connection(conn)
         ensure_schema(conn)
     finally:
         conn.close()

@@ -194,3 +194,62 @@ def test_list_scored_this_month_only_completed_in_window(app):
         assert [r["id"] for r in rows] == [ids[0]]  # only the recent scored row
         assert rows[0]["brand"] == "Tabasco"
         assert rows[0]["overall"] == 82
+
+
+def test_has_queued_items(app):
+    # Reports whether any row is waiting to be claimed — the worker uses it to
+    # decide when to spin up the scoring pool.
+    with app.app_context():
+        db = get_db()
+        uid = create_local_user("q@example.com", "password123")
+        assert jobs.has_queued_items(db) is False
+        ids = jobs.enqueue_items(db, uid, [{"url": "https://www.walmart.com/ip/1", "item": "1"}])
+        assert jobs.has_queued_items(db) is True
+        jobs.claim_next(db)  # -> 'scoring', no longer queued
+        assert jobs.has_queued_items(db) is False
+        jobs.save_result(db, ids[0], 90, {"overall": 90}, "Done")
+        assert jobs.has_queued_items(db) is False
+
+
+def test_concurrent_claim_next_never_double_claims(app):
+    # The scoring worker claims from several threads at once. claim_next's
+    # conditional UPDATE must hand each queued row to exactly one claimer — no
+    # row claimed twice, none dropped — even under contention across connections.
+    import sqlite3
+    import threading
+
+    from app import db as dbmod
+
+    with app.app_context():
+        uid = create_local_user("race@example.com", "password123")
+        ids = jobs.enqueue_items(get_db(), uid, [
+            {"url": f"https://www.walmart.com/ip/{i}", "item": str(i)}
+            for i in range(1, 61)
+        ])
+        db_path = app.config["DATABASE"]
+
+    claimed = []
+    lock = threading.Lock()
+
+    def claim_until_empty():
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        dbmod.tune_connection(conn)  # WAL + busy timeout, as the worker uses
+        try:
+            while True:
+                row = jobs.claim_next(conn)
+                if row is None:
+                    return
+                with lock:
+                    claimed.append(row["id"])
+        finally:
+            conn.close()
+
+    threads = [threading.Thread(target=claim_until_empty) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert sorted(claimed) == sorted(ids)        # every item claimed...
+    assert len(claimed) == len(set(claimed))     # ...exactly once (no double-claim)

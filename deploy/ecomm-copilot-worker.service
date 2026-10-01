@@ -7,6 +7,10 @@
 # DISPLAY, because it drives *headed* Chrome (Walmart's bot defense is far more
 # aggressive against headless) via the droplet's existing Xvfb virtual display
 # on :99 — the same one the WM share-of-voice scraper uses.
+#
+# Scoring concurrency is set by SCORING_CONCURRENCY in the EnvironmentFile (.env);
+# default 3, max 10. Each concurrent score is a full Chrome, so it's memory-bound
+# — see deploy/DEPLOY.md before raising it on the shared droplet.
 
 [Unit]
 Description=ecomm-copilot PDP scoring worker

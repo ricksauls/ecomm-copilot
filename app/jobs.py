@@ -227,11 +227,23 @@ def list_items(conn: sqlite3.Connection, limit: int = 200) -> list[sqlite3.Row]:
     ).fetchall()
 
 
+def has_queued_items(conn: sqlite3.Connection) -> bool:
+    """True if any scoring item is waiting to be claimed.
+
+    Lets the worker gate its thread pool: spin threads up only when there's work,
+    rather than churning a pool of claimers on every idle poll.
+    """
+    return conn.execute(
+        "SELECT 1 FROM scored_items WHERE status = 'queued' LIMIT 1"
+    ).fetchone() is not None
+
+
 def claim_next(conn: sqlite3.Connection) -> sqlite3.Row | None:
     """Atomically claim the oldest queued row, marking it ``scoring``.
 
-    Uses a conditional UPDATE so two workers can't grab the same row; if the
-    claim loses the race it retries the next candidate.
+    Uses a conditional UPDATE so two concurrent claimers can't grab the same row
+    (the scoring worker runs a pool of them); if the claim loses the race it
+    retries the next candidate.
     """
     while True:
         candidate = conn.execute(
@@ -289,15 +301,18 @@ _ORPHAN_MESSAGE = "Interrupted — the worker restarted mid-fetch (marked failed
 def reclaim_orphaned_items(conn: sqlite3.Connection) -> int:
     """Fail any item still marked ``scoring`` — call once on worker startup.
 
-    With a single worker (see HANDOFF §6), a ``scoring`` row at startup can only be
-    orphaned: the worker that claimed it died mid-fetch (a deploy restart or an OOM
-    kill when headed Chrome spiked memory), so no process will ever finish it. Left
-    alone it sits ``scoring`` forever — the results view flashes it as in-progress
-    indefinitely and the user has no signal to act. Marking it ``error`` surfaces the
-    failure so the user can re-run it. Returns the count reclaimed.
+    Scoring runs concurrently, but inside a *single* worker process (a thread
+    pool — see ``worker.drain_scoring``). So at startup every ``scoring`` row is
+    necessarily orphaned: the one process that owned those in-flight items died
+    mid-fetch (a deploy restart or an OOM kill when headed Chrome spiked memory),
+    and no survivor will finish them. Left alone a row sits ``scoring`` forever —
+    the results view flashes it as in-progress indefinitely with no signal to act.
+    Marking it ``error`` surfaces the failure so the user can re-run it. Returns
+    the count reclaimed.
 
-    NB: this assumes one worker. A worker pool (the §6 future) would need a heartbeat
-    or age threshold so a restart can't fail a peer's in-flight item.
+    NB: this correctness relies on one worker *process*. Fanning scoring out to
+    multiple processes/hosts would need a per-claim lease (a ``claimed_at`` + age
+    threshold) so one process restarting can't fail a peer's live item.
     """
     updated = conn.execute(
         "UPDATE scored_items SET status = 'error', error = ?, "

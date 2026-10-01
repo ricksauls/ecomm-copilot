@@ -1,10 +1,16 @@
 """Background PDP scoring worker.
 
-Runs as its own process (systemd: ecomm-copilot-worker) so the slow, serial
-browser work never touches a web request. Polls the ``scored_items`` queue,
-claims one item at a time, fetches the PDP in a real browser, scores it, and
-writes the result back. It must run with a display available (DISPLAY=:99 via
+Runs as its own process (systemd: ecomm-copilot-worker) so the slow browser work
+never touches a web request. Polls the ``scored_items`` queue and scores up to
+``SCORING_CONCURRENCY`` items at once (default 3) — a thread pool *inside this one
+process*, each thread fetching the PDP in its own headed Chrome, scoring it, and
+writing the result back. Copy and Competitive-Intelligence work stays serial and
+runs between scoring waves. It must run with a display available (DISPLAY=:99 via
 the droplet's Xvfb) because headed Chrome evades Walmart's bot defense.
+
+Concurrency is capped at 10 because each concurrent fetch is a full browser:
+on the ~2 GB shared droplet even 3 is memory-significant, so raise
+``SCORING_CONCURRENCY`` only after giving the box more RAM.
 
 Run locally: ``python worker.py`` (needs Playwright + a browser + DISPLAY).
 """
@@ -14,6 +20,7 @@ import logging
 import os
 import random
 import sqlite3
+import threading
 import time
 
 from dotenv import load_dotenv
@@ -41,24 +48,67 @@ logging.basicConfig(
 log = logging.getLogger("worker")
 
 # How often to poll when the queue is empty, and the polite delay between
-# fetches so we don't hammer Walmart (mirrors the WM scraper's cadence).
+# fetches so we don't hammer Walmart (mirrors the WM scraper's cadence). The
+# delay is now per *thread*: each pool thread waits it out before claiming again.
 POLL_INTERVAL_S = 5
 FETCH_DELAY_RANGE_S = (8, 16)
 
+# Scoring concurrency: how many items score at once (each in its own thread +
+# headed Chrome). Capped at 10 — a full browser per concurrent fetch is heavy on
+# the shared ~2 GB droplet; raise only after adding RAM. Default 3.
+_MAX_CONCURRENCY = 10
+_DEFAULT_CONCURRENCY = 3
 
-def connect() -> sqlite3.Connection:
-    """Open the worker's own SQLite connection (separate from the Flask app).
+# Stagger each pool thread's first claim so N browsers don't launch — and hit
+# Walmart — at the same instant. (thread i waits up to i × this before starting;
+# the per-item FETCH_DELAY_RANGE_S paces each thread thereafter.)
+SUBMIT_STAGGER_S = (1.0, 4.0)
 
-    Ensures the schema exists before returning, so the worker never depends on
-    the web app having initialized the DB first — on a deploy that adds a table,
-    the worker can restart ahead of the web app and would otherwise crash on the
-    missing table (see ``db.ensure_schema``).
+
+def resolve_concurrency(raw: str | None) -> int:
+    """Parse ``SCORING_CONCURRENCY`` into a sane 1..10 int (default 3).
+
+    Garbage or out-of-range values clamp rather than crash the worker: a typo in
+    the droplet ``.env`` must not take scoring down, and an over-eager value must
+    not OOM the box.
+    """
+    if raw is None or raw.strip() == "":
+        return _DEFAULT_CONCURRENCY
+    try:
+        n = int(raw)
+    except ValueError:
+        log.warning("Invalid SCORING_CONCURRENCY=%r; falling back to %d",
+                    raw, _DEFAULT_CONCURRENCY)
+        return _DEFAULT_CONCURRENCY
+    clamped = max(1, min(n, _MAX_CONCURRENCY))
+    if clamped != n:
+        log.warning("SCORING_CONCURRENCY=%d out of range; clamped to %d", n, clamped)
+    return clamped
+
+
+SCORING_CONCURRENCY = resolve_concurrency(os.environ.get("SCORING_CONCURRENCY"))
+
+
+def connect(*, ensure: bool = True) -> sqlite3.Connection:
+    """Open a worker SQLite connection (separate from the Flask app's).
+
+    Applies the shared connection pragmas (FK enforcement, busy timeout, WAL) via
+    :func:`db.tune_connection` — WAL and the busy timeout are what let the pool's
+    threads and the web app write concurrently without "database is locked".
+
+    ``ensure`` controls the one-time schema guard. The main loop opens with
+    ``ensure=True`` so the schema exists before any work — the worker never
+    depends on the web app having initialized the DB first (on a deploy that adds
+    a table, the worker can restart ahead of the web app and would otherwise crash
+    on the missing table). Pool threads pass ``ensure=False``: the schema is
+    already guaranteed, so re-running it on every thread is wasted work.
     """
     database = os.environ.get("DATABASE_URL") or "app.db"
     conn = sqlite3.connect(database)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    db.ensure_schema(conn)
+    db.tune_connection(conn)
+    if ensure:
+        db.ensure_schema(conn)
     return conn
 
 
@@ -338,16 +388,73 @@ def process_ci_run(conn: sqlite3.Connection, run: sqlite3.Row) -> None:
         ci_jobs.fail_run(conn, run_id, f"Unexpected error: {e}")
 
 
+def drain_scoring() -> int:
+    """Score every queued item concurrently; return how many were processed.
+
+    Spins up to ``SCORING_CONCURRENCY`` threads. Each opens its own DB connection
+    and loops — atomically claim the next queued item, fetch + score it, then pause
+    for Walmart politeness — until the queue drains, at which point the thread
+    exits. Blocks until all threads finish, so the caller resumes single-threaded
+    for copy / CI work. Call only when there's queued work (see
+    :func:`jobs.has_queued_items`) so the pool isn't spun up on idle polls.
+
+    Threads are daemons: on shutdown (a systemd stop or deploy restart) the process
+    can exit without blocking on an in-flight fetch; whatever was mid-flight is
+    reclaimed on the next startup (:func:`jobs.reclaim_orphaned_items`), which is
+    correct precisely because this is a single process (see that function's note).
+    """
+    processed = 0
+    counter_lock = threading.Lock()
+
+    def claim_loop(stagger: float) -> None:
+        nonlocal processed
+        # Each thread must use its own connection — SQLite connections are not
+        # safe to share across threads, and separate connections are how the
+        # busy-timeout/WAL contention handling actually kicks in.
+        conn = connect(ensure=False)
+        try:
+            if stagger:
+                time.sleep(stagger)
+            while True:
+                row = jobs.claim_next(conn)
+                if row is None:
+                    return  # queue drained — this thread is done
+                process_one(conn, row)
+                with counter_lock:
+                    processed += 1
+                # Politeness pause before this thread claims its next item.
+                time.sleep(random.uniform(*FETCH_DELAY_RANGE_S))
+        finally:
+            conn.close()
+
+    threads = [
+        threading.Thread(
+            target=claim_loop,
+            # Ramp launches apart: thread i waits up to i × the stagger window.
+            args=(random.uniform(*SUBMIT_STAGGER_S) * i,),
+            name=f"score-{i}",
+            daemon=True,
+        )
+        for i in range(SCORING_CONCURRENCY)
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    return processed
+
+
 def main() -> None:
     """Claim-and-process loop. Runs until the process is stopped.
 
-    Drains the scoring queue first, then copy, then Competitive Intelligence runs,
-    then idles. Scoring/copy are per-item and take priority; a CI run is a whole
-    keyword sweep and does its own inter-keyword pacing. All queues share this
-    single worker (the droplet's RAM caps parallelism — see the handoff).
+    Drains the scoring queue first (concurrently — see :func:`drain_scoring`),
+    then copy, then Competitive Intelligence runs, then idles. Scoring takes
+    priority; copy is per-item and CI is a whole keyword sweep that does its own
+    inter-keyword pacing. Copy and CI stay serial — only scoring is pooled.
     """
     conn = connect()
-    log.info("PDP worker started (scoring + copy + competitive intelligence)")
+    log.info("PDP worker started — scoring concurrency=%d (+ copy + competitive intelligence)",
+             SCORING_CONCURRENCY)
     # A previous worker may have died mid-flight (a deploy restart or an OOM kill on
     # the ~2 GB droplet). Reclaim anything it left stuck in an in-flight status so a
     # scoring/copy item doesn't flash in-progress forever and a CI run doesn't block
@@ -359,10 +466,11 @@ def main() -> None:
         log.warning("Startup: reclaimed %d scoring item(s), %d copy item(s), %d CI run(s)",
                     reclaimed_items, reclaimed_copy, reclaimed_runs)
     while True:
-        row = jobs.claim_next(conn)
-        if row is not None:
-            process_one(conn, row)
-            time.sleep(random.uniform(*FETCH_DELAY_RANGE_S))
+        # Scoring first and concurrently: drain the whole queue with the thread
+        # pool, then fall through to the serial copy / CI work.
+        if jobs.has_queued_items(conn):
+            n = drain_scoring()
+            log.info("Scoring wave complete — processed %d item(s)", n)
             continue
 
         copy_row = copy_jobs.claim_next_copy(conn)
