@@ -975,6 +975,7 @@ def _row_view(row) -> dict:
         "item_id": row["item_id"],
         "url": row["url"],
         "title": row["title"],
+        "brand": row["brand"],
         "status": row["status"],
         "overall": row["overall"],
         "error": row["error"],

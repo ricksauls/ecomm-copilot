@@ -1216,10 +1216,10 @@ a:focus-visible,
    the dimension columns legible; the body scrolls horizontally below it. */
 .pdp-cols {
   display: grid;
-  grid-template-columns: 30px 44px minmax(190px, 1.6fr) 96px repeat(5, 76px) 92px 26px;
+  grid-template-columns: 30px 44px minmax(110px, 0.9fr) minmax(190px, 1.6fr) 96px repeat(4, 76px) 92px 26px;
   align-items: center;
   gap: 12px;
-  min-width: 960px;
+  min-width: 1010px;
 }
 .pdp-head-row {
   padding: 10px 22px;
@@ -1300,6 +1300,14 @@ a:focus-visible,
 /* Thumbnails reuse the dashboard .dash-thumb styling + hover-enlarge. */
 .pdp-thumb-cell {
   display: flex;
+}
+/* Brand cell: secondary-weight text, truncated like the other text columns. */
+.pdp-brand-cell {
+  font-size: 13px;
+  color: var(--mid-gray);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 /* Product cell: item-number chip over a title that links to the PDP. */
 .pdp-item-cell {

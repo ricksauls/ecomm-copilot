@@ -6,9 +6,11 @@
 
 {# Dimension columns, in scoring order, as (key, label). Drives both the sortable
    header and each row's per-dimension cells so the two stay aligned. #}
+{# 'attributes' is intentionally omitted — it still contributes to the overall
+   score (see scoring.py), but is not surfaced as its own column or detail
+   section here. #}
 {% set DIMS = [
   ('imagery', 'Imagery'),
-  ('attributes', 'Attributes'),
   ('title', 'Title'),
   ('key_features', 'Key features'),
   ('description', 'Description'),
@@ -64,7 +66,7 @@
        pdp_results.js; with JS off every panel is already open and the filter is
        simply inert (no server round-trip exists for it). #}
     <button type="button" class="wbtn wbtn-secondary pdp-expand-all" aria-expanded="false">Expand all</button>
-    <input type="search" class="pdp-filter" placeholder="Filter by product or item #" aria-label="Filter results" autocomplete="off" />
+    <input type="search" class="pdp-filter" placeholder="Filter by product, brand, or item #" aria-label="Filter results" autocomplete="off" />
   </div>
 </div>
 
@@ -86,6 +88,7 @@
         {% if has_scored %}<input type="checkbox" class="pdp-select-all" aria-label="Select all items for copy rewrite" title="Select all" />{% endif %}
       </div>
       <div class="col" data-nosort>Image</div>
+      <div class="col">Brand</div>
       <div class="col">Product</div>
       <div class="col r">Overall</div>
       {% for key, label in DIMS %}<div class="col c">{{ label }}</div>{% endfor %}
@@ -96,7 +99,7 @@
     {% for it in items %}
     {% set scored = it.status == 'scored' and it.result %}
     <div class="pdp-item{{ ' has-detail' if scored }}"
-         data-search="{{ ((it.title or '') ~ ' #' ~ (it.item_id or '') ~ ' ' ~ it.url) | lower }}">
+         data-search="{{ ((it.title or '') ~ ' ' ~ (it.brand or '') ~ ' #' ~ (it.item_id or '') ~ ' ' ~ it.url) | lower }}">
       <div class="pdp-cols pdp-summary">
         {# Select — only scored items can be sent to copy rewrite. #}
         <div class="col pdp-sel-cell">
@@ -114,6 +117,8 @@
           <div class="dash-thumb placeholder"></div>
           {% endif %}
         </div>
+        {# Brand — filled by the worker from the PDP (or left blank). #}
+        <div class="col pdp-brand-cell" title="{{ it.brand or '' }}">{{ it.brand or '—' }}</div>
         {# Product: title (or URL) links to the PDP; item number as a chip. #}
         <div class="col pdp-item-cell">
           {% if it.item_id %}<span class="pdp-item-no">#{{ it.item_id }}</span>{% endif %}
@@ -163,7 +168,7 @@
          with JS off it stays open (no content is JS-gated). #}
       <div class="pdp-detail">
         <div class="pdp-recs">
-          {% for d in it.result.dimensions %}
+          {% for d in it.result.dimensions if d.key != 'attributes' %}
           <div class="pdp-rec-dim">
             <div class="pdp-rec-head">
               <span class="pdp-rec-name">{{ d.label }}</span>

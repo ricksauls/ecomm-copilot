@@ -118,17 +118,23 @@ def build_results_pdf(items: list[dict]) -> bytes:
     for it in scored:
         title = it.get("title") or it["url"]
         flow.append(Paragraph(escape(title), styles["item"]))
-        flow.append(Paragraph(
-            "Item #" + escape(str(it.get("item_id") or "—")) + " &#183; "
-            + escape(it["url"]),
-            styles["meta"],
-        ))
+        # Meta line: item number, brand (when known), then the URL — mirrors the
+        # Brand column on the results screen.
+        meta = "Item #" + escape(str(it.get("item_id") or "—"))
+        if it.get("brand"):
+            meta += " &#183; " + escape(it["brand"])
+        meta += " &#183; " + escape(it["url"])
+        flow.append(Paragraph(meta, styles["meta"]))
         flow.append(Paragraph(
             f"<b>Overall: {it.get('overall')}</b> / 100", styles["overall"]
         ))
 
         rows = [["Dimension", "Score", "Findings & recommendations"]]
         for d in it["result"]["dimensions"]:
+            # 'attributes' is omitted from the breakdown here, matching the
+            # results screen (it still counts toward the overall score).
+            if d.get("key") == "attributes":
+                continue
             score = str(d["score"]) if d.get("available", True) else "n/a"
             rows.append([
                 Paragraph(escape(d["label"]), styles["cell"]),
