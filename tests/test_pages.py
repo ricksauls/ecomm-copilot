@@ -688,5 +688,20 @@ def test_main_image_fix_consolidates_enhance_and_white_bg(client, auth, app, mon
     assert f'action="/app/pdp-scoring/enhance/{sid}/1"'.encode() not in data
     assert b"Fix &amp; enhance main image" in data
     assert f'action="/app/pdp-scoring/whitebg/{sid}"'.encode() in data
+    # Both issues (resolution + white bg) are noted on the main image's own line,
+    # not split into a separate paragraph below the list.
+    assert b"not on a pure white background" in data
+    assert b'class="pdp-whitebg-fix"' not in data  # the standalone paragraph isn't used here
     # Gallery image (index 2): keeps its own enhance form.
     assert f'action="/app/pdp-scoring/enhance/{sid}/2"'.encode() in data
+
+
+def test_whitebg_only_uses_standalone_line(client, auth, app, monkeypatch):
+    # When the main image is the right resolution but NOT on white (so it isn't in
+    # the flagged-resolution list), the combined fix gets its own labelled line.
+    sid = _seed_scored_white_bg(client, auth, app)
+    monkeypatch.setattr("app.image_enhance.is_configured", lambda: True)
+    data = client.get("/app/pdp-scoring/results").data
+    assert b'class="pdp-whitebg-fix"' in data
+    assert b"Main image" in data
+    assert f'action="/app/pdp-scoring/whitebg/{sid}"'.encode() in data

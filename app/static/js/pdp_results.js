@@ -96,6 +96,44 @@
 
   // ── Row expand / collapse ────────────────────────────────────────────────────
 
+  // Which rows are open is remembered in sessionStorage (per tab) so it survives a
+  // reload — the page auto-refreshes every 5s while a fix is running, and a fix
+  // action POSTs then redirects back, so without this the open row would snap shut
+  // under the user mid-task. Self-pruning: we only ever store ids present in the DOM.
+  var OPEN_KEY = "pdp-open-rows";
+
+  function persistOpen(body) {
+    try {
+      var ids = Array.prototype.slice
+        .call(body.querySelectorAll(".pdp-item.pdp-open[data-id]"))
+        .map(function (it) { return it.getAttribute("data-id"); });
+      window.sessionStorage.setItem(OPEN_KEY, JSON.stringify(ids));
+    } catch (e) {
+      // Storage unavailable (e.g. private mode) — expand still works, just not sticky.
+    }
+  }
+
+  function restoreOpen(body) {
+    var ids;
+    try {
+      ids = JSON.parse(window.sessionStorage.getItem(OPEN_KEY) || "[]");
+    } catch (e) {
+      return;
+    }
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return;
+    }
+    var open = {};
+    ids.forEach(function (id) { open[id] = true; });
+    Array.prototype.slice
+      .call(body.querySelectorAll(".pdp-item.has-detail[data-id]"))
+      .forEach(function (it) {
+        if (open[it.getAttribute("data-id")]) {
+          it.classList.add("pdp-open");
+        }
+      });
+  }
+
   // Toggle a row's detail panel. Ignore clicks that land on the row's own
   // interactive controls (the select checkbox/label and the product link) so
   // those keep their normal behaviour instead of also expanding the row.
@@ -105,10 +143,11 @@
       if (!item) {
         return;
       }
-      if (event.target.closest("a, input, label")) {
+      if (event.target.closest("a, input, label, button")) {
         return;
       }
       item.classList.toggle("pdp-open");
+      persistOpen(body);
       refreshExpandAll(body);
     });
     // Keyboard: Enter/Space on a focused caret toggles its row.
@@ -124,6 +163,7 @@
       var item = caret.closest(".pdp-item.has-detail");
       if (item) {
         item.classList.toggle("pdp-open");
+        persistOpen(body);
         refreshExpandAll(body);
       }
     });
@@ -220,6 +260,7 @@
         });
         var anyClosed = rows.some(function (it) { return !it.classList.contains("pdp-open"); });
         rows.forEach(function (it) { it.classList.toggle("pdp-open", anyClosed); });
+        persistOpen(body);
         refreshExpandAll(body);
       });
     }
@@ -254,6 +295,9 @@
     if (!body) {
       return;
     }
+    // Reopen rows the user had expanded before the last (auto or action) reload,
+    // before wiring handlers, so the restored state is what everything reflects.
+    restoreOpen(body);
     initSorting(body);
     initExpand(body);
     initFilter(body);

@@ -143,7 +143,7 @@
 
     {% for it in items %}
     {% set scored = it.status == 'scored' and it.result %}
-    <div class="pdp-item{{ ' has-detail' if scored }}"
+    <div class="pdp-item{{ ' has-detail' if scored }}" data-id="{{ it.id }}"
          data-search="{{ ((it.title or '') ~ ' ' ~ (it.brand or '') ~ ' #' ~ (it.item_id or '') ~ ' ' ~ it.url) | lower }}">
       <div class="pdp-cols pdp-summary">
         {# Select — only scored items can be sent to copy rewrite. #}
@@ -229,23 +229,28 @@
             {# Specific images flagged by the scorer (resolution below spec). Each
                links to the full original in a new tab (CSP blocks embedding the
                remote image); the fix runs on the worker and shows inline when done.
-               The main image (index 1) is suppressed here when it also needs a
-               white background — the combined fix below does both in one call. #}
+               The main image (index 1) is special: when it ALSO needs a white
+               background, that second issue and the single combined fix (white bg +
+               upscale in one call — you can't chain two downloads) are shown on the
+               same line, rather than as a separate action elsewhere. #}
+            {% set main_needs_whitebg = d.white_bg_url %}
+            {% set main_in_issues = (d.image_issues or []) | selectattr('index', 'equalto', 1) | list | length > 0 %}
             {% if d.image_issues %}
             <ul class="pdp-img-issues">
               {% for img in d.image_issues %}
               <li>
                 {% if img.url %}<a href="{{ img.url }}" target="_blank" rel="noopener noreferrer">Image {{ img.index }}</a>{% else %}Image {{ img.index }}{% endif %}
                 — {{ img.px }}px{% if img.severity == 'low' %} (too small for zoom){% else %} (below the 2000px zoom spec){% endif %}
-                {% if enhance_configured and img.enhance %} · {{ enhance_control(img.enhance, "Enhance to 2000px", url_for('pages.pdp_scoring_enhance', sid=it.id, index=img.index)) }}{% endif %}
+                {% if img.index == 1 and main_needs_whitebg %} · not on a pure white background{% if enhance_configured and d.white_bg_fix %} · {{ enhance_control(d.white_bg_fix, "Fix & enhance main image", url_for('pages.pdp_scoring_whitebg', sid=it.id)) }}{% endif %}
+                {%- elif enhance_configured and img.enhance %} · {{ enhance_control(img.enhance, "Enhance to 2000px", url_for('pages.pdp_scoring_enhance', sid=it.id, index=img.index)) }}{% endif %}
               </li>
               {% endfor %}
             </ul>
             {% endif %}
-            {# Combined main-image fix: white background + AI upscale + 2000px in a
-               single call (Walmart main-image requirement). Only when configured. #}
-            {% if d.white_bg_fix and enhance_configured %}
-            <p class="pdp-whitebg-fix">{{ enhance_control(d.white_bg_fix, "Fix & enhance main image", url_for('pages.pdp_scoring_whitebg', sid=it.id)) }}</p>
+            {# White-background-only main image (resolution is fine, so it's not in
+               the issues list above): surface the combined fix on its own line. #}
+            {% if main_needs_whitebg and not main_in_issues %}
+            <p class="pdp-whitebg-fix">Main image — not on a pure white background{% if enhance_configured and d.white_bg_fix %} · {{ enhance_control(d.white_bg_fix, "Fix & enhance main image", url_for('pages.pdp_scoring_whitebg', sid=it.id)) }}{% endif %}</p>
             {% endif %}
             {# Per-item bulk controls (imagery dimension only): fix everything flagged
                in one click, then grab all finished fixes as one ZIP. "Fix all" is a
