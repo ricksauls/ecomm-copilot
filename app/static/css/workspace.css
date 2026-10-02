@@ -1507,6 +1507,10 @@ a:focus-visible,
   font-weight: 600;
   text-decoration: underline;
 }
+/* The upscale action reads as a fix (brand accent), distinct from the red issue. */
+.pdp-img-issues a.pdp-enhance-link {
+  color: var(--accent);
+}
 /* Non-scored rows (blocked/error): a short reason under the row. */
 .pdp-note {
   margin: 0;

@@ -207,6 +207,10 @@
               <li>
                 {% if img.url %}<a href="{{ img.url }}" target="_blank" rel="noopener noreferrer">Image {{ img.index }}</a>{% else %}Image {{ img.index }}{% endif %}
                 — {{ img.px }}px{% if img.severity == 'low' %} (too small for zoom){% else %} (below the 2000px zoom spec){% endif %}
+                {# Upscale-to-2000px download — only when an AI provider is configured.
+                   First click calls the provider (can take up to a minute), then
+                   downloads the enhanced image to re-upload to Walmart. #}
+                {% if enhance_configured and img.url %}· <a class="pdp-enhance-link" href="{{ url_for('pages.pdp_scoring_enhance', sid=it.id, index=img.index) }}" title="Upscale to 2000px (may take up to a minute)">Enhance to 2000px ↓</a>{% endif %}
               </li>
               {% endfor %}
             </ul>

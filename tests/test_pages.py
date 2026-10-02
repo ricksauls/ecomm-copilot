@@ -360,3 +360,93 @@ def test_ci_activity_shows_both_ci_tables_all_time(client, auth, app):
 def test_ci_activity_requires_login(client):
     resp = client.get("/app/competitive-intel/activity")
     assert resp.status_code in (301, 302)
+
+
+# --- AI image enhancement (config-gated) ------------------------------------
+
+_IMAGERY_WITH_ISSUE = {
+    "overall": 72,
+    "dimensions": [{
+        "key": "imagery", "label": "Imagery", "score": 72, "available": True,
+        "recommendations": [],
+        "image_issues": [{"index": 2, "url": "https://i5.walmartimages.com/seo/x.jpg",
+                          "px": 1200, "severity": "mid"}],
+    }],
+}
+
+
+def _seed_scored_with_issue(client, auth, app):
+    """Register, enqueue one item (into the session batch), score it with a
+    flagged image, and return its scored_items id."""
+    auth.register()
+    client.post("/app/pdp-scoring", data={"urls": "https://www.walmart.com/ip/12345"})
+    with app.app_context():
+        from app import jobs
+        from app.db import get_db
+        db = get_db()
+        row = db.execute("SELECT id FROM scored_items ORDER BY id DESC LIMIT 1").fetchone()
+        jobs.save_result(db, row["id"], 72, _IMAGERY_WITH_ISSUE, "Prod")
+        return row["id"]
+
+
+def test_enhance_link_hidden_when_not_configured(client, auth, app):
+    _seed_scored_with_issue(client, auth, app)
+    resp = client.get("/app/pdp-scoring/results")
+    assert b"Image 2" in resp.data              # the flag is shown
+    assert b"Enhance to 2000px" not in resp.data  # but not the upscale action
+
+
+def test_enhance_link_shown_when_configured(client, auth, app, monkeypatch):
+    _seed_scored_with_issue(client, auth, app)
+    monkeypatch.setattr("app.image_enhance.is_configured", lambda: True)
+    resp = client.get("/app/pdp-scoring/results")
+    assert b"Enhance to 2000px" in resp.data
+
+
+def test_enhance_route_not_configured_returns_503(client, auth, app, monkeypatch):
+    sid = _seed_scored_with_issue(client, auth, app)
+    monkeypatch.setattr("app.image_enhance.is_configured", lambda: False)
+    resp = client.get(f"/app/pdp-scoring/enhance/{sid}/2")
+    assert resp.status_code == 503
+
+
+def test_enhance_route_downloads_and_caches(client, auth, app, monkeypatch, tmp_path):
+    # Isolate the enhanced-image cache so it can't leak between tests/runs.
+    monkeypatch.setenv("MEDIA_DIR", str(tmp_path))
+    sid = _seed_scored_with_issue(client, auth, app)
+    calls = []
+    monkeypatch.setattr("app.image_enhance.is_configured", lambda: True)
+
+    def fake_enhance(url):
+        calls.append(url)
+        return b"UPSCALED"
+
+    monkeypatch.setattr("app.image_enhance.enhance", fake_enhance)
+
+    resp = client.get(f"/app/pdp-scoring/enhance/{sid}/2")
+    assert resp.status_code == 200
+    assert resp.data == b"UPSCALED"
+    assert "attachment" in resp.headers.get("Content-Disposition", "")
+    assert calls == ["https://i5.walmartimages.com/seo/x.jpg"]  # used the stored URL
+
+    # Second call is served from cache — the provider isn't hit again.
+    resp2 = client.get(f"/app/pdp-scoring/enhance/{sid}/2")
+    assert resp2.status_code == 200
+    assert resp2.data == b"UPSCALED"
+    assert len(calls) == 1
+
+
+def test_enhance_route_rejects_other_users_item(client, auth, app, monkeypatch):
+    _seed_scored_with_issue(client, auth, app)
+    monkeypatch.setattr("app.image_enhance.is_configured", lambda: True)
+    with app.app_context():
+        from app import jobs
+        from app.db import get_db
+        from app.users import create_local_user
+        db = get_db()
+        other = create_local_user("other@example.com", "password123")
+        ids = jobs.enqueue_items(db, other, [{"url": "https://www.walmart.com/ip/9", "item": "9"}])
+        jobs.save_result(db, ids[0], 72, _IMAGERY_WITH_ISSUE, "Other")
+        other_sid = ids[0]
+    # Logged-in user can't enhance another user's item (IDOR guard).
+    assert client.get(f"/app/pdp-scoring/enhance/{other_sid}/2").status_code == 404

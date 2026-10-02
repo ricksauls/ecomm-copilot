@@ -123,6 +123,63 @@ def cache_product_image_from_url(item_id: str, source_url: str) -> bool:
 
 # ── Brand ad creatives (headline + sponsored video screenshots) ──────────────────
 
+# --- Enhanced (AI-upscaled) product images ---------------------------------
+#
+# Cached full-resolution output from app.image_enhance, keyed by the scored item's
+# DB row id + the gallery index of the flagged image. Unlike product/ad thumbnails
+# these are stored at full size (the point is the upscale) and not re-encoded here.
+
+def _enhanced_dir() -> str:
+    return os.path.join(_media_root(), "enhanced")
+
+
+def enhanced_image_path(key, index, ext: str = "jpg") -> str | None:
+    """Absolute cache path for an upscaled image, or ``None`` for invalid ids.
+
+    ``key`` is the scored item's DB id and ``index`` the 1-based gallery position
+    of the flagged image; both must be digits (path-traversal guard). ``ext`` is
+    constrained to a small allowlist so it can't be used to write arbitrary names.
+    """
+    if key is None or not _ITEM_ID_RE.match(str(key)):
+        return None
+    try:
+        idx = int(index)
+    except (TypeError, ValueError):
+        return None
+    if idx < 0:
+        return None
+    if ext not in ("jpg", "png"):
+        return None
+    return os.path.join(_enhanced_dir(), f"{key}-{idx}.{ext}")
+
+
+def has_enhanced_image(key, index, ext: str = "jpg") -> bool:
+    """Whether an upscaled image is already cached (skip re-calling the provider)."""
+    path = enhanced_image_path(key, index, ext)
+    return bool(path and os.path.isfile(path))
+
+
+def save_enhanced_image(key, index, data: bytes, ext: str = "jpg") -> bool:
+    """Store upscaled image ``data`` verbatim in the cache. Best-effort.
+
+    The bytes are the provider's output in the configured format, written as-is
+    (no re-encode) so the upscale quality is preserved for download.
+    """
+    path = enhanced_image_path(key, index, ext)
+    if not path:
+        logger.warning("Refusing to cache enhanced image for invalid key=%r idx=%r", key, index)
+        return False
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "wb") as f:
+            f.write(data)
+        logger.info("Cached enhanced image key=%s idx=%s bytes=%d", key, index, len(data))
+        return True
+    except OSError:
+        logger.exception("Failed to cache enhanced image key=%s idx=%s", key, index)
+        return False
+
+
 # Ad creatives are wider banners than product mains, so allow a larger long edge so
 # the "Sponsored by <brand>" text stays legible on the page and in the PDF.
 _AD_MAX_EDGE_PX = 900

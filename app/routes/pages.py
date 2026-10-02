@@ -34,6 +34,7 @@ from app import (
     ci_jobs,
     copy_jobs,
     fixtures,
+    image_enhance,
     jobs,
     messages,
     pdp,
@@ -477,6 +478,72 @@ def pdp_scoring_results():
         active_nav="pdp-scoring",
         items=items,
         summary=_score_summary(items),
+        # Gates the per-flagged-image "Enhance" link — hidden unless an upscaling
+        # provider/key is configured (the feature is inert otherwise).
+        enhance_configured=image_enhance.is_configured(),
+    )
+
+
+def _flagged_image_url(row, index: int) -> str | None:
+    """The stored URL of the imagery issue at gallery ``index`` on a scored row.
+
+    Pulled from the row's own ``result_json`` (our scrape output) so the upscaler
+    only ever receives a URL we recorded — never arbitrary user input (SSRF guard).
+    """
+    if not row["result_json"]:
+        return None
+    try:
+        result = json.loads(row["result_json"])
+    except (ValueError, TypeError):
+        return None
+    for d in result.get("dimensions", []):
+        if d.get("key") == "imagery":
+            for issue in d.get("image_issues", []):
+                if issue.get("index") == index:
+                    return issue.get("url")
+    return None
+
+
+@bp.route("/app/pdp-scoring/enhance/<int:sid>/<int:index>")
+@login_required
+def pdp_scoring_enhance(sid, index):
+    """Upscale a flagged image and return it as a download (cached after first run).
+
+    Scoped to the signed-in user (IDOR guard). The source URL comes from the
+    scored row's own stored result, never the request, so the provider can't be
+    pointed at an arbitrary host. First call hits the provider (can take up to a
+    minute); subsequent calls serve the cached file.
+    """
+    from flask import send_file
+
+    rows = jobs.get_items(get_db(), [sid], g.user["id"])
+    if not rows:
+        abort(404)
+
+    ext = image_enhance.output_ext()
+    path = ci_images.enhanced_image_path(sid, index, ext)
+    if path and not ci_images.has_enhanced_image(sid, index, ext):
+        if not image_enhance.is_configured():
+            abort(503, description="Image upscaling is not configured.")
+        url = _flagged_image_url(rows[0], index)
+        if not url:
+            abort(404, description="No flagged image at that position.")
+        try:
+            data = image_enhance.enhance(url)
+        except image_enhance.EnhanceNotConfigured:
+            abort(503, description="Image upscaling is not configured.")
+        except image_enhance.EnhanceError as e:
+            logger.warning("Enhance failed sid=%s idx=%s: %s", sid, index, e)
+            abort(502, description="Upscaling failed — try again shortly.")
+        ci_images.save_enhanced_image(sid, index, data, ext)
+        logger.info("Enhanced image sid=%s idx=%s user_id=%s", sid, index, g.user["id"])
+
+    if not path or not ci_images.has_enhanced_image(sid, index, ext):
+        abort(404)
+    item = rows[0]["item_id"] or sid
+    return send_file(
+        path, mimetype=image_enhance.output_mime(), as_attachment=True,
+        download_name=f"enhanced-{item}-img{index}.{ext}", max_age=0,
     )
 
 

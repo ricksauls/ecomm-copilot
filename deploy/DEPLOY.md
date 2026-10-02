@@ -145,6 +145,25 @@ deploys never wipe it), and needs no setup. Zero-config; both the web app and th
 worker resolve it from `DATABASE_URL`. To force a re-fetch, delete a file (or the
 directory) — the next run re-caches any that are missing. No secrets live here.
 
+## AI image upscaling (optional)
+
+The content scorer flags product images below Walmart's 2000px zoom spec. When an
+upscaling provider is configured, each flagged image gets an **"Enhance to 2000px"**
+download on the results page that runs it through a conservative, e-commerce-tuned
+super-resolution (Claid.ai) and returns the upscaled file to re-upload to Walmart.
+
+**Config-gated and inert by default** — nothing shows or runs until you set
+`IMAGE_UPSCALE_API_KEY` in `.env` (see `.env.example` for `IMAGE_UPSCALE_*`). Set
+the key, restart the web service (`sudo systemctl restart ecomm-copilot`), and the
+links appear. Enhanced files cache under `media/enhanced/` next to the DB (same
+media dir as product images; created on first write, outside the git checkout).
+
+Notes: the first click per image calls the provider synchronously (can take up to
+~a minute) and ties up a web worker for that time — fine for occasional manual use;
+revisit (move to the background worker) if it becomes high-volume. Claid is
+**metered per image** — a real cost once enabled. The API key is read from the
+environment and never logged.
+
 ## Competitive Intelligence monitoring timers
 
 CI "monitoring" runs are enqueued **3×/day at 7:00 AM / 3:00 PM / 11:00 PM CST**
