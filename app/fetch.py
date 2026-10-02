@@ -100,13 +100,16 @@ def _image_urls(product: dict) -> list[str]:
     return [img["url"] for img in images if isinstance(img, dict) and img.get("url")]
 
 
-def _measure_max_image_px(urls: list[str], *, limit: int = 8, timeout: int = 12) -> int:
-    """Return the largest image edge (px) across the first ``limit`` images.
+def _measure_image_dims(urls: list[str], *, limit: int = 12, timeout: int = 10) -> list[dict]:
+    """Measure each image's largest edge (px), in gallery order.
 
-    Image dimensions aren't in __NEXT_DATA__, so we fetch the bytes and read the
-    size with Pillow (as the WM scraper does). Best-effort: any download/parse
-    failure is skipped, and 0 is returned if nothing could be measured, which
-    simply means the resolution points aren't earned.
+    Returns one ``{"url": str, "px": int}`` per image (up to ``limit``); px is the
+    largest edge, or 0 when that image couldn't be measured. Image dimensions
+    aren't in __NEXT_DATA__, so we fetch the bytes and read the size with Pillow
+    (as the WM scraper does). Best-effort *per image*: a single download/parse
+    failure yields px 0 for that image (no resolution credit, and it isn't flagged
+    as sub-spec) without affecting the others. Capped at ``limit`` to bound
+    per-item time — Walmart galleries past that are rare.
     """
     try:
         import io
@@ -114,18 +117,20 @@ def _measure_max_image_px(urls: list[str], *, limit: int = 8, timeout: int = 12)
         import requests
         from PIL import Image
     except ImportError:  # pragma: no cover - Pillow/requests are runtime deps
-        return 0
+        return [{"url": u, "px": 0} for u in urls[:limit]]
 
-    max_px = 0
+    dims: list[dict] = []
     for url in urls[:limit]:
+        px = 0
         try:
             resp = requests.get(url, timeout=timeout)
             resp.raise_for_status()
             with Image.open(io.BytesIO(resp.content)) as img:
-                max_px = max(max_px, img.width, img.height)
+                px = max(img.width, img.height)
         except Exception as e:  # noqa: BLE001 - best-effort measurement
             logger.debug("Could not measure image %s: %s", url[:80], e)
-    return max_px
+        dims.append({"url": url, "px": px})
+    return dims
 
 
 def _is_white_background(img, *, sample: int = 160, border_frac: float = 0.08,
@@ -298,6 +303,7 @@ def _extract_idml_bullets(idml: dict | None) -> list[str]:
 
 def parse_product(product: dict, *, url: str = "", item_id: str | None = None,
                    max_image_px: int = 0,
+                   image_dims: list[dict] | None = None,
                    spec_pairs: list[dict] | None = None,
                    bullets: list[str] | None = None,
                    main_image_white_bg: bool | None = None,
@@ -335,6 +341,7 @@ def parse_product(product: dict, *, url: str = "", item_id: str | None = None,
         brand=_extract_brand(product),
         image_count=_extract_image_count(product),
         max_image_px=max_image_px,
+        image_dims=image_dims or [],
         has_video=_detect_video(product),
         bullets=bullets if bullets is not None else _extract_bullets(product),
         description=_extract_description(product),
@@ -420,10 +427,11 @@ def fetch_pdp(url: str, item_id: str | None = None, *, timeout_ms: int = 35000) 
     # Image dimensions and the main-image background live outside __NEXT_DATA__;
     # both are read from the image bytes (the main image is the first).
     image_urls = _image_urls(product)
-    max_px = _measure_max_image_px(image_urls)
+    image_dims = _measure_image_dims(image_urls)
+    max_px = max((d["px"] for d in image_dims), default=0)
     white_bg = _detect_main_white_background(image_urls[0]) if image_urls else None
     return parse_product(
-        product, url=url, item_id=item_id, max_image_px=max_px,
+        product, url=url, item_id=item_id, max_image_px=max_px, image_dims=image_dims,
         spec_pairs=spec_pairs, bullets=bullets, main_image_white_bg=white_bg,
         main_image_url=image_urls[0] if image_urls else None,
     )

@@ -195,8 +195,21 @@
             <ul class="dim-recs">
               {% for rec in d.recommendations %}<li>{{ rec }}</li>{% endfor %}
             </ul>
-            {% elif d.available %}
+            {% elif d.available and not d.image_issues %}
             <p class="pdp-rec-none">No changes recommended — this dimension looks good.</p>
+            {% endif %}
+            {# Specific images flagged by the scorer (resolution below spec). Each
+               links to the full image in a new tab so the user can see exactly
+               which one to re-export (CSP blocks embedding the remote image). #}
+            {% if d.image_issues %}
+            <ul class="pdp-img-issues">
+              {% for img in d.image_issues %}
+              <li>
+                {% if img.url %}<a href="{{ img.url }}" target="_blank" rel="noopener noreferrer">Image {{ img.index }}</a>{% else %}Image {{ img.index }}{% endif %}
+                — {{ img.px }}px{% if img.severity == 'low' %} (too small for zoom){% else %} (below the 2000px zoom spec){% endif %}
+              </li>
+              {% endfor %}
+            </ul>
             {% endif %}
           </div>
           {% endfor %}

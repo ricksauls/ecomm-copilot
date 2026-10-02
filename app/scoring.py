@@ -48,6 +48,12 @@ class PdpRecord:
     brand: str = ""
     image_count: int = 0
     max_image_px: int = 0  # largest edge across all images, in pixels
+    # Per-image resolution, one dict per gallery image in gallery order:
+    # ``{"url": str, "px": int}`` where px is that image's largest edge (0 = it
+    # couldn't be measured). Lets imagery grade *every* image and name the ones
+    # below spec; empty when per-image measurement didn't run (older results,
+    # unit tests), in which case imagery falls back to ``max_image_px``.
+    image_dims: list[dict] = field(default_factory=list)
     has_video: bool = False
     bullets: list[str] = field(default_factory=list)
     description: str = ""
@@ -84,6 +90,11 @@ class DimensionScore:
     recommendations: list[str] = field(default_factory=list)
     # False when the signal can't be measured yet; excluded from the overall.
     available: bool = True
+    # Imagery only: specific images flagged for an issue (resolution below spec),
+    # each ``{"index": int, "url": str, "px": int, "severity": "low"|"mid"}`` so
+    # the results UI can point the user at exactly which image to re-export. Empty
+    # for every other dimension.
+    image_issues: list[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -137,6 +148,72 @@ def _description_keyword_subscore(hit_count: int) -> int:
     return 0
 
 
+# Resolution tiers, largest edge in px. Walmart's image zoom engages at ~2000px;
+# below 1000px is too small to be useful. _RES_POINTS is the imagery points the
+# resolution component can earn (the rest come from image count).
+_RES_ZOOM_PX = 2000
+_RES_MIN_PX = 1000
+_RES_POINTS = 40
+
+
+def _resolution_points(
+    pdp: PdpRecord,
+    findings: list[str],
+    recs: list[str],
+    image_issues: list[dict],
+) -> int:
+    """Resolution component of the imagery score; mutates the note lists.
+
+    When per-image measurements exist (``pdp.image_dims``), grade *every* image:
+    each zoom-ready image (>=2000px) earns full credit, each 1000-1999px earns
+    half, each below 1000px none — so a single hero image can't mask a gallery of
+    small ones. Every sub-2000px image is recorded in ``image_issues`` (with its
+    gallery position) so the results page can point the user at exactly which one
+    to re-export. Unmeasurable images (px 0 — the bytes couldn't be fetched) are
+    neither graded nor flagged.
+
+    Falls back to the single largest-edge tier when no per-image data is present
+    (results scored before this change, or a run where measurement didn't happen).
+    """
+    measured = [d for d in pdp.image_dims if d.get("px")]
+    if not measured:
+        if pdp.max_image_px >= _RES_ZOOM_PX:
+            findings.append("Zoom-ready resolution (2000px+)")
+            return _RES_POINTS
+        if pdp.max_image_px >= _RES_MIN_PX:
+            findings.append("Images below the 2000px zoom recommendation")
+            recs.append("Re-export images at 2000x2000 so Walmart zoom engages")
+            return _RES_POINTS // 2
+        recs.append("Provide 2000x2000 images for zoom")
+        return 0
+
+    total = len(measured)
+    zoom_ready = sum(1 for d in measured if d["px"] >= _RES_ZOOM_PX)
+    partial = sum(1 for d in measured if _RES_MIN_PX <= d["px"] < _RES_ZOOM_PX)
+    credit = (zoom_ready + 0.5 * partial) / total
+
+    if zoom_ready == total:
+        findings.append(f"All {total} images are zoom-ready (2000px+)")
+    else:
+        findings.append(f"{zoom_ready} of {total} images are zoom-ready (2000px+)")
+
+    # Flag each sub-spec image by its gallery position (1-based) so the user can
+    # tell which to address; unmeasured images (px 0) are skipped.
+    for i, d in enumerate(pdp.image_dims, start=1):
+        px = d.get("px") or 0
+        if 0 < px < _RES_ZOOM_PX:
+            image_issues.append({
+                "index": i,
+                "url": d.get("url", ""),
+                "px": px,
+                "severity": "low" if px < _RES_MIN_PX else "mid",
+            })
+    if image_issues:
+        recs.append("Re-export the flagged image(s) at 2000x2000 so Walmart zoom engages")
+
+    return round(_RES_POINTS * credit)
+
+
 def _score_imagery(pdp: PdpRecord) -> DimensionScore:
     """Image count and zoom-ready resolution.
 
@@ -149,6 +226,7 @@ def _score_imagery(pdp: PdpRecord) -> DimensionScore:
     """
     findings: list[str] = []
     recs: list[str] = []
+    image_issues: list[dict] = []
     points = 0
 
     n = pdp.image_count
@@ -167,15 +245,7 @@ def _score_imagery(pdp: PdpRecord) -> DimensionScore:
         findings.append("1 or no images")
         recs.append("Add a full image set (6+ product images)")
 
-    if pdp.max_image_px >= 2000:
-        points += 40
-        findings.append("Zoom-ready resolution (2000px+)")
-    elif pdp.max_image_px >= 1000:
-        points += 20
-        findings.append("Images below the 2000px zoom recommendation")
-        recs.append("Re-export images at 2000x2000 so Walmart zoom engages")
-    else:
-        recs.append("Provide 2000x2000 images for zoom")
+    points += _resolution_points(pdp, findings, recs, image_issues)
 
     # Video scoring is paused for now. `pdp.has_video` is still detected in the
     # fetch layer, so re-enabling is just uncommenting this and reverting the
@@ -193,7 +263,8 @@ def _score_imagery(pdp: PdpRecord) -> DimensionScore:
     # (unit tests, or the image couldn't be fetched), imagery scores on
     # count/resolution alone and still reaches 100.
     if pdp.main_image_white_bg is None:
-        return DimensionScore("imagery", "Imagery", base_score, WEIGHTS["imagery"], findings, recs)
+        return DimensionScore("imagery", "Imagery", base_score, WEIGHTS["imagery"],
+                              findings, recs, image_issues=image_issues)
 
     white_score = 100 if pdp.main_image_white_bg else 0
     score = round(base_score * (1 - _WHITE_BG_BLEND) + white_score * _WHITE_BG_BLEND)
@@ -204,7 +275,8 @@ def _score_imagery(pdp: PdpRecord) -> DimensionScore:
             "Set the main image to the product on a pure white background "
             "(a Walmart main-image requirement)"
         )
-    return DimensionScore("imagery", "Imagery", score, WEIGHTS["imagery"], findings, recs)
+    return DimensionScore("imagery", "Imagery", score, WEIGHTS["imagery"],
+                          findings, recs, image_issues=image_issues)
 
 
 def _score_attributes(pdp: PdpRecord) -> DimensionScore:

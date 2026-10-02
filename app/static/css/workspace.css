@@ -1490,6 +1490,23 @@ a:focus-visible,
   font-size: 12px;
   color: var(--cool-gray);
 }
+/* Flagged images (e.g. resolution below spec) under the Imagery dimension. Each
+   row names the image (a link to the full file) and the issue, in the warning
+   colour so it reads as an action item. */
+.pdp-img-issues {
+  margin: 6px 0 0;
+  padding-left: 16px;
+}
+.pdp-img-issues li {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--signal-red);
+}
+.pdp-img-issues a {
+  color: var(--signal-red);
+  font-weight: 600;
+  text-decoration: underline;
+}
 /* Non-scored rows (blocked/error): a short reason under the row. */
 .pdp-note {
   margin: 0;

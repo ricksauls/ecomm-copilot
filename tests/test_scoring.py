@@ -129,3 +129,50 @@ def test_all_caps_title_is_penalized():
     caps_title = next(d for d in score_pdp(caps).dimensions if d.key == "title")
     mixed_title = next(d for d in score_pdp(mixed).dimensions if d.key == "title")
     assert mixed_title.score > caps_title.score
+
+
+def _imagery(result):
+    return next(d for d in result.dimensions if d.key == "imagery")
+
+
+def test_imagery_grades_every_image_and_flags_sub_spec_ones():
+    # With per-image resolutions, imagery credits each image on its own tier and
+    # records the sub-2000px ones (by gallery position) so the UI can name them.
+    pdp = PdpRecord(url="u", image_count=6, image_dims=[
+        {"url": "a.jpg", "px": 2200},   # zoom-ready
+        {"url": "b.jpg", "px": 1200},   # mid  -> flagged
+        {"url": "c.jpg", "px": 800},    # low  -> flagged
+        {"url": "d.jpg", "px": 2000},   # zoom-ready
+        {"url": "e.jpg", "px": 0},      # unmeasured -> neither graded nor flagged
+        {"url": "f.jpg", "px": 2500},   # zoom-ready
+    ])
+    imagery = _imagery(score_pdp(pdp))
+
+    issues = imagery.image_issues
+    assert [i["index"] for i in issues] == [2, 3]          # gallery positions, in order
+    assert {i["px"] for i in issues} == {1200, 800}
+    assert {i["url"] for i in issues} == {"b.jpg", "c.jpg"}
+    sev = {i["index"]: i["severity"] for i in issues}
+    assert sev == {2: "mid", 3: "low"}
+
+    # count 6 -> 60; resolution: measured=5, zoom_ready=3, partial=1 ->
+    # credit (3 + 0.5)/5 = 0.7 -> round(40*0.7)=28. base 88, no white-bg blend.
+    assert imagery.score == 88
+
+
+def test_imagery_all_zoom_ready_has_no_flags():
+    pdp = PdpRecord(url="u", image_count=6, image_dims=[
+        {"url": "a.jpg", "px": 2000},
+        {"url": "b.jpg", "px": 3000},
+    ])
+    imagery = _imagery(score_pdp(pdp))
+    assert imagery.image_issues == []
+    assert any("zoom-ready" in f for f in imagery.findings)
+
+
+def test_imagery_falls_back_to_max_px_without_per_image_data():
+    # No image_dims (e.g. an older result) -> legacy single-max tier, no flags.
+    pdp = PdpRecord(url="u", image_count=6, max_image_px=2000)
+    imagery = _imagery(score_pdp(pdp))
+    assert imagery.image_issues == []
+    assert imagery.score == 100  # 60 (count) + 40 (resolution)

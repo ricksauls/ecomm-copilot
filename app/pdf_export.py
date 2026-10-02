@@ -83,6 +83,15 @@ def _notes_paragraph(dimension: dict, style: ParagraphStyle) -> Paragraph:
     """
     lines = [escape(f) for f in dimension.get("findings", [])]
     lines += [f"&#8594; {escape(r)}" for r in dimension.get("recommendations", [])]
+    # Specific images flagged for an issue (Imagery resolution): name each by its
+    # gallery position + size so the reader knows which to re-export. The PDF
+    # can't link, so the position is the handle.
+    for img in dimension.get("image_issues", []):
+        note = "too small for zoom" if img.get("severity") == "low" else "below 2000px"
+        lines.append(
+            f"&#9888; Image {escape(str(img.get('index')))}: "
+            f"{escape(str(img.get('px')))}px ({note})"
+        )
     return Paragraph("<br/>".join(lines) or "—", style)
 
 
