@@ -1,12 +1,13 @@
 """Background PDP scoring worker.
 
 Runs as its own process (systemd: ecomm-copilot-worker) so the slow browser work
-never touches a web request. Polls the ``scored_items`` queue and scores up to
+never touches a web request. Polls the scoring and copy queues and processes up to
 ``SCORING_CONCURRENCY`` items at once (default 3) — a thread pool *inside this one
-process*, each thread fetching the PDP in its own headed Chrome, scoring it, and
-writing the result back. Copy and Competitive-Intelligence work stays serial and
-runs between scoring waves. It must run with a display available (DISPLAY=:99 via
-the droplet's Xvfb) because headed Chrome evades Walmart's bot defense.
+process*, each thread doing its own headed-Chrome fetch. Scoring drains first,
+then copy; the two never run at the same time, so they share one memory budget.
+Competitive-Intelligence runs stay serial and run between waves. It must run with
+a display available (DISPLAY=:99 via the droplet's Xvfb) because headed Chrome
+evades Walmart's bot defense.
 
 Concurrency is capped at 10 because each concurrent fetch is a full browser:
 on the ~2 GB shared droplet even 3 is memory-significant, so raise
@@ -444,13 +445,62 @@ def drain_scoring() -> int:
     return processed
 
 
+def drain_copy() -> int:
+    """Process every claimable copy item concurrently; return phases processed.
+
+    Same single-process thread pool as :func:`drain_scoring` (bounded by
+    ``SCORING_CONCURRENCY`` — scoring and copy never drain at the same time, so
+    they share the same memory budget). Each thread claims copy rows
+    (``claim_next_copy`` — a row's fetch phase, then its generate phase) until the
+    queue drains. The Walmart-politeness pause applies only after a real fetch
+    phase (``process_copy_one`` returns ``did_fetch``); the AI generation phase
+    needs no pause.
+    """
+    processed = 0
+    counter_lock = threading.Lock()
+
+    def claim_loop(stagger: float) -> None:
+        nonlocal processed
+        conn = connect(ensure=False)
+        try:
+            if stagger:
+                time.sleep(stagger)
+            while True:
+                row = copy_jobs.claim_next_copy(conn)
+                if row is None:
+                    return
+                did_fetch = process_copy_one(conn, row)
+                with counter_lock:
+                    processed += 1
+                if did_fetch:
+                    time.sleep(random.uniform(*FETCH_DELAY_RANGE_S))
+        finally:
+            conn.close()
+
+    threads = [
+        threading.Thread(
+            target=claim_loop,
+            args=(random.uniform(*SUBMIT_STAGGER_S) * i,),
+            name=f"copy-{i}",
+            daemon=True,
+        )
+        for i in range(SCORING_CONCURRENCY)
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    return processed
+
+
 def main() -> None:
     """Claim-and-process loop. Runs until the process is stopped.
 
-    Drains the scoring queue first (concurrently — see :func:`drain_scoring`),
-    then copy, then Competitive Intelligence runs, then idles. Scoring takes
-    priority; copy is per-item and CI is a whole keyword sweep that does its own
-    inter-keyword pacing. Copy and CI stay serial — only scoring is pooled.
+    Drains the scoring queue first, then the copy queue, each concurrently (see
+    :func:`drain_scoring` / :func:`drain_copy`), then Competitive Intelligence
+    runs, then idles. Scoring takes priority; the two queues never drain at once,
+    so their pools share one memory budget. CI stays serial — a run is a whole
+    keyword sweep that does its own inter-keyword pacing.
     """
     conn = connect()
     log.info("PDP worker started — scoring concurrency=%d (+ copy + competitive intelligence)",
@@ -473,11 +523,11 @@ def main() -> None:
             log.info("Scoring wave complete — processed %d item(s)", n)
             continue
 
-        copy_row = copy_jobs.claim_next_copy(conn)
-        if copy_row is not None:
-            did_fetch = process_copy_one(conn, copy_row)
-            if did_fetch:
-                time.sleep(random.uniform(*FETCH_DELAY_RANGE_S))
+        # Copy next, also concurrently: drain the fetch/generate queue with the
+        # pool (runs only when scoring is idle, so the memory budget is shared).
+        if copy_jobs.has_claimable_items(conn):
+            n = drain_copy()
+            log.info("Copy wave complete — processed %d phase(s)", n)
             continue
 
         ci_run = ci_jobs.claim_next_run(conn)

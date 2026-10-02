@@ -1,5 +1,5 @@
 {% extends "app/base.html" %}
-{% block title %}Product Detail Page Copy — DISCOtech{% endblock %}
+{% block title %}Product Detail Page Copy Content Creation — DISCOtech{% endblock %}
 
 {# Pending while any item is still fetching or generating. #}
 {% set pending = items | selectattr('status', 'in', ['queued', 'fetching', 'gen_queued', 'generating']) | list | length > 0 %}
@@ -38,7 +38,7 @@
 {% block pane_content %}
 <div class="page-header">
   <div>
-    <h1>Product Detail Page Copy Content</h1>
+    <h1>Product Detail Page Copy Content Creation</h1>
     <p class="subtitle {{ 'subtitle-scoring' if pending else '' }}">
       {{ items | length }} item{{ '' if items | length == 1 else 's' }}
       {% if pending %}· working — this can take up to 1 minute per item{% else %}· ready{% endif %}

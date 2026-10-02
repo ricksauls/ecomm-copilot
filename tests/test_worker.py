@@ -6,7 +6,7 @@ process step stubbed out, so no Playwright/Chrome is involved).
 """
 
 import worker
-from app import jobs
+from app import copy_jobs, jobs
 from app.db import get_db
 from app.users import create_local_user
 
@@ -66,3 +66,47 @@ def test_drain_scoring_processes_every_item_once(app, monkeypatch):
             ).fetchall()
         }
     assert statuses == {"scored"}                 # queue fully drained
+
+
+def test_drain_copy_processes_every_item_once(app, monkeypatch):
+    # drain_copy claims and processes the whole copy queue across its thread pool,
+    # each row exactly once. The browser/AI step is stubbed (marks the row done).
+    with app.app_context():
+        uid = create_local_user("draincopy@example.com", "password123")
+        ids = copy_jobs.enqueue_copy_items(get_db(), uid, [
+            {"url": f"https://www.walmart.com/ip/{i}", "item": str(i)}
+            for i in range(1, 16)
+        ])
+
+    seen = []
+    import threading
+    seen_lock = threading.Lock()
+
+    def fake_process_copy_one(conn, row):
+        # Stand in for fetch/generate: record the row and finalize it so it leaves
+        # the claimable set. Return True to exercise the post-fetch delay path.
+        with seen_lock:
+            seen.append(row["id"])
+        conn.execute("UPDATE copy_items SET status = 'done' WHERE id = ?", (row["id"],))
+        conn.commit()
+        return True
+
+    monkeypatch.setattr(worker, "process_copy_one", fake_process_copy_one)
+    monkeypatch.setattr(worker, "SCORING_CONCURRENCY", 5)
+    monkeypatch.setattr(worker, "FETCH_DELAY_RANGE_S", (0, 0))
+    monkeypatch.setattr(worker, "SUBMIT_STAGGER_S", (0, 0))
+
+    processed = worker.drain_copy()
+
+    assert processed == len(ids)
+    assert sorted(seen) == sorted(ids)
+    assert len(seen) == len(set(seen))
+
+    with app.app_context():
+        statuses = {
+            r["status"]
+            for r in get_db().execute(
+                "SELECT status FROM copy_items WHERE user_id = ?", (uid,)
+            ).fetchall()
+        }
+    assert statuses == {"done"}

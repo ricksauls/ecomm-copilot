@@ -97,6 +97,18 @@ def get_copy_items(conn: sqlite3.Connection, ids: list[int], user_id: int) -> li
     ).fetchall()
 
 
+def has_claimable_items(conn: sqlite3.Connection) -> bool:
+    """True if any copy row is waiting for a worker (queued or gen_queued).
+
+    Lets the worker gate its copy thread pool — spin it up only when there's work
+    rather than claim-probing on every idle poll. (A ``fetched`` row resting for
+    the user's "Create new copy content" click is not claimable and not counted.)
+    """
+    return conn.execute(
+        "SELECT 1 FROM copy_items WHERE status IN ('queued', 'gen_queued') LIMIT 1"
+    ).fetchone() is not None
+
+
 def claim_next_copy(conn: sqlite3.Connection) -> sqlite3.Row | None:
     """Atomically claim the oldest claimable copy row.
 
@@ -274,15 +286,17 @@ _ORPHAN_MESSAGE = "Interrupted — the worker restarted mid-run (marked failed o
 def reclaim_orphaned_copy_items(conn: sqlite3.Connection) -> int:
     """Fail any copy row still ``fetching`` or ``generating`` — call on worker startup.
 
-    With a single worker (see HANDOFF §6), a row in an in-flight status at startup can
-    only be orphaned: the worker that claimed it died mid-fetch or mid-generation (a
-    deploy restart or an OOM kill), so no process will ever finish it. Left alone it
-    sits in-progress forever — the results view flashes it indefinitely and the user
-    has no signal to act. Marking it ``error`` surfaces the failure so the user can
-    re-run it. Returns the count reclaimed.
+    Copy runs concurrently, but inside a *single* worker process (a thread pool —
+    see ``worker.drain_copy``). So a row in an in-flight status at startup can only
+    be orphaned: the one process that claimed it died mid-fetch or mid-generation
+    (a deploy restart or an OOM kill), and no survivor will finish it. Left alone it
+    sits in-progress forever — the results view flashes it indefinitely with no
+    signal to act. Marking it ``error`` surfaces the failure so the user can re-run
+    it. Returns the count reclaimed.
 
-    NB: this assumes one worker. A worker pool (the §6 future) would need a heartbeat
-    or age threshold so a restart can't fail a peer's in-flight row.
+    NB: this correctness relies on one worker *process*. Fanning copy out to
+    multiple processes/hosts would need a per-claim lease (a ``claimed_at`` + age
+    threshold) so one process restarting can't fail a peer's live row.
     """
     placeholders = ",".join("?" for _ in _ORPHAN_STATUSES)
     updated = conn.execute(

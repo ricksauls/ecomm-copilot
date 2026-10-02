@@ -180,3 +180,62 @@ def test_list_copy_created_this_month_only_done_in_window(app):
 
         rows = copy_jobs.list_copy_activity(db, uid, since="2020-06-01")
         assert [r["id"] for r in rows] == [ids[0]]  # only the recent done row
+
+
+def test_has_claimable_items(app):
+    # Reports whether any copy row is waiting for a worker; a 'fetched' row
+    # resting for the user's click is not claimable.
+    with app.app_context():
+        uid = create_local_user("claim@example.com", "password123")
+        db = get_db()
+        assert copy_jobs.has_claimable_items(db) is False
+        ids = copy_jobs.enqueue_copy_items(db, uid, _items(1))
+        assert copy_jobs.has_claimable_items(db) is True
+        copy_jobs.claim_next_copy(db)  # -> 'fetching' (in-flight, not claimable)
+        assert copy_jobs.has_claimable_items(db) is False
+        # Park it at 'fetched' (resting for the user) — still not claimable.
+        db.execute("UPDATE copy_items SET status = 'fetched' WHERE id = ?", (ids[0],))
+        db.commit()
+        assert copy_jobs.has_claimable_items(db) is False
+
+
+def test_concurrent_claim_next_copy_never_double_claims(app):
+    # The copy worker claims from several threads at once; claim_next_copy's
+    # conditional UPDATE must hand each claimable row to exactly one claimer.
+    import sqlite3
+    import threading
+
+    from app import db as dbmod
+
+    with app.app_context():
+        uid = create_local_user("copyrace@example.com", "password123")
+        ids = copy_jobs.enqueue_copy_items(get_db(), uid, _items(40))
+        db_path = app.config["DATABASE"]
+
+    claimed = []
+    lock = threading.Lock()
+
+    def claim_until_empty():
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        dbmod.tune_connection(conn)
+        try:
+            while True:
+                row = copy_jobs.claim_next_copy(conn)
+                if row is None:
+                    return
+                with lock:
+                    claimed.append(row["id"])
+        finally:
+            conn.close()
+
+    threads = [threading.Thread(target=claim_until_empty) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    # Each queued row claimed exactly once (advanced to 'fetching', then no longer
+    # claimable since these rows aren't auto_generate).
+    assert sorted(claimed) == sorted(ids)
+    assert len(claimed) == len(set(claimed))

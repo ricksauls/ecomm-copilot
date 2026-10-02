@@ -94,12 +94,13 @@ PDP scoring runs in a **separate background service** (`ecomm-copilot-worker`),
 not in the web workers, because it drives a real browser (~seconds per item).
 `setup-droplet.sh` installs and starts it alongside the web service.
 
-**Concurrency.** The worker scores several items at once — a thread pool *inside
-the one process*, set by `SCORING_CONCURRENCY` (default **3**, hard-capped at 10).
-Each concurrent score is a full headed Chrome, so this is **memory-bound**: on the
-current ~2 GB shared droplet keep it at **2–3**. Going higher (up to 10) needs more
-RAM first — resize the droplet, then set the value in `.env` and restart the
-worker:
+**Concurrency.** The worker processes several items at once — a thread pool
+*inside the one process*, set by `SCORING_CONCURRENCY` (default **3**, hard-capped
+at 10). It governs **both** the PDP-scoring pool and the Copy-Content pool (which
+drain one at a time, never together, so they share one memory budget). Each
+concurrent item is a full headed Chrome, so this is **memory-bound**: on a ~2 GB
+droplet keep it at **2–3**. Going higher (up to 10) needs more RAM first — resize
+the droplet, then set the value in `.env` and restart the worker:
 
 ```bash
 # in /home/deploy/apps/ecomm-copilot/.env
