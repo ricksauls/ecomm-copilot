@@ -23,7 +23,7 @@
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
       {% if thread.status == 'open' %}
       <input type="hidden" name="status" value="closed" />
-      <button type="submit" class="wbtn wbtn-secondary">Close thread</button>
+      <button type="submit" class="wbtn wbtn-secondary">Close Thread</button>
       {% else %}
       <input type="hidden" name="status" value="open" />
       <button type="submit" class="wbtn wbtn-secondary">Reopen</button>
@@ -59,7 +59,7 @@
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
     <textarea name="body" class="ci-input msg-body" rows="3" maxlength="5000"
               placeholder="Write a reply…" required></textarea>
-    <div><button type="submit" class="wbtn wbtn-primary">Send reply</button></div>
+    <div><button type="submit" class="wbtn wbtn-primary">Send Reply</button></div>
   </form>
 </div>
 {% endblock %}

@@ -12,9 +12,9 @@
   </div>
   <div class="header-actions">
     {% if group.mode == 'monitoring' %}
-    <a href="{{ url_for('pages.ci_view', group_id=group.id) }}" class="wbtn wbtn-primary">View results</a>
+    <a href="{{ url_for('pages.ci_view', group_id=group.id) }}" class="wbtn wbtn-primary">View Results</a>
     {% else %}
-    <a href="{{ url_for('pages.ci_snapshot_results', group_id=group.id) }}" class="wbtn wbtn-primary">View results</a>
+    <a href="{{ url_for('pages.ci_snapshot_results', group_id=group.id) }}" class="wbtn wbtn-primary">View Results</a>
     {% endif %}
   </div>
 </div>
@@ -54,7 +54,7 @@
       {% else %}
       <form method="post" action="{{ url_for('pages.ci_run_snapshot', group_id=group.id) }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-        <button type="submit" class="wbtn wbtn-primary">Run snapshot</button>
+        <button type="submit" class="wbtn wbtn-primary">Run Snapshot</button>
       </form>
       {% endif %}
     </div>
@@ -105,7 +105,7 @@
     <select name="type" class="ci-select">
       {% for t in brand_types %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
     </select>
-    <button type="submit" class="wbtn wbtn-secondary">Add brand</button>
+    <button type="submit" class="wbtn wbtn-secondary">Add Brand</button>
   </form>
 </div>
 
@@ -154,7 +154,7 @@
     <input type="url" name="url" class="ci-input grow" value="{{ url_prefix }}"
            placeholder="https://www.walmart.com/ip/…/10294528" maxlength="2048" required />
     <input type="text" name="name" class="ci-input grow" placeholder="Label (optional)" maxlength="255" />
-    <button type="submit" class="wbtn wbtn-secondary">Add product</button>
+    <button type="submit" class="wbtn wbtn-secondary">Add Product</button>
   </form>
   {% else %}
   <p class="ci-section-hint">Add a brand first, then you can add products under it.</p>
@@ -185,7 +185,7 @@
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
     <input type="text" name="keyword" class="ci-input grow"
            placeholder="e.g. hot sauce, chipotle sauce," maxlength="1000" required />
-    <button type="submit" class="wbtn wbtn-secondary">Add keywords</button>
+    <button type="submit" class="wbtn wbtn-secondary">Add Keywords</button>
   </form>
 </div>
 {% endblock %}

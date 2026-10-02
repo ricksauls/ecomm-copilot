@@ -17,7 +17,7 @@
     {% if run and run.status == 'done' and (sos_summary or avg_ranks) %}
     <a href="{{ url_for('pages.ci_snapshot_results_pdf', group_id=group.id) }}" class="wbtn wbtn-primary">Download PDF</a>
     {% endif %}
-    <a href="{{ url_for('pages.ci_group_config', group_id=group.id) }}" class="wbtn wbtn-secondary">Set up &amp; run</a>
+    <a href="{{ url_for('pages.ci_group_config', group_id=group.id) }}" class="wbtn wbtn-secondary">Set Up &amp; Run</a>
   </div>
 </div>
 
@@ -35,7 +35,7 @@
     <span class="status-badge status-{{ run.status }}">{{ run.status }}</span>
     <span class="js-run-when">{{ run.finished_at or run.started_at or run.created_at }}</span>
   {% else %}
-    No runs yet — go to <a href="{{ url_for('pages.ci_group_config', group_id=group.id) }}">Set up &amp; run</a>.
+    No runs yet — go to <a href="{{ url_for('pages.ci_group_config', group_id=group.id) }}">Set Up &amp; Run</a>.
   {% endif %}
 </p>
 

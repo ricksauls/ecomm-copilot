@@ -37,7 +37,7 @@
     {% if has_scored %}
     {# Submits the selection form below (associated via the form= attribute) so
        the checked items are sent to Copy Content Creation. #}
-    <button type="submit" form="copy-select-form" class="wbtn wbtn-primary">Create new copy content</button>
+    <button type="submit" form="copy-select-form" class="wbtn wbtn-primary">Create New Copy Content</button>
     <a href="{{ url_for('pages.pdp_scoring_results_pdf') }}" class="wbtn wbtn-secondary">Download PDF</a>
     {% endif %}
     <a href="{{ url_for('pages.pdp_scoring') }}" class="wbtn wbtn-secondary">Score More</a>
@@ -82,12 +82,12 @@
     {# Bulk controls + filter. All three are progressive enhancement wired by
        pdp_results.js; with JS off every panel is already open and the filter is
        simply inert (no server round-trip exists for it). #}
-    <button type="button" class="wbtn wbtn-secondary pdp-expand-all" aria-expanded="false">Expand all</button>
+    <button type="button" class="wbtn wbtn-secondary pdp-expand-all" aria-expanded="false">Expand All</button>
     <input type="search" class="pdp-filter" placeholder="Filter by product, brand, or item #" aria-label="Filter results" autocomplete="off" />
   </div>
 </div>
 
-<p class="copy-select-hint">Tick items and choose <strong>Create new copy content</strong> to rewrite their Title, Description, and Key Features. Click a row to see its recommendations.</p>
+<p class="copy-select-hint">Tick items and choose <strong>Create New Copy Content</strong> to rewrite their Title, Description, and Key Features. Click a row to see its recommendations.</p>
 {% endif %}
 
 {# Selection form: the per-item checkboxes below post together to the copy flow.

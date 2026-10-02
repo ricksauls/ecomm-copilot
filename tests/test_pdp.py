@@ -89,7 +89,7 @@ def test_pdp_get_renders_form(client, auth):
     auth.register()
     resp = client.get("/app/pdp-scoring")
     assert resp.status_code == 200
-    assert b"Score items" in resp.data
+    assert b"Score Items" in resp.data
     assert b"walmart.com/ip/10294528" in resp.data
     # The scoring intake has no brand field (brand is captured from the PDP by the
     # worker, not typed here).

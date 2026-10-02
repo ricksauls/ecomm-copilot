@@ -185,7 +185,7 @@
     });
     var open = rows.filter(function (it) { return it.classList.contains("pdp-open"); }).length;
     var allOpen = rows.length > 0 && open === rows.length;
-    btn.textContent = allOpen ? "Collapse all" : "Expand all";
+    btn.textContent = allOpen ? "Collapse All" : "Expand All";
     btn.setAttribute("aria-expanded", allOpen ? "true" : "false");
   }
 

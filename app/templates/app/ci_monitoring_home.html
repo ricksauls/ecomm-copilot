@@ -50,7 +50,7 @@
       {{ gr.keyword_count }} keyword{{ '' if gr.keyword_count == 1 else 's' }}
     </div>
     <div class="actions">
-      <a href="{{ url_for('pages.ci_group_config', group_id=gr.id) }}" class="wbtn wbtn-primary">Set up</a>
+      <a href="{{ url_for('pages.ci_group_config', group_id=gr.id) }}" class="wbtn wbtn-primary">Set Up</a>
       <a href="{{ url_for('pages.ci_view', group_id=gr.id) }}" class="wbtn wbtn-secondary">View</a>
       <form method="post" action="{{ url_for('pages.ci_delete_group', group_id=gr.id) }}"
             style="margin-left:auto">

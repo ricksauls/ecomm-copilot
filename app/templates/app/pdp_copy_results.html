@@ -51,7 +51,7 @@
     {# One action for the whole batch: generate new copy for every fetched item. #}
     <form method="post" action="{{ url_for('pages.pdp_copy_generate') }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-      <button type="submit" class="wbtn wbtn-primary">Create new copy content</button>
+      <button type="submit" class="wbtn wbtn-primary">Create New Copy Content</button>
     </form>
     {% endif %}
     {% if has_done %}

@@ -45,7 +45,7 @@
       {{ gr.keyword_count }} keyword{{ '' if gr.keyword_count == 1 else 's' }}
     </div>
     <div class="actions">
-      <a href="{{ url_for('pages.ci_group_config', group_id=gr.id) }}" class="wbtn wbtn-primary">Set up &amp; run</a>
+      <a href="{{ url_for('pages.ci_group_config', group_id=gr.id) }}" class="wbtn wbtn-primary">Set Up &amp; Run</a>
       <a href="{{ url_for('pages.ci_snapshot_results', group_id=gr.id) }}" class="wbtn wbtn-secondary">Results</a>
       {# Promote this one-time set to ongoing tracking: clones it into a monitoring
          group (leaving this snapshot as-is) and queues a baseline run. #}

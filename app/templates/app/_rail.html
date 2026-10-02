@@ -103,6 +103,6 @@
   {# Sign-out sits last, set apart, left-aligned with the nav items. #}
   <form method="post" action="{{ url_for('auth.signout') }}" class="signout-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-    <button type="submit" class="signout">Sign out</button>
+    <button type="submit" class="signout">Sign Out</button>
   </form>
 </nav>
