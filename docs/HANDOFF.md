@@ -1,68 +1,44 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-10-01 (session 9 — async image fixes + ZIP bundle)._
+_Last updated: 2026-10-01 (session 9 — async image fixes + ZIP, UX refinements; batch-fix design notes)._
 
 A working reference for picking up development. Read this first, then
 `CLAUDE.md` (coding standards) and `deploy/DEPLOY.md` (infra).
 
-> **Next session — start here (session 9, 2026-10-01).** The image-fix UX overhaul
-> (previously ON HOLD) is **built and committed locally — NOT yet pushed/deployed.**
-> Tests **314 passing**, `ruff` + `pip-audit` clean. Read "## Session 2026-10-01
-> (session 9)" just below first. What changed:
-> 1. **Image fixes are now async** (Phase 1). A click no longer ties up a web
->    worker for ~1 min — it **enqueues a job** on the background worker (new
->    `image_jobs` queue, mirrors `copy_jobs`/`drain_copy`). The results page shows
->    "Enhancing… ⏳", auto-refreshes (reuses the existing 5s meta-refresh), and the
->    **fixed image appears inline** when done (same-origin cache, CSP-safe) with a
->    **Download** link beside it; the original CDN image stays a link ("before").
-> 2. **"Fix all images for this item" → one ZIP** (Phase 2, user's idea). One button
->    queues every flagged fix (+ the combined main-image fix); "Download All As ZIP"
->    bundles the finished ones, named by position. A JS confirm guards the bulk click
->    (metered); already-cached slots are never re-queued.
-> 3. The old **synchronous GET download routes were removed** — enhance/whitebg are
->    now **POST** (enqueue), plus new `GET /enhanced/<sid>/<slot>` (inline) and
->    `/enhanced/<sid>/<slot>/download` serve routes.
+> **Next session — start here (last worked 2026-10-01, session 9).** The async
+> image-fix overhaul is **shipped, deployed, and verified live** — and the feature is
+> **ON**: the Claid key is set on the droplet, both services carry it, and a real
+> end-to-end enhance was confirmed (a 2000px JPEG came back). Nothing is half-built;
+> tree clean. Latest on `main`: **78131ec**. Tests **315 passing**, `ruff` +
+> `pip-audit` clean.
 >
-> **To deploy:** `git push origin main` (CI auto-deploys). **Then** enabling the
-> feature requires restarting **both** services so the worker does the work — see
-> DEPLOY.md and the §"AI image fixes" note. Check for an active CI scrape before
-> pushing (deploy restarts the worker — see the deploy caution below).
+> **Pick up here → batch image fixing.** Design + build **"fix all items/images
+> across a scored batch"** (the deferred Phase 3, reframed as a *management /
+> cost-control* problem). The full design discussion — recommended phased cut +
+> open questions — is captured in **"## Batch image fixes — design ideas (next up)"**
+> below. The user is thinking it through and will choose a direction next session;
+> **nothing is committed to yet.**
 >
-> **Phase 3 (deferred by decision):** batch-wide "fix all" across the whole results
-> table + per-row "N fixes available" badges. Not built.
->
-> **Still true from session 8** (all pushed + deployed). Headlines, newest first:
-> 1. **AI image fixes** (NEW, config-gated, inert until a key is set) — Claid.ai
->    upscaling for the resolution issues the scorer flags: "Enhance to 2000px" per
->    sub-2000px gallery image, and ONE combined **"Fix & enhance main image"**
->    (white background + AI upscale + 2000px in a single call) for the main image.
->    `app/image_enhance.py`, cached under `media/enhanced/`.
-> 2. **Imagery scoring now grades every image** (not just the max edge) and names
->    each sub-2000px image; white-bg failure carries the main-image URL.
-> 3. **Concurrency** — scoring AND copy run in a thread pool inside the single
->    worker (`SCORING_CONCURRENCY`, default 3, **live at 3** on a resized **8 GB**
->    droplet). SQLite now in **WAL**.
-> 4. **Results page redesign** — dense sortable table (bulk select-all / expand-all,
->    filter, summary strip, **progress bar + ETA, no flashing**). Removed the
->    Attributes column; added a Brand column.
-> 5. **Copy flow** — "Create New Copy Content" from scoring now **reuses the content
->    captured at scoring time** (no re-fetch; new `record_json` column) and shows a
->    capture-time note. Copy results got the same progress bar + Excel/CSV exports.
-> 6. **Naming** — all user-facing "PDP" → "Product Detail Page"; all button labels
->    Title-Cased.
->
-> **Tests: 291 passing** (`ruff` + `pip-audit` clean).
+> **What session 9 shipped (all live on main + deployed):**
+> 1. Image fixes are **async** on the background worker (new `image_jobs` queue,
+>    mirrors `copy_jobs`). Click → enqueue → "Enhancing… ⏳" → the **fixed image shows
+>    inline** when done (+ Download); the 5s meta-refresh carries it, no web-worker
+>    tie-up. The original CDN image stays a link ("before").
+> 2. **"Fix All Images For This Item" → one ZIP** (per item), JS-confirmed (metered),
+>    cache-skip on already-fixed slots.
+> 3. Main image shows **both its issues (resolution + white bg) on one line** with the
+>    single combined fix; the standalone line is kept only for the white-bg-only case.
+> 4. **Detail row stays open across reloads** (sessionStorage, keyed on a new per-row
+>    `data-id`) — fixes the collapse under the auto-refresh + the fix-action redirect.
+> 5. Old sync GET download routes replaced by **POST-enqueue** + inline/download serve
+>    + ZIP routes.
 >
 > **Open items / decisions (nothing half-built; tree clean):**
-> - **Image-fix UX overhaul — DONE in session 9** (Phases 1 & 2; Phase 3 deferred).
->   See the session-9 section below. Was ON HOLD in session 8.
-> - **Claid key:** the user HAS a key. To turn fixes on now: set `IMAGE_UPSCALE_API_KEY`
->   in the droplet `.env` and restart **both** `ecomm-copilot` **and**
->   `ecomm-copilot-worker` (session 9 moved the work to the worker — web-only restart
->   is no longer enough). The "Enhance" controls appeared on the user's live
->   screenshot, so the key may already be set. **A real Claid call has NOT been
->   verified end-to-end** — worth a sanity check on the first live enhance. Claid is
->   **metered per image**.
+> - **Batch image fixing** — the next-up design work; see the section below.
+> - **Claid feature is ON + verified.** Key set in droplet `.env`; both `ecomm-copilot`
+>   and `ecomm-copilot-worker` carry it (restart **both** to pick up any future key
+>   change — session 9 moved the work to the worker). One real metered enhance was
+>   confirmed working end-to-end on 2026-10-01. Claid is **metered per image**.
 > - **Re-score older items:** items scored before ~02:04 CT 2026-10-02 lack
 >   `white_bg_url` / `record_json`, so they won't show the combined main-image fix or
 >   copy-reuse. Re-score (Score More, same URL) to populate them. Possible follow-up:
@@ -71,6 +47,11 @@ A working reference for picking up development. Read this first, then
 >   snapshot" (lowercase — they're headings, not buttons); the CI snapshot/monitoring
 >   screens still use the **old flashing subtitle** (only the two Content Studio
 >   result screens were de-flashed). Both deferred pending user sign-off.
+>
+> **Still live from session 8** (unchanged): worker **concurrency** (WAL,
+> `SCORING_CONCURRENCY=3` on the 8 GB droplet), the **results-table redesign**, copy
+> **reuse + Excel/CSV exports**, and the **PDP → Product Detail Page** renaming. Full
+> detail in the session-8 section below.
 >
 > **Deploy caution unchanged:** `deploy.yml` restarts the worker on every push,
 > which orphans any in-flight CI scrape (marked `error`). Check for an active run
@@ -81,9 +62,11 @@ A working reference for picking up development. Read this first, then
 
 ## Session 2026-10-01 (session 9)
 
-**Async image fixes + ZIP bundle (Phases 1 & 2).** Built locally, **not yet pushed**.
-Tests **314** (`ruff` + `pip-audit` clean). Plan file:
-`~/.claude/plans/mossy-strolling-boole.md`.
+**Async image fixes + ZIP bundle (Phases 1 & 2), plus two UX refinements.** All
+**shipped + deployed** (`main` at `78131ec`) and the feature is **ON + verified live**.
+Tests **315** (`ruff` + `pip-audit` clean). Plan file:
+`~/.claude/plans/mossy-strolling-boole.md`. Commits: `6a762ae` (Phases 1 & 2),
+`78131ec` (UX refinements).
 
 ### Why
 Session 8's image fixes ran **synchronously in the web request** — a click tied up a
@@ -124,20 +107,92 @@ the web pool. This moves the work to the background worker and reworks the UX.
 - **DEPLOY.md:** the enable-note now says restart **both** web + worker (worker loads the
   same `.env`, so no infra change — just needs a restart to see a newly set key).
 
+### Follow-up UX refinements (same session, commit `78131ec`, shipped)
+Two tweaks after the user tried the feature live:
+- **Detail row stays open across reloads.** Previously the expanded row snapped shut on
+  every 5s auto-refresh and on the POST→redirect after a fix. Now open rows are saved in
+  `sessionStorage` (keyed on a new per-row `data-id`) and restored on load
+  (`restoreOpen`/`persistOpen` in `pdp_results.js`). Clicks on the enhance/retry/download
+  **buttons** no longer toggle the row. Browser-verified: expand → reload → still open.
+- **Main image: both issues on one line.** When the main image needs both a resolution
+  upscale and a white background, its flagged-image line now reads both issues and offers
+  the single combined fix inline (`_annotate_enhance` + the `pdp_results.html` list). The
+  separate paragraph is kept (and labelled "Main image —") only for the white-bg-only case
+  (resolution fine, so it isn't in the flagged list). New test
+  `test_whitebg_only_uses_standalone_line` + assertions on the consolidated line.
+
 ### Verification done
-314 tests, `ruff`, `pip-audit` all green; app boot + route-registration + schema smoke
-check passed. **Not browser-verified live** — the dense test coverage renders the real
-template for every state, and the inline image is same-origin like the existing product
-thumbnails under the same CSP. First live enhance after deploy is still the real-Claid
-sanity check (see open items).
+315 tests, `ruff`, `pip-audit` all green; app boot + route-registration + schema smoke
+check passed. **Browser-verified** the two UX refinements on a seeded scratch DB (expand
+persists across reload; combined main-image line renders). **Real Claid call verified live**
+on 2026-10-01 — a genuine round-trip returned a 2000px JPEG (the previously-open
+end-to-end risk is now closed).
 
 ### Next steps if resumed
-- Push + deploy; then flip the key + restart both services; do the one real-Claid sanity
-  enhance.
-- **Phase 3** (deferred): batch-wide "fix all" across the whole table + per-row "N fixes
-  available" badges.
-- Optional nicety noted in the plan: persist expanded-row state across the
-  POST→redirect→refresh so the user keeps their place after clicking a fix.
+- **Batch image fixing** — the main next-up; see "## Batch image fixes — design ideas" below.
+- Minor nicety still open: nothing — expanded-row persistence (the plan's optional nicety)
+  was done in `78131ec`.
+
+---
+
+## Batch image fixes — design ideas (next up)
+
+_Design discussion captured 2026-10-01 for the user to think through; **nothing decided
+or built**. This is the deferred "Phase 3," reframed. Read before building._
+
+**The problem to manage:** fix the flagged images across a **whole scored batch** (up to
+100 items, each with several flagged images), not one item at a time. The plumbing is
+mostly in place — the real design challenge is **informed, controllable spend**, because
+**every fix is a metered Claid call**, so one batch button could fire hundreds of paid
+calls. Everything below serves that.
+
+**What we already have to build on** (makes a batch version largely additive):
+- `image_jobs` queue is **idempotent and cache-skips** any slot already fixed, so batch
+  runs are naturally **resumable** (re-run only fills the gaps).
+- The worker drains image jobs **concurrently** and **after** scoring/copy, so a big image
+  batch yields to new scoring waves.
+- Per-item **"Fix All" + ZIP** and the results **table with row checkboxes** (currently used
+  for copy rewrite) already exist — reuse both.
+
+**Key design decisions:**
+1. **Scope — don't make "all" the only option.** Reuse the table's row checkboxes: a
+   top-of-table bar with **"Fix images for selected"** and **"Fix all flagged in batch."**
+   Add quick filters to target spend: *main-image white-bg only* (a hard Walmart gate —
+   highest ROI), *sub-2000px upscales only*, or *items below score X*.
+2. **Cost preflight before anything runs.** A confirm stating the real count:
+   *"142 white-bg fixes + 238 upscales across 72 items; already-fixed skipped."* If we get
+   Claid's per-image price, show *≈ $NN*. Add a cap/guardrail for very large runs.
+3. **Prioritize high-impact fixes first** — queue main-image white-bg ahead of gallery
+   upscales so a partial/interrupted run delivers the compliance wins first (add a priority
+   ordering to `image_jobs`, currently FIFO by id).
+4. **Batch progress + per-row badges** — a batch progress bar (reuse `_eta_label`) and a
+   per-row badge "N fixes · M done · K failed," clickable to expand. All status already in
+   the queue; this is aggregation queries.
+5. **Failure handling + cancel** — a **"Retry failed"** batch action; the deliverable
+   includes whatever succeeded; a **"Stop"** that cancels still-*queued* jobs (in-flight
+   can't be refunded). Cache-skip already makes re-running safe/resumable.
+6. **Delivery (differs most from per-item)** — one **batch ZIP organized by item** (a folder
+   per SKU, files named by gallery position) **plus a manifest CSV** (item → original image →
+   fixed filename) so the user knows what to re-upload where. The manifest is half the value
+   at batch scale.
+7. **Dedup across the batch** — a re-scored product can appear in multiple rows; the cache
+   is keyed per `scored_item_id`, so today a duplicate pays twice. Dedup by item-id + image
+   URL before enqueue.
+
+**Recommended phased cut (if greenlit):**
+1. **Batch bar "Fix flagged for selected"** (reuse checkboxes) + **cost-preflight confirm**
+   + cache-skip + priority ordering (folds in cheaply). → the capability, safely.
+2. **Per-row badges + batch progress bar.** → makes a long run legible.
+3. **Batch ZIP (by-item folders) + manifest CSV.** → makes the output usable.
+4. **Retry-failed + cancel-queued.** → makes it robust.
+
+**Open questions for the user (decide next session):**
+- **Scope default:** selected-items (safer, deliberate) vs. a true whole-batch "fix
+  everything"? (Lean: selected-first.)
+- **Cost:** is Claid's per-image price known? If so we can show a $ estimate; if not,
+  counts only.
+- **Delivery end-goal:** "ZIP + manifest to re-upload manually," or eventually **push fixed
+  images directly to Walmart via their API** (a much larger, separate effort)?
 
 ---
 
