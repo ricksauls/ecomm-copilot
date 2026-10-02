@@ -133,50 +133,51 @@ def _enhanced_dir() -> str:
     return os.path.join(_media_root(), "enhanced")
 
 
-def enhanced_image_path(key, index, ext: str = "jpg") -> str | None:
-    """Absolute cache path for an upscaled image, or ``None`` for invalid ids.
+_SLOT_RE = re.compile(r"^[a-z0-9]+$")
 
-    ``key`` is the scored item's DB id and ``index`` the 1-based gallery position
-    of the flagged image; both must be digits (path-traversal guard). ``ext`` is
-    constrained to a small allowlist so it can't be used to write arbitrary names.
+
+def enhanced_image_path(key, slot, ext: str = "jpg") -> str | None:
+    """Absolute cache path for an enhanced image, or ``None`` for invalid ids.
+
+    ``key`` is the scored item's DB id (digits — path-traversal guard); ``slot``
+    identifies which output it is (e.g. ``"img2"`` for the upscale of gallery
+    image 2, ``"whitebg"`` for the white-background fix) and is restricted to
+    lowercase alphanumerics. ``ext`` is an allowlist so neither can write an
+    arbitrary filename.
     """
     if key is None or not _ITEM_ID_RE.match(str(key)):
         return None
-    try:
-        idx = int(index)
-    except (TypeError, ValueError):
-        return None
-    if idx < 0:
+    if slot is None or not _SLOT_RE.match(str(slot)):
         return None
     if ext not in ("jpg", "png"):
         return None
-    return os.path.join(_enhanced_dir(), f"{key}-{idx}.{ext}")
+    return os.path.join(_enhanced_dir(), f"{key}-{slot}.{ext}")
 
 
-def has_enhanced_image(key, index, ext: str = "jpg") -> bool:
-    """Whether an upscaled image is already cached (skip re-calling the provider)."""
-    path = enhanced_image_path(key, index, ext)
+def has_enhanced_image(key, slot, ext: str = "jpg") -> bool:
+    """Whether an enhanced image is already cached (skip re-calling the provider)."""
+    path = enhanced_image_path(key, slot, ext)
     return bool(path and os.path.isfile(path))
 
 
-def save_enhanced_image(key, index, data: bytes, ext: str = "jpg") -> bool:
-    """Store upscaled image ``data`` verbatim in the cache. Best-effort.
+def save_enhanced_image(key, slot, data: bytes, ext: str = "jpg") -> bool:
+    """Store an enhanced image ``data`` verbatim in the cache. Best-effort.
 
     The bytes are the provider's output in the configured format, written as-is
-    (no re-encode) so the upscale quality is preserved for download.
+    (no re-encode) so the enhancement quality is preserved for download.
     """
-    path = enhanced_image_path(key, index, ext)
+    path = enhanced_image_path(key, slot, ext)
     if not path:
-        logger.warning("Refusing to cache enhanced image for invalid key=%r idx=%r", key, index)
+        logger.warning("Refusing to cache enhanced image for invalid key=%r slot=%r", key, slot)
         return False
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "wb") as f:
             f.write(data)
-        logger.info("Cached enhanced image key=%s idx=%s bytes=%d", key, index, len(data))
+        logger.info("Cached enhanced image key=%s slot=%s bytes=%d", key, slot, len(data))
         return True
     except OSError:
-        logger.exception("Failed to cache enhanced image key=%s idx=%s", key, index)
+        logger.exception("Failed to cache enhanced image key=%s slot=%s", key, slot)
         return False
 
 

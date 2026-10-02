@@ -95,6 +95,10 @@ class DimensionScore:
     # the results UI can point the user at exactly which image to re-export. Empty
     # for every other dimension.
     image_issues: list[dict] = field(default_factory=list)
+    # Imagery only: the main image URL when it fails the pure-white-background
+    # check (a Walmart main-image requirement), so the results UI can offer a
+    # one-click fix. ``None`` when the check passed or wasn't measured.
+    white_bg_url: str | None = None
 
 
 @dataclass
@@ -227,6 +231,7 @@ def _score_imagery(pdp: PdpRecord) -> DimensionScore:
     findings: list[str] = []
     recs: list[str] = []
     image_issues: list[dict] = []
+    white_bg_url: str | None = None
     points = 0
 
     n = pdp.image_count
@@ -275,8 +280,10 @@ def _score_imagery(pdp: PdpRecord) -> DimensionScore:
             "Set the main image to the product on a pure white background "
             "(a Walmart main-image requirement)"
         )
+        # Surface the main image so the results UI can offer a one-click fix.
+        white_bg_url = pdp.main_image_url
     return DimensionScore("imagery", "Imagery", score, WEIGHTS["imagery"],
-                          findings, recs, image_issues=image_issues)
+                          findings, recs, image_issues=image_issues, white_bg_url=white_bg_url)
 
 
 def _score_attributes(pdp: PdpRecord) -> DimensionScore:

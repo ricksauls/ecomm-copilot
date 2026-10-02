@@ -74,21 +74,30 @@ def output_mime() -> str:
     return "image/jpeg" if output_format() == "jpeg" else "image/png"
 
 
-def enhance(image_url: str) -> bytes:
-    """Upscale the image at ``image_url`` and return the processed image bytes.
+# Operations the client supports, both config-gated behind the same provider/key:
+#   "upscale"  — conservative super-resolution to the 2000px zoom spec
+#   "white_bg" — composite the product onto a pure-white background (+ resize),
+#                for Walmart's main-image requirement
+OPERATIONS = ("upscale", "white_bg")
+
+
+def enhance(image_url: str, *, operation: str = "upscale") -> bytes:
+    """Run ``operation`` on the image at ``image_url``; return the processed bytes.
 
     ``image_url`` must come from our own stored scrape (a Walmart CDN URL recorded
     on a scored item), not arbitrary user input — the provider fetches it directly.
     Raises :class:`EnhanceNotConfigured` when the feature is inert, or
     :class:`EnhanceError` on any provider/transport failure.
     """
+    if operation not in OPERATIONS:
+        raise EnhanceError(f"Unknown enhance operation {operation!r}")
     if not is_configured():
         raise EnhanceNotConfigured(
-            "Image upscaling is not configured (set IMAGE_UPSCALE_API_KEY)."
+            "Image enhancement is not configured (set IMAGE_UPSCALE_API_KEY)."
         )
     if _provider() != "claid":
         raise EnhanceNotConfigured(f"Unsupported IMAGE_UPSCALE_PROVIDER={_provider()!r}")
-    return _claid_upscale(image_url)
+    return _claid_edit(image_url, operation)
 
 
 def _target_px() -> int:
@@ -100,20 +109,32 @@ def _target_px() -> int:
         return _DEFAULT_TARGET_PX
 
 
-def _claid_upscale(image_url: str) -> bytes:
-    """Call Claid's image/edit to upscale ``image_url``; return the result bytes."""
+def _claid_operations(operation: str) -> dict:
+    """Build Claid's ``operations`` object for ``operation``.
+
+    Both variants resize (fit:"bounds" preserves aspect, so the longest edge lands
+    at ~target px — what Walmart's zoom cares about). "upscale" adds conservative
+    super-resolution; "white_bg" removes the background and composites the product
+    on pure white (Walmart's main-image requirement).
+    """
+    target = _target_px()
+    resizing = {"width": target, "height": target, "fit": "bounds"}
+    if operation == "white_bg":
+        return {
+            "background": {"remove": {"category": "products"}, "color": "#FFFFFF"},
+            "resizing": resizing,
+        }
+    mode = (os.environ.get("IMAGE_UPSCALE_MODE") or _DEFAULT_MODE).strip() or _DEFAULT_MODE
+    return {"restorations": {"upscale": mode}, "resizing": resizing}
+
+
+def _claid_edit(image_url: str, operation: str) -> bytes:
+    """Call Claid's image/edit for ``operation`` on ``image_url``; return bytes."""
     import requests  # local import keeps module import cheap / dependency-light
 
-    mode = (os.environ.get("IMAGE_UPSCALE_MODE") or _DEFAULT_MODE).strip() or _DEFAULT_MODE
-    target = _target_px()
     payload = {
         "input": image_url,
-        "operations": {
-            "restorations": {"upscale": mode},
-            # fit:"bounds" scales within the box preserving aspect, so the longest
-            # edge lands at ~target px (what Walmart's zoom cares about).
-            "resizing": {"width": target, "height": target, "fit": "bounds"},
-        },
+        "operations": _claid_operations(operation),
         "output": {"format": output_format()},
     }
     headers = {
@@ -121,7 +142,7 @@ def _claid_upscale(image_url: str) -> bytes:
         "Content-Type": "application/json",
     }
 
-    logger.info("Upscaling image via Claid mode=%s target=%dpx", mode, target)
+    logger.info("Claid %s: target=%dpx", operation, _target_px())
     try:
         resp = requests.post(_CLAID_API, json=payload, headers=headers, timeout=_EDIT_TIMEOUT_S)
     except requests.RequestException as e:
@@ -145,7 +166,7 @@ def _claid_upscale(image_url: str) -> bytes:
         raise EnhanceError(f"Could not download the upscaled image: {e}") from e
 
     logger.info(
-        "Upscaled image via Claid: %sx%s, %d bytes",
-        out.get("width"), out.get("height"), len(img.content),
+        "Claid %s done: %sx%s, %d bytes",
+        operation, out.get("width"), out.get("height"), len(img.content),
     )
     return img.content

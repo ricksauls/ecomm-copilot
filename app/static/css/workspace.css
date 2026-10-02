@@ -1511,6 +1511,16 @@ a:focus-visible,
 .pdp-img-issues a.pdp-enhance-link {
   color: var(--accent);
 }
+/* White-background fix link sits just under the imagery recs/issues. */
+.pdp-whitebg-fix {
+  margin: 6px 0 0;
+  font-size: 12px;
+}
+.pdp-whitebg-fix a.pdp-enhance-link {
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: underline;
+}
 /* Non-scored rows (blocked/error): a short reason under the row. */
 .pdp-note {
   margin: 0;

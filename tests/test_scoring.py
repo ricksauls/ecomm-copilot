@@ -176,3 +176,20 @@ def test_imagery_falls_back_to_max_px_without_per_image_data():
     imagery = _imagery(score_pdp(pdp))
     assert imagery.image_issues == []
     assert imagery.score == 100  # 60 (count) + 40 (resolution)
+
+
+def test_imagery_flags_white_background_with_main_image_url():
+    # A non-white main image sets white_bg_url (the main image) so the UI can
+    # offer a one-click fix.
+    pdp = PdpRecord(url="u", image_count=6, image_dims=[{"url": "a.jpg", "px": 2200}],
+                    main_image_white_bg=False, main_image_url="https://i5/main.jpg")
+    assert _imagery(score_pdp(pdp)).white_bg_url == "https://i5/main.jpg"
+
+
+def test_imagery_no_white_bg_url_when_compliant_or_unmeasured():
+    ok = PdpRecord(url="u", image_count=6, image_dims=[{"url": "a.jpg", "px": 2200}],
+                   main_image_white_bg=True, main_image_url="https://i5/main.jpg")
+    assert _imagery(score_pdp(ok)).white_bg_url is None
+    unknown = PdpRecord(url="u", image_count=6, image_dims=[{"url": "a.jpg", "px": 2200}],
+                        main_image_white_bg=None)
+    assert _imagery(score_pdp(unknown)).white_bg_url is None

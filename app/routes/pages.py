@@ -504,46 +504,84 @@ def _flagged_image_url(row, index: int) -> str | None:
     return None
 
 
-@bp.route("/app/pdp-scoring/enhance/<int:sid>/<int:index>")
-@login_required
-def pdp_scoring_enhance(sid, index):
-    """Upscale a flagged image and return it as a download (cached after first run).
+def _white_bg_image_url(row) -> str | None:
+    """Main image URL to fix the white background — from the scored row's own
+    result (``imagery.white_bg_url``), falling back to the stored record's main
+    image. Both originate from our scrape, never the request (SSRF guard)."""
+    if row["result_json"]:
+        try:
+            result = json.loads(row["result_json"])
+        except (ValueError, TypeError):
+            result = {}
+        for d in result.get("dimensions", []):
+            if d.get("key") == "imagery" and d.get("white_bg_url"):
+                return d["white_bg_url"]
+    if row["record_json"]:
+        try:
+            return (json.loads(row["record_json"]) or {}).get("main_image_url")
+        except (ValueError, TypeError):
+            return None
+    return None
 
-    Scoped to the signed-in user (IDOR guard). The source URL comes from the
-    scored row's own stored result, never the request, so the provider can't be
-    pointed at an arbitrary host. First call hits the provider (can take up to a
-    minute); subsequent calls serve the cached file.
+
+def _serve_enhanced(sid, slot, *, source_url, operation, download_label):
+    """Enhance ``source_url`` with ``operation`` (once), cache under (sid, slot),
+    and return the file as a download. The caller has already confirmed ownership
+    and resolved the source URL from our own stored data (SSRF-safe). First call
+    hits the provider (can take up to a minute); later calls serve the cache.
     """
     from flask import send_file
 
+    ext = image_enhance.output_ext()
+    path = ci_images.enhanced_image_path(sid, slot, ext)
+    if path and not ci_images.has_enhanced_image(sid, slot, ext):
+        if not image_enhance.is_configured():
+            abort(503, description="Image enhancement is not configured.")
+        if not source_url:
+            abort(404, description="No image available to enhance.")
+        try:
+            data = image_enhance.enhance(source_url, operation=operation)
+        except image_enhance.EnhanceNotConfigured:
+            abort(503, description="Image enhancement is not configured.")
+        except image_enhance.EnhanceError as e:
+            logger.warning("Enhance(%s) failed sid=%s slot=%s: %s", operation, sid, slot, e)
+            abort(502, description="Image enhancement failed — try again shortly.")
+        ci_images.save_enhanced_image(sid, slot, data, ext)
+        logger.info("Enhanced sid=%s slot=%s op=%s user_id=%s", sid, slot, operation, g.user["id"])
+
+    if not path or not ci_images.has_enhanced_image(sid, slot, ext):
+        abort(404)
+    return send_file(
+        path, mimetype=image_enhance.output_mime(), as_attachment=True,
+        download_name=f"{download_label}.{ext}", max_age=0,
+    )
+
+
+@bp.route("/app/pdp-scoring/enhance/<int:sid>/<int:index>")
+@login_required
+def pdp_scoring_enhance(sid, index):
+    """Upscale a flagged gallery image → download (user-scoped, cached)."""
     rows = jobs.get_items(get_db(), [sid], g.user["id"])
     if not rows:
         abort(404)
+    item = rows[0]["item_id"] or sid
+    return _serve_enhanced(
+        sid, f"img{index}", source_url=_flagged_image_url(rows[0], index),
+        operation="upscale", download_label=f"enhanced-{item}-img{index}",
+    )
 
-    ext = image_enhance.output_ext()
-    path = ci_images.enhanced_image_path(sid, index, ext)
-    if path and not ci_images.has_enhanced_image(sid, index, ext):
-        if not image_enhance.is_configured():
-            abort(503, description="Image upscaling is not configured.")
-        url = _flagged_image_url(rows[0], index)
-        if not url:
-            abort(404, description="No flagged image at that position.")
-        try:
-            data = image_enhance.enhance(url)
-        except image_enhance.EnhanceNotConfigured:
-            abort(503, description="Image upscaling is not configured.")
-        except image_enhance.EnhanceError as e:
-            logger.warning("Enhance failed sid=%s idx=%s: %s", sid, index, e)
-            abort(502, description="Upscaling failed — try again shortly.")
-        ci_images.save_enhanced_image(sid, index, data, ext)
-        logger.info("Enhanced image sid=%s idx=%s user_id=%s", sid, index, g.user["id"])
 
-    if not path or not ci_images.has_enhanced_image(sid, index, ext):
+@bp.route("/app/pdp-scoring/whitebg/<int:sid>")
+@login_required
+def pdp_scoring_whitebg(sid):
+    """Composite the main image on a pure-white background → download (cached)."""
+    rows = jobs.get_items(get_db(), [sid], g.user["id"])
+    if not rows:
         abort(404)
     item = rows[0]["item_id"] or sid
-    return send_file(
-        path, mimetype=image_enhance.output_mime(), as_attachment=True,
-        download_name=f"enhanced-{item}-img{index}.{ext}", max_age=0,
+    return _serve_enhanced(
+        sid, "whitebg", source_url=_white_bg_image_url(rows[0]),
+        operation="white_bg", download_label=f"whitebg-{item}",
     )
 
 

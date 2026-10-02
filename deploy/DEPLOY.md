@@ -147,10 +147,12 @@ directory) — the next run re-caches any that are missing. No secrets live here
 
 ## AI image upscaling (optional)
 
-The content scorer flags product images below Walmart's 2000px zoom spec. When an
-upscaling provider is configured, each flagged image gets an **"Enhance to 2000px"**
-download on the results page that runs it through a conservative, e-commerce-tuned
-super-resolution (Claid.ai) and returns the upscaled file to re-upload to Walmart.
+The content scorer flags product images below Walmart's 2000px zoom spec and main
+images that aren't on a pure white background. When a provider is configured, the
+results page offers two per-item downloads — **"Enhance to 2000px"** (conservative
+super-resolution of a flagged gallery image) and **"Fix white background"**
+(composite the main image on pure white + resize) — both via Claid.ai, returning a
+file to re-upload to Walmart.
 
 **Config-gated and inert by default** — nothing shows or runs until you set
 `IMAGE_UPSCALE_API_KEY` in `.env` (see `.env.example` for `IMAGE_UPSCALE_*`). Set

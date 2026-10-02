@@ -417,8 +417,8 @@ def test_enhance_route_downloads_and_caches(client, auth, app, monkeypatch, tmp_
     calls = []
     monkeypatch.setattr("app.image_enhance.is_configured", lambda: True)
 
-    def fake_enhance(url):
-        calls.append(url)
+    def fake_enhance(url, operation="upscale"):
+        calls.append((url, operation))
         return b"UPSCALED"
 
     monkeypatch.setattr("app.image_enhance.enhance", fake_enhance)
@@ -427,7 +427,7 @@ def test_enhance_route_downloads_and_caches(client, auth, app, monkeypatch, tmp_
     assert resp.status_code == 200
     assert resp.data == b"UPSCALED"
     assert "attachment" in resp.headers.get("Content-Disposition", "")
-    assert calls == ["https://i5.walmartimages.com/seo/x.jpg"]  # used the stored URL
+    assert calls == [("https://i5.walmartimages.com/seo/x.jpg", "upscale")]  # stored URL + op
 
     # Second call is served from cache — the provider isn't hit again.
     resp2 = client.get(f"/app/pdp-scoring/enhance/{sid}/2")
@@ -450,3 +450,82 @@ def test_enhance_route_rejects_other_users_item(client, auth, app, monkeypatch):
         other_sid = ids[0]
     # Logged-in user can't enhance another user's item (IDOR guard).
     assert client.get(f"/app/pdp-scoring/enhance/{other_sid}/2").status_code == 404
+
+
+# --- White-background fix (config-gated) -------------------------------------
+
+_IMAGERY_WHITE_BG = {
+    "overall": 70,
+    "dimensions": [{
+        "key": "imagery", "label": "Imagery", "score": 70, "available": True,
+        "recommendations": ["Set the main image to the product on a pure white background "
+                            "(a Walmart main-image requirement)"],
+        "image_issues": [],
+        "white_bg_url": "https://i5.walmartimages.com/seo/main.jpg",
+    }],
+}
+
+
+def _seed_scored_white_bg(client, auth, app):
+    auth.register()
+    client.post("/app/pdp-scoring", data={"urls": "https://www.walmart.com/ip/12345"})
+    with app.app_context():
+        from app import jobs
+        from app.db import get_db
+        db = get_db()
+        row = db.execute("SELECT id FROM scored_items ORDER BY id DESC LIMIT 1").fetchone()
+        jobs.save_result(db, row["id"], 70, _IMAGERY_WHITE_BG, "Prod")
+        return row["id"]
+
+
+def test_whitebg_route_requires_login(client):
+    assert client.get("/app/pdp-scoring/whitebg/1").status_code == 302
+
+
+def test_whitebg_link_hidden_when_not_configured(client, auth, app):
+    _seed_scored_white_bg(client, auth, app)
+    assert b"Fix white background" not in client.get("/app/pdp-scoring/results").data
+
+
+def test_whitebg_link_shown_when_configured(client, auth, app, monkeypatch):
+    _seed_scored_white_bg(client, auth, app)
+    monkeypatch.setattr("app.image_enhance.is_configured", lambda: True)
+    assert b"Fix white background" in client.get("/app/pdp-scoring/results").data
+
+
+def test_whitebg_route_downloads_and_caches(client, auth, app, monkeypatch, tmp_path):
+    monkeypatch.setenv("MEDIA_DIR", str(tmp_path))
+    sid = _seed_scored_white_bg(client, auth, app)
+    calls = []
+    monkeypatch.setattr("app.image_enhance.is_configured", lambda: True)
+
+    def fake_enhance(url, operation="upscale"):
+        calls.append((url, operation))
+        return b"WHITEBG-IMG"
+
+    monkeypatch.setattr("app.image_enhance.enhance", fake_enhance)
+
+    resp = client.get(f"/app/pdp-scoring/whitebg/{sid}")
+    assert resp.status_code == 200
+    assert resp.data == b"WHITEBG-IMG"
+    assert "attachment" in resp.headers.get("Content-Disposition", "")
+    # Used the stored main image URL and the white_bg operation.
+    assert calls == [("https://i5.walmartimages.com/seo/main.jpg", "white_bg")]
+
+    client.get(f"/app/pdp-scoring/whitebg/{sid}")  # served from cache
+    assert len(calls) == 1
+
+
+def test_whitebg_route_rejects_other_users_item(client, auth, app, monkeypatch):
+    _seed_scored_white_bg(client, auth, app)
+    monkeypatch.setattr("app.image_enhance.is_configured", lambda: True)
+    with app.app_context():
+        from app import jobs
+        from app.db import get_db
+        from app.users import create_local_user
+        db = get_db()
+        other = create_local_user("other2@example.com", "password123")
+        ids = jobs.enqueue_items(db, other, [{"url": "https://www.walmart.com/ip/9", "item": "9"}])
+        jobs.save_result(db, ids[0], 70, _IMAGERY_WHITE_BG, "Other")
+        other_sid = ids[0]
+    assert client.get(f"/app/pdp-scoring/whitebg/{other_sid}").status_code == 404

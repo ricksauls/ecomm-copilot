@@ -215,6 +215,11 @@
               {% endfor %}
             </ul>
             {% endif %}
+            {# One-click white-background fix for the main image (Walmart main-image
+               requirement) — only when an upscaling provider is configured. #}
+            {% if d.white_bg_url and enhance_configured %}
+            <p class="pdp-whitebg-fix"><a class="pdp-enhance-link" href="{{ url_for('pages.pdp_scoring_whitebg', sid=it.id) }}" title="Composite the product on a pure white background (may take up to a minute)">Fix white background ↓</a></p>
+            {% endif %}
           </div>
           {% endfor %}
         </div>
