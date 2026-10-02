@@ -45,6 +45,11 @@ CREATE TABLE IF NOT EXISTS scored_items (
     status       TEXT    NOT NULL DEFAULT 'queued',  -- queued|scoring|scored|blocked|error
     overall      INTEGER,
     result_json  TEXT,
+    -- Full PdpRecord captured at scoring time (JSON), so the "Create new copy
+    -- content" cross-link can reuse the already-fetched content instead of
+    -- re-fetching the PDP. NULL for items scored before this column, or still
+    -- queued/blocked — those fall back to a fresh fetch on the copy path.
+    record_json  TEXT,
     error        TEXT,
     created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
     updated_at   TEXT    NOT NULL DEFAULT (datetime('now'))
@@ -349,6 +354,12 @@ def _migrate(conn: sqlite3.Connection) -> None:
     if "batch_id" not in item_cols:
         conn.execute("ALTER TABLE scored_items ADD COLUMN batch_id TEXT")
         logger.info("Migrated scored_items: added 'batch_id' column")
+    # record_json stores the full PdpRecord captured at scoring time so the copy
+    # cross-link can skip re-fetching. Nullable — rows scored before this column
+    # stay NULL and fall back to a fresh fetch on the copy path.
+    if "record_json" not in item_cols:
+        conn.execute("ALTER TABLE scored_items ADD COLUMN record_json TEXT")
+        logger.info("Migrated scored_items: added 'record_json' column")
 
     copy_cols = {row[1] for row in conn.execute("PRAGMA table_info(copy_items)")}
     if copy_cols and "brand" not in copy_cols:

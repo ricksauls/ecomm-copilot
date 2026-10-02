@@ -12,6 +12,7 @@ guarded by ``login_required``, so it is no longer world-reachable.
 import json
 import logging
 import os
+from datetime import datetime
 
 from flask import (
     Blueprint,
@@ -519,6 +520,20 @@ def _copy_batch_rows():
     return copy_jobs.get_copy_items(get_db(), ids, g.user["id"])
 
 
+def _fmt_captured(ts: str | None) -> str | None:
+    """Format a stored ``YYYY-MM-DD HH:MM:SS`` (UTC) timestamp for display.
+
+    Returns a friendly ``Mon DD, YYYY HH:MM AM/PM UTC`` string, or the raw value
+    if it doesn't parse (so a format change never 500s the results page).
+    """
+    if not ts:
+        return None
+    try:
+        return datetime.strptime(ts, "%Y-%m-%d %H:%M:%S").strftime("%b %d, %Y %I:%M %p UTC")
+    except (ValueError, TypeError):
+        return ts
+
+
 def _copy_row_view(row) -> dict:
     """Shape a copy_items row for templates / JSON.
 
@@ -526,6 +541,10 @@ def _copy_row_view(row) -> dict:
     generation phase) so it never reaches the client.
     """
     current = json.loads(row["current_json"]) if row["current_json"] else None
+    # When the current copy was reused from a prior score, it carries the capture
+    # time — lift it to the view so the page can show its freshness — then drop the
+    # internal record/metadata so neither reaches the client.
+    captured_at = _fmt_captured(current.pop("captured_at", None)) if current else None
     if current:
         current.pop("record", None)
     new = json.loads(row["new_json"]) if row["new_json"] else None
@@ -539,6 +558,7 @@ def _copy_row_view(row) -> dict:
         "current_overall": row["current_overall"],
         "new": new,
         "projected_overall": row["projected_overall"],
+        "captured_at": captured_at,
         "error": row["error"],
     }
 
@@ -694,22 +714,47 @@ def pdp_scoring_create_copy():
         selected = [int(v) for v in request.form.getlist("item_ids")]
     except ValueError:
         abort(400, description="Invalid item selection.")
-    rows = jobs.get_items(get_db(), selected, g.user["id"])
-    # Carry the brand already captured on the scored item so the copy row keeps it.
-    items = [
-        {"url": r["url"], "item": r["item_id"], "brand": r["brand"]}
-        for r in rows if r["url"]
-    ]
-    if not items:
+    db = get_db()
+    rows = [r for r in jobs.get_items(db, selected, g.user["id"]) if r["url"]]
+
+    # Split by whether we already have the fetched content on the scored row: a
+    # scored item carrying record_json skips the browser re-fetch and goes straight
+    # to generation; anything else (older score without the record, or a
+    # blocked/errored item) still takes the normal fetch path.
+    prefetched, to_fetch = [], []
+    for r in rows:
+        if r["status"] == "scored" and r["record_json"]:
+            record = json.loads(r["record_json"])
+            current = {
+                "title": record.get("title"),
+                "bullets": record.get("bullets", []),
+                "description": record.get("description", ""),
+                "score": json.loads(r["result_json"]) if r["result_json"] else {},
+                "record": record,  # full PdpRecord the generation phase rebuilds
+                "captured_at": r["updated_at"],  # when the scoring fetch happened
+            }
+            prefetched.append({
+                "url": r["url"], "item_id": r["item_id"], "brand": r["brand"],
+                "title": record.get("title"), "current": current,
+                "current_overall": r["overall"], "keywords": record.get("target_keywords"),
+            })
+        else:
+            to_fetch.append({"url": r["url"], "item": r["item_id"], "brand": r["brand"]})
+
+    if not prefetched and not to_fetch:
         # Nothing valid selected — send them back to the scoring results.
         logger.info("PDP copy cross-link: no valid items selected, user_id=%s", g.user["id"])
         return redirect(url_for("pages.pdp_scoring_results"))
 
-    ids = copy_jobs.enqueue_copy_items(get_db(), g.user["id"], items, auto_generate=True)
+    ids: list[int] = []
+    if prefetched:
+        ids += copy_jobs.create_prefetched_copy_items(db, g.user["id"], prefetched)
+    if to_fetch:
+        ids += copy_jobs.enqueue_copy_items(db, g.user["id"], to_fetch, auto_generate=True)
     session[_COPY_BATCH_KEY] = ids
     logger.info(
-        "PDP copy cross-link: enqueued %d item(s) from scoring, user_id=%s",
-        len(ids), g.user["id"],
+        "PDP copy cross-link: %d reused + %d re-fetch, user_id=%s",
+        len(prefetched), len(to_fetch), g.user["id"],
     )
     return redirect(url_for("pages.pdp_copy_results"))
 

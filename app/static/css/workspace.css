@@ -1737,6 +1737,12 @@ a:focus-visible,
   justify-content: space-between;
   gap: 16px;
 }
+/* Freshness note when the current copy was reused from a prior score. */
+.copy-captured {
+  flex-basis: 100%;
+  font-size: 11.5px;
+  color: var(--cool-gray);
+}
 
 /* Score line: current → projected, with a signed delta. */
 .copy-scoreline {

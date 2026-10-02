@@ -72,6 +72,8 @@
       {% if it.item_id %}<span class="item-no">Item #{{ it.item_id }}</span>{% endif %}
       <a href="{{ it.url }}" class="item-url" target="_blank" rel="noopener noreferrer">{{ it.url }}</a>
       {% if it.title %}<span class="item-title">{{ it.title }}</span>{% endif %}
+      {# Shown when the current copy was reused from a prior score (no re-fetch). #}
+      {% if it.captured_at %}<span class="copy-captured">Current copy captured {{ it.captured_at }} — reused from scoring (no re-fetch)</span>{% endif %}
     </div>
     <span class="status-badge status-{{ it.status }}">
       {% if it.status in ('queued', 'fetching') %}Fetching…

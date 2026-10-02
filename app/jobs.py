@@ -265,7 +265,8 @@ def claim_next(conn: sqlite3.Connection) -> sqlite3.Row | None:
 
 
 def save_result(conn: sqlite3.Connection, row_id: int, overall: int, result: dict,
-                title: str | None = None, brand: str | None = None) -> None:
+                title: str | None = None, brand: str | None = None,
+                record: dict | None = None) -> None:
     """Store a completed score (and the fetched product title) and mark it scored.
 
     ``title`` is captured so the results view can label each item by product name
@@ -275,12 +276,18 @@ def save_result(conn: sqlite3.Connection, row_id: int, overall: int, result: dic
     user didn't already provide one at intake (``COALESCE`` over the existing,
     non-empty value) so a deliberate user label is never overwritten by the
     scraped value.
+
+    ``record`` is the full PdpRecord (as a dict) captured during this fetch. We
+    persist it so the "Create new copy content" cross-link can reuse the current
+    copy instead of re-fetching the PDP. ``None`` leaves the column untouched
+    (e.g. a caller that doesn't carry the record).
     """
     conn.execute(
         "UPDATE scored_items SET status = 'scored', overall = ?, result_json = ?, "
-        "title = ?, brand = COALESCE(NULLIF(brand, ''), ?), "
+        "title = ?, brand = COALESCE(NULLIF(brand, ''), ?), record_json = ?, "
         "error = NULL, updated_at = datetime('now') WHERE id = ?",
-        (overall, json.dumps(result), title, brand, row_id),
+        (overall, json.dumps(result), title, brand,
+         json.dumps(record) if record is not None else None, row_id),
     )
     conn.commit()
 

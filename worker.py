@@ -29,7 +29,7 @@ from dotenv import load_dotenv
 # Load DATABASE_URL (and anything else) before importing app modules that read it.
 load_dotenv()
 
-from dataclasses import replace  # noqa: E402
+from dataclasses import asdict, replace  # noqa: E402
 from datetime import datetime  # noqa: E402
 from zoneinfo import ZoneInfo  # noqa: E402
 
@@ -162,8 +162,11 @@ def process_one(conn: sqlite3.Connection, row: sqlite3.Row) -> None:
         pdp = fetch_pdp(row["url"], row["item_id"])
         resolve_keywords(conn, row_id, pdp)
         result = score_pdp(pdp)
+        # Persist the full record too, so the copy cross-link can reuse this fetch
+        # instead of re-fetching the PDP (resolve_keywords has already set
+        # pdp.target_keywords, which the copy generation phase needs).
         jobs.save_result(conn, row_id, result.overall, result_to_dict(result),
-                         pdp.title, brand=pdp.brand)
+                         pdp.title, brand=pdp.brand, record=asdict(pdp))
         _cache_item_image(row["item_id"], pdp.main_image_url)
         log.info("Scored id=%s item=%s overall=%s", row_id, row["item_id"], result.overall)
     except FetchBlocked as e:

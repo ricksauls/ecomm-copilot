@@ -1,5 +1,7 @@
 """Route tests for PDP Copy Content Creation (intake, results, generate, cross-link)."""
 
+import json
+
 from app import copy_jobs, jobs
 from app.db import get_db
 
@@ -135,9 +137,10 @@ def test_copy_results_shows_download_only_when_done(client, auth, app):
     assert b"Download PDF" in client.get("/app/pdp-copy/results").data
 
 
-def test_scoring_cross_link_creates_auto_generate_copy_jobs(client, auth, app):
+def test_scoring_cross_link_without_record_falls_back_to_fetch(client, auth, app):
+    # A scored item with no stored record (older score) takes the fetch path:
+    # the copy row starts 'queued' and will re-fetch the PDP.
     auth.register()
-    # Seed a scored item for this user.
     with app.app_context():
         db = get_db()
         uid = db.execute("SELECT id FROM users").fetchone()["id"]
@@ -152,7 +155,43 @@ def test_scoring_cross_link_creates_auto_generate_copy_jobs(client, auth, app):
         row = get_db().execute("SELECT url, auto_generate, status FROM copy_items").fetchone()
         assert row["url"] == "https://www.walmart.com/ip/5"
         assert row["auto_generate"] == 1
-        assert row["status"] == "queued"
+        assert row["status"] == "queued"  # fetch path (no record to reuse)
+
+
+def test_scoring_cross_link_reuses_stored_record_without_refetch(client, auth, app):
+    # A scored item that carries the fetched record goes straight to generation —
+    # no second PDP fetch — with its current copy pre-populated from the score.
+    auth.register()
+    with app.app_context():
+        db = get_db()
+        uid = db.execute("SELECT id FROM users").fetchone()["id"]
+        ids = jobs.enqueue_items(db, uid, [{"url": "https://www.walmart.com/ip/5", "item": "5"}])
+        record = {
+            "title": "Prod", "bullets": ["Bullet one"], "description": "Desc text",
+            "target_keywords": ["kw1", "kw2"],
+        }
+        jobs.save_result(db, ids[0], 70, {"overall": 70, "dimensions": []}, "Prod",
+                         record=record)
+        scored_id = ids[0]
+
+    resp = client.post("/app/pdp-scoring/create-copy", data={"item_ids": str(scored_id)})
+    assert resp.status_code == 302
+    assert resp.headers["Location"].endswith("/app/pdp-copy/results")
+    with app.app_context():
+        row = get_db().execute(
+            "SELECT status, auto_generate, current_json, current_overall, keywords_json "
+            "FROM copy_items"
+        ).fetchone()
+        assert row["status"] == "gen_queued"   # skips the fetch phase
+        assert row["auto_generate"] == 1
+        assert row["current_overall"] == 70
+        current = json.loads(row["current_json"])
+        assert current["title"] == "Prod"
+        assert current["bullets"] == ["Bullet one"]
+        assert current["description"] == "Desc text"
+        assert current["record"]["target_keywords"] == ["kw1", "kw2"]
+        assert current["captured_at"]  # capture time recorded for the UI note
+        assert json.loads(row["keywords_json"]) == ["kw1", "kw2"]
 
 
 def test_scoring_cross_link_ignores_other_users_items(client, auth, app):
@@ -172,3 +211,11 @@ def test_scoring_cross_link_ignores_other_users_items(client, auth, app):
     assert resp.headers["Location"].endswith("/app/pdp-scoring/results")
     with app.app_context():
         assert get_db().execute("SELECT COUNT(*) AS c FROM copy_items").fetchone()["c"] == 0
+
+
+def test_fmt_captured_formats_and_tolerates_bad_input():
+    from app.routes.pages import _fmt_captured
+
+    assert _fmt_captured("2026-10-01 16:12:00") == "Oct 01, 2026 04:12 PM UTC"
+    assert _fmt_captured(None) is None
+    assert _fmt_captured("not a date") == "not a date"  # never 500s the page

@@ -63,6 +63,40 @@ def enqueue_copy_items(
     return ids
 
 
+def create_prefetched_copy_items(
+    conn: sqlite3.Connection, user_id: int, items: list[dict]
+) -> list[int]:
+    """Create copy rows that already carry their current copy, from a prior score.
+
+    Each item: ``{url, item_id?, brand?, title?, current (dict incl. 'record'),
+    current_overall?, keywords?}``. Rows are inserted straight into ``gen_queued``
+    (``auto_generate=1``) with ``current_json`` populated, so the worker's
+    generation phase picks them up directly — no headed-Chrome re-fetch of a PDP
+    we already fetched to score it. ``current`` must include the full ``record``
+    (the stored PdpRecord) the generation phase rebuilds to project the new score.
+    """
+    batch_id = uuid.uuid4().hex
+    ids: list[int] = []
+    for it in items:
+        cur = conn.execute(
+            "INSERT INTO copy_items (user_id, item_id, url, brand, batch_id, status, "
+            "auto_generate, title, current_json, current_overall, keywords_json) "
+            "VALUES (?, ?, ?, ?, ?, 'gen_queued', 1, ?, ?, ?, ?)",
+            (
+                user_id, it.get("item_id"), it["url"], it.get("brand"), batch_id,
+                it.get("title"), json.dumps(it["current"]), it.get("current_overall"),
+                json.dumps(it.get("keywords") or []),
+            ),
+        )
+        ids.append(int(cur.lastrowid))
+    conn.commit()
+    logger.info(
+        "Created %d pre-fetched copy item(s) for user_id=%s batch=%s (reused scored content)",
+        len(ids), user_id, batch_id,
+    )
+    return ids
+
+
 def batch_ids_for_copy_item(conn: sqlite3.Connection, row_id: int, user_id: int) -> list[int]:
     """All copy_items ids in the same run as ``row_id`` (owned by ``user_id``).
 
