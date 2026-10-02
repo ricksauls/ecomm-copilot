@@ -1,11 +1,167 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-09-30 (session 7 — DISCOtech rebrand)._
+_Last updated: 2026-10-02 (session 8 — concurrency, results redesign, AI image fixes)._
 
 A working reference for picking up development. Read this first, then
 `CLAUDE.md` (coding standards) and `deploy/DEPLOY.md` (infra).
 
-> **Next session — start here.** Session 7 (2026-09-30) did a **visual-only rebrand**
+> **Next session — start here.** Session 8 (2026-10-02) was large; **everything is
+> pushed + deployed** (CI auto-deploys from `main`). Read the "## Session 2026-10-02"
+> section just below first. Headlines, newest first:
+> 1. **AI image fixes** (NEW, config-gated, inert until a key is set) — Claid.ai
+>    upscaling for the resolution issues the scorer flags: "Enhance to 2000px" per
+>    sub-2000px gallery image, and ONE combined **"Fix & enhance main image"**
+>    (white background + AI upscale + 2000px in a single call) for the main image.
+>    `app/image_enhance.py`, cached under `media/enhanced/`.
+> 2. **Imagery scoring now grades every image** (not just the max edge) and names
+>    each sub-2000px image; white-bg failure carries the main-image URL.
+> 3. **Concurrency** — scoring AND copy run in a thread pool inside the single
+>    worker (`SCORING_CONCURRENCY`, default 3, **live at 3** on a resized **8 GB**
+>    droplet). SQLite now in **WAL**.
+> 4. **Results page redesign** — dense sortable table (bulk select-all / expand-all,
+>    filter, summary strip, **progress bar + ETA, no flashing**). Removed the
+>    Attributes column; added a Brand column.
+> 5. **Copy flow** — "Create New Copy Content" from scoring now **reuses the content
+>    captured at scoring time** (no re-fetch; new `record_json` column) and shows a
+>    capture-time note. Copy results got the same progress bar + Excel/CSV exports.
+> 6. **Naming** — all user-facing "PDP" → "Product Detail Page"; all button labels
+>    Title-Cased.
+>
+> **Tests: 291 passing** (`ruff` + `pip-audit` clean).
+>
+> **Open items / decisions (nothing half-built; tree clean):**
+> - **Image-fix UX overhaul is ON HOLD** — user is deciding. Proposed phased plan:
+>   (1) move fixes to the **background worker** with per-image status + inline
+>   before/after thumbnails, (2) **"Fix all images for this item" → one ZIP**,
+>   (3) batch-wide fix + per-row "N fixes available" badges. See the Session 8
+>   section → "Image fixes — next steps".
+> - **Claid key:** the user HAS a key. To turn fixes on: set `IMAGE_UPSCALE_API_KEY`
+>   in the droplet `.env` and `sudo systemctl restart ecomm-copilot` (web only). The
+>   "Enhance" links appeared on the user's live screenshot, so the key may already
+>   be set. **A real Claid call has NOT been verified end-to-end** — worth a sanity
+>   check on the first live enhance. Claid is **metered per image**.
+> - **Re-score older items:** items scored before ~02:04 CT 2026-10-02 lack
+>   `white_bg_url` / `record_json`, so they won't show the combined main-image fix or
+>   copy-reuse. Re-score (Score More, same URL) to populate them. Possible follow-up:
+>   an in-place "Re-score" action so users don't re-paste URLs.
+> - **Minor consistency:** CI group-config section *headings* still read "Run
+>   snapshot" (lowercase — they're headings, not buttons); the CI snapshot/monitoring
+>   screens still use the **old flashing subtitle** (only the two Content Studio
+>   result screens were de-flashed). Both deferred pending user sign-off.
+>
+> **Deploy caution unchanged:** `deploy.yml` restarts the worker on every push,
+> which orphans any in-flight CI scrape (marked `error`). Check for an active run
+> before pushing while scrapes may be happening — see §2/§9. A docs-only push still
+> deploys + restarts.
+
+---
+
+## Session 2026-10-02 (session 8)
+
+All shipped to `main` + deployed. Commits are listed per area. Tests: **291**.
+
+### Results page — Product Detail Page Content Scores (`pdp_results.html`)
+- Rebuilt from one-tall-card-per-item into a **dense, sortable table** that scales
+  to hundreds of items. One row per item: select checkbox · thumbnail · **Brand** ·
+  Product · **big Overall + bar** · per-dimension **mini-bars** · Status · expand
+  caret. Click a row to expand its recommendations.
+- Progressive enhancement in `app/static/js/pdp_results.js`: column-sort, text
+  filter, row expand/collapse, **bulk select-all** (header checkbox, indeterminate
+  state) and **Expand/Collapse all**. CSS lives in the `.pdp-*` section of
+  `workspace.css`. Works with JS off (panels render open; filter inert).
+- **Summary strip** (avg score + strong/moderate/needs-work bands) + a **progress
+  bar with ETA** ("N of M scored · about X left") while pending — the subtitle no
+  longer flashes (that cue moved to the bar). Route helpers: `_score_summary`,
+  `_eta_label` (~12s/item), `_row_view` now returns `image_url`, `brand`, `record`.
+- **Columns:** removed **Attributes** (still contributes to the overall score —
+  just not shown), added **Brand** (left of Product; from `scored_items.brand`).
+
+### Naming / labels
+- All **user-facing "PDP" → "Product Detail Page"** (routes `/app/pdp-scoring`,
+  Python identifiers, CSS classes, logs, the LLM prompt — all left unchanged).
+- **All button labels Title-Cased** app-wide (buttons only; help text, section
+  headings, page `<title>`s, inline nav links left as written).
+- Copy results heading → "Product Detail Page Copy Content Creation"; "New batch" →
+  "Create More"; "Score more" → "Score More".
+
+### Concurrency (worker + DB)
+- Scoring and copy now process **up to `SCORING_CONCURRENCY` items at once** via a
+  **thread pool inside the single worker process** (`worker.drain_scoring()` /
+  `worker.drain_copy()`). Default **3**, hard-capped 10, env-tunable. One process,
+  so the startup orphan-reclaim stays correct (no lease/migration).
+- `db.tune_connection()` applies **WAL + a 5s busy-timeout** to every connection so
+  the pool's concurrent writes don't collide with web reads. `jobs.has_queued_items`
+  / `copy_jobs.has_claimable_items` gate the pools. Scoring and copy never drain at
+  the same time (shared memory budget). **Live at concurrency=3** on the 8 GB droplet.
+- Throughput ≈ **3–5 items/min** (~15–20s/item). The ETA assumes ~12s/item; it reads
+  a touch pessimistic at the very start of a batch.
+
+### Copy flow — reuse scored content, progress, exports
+- **Cross-link reuse:** "Create New Copy Content" from the scoring screen now reuses
+  the content captured at scoring time instead of re-fetching the PDP. Scoring
+  persists the full `PdpRecord` in new **`scored_items.record_json`** (additive
+  migration), and `pages.pdp_scoring_create_copy` builds copy rows **pre-populated**
+  (status `gen_queued`) via `copy_jobs.create_prefetched_copy_items` → straight to
+  generation. Items without a record (older scores) fall back to the fetch path. The
+  copy results page shows "Current copy captured <time> — reused from scoring".
+- Copy results also got the **progress bar + ETA + de-flashed subtitle**
+  (`_copy_progress`, reuses `_eta_label`).
+- **Exports** (`app/copy_export.py`): "Download To Excel" (`.xlsx`, openpyxl) and
+  "Download CSV" (stdlib) of the generated copy — columns Item ID / Product URL /
+  Product Name / Site Description / Key Feature 1..N, one row per completed item.
+  Routes `/app/pdp-copy/results.xlsx` and `.csv`.
+
+### Imagery scoring — check all images
+- Resolution now grades **every** gallery image (not the single largest edge):
+  `fetch._measure_image_dims` → `PdpRecord.image_dims` (`[{url, px}]`, up to 12).
+  Each image is scored on its own tier; every sub-2000px image is recorded on
+  `DimensionScore.image_issues` (`{index, url, px, severity}`). Falls back to the
+  old single-max tier when per-image data is absent (older results).
+- White-background failure now also sets `DimensionScore.white_bg_url` (the main
+  image URL) so the UI can act on it.
+
+### AI image fixes (`app/image_enhance.py`) — config-gated, Claid.ai
+- **Inert until `IMAGE_UPSCALE_API_KEY` is set** (mirrors the residential-proxy
+  plumbing). Provider = **Claid.ai** (`POST /v1/image/edit`, Bearer auth). Claid
+  fetches the source URL itself; we pass the flagged image's URL **from our own
+  stored result** (SSRF-safe) and download the result.
+- Operations: `upscale` (restorations.upscale `smart_enhance` + resize 2000) and
+  `white_bg` (background→#FFFFFF **+** upscale + resize — one call fixes a low-res
+  off-white main image completely, since you can't chain two downloads).
+- UI (results detail, only when configured): **"Enhance to 2000px"** per sub-2000px
+  gallery image; the **main image** (gallery index 1) shows ONE **"Fix & enhance
+  main image"** when it also needs white-bg (its standalone enhance link is
+  suppressed to avoid two half-fixes).
+- Routes: `GET /app/pdp-scoring/enhance/<sid>/<index>`, `GET /app/pdp-scoring/whitebg/<sid>`
+  (user-scoped/IDOR-guarded, cached under `media/enhanced/` via
+  `ci_images.enhanced_image_path/has/save`, slot-keyed `img{N}` / `whitebg`).
+  **First call is synchronous** (ties up a web worker up to ~1 min), cached after.
+  **Metered per image.** Config: `IMAGE_UPSCALE_*` (see `.env.example` + DEPLOY.md).
+
+### Infra / dependencies
+- **Droplet resized to 8 GB** (user). `SCORING_CONCURRENCY=3` default, live.
+- New deps: **`openpyxl==3.1.5`** (Excel export). **`urllib3==2.8.0`** pinned up to
+  clear PYSEC-2026-4175/76/77 (published 2026-10; it comes transitively via
+  `requests` and was about to fail the CI `pip-audit` for any commit).
+- New column: `scored_items.record_json` (additive migration). New optional env:
+  `IMAGE_UPSCALE_PROVIDER/API_KEY/MODE/TARGET_PX/OUTPUT_FORMAT`.
+
+### Image fixes — next steps (ON HOLD, user deciding)
+Proposed phased plan for a better fix-management UX (see the end-of-session
+discussion):
+1. **Async** — move enhancement to the background worker (like scoring/copy) with
+   per-image status + a progress bar, and show the **fixed image inline** (it's
+   cached same-origin, so CSP allows displaying it — unlike the original CDN image).
+2. **"Fix all images for this item" → one ZIP** (user's idea) — fixes every flagged
+   image + the main image and bundles them, named by position, to re-upload.
+3. Batch-wide "fix all" + per-row "N fixes available" badges.
+Guardrail: each fix is a metered Claid call, so add a confirm before a bulk fix.
+
+---
+
+## Earlier sessions (historical)
+
+> **Session 7 (2026-09-30) — DISCOtech rebrand.** Session 7 did a **visual-only rebrand**
 > to "DISCOtech" — new logo, color palette, and copy. **Read §12 "Session
 > 2026-09-30 — DISCOtech rebrand" first**; it's the freshest and most detailed.
 >
