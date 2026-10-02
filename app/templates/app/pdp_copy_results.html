@@ -55,6 +55,10 @@
     </form>
     {% endif %}
     {% if has_done %}
+    {# New-copy exports for Walmart content upload: Excel for those who have it,
+       CSV as the universal (no-Excel) option; both carry the same columns. #}
+    <a href="{{ url_for('pages.pdp_copy_results_xlsx') }}" class="wbtn wbtn-secondary">Download To Excel</a>
+    <a href="{{ url_for('pages.pdp_copy_results_csv') }}" class="wbtn wbtn-secondary">Download CSV</a>
     <a href="{{ url_for('pages.pdp_copy_results_pdf') }}" class="wbtn wbtn-secondary">Download PDF</a>
     {% endif %}
     <a href="{{ url_for('pages.pdp_copy') }}" class="wbtn wbtn-secondary">New batch</a>

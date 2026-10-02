@@ -8,6 +8,10 @@ python-dotenv==1.2.2
 # optional Google SSO.
 Authlib==1.7.2
 requests==2.34.2
+# urllib3 comes in transitively via requests; pinned up to 2.8.0 to clear
+# PYSEC-2026-4175/4176/4177 (published 2026-10, fixed in 2.8.0). requests 2.34.2
+# supports urllib3 <3, so this is compatible. (See security-standards.)
+urllib3==2.8.0
 
 # PDP scoring: Playwright drives real Chrome to fetch Walmart PDPs (bot-blocked
 # otherwise); Pillow measures image resolution. The Chrome binary and Xvfb
@@ -19,6 +23,11 @@ Pillow==12.3.0
 # PDF export of scoring results. Pure-Python (no system libraries), so it runs in
 # a web request and deploys without extra apt packages on the droplet.
 reportlab==5.0.1
+
+# Excel (.xlsx) export of generated copy for Walmart content upload. Pure-Python
+# like reportlab — runs in a web request, no apt packages. (CSV export uses the
+# stdlib and needs no dependency.)
+openpyxl==3.1.5
 
 # PDP Copy Content Creation: the Anthropic SDK powers the AI copy generator
 # (Title / Description / Key Features rewrite). Runs in the worker, never in a

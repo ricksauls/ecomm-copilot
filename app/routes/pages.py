@@ -704,6 +704,48 @@ def pdp_copy_results_pdf():
     )
 
 
+@bp.route("/app/pdp-copy/results.xlsx")
+@login_required
+def pdp_copy_results_xlsx():
+    """Download the current copy batch's generated copy as an Excel file."""
+    from datetime import date
+
+    from flask import Response
+
+    from app.copy_export import build_copy_xlsx
+
+    items = [_copy_row_view(r) for r in _copy_batch_rows()]
+    data = build_copy_xlsx(items)
+    filename = f"pdp-new-copy-{date.today().isoformat()}.xlsx"
+    logger.info("Copy XLSX export: %d item(s), user_id=%s", len(items), g.user["id"])
+    return Response(
+        data,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@bp.route("/app/pdp-copy/results.csv")
+@login_required
+def pdp_copy_results_csv():
+    """Download the current copy batch's generated copy as CSV (no Excel needed)."""
+    from datetime import date
+
+    from flask import Response
+
+    from app.copy_export import build_copy_csv
+
+    items = [_copy_row_view(r) for r in _copy_batch_rows()]
+    data = build_copy_csv(items)
+    filename = f"pdp-new-copy-{date.today().isoformat()}.csv"
+    logger.info("Copy CSV export: %d item(s), user_id=%s", len(items), g.user["id"])
+    return Response(
+        data,
+        mimetype="text/csv",  # Flask appends '; charset=utf-8'
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @bp.route("/app/pdp-copy/generate", methods=["POST"])
 @login_required
 def pdp_copy_generate():

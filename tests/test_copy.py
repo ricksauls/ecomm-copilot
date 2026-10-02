@@ -10,6 +10,8 @@ def test_copy_routes_require_login(client):
     assert client.get("/app/pdp-copy").status_code == 302
     assert client.get("/app/pdp-copy/results").status_code == 302
     assert client.get("/app/pdp-copy/results.pdf").status_code == 302
+    assert client.get("/app/pdp-copy/results.xlsx").status_code == 302
+    assert client.get("/app/pdp-copy/results.csv").status_code == 302
     assert client.post("/app/pdp-copy/generate").status_code == 302
     assert client.post("/app/pdp-scoring/create-copy").status_code == 302
 
@@ -233,3 +235,77 @@ def test_copy_results_shows_progress_while_pending(client, auth):
     assert b"0 of 1 complete" in resp.data
     assert b"less than a minute left" in resp.data
     assert b"subtitle-scoring" not in resp.data  # no text flashing on this screen
+
+
+def test_copy_export_buttons_appear_only_when_done(client, auth, app):
+    auth.register()
+    client.post("/app/pdp-copy", data={"urls": "https://www.walmart.com/ip/1"})
+    before = client.get("/app/pdp-copy/results").data
+    assert b"Download To Excel" not in before
+    assert b"Download CSV" not in before
+    with app.app_context():
+        db = get_db()
+        row = db.execute("SELECT id FROM copy_items ORDER BY id DESC LIMIT 1").fetchone()
+        copy_jobs.save_current_copy(
+            db, row["id"], title="P",
+            current={"title": "O", "bullets": ["a"], "description": "d", "record": {"url": "u"}},
+            current_overall=60, keywords=[], next_status="fetched",
+        )
+        copy_jobs.save_generated_copy(
+            db, row["id"], new={"title": "N", "bullets": ["b"], "description": "d"},
+            projected_overall=88,
+        )
+    after = client.get("/app/pdp-copy/results").data
+    assert b"Download To Excel" in after
+    assert b"Download CSV" in after
+
+
+def test_copy_exports_contain_new_copy(client, auth, app):
+    import io
+
+    from openpyxl import load_workbook
+
+    auth.register()
+    client.post("/app/pdp-copy", data={"urls": "https://www.walmart.com/ip/10294528"})
+    with app.app_context():
+        db = get_db()
+        row = db.execute("SELECT id FROM copy_items ORDER BY id DESC LIMIT 1").fetchone()
+        copy_jobs.save_current_copy(
+            db, row["id"], title="Acme Widget",
+            current={"title": "OLD", "bullets": ["a"], "description": "old",
+                     "record": {"url": "u"}},
+            current_overall=60, keywords=[], next_status="fetched",
+        )
+        copy_jobs.save_generated_copy(
+            db, row["id"],
+            new={"title": "Acme Widget Deluxe",
+                 "bullets": ["Durable steel", "Easy setup"],
+                 "description": "A great widget."},
+            projected_overall=88,
+        )
+
+    # Excel: a real .xlsx (zip) with the new copy mapped to Walmart content columns.
+    xlsx = client.get("/app/pdp-copy/results.xlsx")
+    assert xlsx.status_code == 200
+    assert xlsx.mimetype == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    assert xlsx.data[:2] == b"PK"
+    assert "attachment" in xlsx.headers.get("Content-Disposition", "")
+    ws = load_workbook(io.BytesIO(xlsx.data)).active
+    header = [c.value for c in ws[1]]
+    assert header[:4] == ["Item ID", "Product URL", "Product Name", "Site Description"]
+    assert "Key Feature 1" in header and "Key Feature 2" in header
+    row2 = [c.value for c in ws[2]]
+    assert row2[0] == "10294528"
+    assert row2[2] == "Acme Widget Deluxe"
+    assert row2[3] == "A great widget."
+    assert "Durable steel" in row2 and "Easy setup" in row2
+
+    # CSV: same content, no Excel required.
+    csv_resp = client.get("/app/pdp-copy/results.csv")
+    assert csv_resp.status_code == 200
+    assert csv_resp.mimetype == "text/csv"
+    body = csv_resp.data.decode("utf-8-sig")
+    assert "Product Name" in body
+    assert "Acme Widget Deluxe" in body
+    assert "A great widget." in body
+    assert "Durable steel" in body
