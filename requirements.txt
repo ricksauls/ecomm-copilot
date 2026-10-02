@@ -6,7 +6,7 @@ python-dotenv==1.2.2
 
 # Auth: Werkzeug (ships with Flask) hashes passwords; Authlib + requests power
 # optional Google SSO.
-Authlib==1.7.2
+Authlib==1.8.0
 requests==2.34.2
 # urllib3 comes in transitively via requests; pinned up to 2.8.0 to clear
 # PYSEC-2026-4175/4176/4177 (published 2026-10, fixed in 2.8.0). requests 2.34.2
