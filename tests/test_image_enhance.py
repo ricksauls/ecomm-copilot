@@ -121,7 +121,9 @@ def test_claid_white_bg_builds_background_operation(monkeypatch):
     ops = captured["json"]["operations"]
     assert ops["background"]["color"] == "#FFFFFF"
     assert ops["background"]["remove"] == {"category": "products"}
-    assert "restorations" not in ops  # white_bg composites, doesn't super-resolve
+    # Combined main-image fix: white background AND AI upscale in one call.
+    assert ops["restorations"]["upscale"]  # super-resolution included
+    assert ops["resizing"]["width"] == 2000
 
 
 # --- enhanced-image cache (ci_images) ---------------------------------------

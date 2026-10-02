@@ -581,7 +581,7 @@ def pdp_scoring_whitebg(sid):
     item = rows[0]["item_id"] or sid
     return _serve_enhanced(
         sid, "whitebg", source_url=_white_bg_image_url(rows[0]),
-        operation="white_bg", download_label=f"whitebg-{item}",
+        operation="white_bg", download_label=f"main-image-fixed-{item}",
     )
 
 

@@ -484,13 +484,13 @@ def test_whitebg_route_requires_login(client):
 
 def test_whitebg_link_hidden_when_not_configured(client, auth, app):
     _seed_scored_white_bg(client, auth, app)
-    assert b"Fix white background" not in client.get("/app/pdp-scoring/results").data
+    assert b"Fix &amp; enhance main image" not in client.get("/app/pdp-scoring/results").data
 
 
 def test_whitebg_link_shown_when_configured(client, auth, app, monkeypatch):
     _seed_scored_white_bg(client, auth, app)
     monkeypatch.setattr("app.image_enhance.is_configured", lambda: True)
-    assert b"Fix white background" in client.get("/app/pdp-scoring/results").data
+    assert b"Fix &amp; enhance main image" in client.get("/app/pdp-scoring/results").data
 
 
 def test_whitebg_route_downloads_and_caches(client, auth, app, monkeypatch, tmp_path):
@@ -529,3 +529,35 @@ def test_whitebg_route_rejects_other_users_item(client, auth, app, monkeypatch):
         jobs.save_result(db, ids[0], 70, _IMAGERY_WHITE_BG, "Other")
         other_sid = ids[0]
     assert client.get(f"/app/pdp-scoring/whitebg/{other_sid}").status_code == 404
+
+
+def test_main_image_fix_consolidates_enhance_and_white_bg(client, auth, app, monkeypatch):
+    # When the main image (index 1) needs both resolution and white-bg, its separate
+    # "Enhance" link is suppressed and the single combined action is offered; gallery
+    # images keep their own enhance links.
+    auth.register()
+    client.post("/app/pdp-scoring", data={"urls": "https://www.walmart.com/ip/12345"})
+    result = {"overall": 66, "dimensions": [{
+        "key": "imagery", "label": "Imagery", "score": 66, "available": True,
+        "recommendations": [],
+        "image_issues": [
+            {"index": 1, "url": "https://i5/1.jpg", "px": 1024, "severity": "low"},
+            {"index": 2, "url": "https://i5/2.jpg", "px": 1266, "severity": "mid"},
+        ],
+        "white_bg_url": "https://i5/main.jpg",
+    }]}
+    with app.app_context():
+        from app import jobs
+        from app.db import get_db
+        db = get_db()
+        row = db.execute("SELECT id FROM scored_items ORDER BY id DESC LIMIT 1").fetchone()
+        jobs.save_result(db, row["id"], 66, result, "Prod")
+        sid = row["id"]
+    monkeypatch.setattr("app.image_enhance.is_configured", lambda: True)
+    data = client.get("/app/pdp-scoring/results").data
+    # Main image (index 1): no standalone enhance link; combined action instead.
+    assert f"/app/pdp-scoring/enhance/{sid}/1".encode() not in data
+    assert b"Fix &amp; enhance main image" in data
+    assert f"/app/pdp-scoring/whitebg/{sid}".encode() in data
+    # Gallery image (index 2): keeps its own enhance link.
+    assert f"/app/pdp-scoring/enhance/{sid}/2".encode() in data

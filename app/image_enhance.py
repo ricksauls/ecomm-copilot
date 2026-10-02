@@ -112,20 +112,21 @@ def _target_px() -> int:
 def _claid_operations(operation: str) -> dict:
     """Build Claid's ``operations`` object for ``operation``.
 
-    Both variants resize (fit:"bounds" preserves aspect, so the longest edge lands
-    at ~target px — what Walmart's zoom cares about). "upscale" adds conservative
-    super-resolution; "white_bg" removes the background and composites the product
-    on pure white (Walmart's main-image requirement).
+    Both variants AI-upscale and resize (fit:"bounds" preserves aspect, so the
+    longest edge lands at ~target px — what Walmart's zoom cares about).
+    "white_bg" *additionally* composites the product on pure white, so a low-res
+    off-white main image comes out fully compliant (white, sharp, 2000px) in one
+    call — you can't chain two separate downloads, so both fixes go together.
     """
     target = _target_px()
-    resizing = {"width": target, "height": target, "fit": "bounds"}
-    if operation == "white_bg":
-        return {
-            "background": {"remove": {"category": "products"}, "color": "#FFFFFF"},
-            "resizing": resizing,
-        }
     mode = (os.environ.get("IMAGE_UPSCALE_MODE") or _DEFAULT_MODE).strip() or _DEFAULT_MODE
-    return {"restorations": {"upscale": mode}, "resizing": resizing}
+    ops = {
+        "restorations": {"upscale": mode},
+        "resizing": {"width": target, "height": target, "fit": "bounds"},
+    }
+    if operation == "white_bg":
+        ops["background"] = {"remove": {"category": "products"}, "color": "#FFFFFF"}
+    return ops
 
 
 def _claid_edit(image_url: str, operation: str) -> bytes:
