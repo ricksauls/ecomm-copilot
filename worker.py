@@ -33,7 +33,10 @@ from dataclasses import asdict, replace  # noqa: E402
 from datetime import datetime  # noqa: E402
 from zoneinfo import ZoneInfo  # noqa: E402
 
-from app import ci_config, ci_images, ci_jobs, ci_scraper, copy_jobs, copygen, db, jobs, keywords  # noqa: E402  (after load_dotenv is intentional)
+from app import (  # noqa: E402  (after load_dotenv is intentional)
+    ci_config, ci_images, ci_jobs, ci_scraper, copy_jobs, copygen, db,
+    image_enhance, image_jobs, jobs, keywords,
+)
 from app.fetch import FetchBlocked, FetchError, fetch_main_image_url, fetch_pdp  # noqa: E402
 from app.scoring import PdpRecord, result_to_dict, score_pdp  # noqa: E402
 
@@ -496,6 +499,84 @@ def drain_copy() -> int:
     return processed
 
 
+def process_image_one(conn: sqlite3.Connection, row: sqlite3.Row) -> None:
+    """Process one claimed image-fix row: enhance the source, cache it, mark done.
+
+    The upscaling provider (Claid) is a plain HTTP call — no browser, no Xvfb, no
+    Walmart politeness delay — so this is cheap and RAM-light next to a scoring
+    fetch. ``source_url`` was resolved from our own stored scrape at enqueue time
+    (SSRF-safe). The output is written to the shared enhanced-image cache keyed by
+    (scored_item_id, slot); the web app serves it same-origin from there.
+    """
+    row_id = row["id"]
+    sid, slot = row["scored_item_id"], row["slot"]
+    try:
+        data = image_enhance.enhance(row["source_url"], operation=row["operation"])
+        saved = ci_images.save_enhanced_image(sid, slot, data, row["ext"])
+        if not saved:
+            # The provider returned bytes but we couldn't cache them (disk/decode);
+            # surface it so the user retries rather than seeing a stuck spinner.
+            image_jobs.mark_image_failed(conn, row_id, "Could not store the enhanced image.")
+            return
+        image_jobs.mark_image_done(conn, row_id)
+        log.info("Enhanced image job id=%s item=%s slot=%s op=%s", row_id, sid, slot, row["operation"])
+    except image_enhance.EnhanceNotConfigured as e:
+        # Key removed after the job was queued — a config state, not a provider
+        # failure. Fail loud so the row doesn't hang; no secret is in the message.
+        log.warning("Image job id=%s not processed — enhancement not configured: %s", row_id, e)
+        image_jobs.mark_image_failed(conn, row_id, "Image enhancement is not configured.")
+    except image_enhance.EnhanceError as e:
+        log.warning("Image job id=%s failed item=%s slot=%s: %s", row_id, sid, slot, e)
+        image_jobs.mark_image_failed(conn, row_id, "Image enhancement failed — try again shortly.")
+    except Exception as e:  # noqa: BLE001 - a bad item must not kill the worker
+        log.exception("Unexpected error enhancing image job id=%s", row_id)
+        image_jobs.mark_image_failed(conn, row_id, f"Unexpected error: {e}")
+
+
+def drain_image_jobs() -> int:
+    """Process every queued image fix concurrently; return the count processed.
+
+    Same single-process thread pool as :func:`drain_copy` (bounded by
+    ``SCORING_CONCURRENCY``), minus the Walmart-politeness pause — these are
+    provider HTTP calls, not browser fetches. Runs only when scoring and copy are
+    idle, so it never competes with them for the memory budget. Each thread claims
+    rows (``claim_next_image_job``) until the queue drains.
+    """
+    processed = 0
+    counter_lock = threading.Lock()
+
+    def claim_loop(stagger: float) -> None:
+        nonlocal processed
+        conn = connect(ensure=False)
+        try:
+            if stagger:
+                time.sleep(stagger)
+            while True:
+                row = image_jobs.claim_next_image_job(conn)
+                if row is None:
+                    return  # queue drained — this thread is done
+                process_image_one(conn, row)
+                with counter_lock:
+                    processed += 1
+        finally:
+            conn.close()
+
+    threads = [
+        threading.Thread(
+            target=claim_loop,
+            args=(random.uniform(*SUBMIT_STAGGER_S) * i,),
+            name=f"image-{i}",
+            daemon=True,
+        )
+        for i in range(SCORING_CONCURRENCY)
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    return processed
+
+
 def main() -> None:
     """Claim-and-process loop. Runs until the process is stopped.
 
@@ -515,9 +596,10 @@ def main() -> None:
     reclaimed_items = jobs.reclaim_orphaned_items(conn)
     reclaimed_copy = copy_jobs.reclaim_orphaned_copy_items(conn)
     reclaimed_runs = ci_jobs.reclaim_orphaned_runs(conn)
-    if reclaimed_items or reclaimed_copy or reclaimed_runs:
-        log.warning("Startup: reclaimed %d scoring item(s), %d copy item(s), %d CI run(s)",
-                    reclaimed_items, reclaimed_copy, reclaimed_runs)
+    reclaimed_images = image_jobs.reclaim_orphaned_image_jobs(conn)
+    if reclaimed_items or reclaimed_copy or reclaimed_runs or reclaimed_images:
+        log.warning("Startup: reclaimed %d scoring item(s), %d copy item(s), %d CI run(s), %d image job(s)",
+                    reclaimed_items, reclaimed_copy, reclaimed_runs, reclaimed_images)
     while True:
         # Scoring first and concurrently: drain the whole queue with the thread
         # pool, then fall through to the serial copy / CI work.
@@ -531,6 +613,14 @@ def main() -> None:
         if copy_jobs.has_claimable_items(conn):
             n = drain_copy()
             log.info("Copy wave complete — processed %d phase(s)", n)
+            continue
+
+        # Image fixes next — the lightest work (provider HTTP calls, no browser),
+        # so clear them before the serial CI sweep. Runs only when scoring/copy are
+        # idle, so it never competes with them for RAM.
+        if image_jobs.has_claimable_image_jobs(conn):
+            n = drain_image_jobs()
+            log.info("Image-fix wave complete — processed %d job(s)", n)
             continue
 
         ci_run = ci_jobs.claim_next_run(conn)

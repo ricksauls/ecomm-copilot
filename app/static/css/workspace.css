@@ -1507,19 +1507,78 @@ a:focus-visible,
   font-weight: 600;
   text-decoration: underline;
 }
-/* The upscale action reads as a fix (brand accent), distinct from the red issue. */
-.pdp-img-issues a.pdp-enhance-link {
-  color: var(--accent);
-}
-/* White-background fix link sits just under the imagery recs/issues. */
+/* White-background fix sits just under the imagery recs/issues. */
 .pdp-whitebg-fix {
   margin: 6px 0 0;
   font-size: 12px;
 }
-.pdp-whitebg-fix a.pdp-enhance-link {
+
+/* ── Async image-fix controls (upscale / white-bg) ──────────────────────────
+   Each flagged image shows one of four states inline (see enhance_control in
+   pdp_results.html): a start button, an "Enhancing…" spinner, the finished image
+   + download, or a retry. The fix action reads as a brand accent, distinct from
+   the red issue text; the control sits inline with the issue line. */
+.pdp-enhance {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  vertical-align: middle;
+}
+.pdp-enhance-form {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+}
+/* Link-style button so a start/retry action matches the former text links while
+   being a real <button> inside a POST form (CSRF-guarded, works without JS). */
+.pdp-enhance-btn {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-weight: 600;
+  color: var(--accent);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.pdp-enhance-btn:hover {
+  opacity: 0.85;
+}
+.pdp-enhance-link {
   color: var(--accent);
   font-weight: 600;
   text-decoration: underline;
+}
+.pdp-enhance-busy {
+  color: var(--cool-gray);
+  font-style: italic;
+}
+.pdp-enhance-failed {
+  color: var(--signal-red);
+}
+/* Finished fix: a small inline thumbnail of the enhanced (same-origin) image. */
+.pdp-enhance-thumb {
+  max-height: 44px;
+  width: auto;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  vertical-align: middle;
+}
+/* Per-item bulk bar: fix-all + ZIP + a done/total count. */
+.pdp-fixall {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 0 0;
+}
+.pdp-fixall .pdp-enhance-form {
+  margin: 0;
+}
+.pdp-fixall-count {
+  font-size: 12px;
+  color: var(--cool-gray);
 }
 /* Non-scored rows (blocked/error): a short reason under the row. */
 .pdp-note {

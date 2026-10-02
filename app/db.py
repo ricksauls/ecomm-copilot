@@ -100,6 +100,31 @@ CREATE TABLE IF NOT EXISTS copy_items (
 CREATE INDEX IF NOT EXISTS idx_copy_items_status ON copy_items(status);
 CREATE INDEX IF NOT EXISTS idx_copy_items_user ON copy_items(user_id, id);
 
+-- One row per AI image-fix (upscale / white-background) requested from the
+-- scoring results page. The web app inserts rows as 'queued'; the background
+-- worker claims them, calls the upscaling provider, and caches the output under
+-- MEDIA_DIR/enhanced/ (see app.ci_images.enhanced_image_path). The lifecycle is
+-- single-phase (queued -> processing -> done|error); the DB row only tracks
+-- status — the cached file keyed by (scored_item_id, slot) is the artifact.
+-- UNIQUE(scored_item_id, slot) makes re-enqueue idempotent: one job per output
+-- slot, matching the one cache file per slot.
+CREATE TABLE IF NOT EXISTS image_jobs (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id        INTEGER NOT NULL REFERENCES users(id),
+    scored_item_id INTEGER NOT NULL REFERENCES scored_items(id),
+    slot           TEXT    NOT NULL,  -- 'img{N}' (gallery image N) | 'whitebg' (main image fix)
+    operation      TEXT    NOT NULL,  -- 'upscale' | 'white_bg' (app.image_enhance.OPERATIONS)
+    source_url     TEXT    NOT NULL,  -- resolved from our own stored scrape (SSRF-safe)
+    ext            TEXT    NOT NULL DEFAULT 'jpg',
+    status         TEXT    NOT NULL DEFAULT 'queued',  -- queued|processing|done|error
+    error          TEXT,
+    created_at     TEXT    NOT NULL DEFAULT (datetime('now')),
+    updated_at     TEXT    NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(scored_item_id, slot)
+);
+CREATE INDEX IF NOT EXISTS idx_image_jobs_status ON image_jobs(status);
+CREATE INDEX IF NOT EXISTS idx_image_jobs_item ON image_jobs(scored_item_id);
+
 -- ── Competitive Intelligence ────────────────────────────────────────────────
 -- Search Ranking + Share of Digital Shelf tracking. A user sets up one or more
 -- "groups" (e.g. a hot-sauce line, a cookie line); within a group they define

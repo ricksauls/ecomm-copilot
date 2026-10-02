@@ -149,22 +149,33 @@ directory) — the next run re-caches any that are missing. No secrets live here
 
 The content scorer flags product images below Walmart's 2000px zoom spec and main
 images that aren't on a pure white background. When a provider is configured, the
-results page offers two per-item downloads — **"Enhance to 2000px"** (conservative
-super-resolution of a flagged gallery image) and **"Fix white background"**
-(composite the main image on pure white + resize) — both via Claid.ai, returning a
-file to re-upload to Walmart.
+results page offers per-item fixes — **"Enhance to 2000px"** (conservative
+super-resolution of a flagged gallery image) and **"Fix & enhance main image"**
+(composite the main image on pure white + upscale + resize, in one call) — plus a
+per-item **"Fix all images"** that queues every flagged fix and a **"Download all
+as ZIP"** of the results, all via Claid.ai. Each finished fix shows inline on the
+page and is downloadable as a file to re-upload to Walmart.
 
 **Config-gated and inert by default** — nothing shows or runs until you set
-`IMAGE_UPSCALE_API_KEY` in `.env` (see `.env.example` for `IMAGE_UPSCALE_*`). Set
-the key, restart the web service (`sudo systemctl restart ecomm-copilot`), and the
-links appear. Enhanced files cache under `media/enhanced/` next to the DB (same
-media dir as product images; created on first write, outside the git checkout).
+`IMAGE_UPSCALE_API_KEY` in `.env` (see `.env.example` for `IMAGE_UPSCALE_*`). To
+enable, set the key and restart **both** services:
 
-Notes: the first click per image calls the provider synchronously (can take up to
-~a minute) and ties up a web worker for that time — fine for occasional manual use;
-revisit (move to the background worker) if it becomes high-volume. Claid is
-**metered per image** — a real cost once enabled. The API key is read from the
-environment and never logged.
+```bash
+sudo systemctl restart ecomm-copilot          # web — reveals the controls
+sudo systemctl restart ecomm-copilot-worker   # worker — actually runs the fixes
+```
+
+The worker loads the same `.env`, so no extra config is needed — it just needs a
+restart to pick up a newly set key. Enhanced files cache under `media/enhanced/`
+next to the DB (same media dir as product images; created on first write, outside
+the git checkout).
+
+Notes: fixes run **asynchronously on the background worker** (not in the web
+request) — a click enqueues a job (`image_jobs` queue, mirrors scoring/copy), the
+results page shows "Enhancing…" and auto-refreshes, and the fixed image appears
+inline when done. Claid is **metered per image** — a real cost once enabled; the
+"Fix all" button confirms first and never re-spends on an already-cached slot. The
+API key is read from the environment and never logged.
 
 ## Competitive Intelligence monitoring timers
 

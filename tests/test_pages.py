@@ -389,67 +389,230 @@ def _seed_scored_with_issue(client, auth, app):
         return row["id"]
 
 
-def test_enhance_link_hidden_when_not_configured(client, auth, app):
+def _seed_cached_enhanced(app, sid, slot, data=b"ENHANCED", ext="jpg"):
+    """Simulate the worker having produced a fix: write the slot's cache file."""
+    with app.app_context():
+        from app import ci_images
+        ci_images.save_enhanced_image(sid, slot, data, ext)
+
+
+def _seed_other_users_item(app, result, email):
+    """Create a second user with one scored item carrying ``result``; return its id.
+
+    Used by the IDOR tests: the logged-in user must not reach another user's item.
+    """
+    with app.app_context():
+        from app import jobs
+        from app.db import get_db
+        from app.users import create_local_user
+        db = get_db()
+        other = create_local_user(email, "password123")
+        ids = jobs.enqueue_items(db, other, [{"url": "https://www.walmart.com/ip/9", "item": "9"}])
+        jobs.save_result(db, ids[0], result.get("overall", 70), result, "Other")
+        return ids[0]
+
+
+def test_enhance_button_hidden_when_not_configured(client, auth, app):
     _seed_scored_with_issue(client, auth, app)
     resp = client.get("/app/pdp-scoring/results")
     assert b"Image 2" in resp.data              # the flag is shown
     assert b"Enhance to 2000px" not in resp.data  # but not the upscale action
 
 
-def test_enhance_link_shown_when_configured(client, auth, app, monkeypatch):
+def test_enhance_button_shown_when_configured(client, auth, app, monkeypatch):
     _seed_scored_with_issue(client, auth, app)
     monkeypatch.setattr("app.image_enhance.is_configured", lambda: True)
     resp = client.get("/app/pdp-scoring/results")
     assert b"Enhance to 2000px" in resp.data
+    # The action is now a POST form targeting the enqueue route.
+    assert b'method="post"' in resp.data
 
 
-def test_enhance_route_not_configured_returns_503(client, auth, app, monkeypatch):
+def test_enhance_enqueue_is_post_only(client, auth, app, monkeypatch):
+    sid = _seed_scored_with_issue(client, auth, app)
+    monkeypatch.setattr("app.image_enhance.is_configured", lambda: True)
+    # The enqueue action moved from GET-download to POST; a GET is not allowed.
+    assert client.get(f"/app/pdp-scoring/enhance/{sid}/2").status_code == 405
+
+
+def test_enhance_enqueue_not_configured_returns_503(client, auth, app, monkeypatch):
     sid = _seed_scored_with_issue(client, auth, app)
     monkeypatch.setattr("app.image_enhance.is_configured", lambda: False)
-    resp = client.get(f"/app/pdp-scoring/enhance/{sid}/2")
-    assert resp.status_code == 503
+    assert client.post(f"/app/pdp-scoring/enhance/{sid}/2").status_code == 503
 
 
-def test_enhance_route_downloads_and_caches(client, auth, app, monkeypatch, tmp_path):
-    # Isolate the enhanced-image cache so it can't leak between tests/runs.
-    monkeypatch.setenv("MEDIA_DIR", str(tmp_path))
+def test_enhance_enqueue_creates_job(client, auth, app, monkeypatch):
     sid = _seed_scored_with_issue(client, auth, app)
-    calls = []
     monkeypatch.setattr("app.image_enhance.is_configured", lambda: True)
-
-    def fake_enhance(url, operation="upscale"):
-        calls.append((url, operation))
-        return b"UPSCALED"
-
-    monkeypatch.setattr("app.image_enhance.enhance", fake_enhance)
-
-    resp = client.get(f"/app/pdp-scoring/enhance/{sid}/2")
-    assert resp.status_code == 200
-    assert resp.data == b"UPSCALED"
-    assert "attachment" in resp.headers.get("Content-Disposition", "")
-    assert calls == [("https://i5.walmartimages.com/seo/x.jpg", "upscale")]  # stored URL + op
-
-    # Second call is served from cache — the provider isn't hit again.
-    resp2 = client.get(f"/app/pdp-scoring/enhance/{sid}/2")
-    assert resp2.status_code == 200
-    assert resp2.data == b"UPSCALED"
-    assert len(calls) == 1
+    resp = client.post(f"/app/pdp-scoring/enhance/{sid}/2")
+    assert resp.status_code == 302  # redirects back to results
+    with app.app_context():
+        from app.db import get_db
+        row = get_db().execute(
+            "SELECT * FROM image_jobs WHERE scored_item_id = ? AND slot = 'img2'", (sid,)
+        ).fetchone()
+        assert row["status"] == "queued"
+        assert row["operation"] == "upscale"
+        # The provider gets the URL from our stored scrape, never request input.
+        assert row["source_url"] == "https://i5.walmartimages.com/seo/x.jpg"
 
 
-def test_enhance_route_rejects_other_users_item(client, auth, app, monkeypatch):
+def test_enhance_enqueue_is_idempotent(client, auth, app, monkeypatch):
+    sid = _seed_scored_with_issue(client, auth, app)
+    monkeypatch.setattr("app.image_enhance.is_configured", lambda: True)
+    client.post(f"/app/pdp-scoring/enhance/{sid}/2")
+    client.post(f"/app/pdp-scoring/enhance/{sid}/2")  # double click
+    with app.app_context():
+        from app.db import get_db
+        n = get_db().execute(
+            "SELECT COUNT(*) FROM image_jobs WHERE scored_item_id = ? AND slot = 'img2'",
+            (sid,),
+        ).fetchone()[0]
+        assert n == 1
+
+
+def test_enhance_enqueue_rejects_other_users_item(client, auth, app, monkeypatch):
     _seed_scored_with_issue(client, auth, app)
     monkeypatch.setattr("app.image_enhance.is_configured", lambda: True)
+    other_sid = _seed_other_users_item(app, _IMAGERY_WITH_ISSUE, "other@example.com")
+    assert client.post(f"/app/pdp-scoring/enhance/{other_sid}/2").status_code == 404
+
+
+def test_enhanced_serve_inline_and_download(client, auth, app, monkeypatch, tmp_path):
+    monkeypatch.setenv("MEDIA_DIR", str(tmp_path))
+    sid = _seed_scored_with_issue(client, auth, app)
+    monkeypatch.setattr("app.image_enhance.is_configured", lambda: True)
+    _seed_cached_enhanced(app, sid, "img2", b"UPSCALED")
+
+    inline = client.get(f"/app/pdp-scoring/enhanced/{sid}/img2")
+    assert inline.status_code == 200
+    assert inline.data == b"UPSCALED"
+    assert "attachment" not in inline.headers.get("Content-Disposition", "")
+
+    dl = client.get(f"/app/pdp-scoring/enhanced/{sid}/img2/download")
+    assert dl.status_code == 200
+    assert dl.data == b"UPSCALED"
+    assert "attachment" in dl.headers.get("Content-Disposition", "")
+
+
+def test_enhanced_serve_404_before_ready(client, auth, app, monkeypatch, tmp_path):
+    monkeypatch.setenv("MEDIA_DIR", str(tmp_path))
+    sid = _seed_scored_with_issue(client, auth, app)
+    monkeypatch.setattr("app.image_enhance.is_configured", lambda: True)
+    assert client.get(f"/app/pdp-scoring/enhanced/{sid}/img2").status_code == 404
+
+
+def test_enhanced_serve_rejects_bad_slot(client, auth, app, monkeypatch, tmp_path):
+    monkeypatch.setenv("MEDIA_DIR", str(tmp_path))
+    sid = _seed_scored_with_issue(client, auth, app)
+    monkeypatch.setattr("app.image_enhance.is_configured", lambda: True)
+    # A slot outside the img{N}/whitebg allowlist is rejected before any FS access.
+    assert client.get(f"/app/pdp-scoring/enhanced/{sid}/evil").status_code == 404
+
+
+def test_enhanced_serve_rejects_other_users_item(client, auth, app, monkeypatch, tmp_path):
+    monkeypatch.setenv("MEDIA_DIR", str(tmp_path))
+    _seed_scored_with_issue(client, auth, app)
+    monkeypatch.setattr("app.image_enhance.is_configured", lambda: True)
+    other_sid = _seed_other_users_item(app, _IMAGERY_WITH_ISSUE, "other@example.com")
+    _seed_cached_enhanced(app, other_sid, "img2", b"UPSCALED")
+    assert client.get(f"/app/pdp-scoring/enhanced/{other_sid}/img2").status_code == 404
+
+
+def test_results_shows_enhancing_while_queued(client, auth, app, monkeypatch):
+    sid = _seed_scored_with_issue(client, auth, app)
+    monkeypatch.setattr("app.image_enhance.is_configured", lambda: True)
+    client.post(f"/app/pdp-scoring/enhance/{sid}/2")  # enqueue (not yet processed)
+    data = client.get("/app/pdp-scoring/results").data
+    assert b"Enhancing" in data
+    # An in-flight fix keeps the auto-refresh alive so the result appears live.
+    assert b'http-equiv="refresh"' in data
+
+
+def test_results_shows_inline_image_when_done(client, auth, app, monkeypatch, tmp_path):
+    monkeypatch.setenv("MEDIA_DIR", str(tmp_path))
+    sid = _seed_scored_with_issue(client, auth, app)
+    monkeypatch.setattr("app.image_enhance.is_configured", lambda: True)
+    _seed_cached_enhanced(app, sid, "img2", b"UPSCALED")
+    data = client.get("/app/pdp-scoring/results").data
+    # The finished fix is embedded inline and offered as a ZIP of what's ready.
+    assert f"/app/pdp-scoring/enhanced/{sid}/img2".encode() in data
+    assert b"Download All As ZIP" in data
+
+
+# --- Fix-all + ZIP (Phase 2) -------------------------------------------------
+
+_IMAGERY_MANY = {"overall": 66, "dimensions": [{
+    "key": "imagery", "label": "Imagery", "score": 66, "available": True,
+    "recommendations": [],
+    "image_issues": [
+        {"index": 1, "url": "https://i5/1.jpg", "px": 1024, "severity": "low"},
+        {"index": 2, "url": "https://i5/2.jpg", "px": 1266, "severity": "mid"},
+    ],
+    "white_bg_url": "https://i5/main.jpg",
+}]}
+
+
+def _seed_scored_many(client, auth, app):
+    auth.register()
+    client.post("/app/pdp-scoring", data={"urls": "https://www.walmart.com/ip/12345"})
     with app.app_context():
         from app import jobs
         from app.db import get_db
-        from app.users import create_local_user
         db = get_db()
-        other = create_local_user("other@example.com", "password123")
-        ids = jobs.enqueue_items(db, other, [{"url": "https://www.walmart.com/ip/9", "item": "9"}])
-        jobs.save_result(db, ids[0], 72, _IMAGERY_WITH_ISSUE, "Other")
-        other_sid = ids[0]
-    # Logged-in user can't enhance another user's item (IDOR guard).
-    assert client.get(f"/app/pdp-scoring/enhance/{other_sid}/2").status_code == 404
+        row = db.execute("SELECT id FROM scored_items ORDER BY id DESC LIMIT 1").fetchone()
+        jobs.save_result(db, row["id"], 66, _IMAGERY_MANY, "Prod")
+        return row["id"]
+
+
+def test_fix_all_enqueues_every_slot(client, auth, app, monkeypatch):
+    sid = _seed_scored_many(client, auth, app)
+    monkeypatch.setattr("app.image_enhance.is_configured", lambda: True)
+    assert client.post(f"/app/pdp-scoring/enhance-all/{sid}").status_code == 302
+    with app.app_context():
+        from app.db import get_db
+        slots = {r["slot"] for r in get_db().execute(
+            "SELECT slot FROM image_jobs WHERE scored_item_id = ?", (sid,)
+        ).fetchall()}
+        # Image 1 is covered by the combined whitebg fix, so it isn't enqueued alone.
+        assert slots == {"img2", "whitebg"}
+
+
+def test_fix_all_skips_already_cached(client, auth, app, monkeypatch, tmp_path):
+    monkeypatch.setenv("MEDIA_DIR", str(tmp_path))
+    sid = _seed_scored_many(client, auth, app)
+    monkeypatch.setattr("app.image_enhance.is_configured", lambda: True)
+    _seed_cached_enhanced(app, sid, "img2", b"DONE")  # already fixed
+    client.post(f"/app/pdp-scoring/enhance-all/{sid}")
+    with app.app_context():
+        from app.db import get_db
+        slots = {r["slot"] for r in get_db().execute(
+            "SELECT slot FROM image_jobs WHERE scored_item_id = ?", (sid,)
+        ).fetchall()}
+        assert slots == {"whitebg"}  # the cached img2 wasn't re-queued
+
+
+def test_enhance_zip_bundles_finished_fixes(client, auth, app, monkeypatch, tmp_path):
+    import io
+    import zipfile
+
+    monkeypatch.setenv("MEDIA_DIR", str(tmp_path))
+    sid = _seed_scored_many(client, auth, app)
+    monkeypatch.setattr("app.image_enhance.is_configured", lambda: True)
+    _seed_cached_enhanced(app, sid, "img2", b"IMG2")
+    _seed_cached_enhanced(app, sid, "whitebg", b"MAIN")
+    resp = client.get(f"/app/pdp-scoring/enhance-all/{sid}/download.zip")
+    assert resp.status_code == 200
+    assert resp.mimetype == "application/zip"
+    names = set(zipfile.ZipFile(io.BytesIO(resp.data)).namelist())
+    assert names == {"image-2-2000px.jpg", "main-image-fixed.jpg"}
+
+
+def test_enhance_zip_404_when_nothing_ready(client, auth, app, monkeypatch, tmp_path):
+    monkeypatch.setenv("MEDIA_DIR", str(tmp_path))
+    sid = _seed_scored_many(client, auth, app)
+    monkeypatch.setattr("app.image_enhance.is_configured", lambda: True)
+    assert client.get(f"/app/pdp-scoring/enhance-all/{sid}/download.zip").status_code == 404
 
 
 # --- White-background fix (config-gated) -------------------------------------
@@ -479,85 +642,51 @@ def _seed_scored_white_bg(client, auth, app):
 
 
 def test_whitebg_route_requires_login(client):
-    assert client.get("/app/pdp-scoring/whitebg/1").status_code == 302
+    # POST-only enqueue route; an unauthenticated POST redirects to sign-in.
+    assert client.post("/app/pdp-scoring/whitebg/1").status_code == 302
 
 
-def test_whitebg_link_hidden_when_not_configured(client, auth, app):
+def test_whitebg_button_hidden_when_not_configured(client, auth, app):
     _seed_scored_white_bg(client, auth, app)
     assert b"Fix &amp; enhance main image" not in client.get("/app/pdp-scoring/results").data
 
 
-def test_whitebg_link_shown_when_configured(client, auth, app, monkeypatch):
+def test_whitebg_button_shown_when_configured(client, auth, app, monkeypatch):
     _seed_scored_white_bg(client, auth, app)
     monkeypatch.setattr("app.image_enhance.is_configured", lambda: True)
     assert b"Fix &amp; enhance main image" in client.get("/app/pdp-scoring/results").data
 
 
-def test_whitebg_route_downloads_and_caches(client, auth, app, monkeypatch, tmp_path):
-    monkeypatch.setenv("MEDIA_DIR", str(tmp_path))
+def test_whitebg_enqueue_creates_job(client, auth, app, monkeypatch):
     sid = _seed_scored_white_bg(client, auth, app)
-    calls = []
     monkeypatch.setattr("app.image_enhance.is_configured", lambda: True)
-
-    def fake_enhance(url, operation="upscale"):
-        calls.append((url, operation))
-        return b"WHITEBG-IMG"
-
-    monkeypatch.setattr("app.image_enhance.enhance", fake_enhance)
-
-    resp = client.get(f"/app/pdp-scoring/whitebg/{sid}")
-    assert resp.status_code == 200
-    assert resp.data == b"WHITEBG-IMG"
-    assert "attachment" in resp.headers.get("Content-Disposition", "")
-    # Used the stored main image URL and the white_bg operation.
-    assert calls == [("https://i5.walmartimages.com/seo/main.jpg", "white_bg")]
-
-    client.get(f"/app/pdp-scoring/whitebg/{sid}")  # served from cache
-    assert len(calls) == 1
+    assert client.post(f"/app/pdp-scoring/whitebg/{sid}").status_code == 302
+    with app.app_context():
+        from app.db import get_db
+        row = get_db().execute(
+            "SELECT * FROM image_jobs WHERE scored_item_id = ? AND slot = 'whitebg'", (sid,)
+        ).fetchone()
+        assert row["operation"] == "white_bg"
+        assert row["source_url"] == "https://i5.walmartimages.com/seo/main.jpg"
 
 
-def test_whitebg_route_rejects_other_users_item(client, auth, app, monkeypatch):
+def test_whitebg_enqueue_rejects_other_users_item(client, auth, app, monkeypatch):
     _seed_scored_white_bg(client, auth, app)
     monkeypatch.setattr("app.image_enhance.is_configured", lambda: True)
-    with app.app_context():
-        from app import jobs
-        from app.db import get_db
-        from app.users import create_local_user
-        db = get_db()
-        other = create_local_user("other2@example.com", "password123")
-        ids = jobs.enqueue_items(db, other, [{"url": "https://www.walmart.com/ip/9", "item": "9"}])
-        jobs.save_result(db, ids[0], 70, _IMAGERY_WHITE_BG, "Other")
-        other_sid = ids[0]
-    assert client.get(f"/app/pdp-scoring/whitebg/{other_sid}").status_code == 404
+    other_sid = _seed_other_users_item(app, _IMAGERY_WHITE_BG, "other2@example.com")
+    assert client.post(f"/app/pdp-scoring/whitebg/{other_sid}").status_code == 404
 
 
 def test_main_image_fix_consolidates_enhance_and_white_bg(client, auth, app, monkeypatch):
     # When the main image (index 1) needs both resolution and white-bg, its separate
-    # "Enhance" link is suppressed and the single combined action is offered; gallery
-    # images keep their own enhance links.
-    auth.register()
-    client.post("/app/pdp-scoring", data={"urls": "https://www.walmart.com/ip/12345"})
-    result = {"overall": 66, "dimensions": [{
-        "key": "imagery", "label": "Imagery", "score": 66, "available": True,
-        "recommendations": [],
-        "image_issues": [
-            {"index": 1, "url": "https://i5/1.jpg", "px": 1024, "severity": "low"},
-            {"index": 2, "url": "https://i5/2.jpg", "px": 1266, "severity": "mid"},
-        ],
-        "white_bg_url": "https://i5/main.jpg",
-    }]}
-    with app.app_context():
-        from app import jobs
-        from app.db import get_db
-        db = get_db()
-        row = db.execute("SELECT id FROM scored_items ORDER BY id DESC LIMIT 1").fetchone()
-        jobs.save_result(db, row["id"], 66, result, "Prod")
-        sid = row["id"]
+    # "Enhance" action is suppressed and the single combined action is offered;
+    # gallery images keep their own enhance action.
+    sid = _seed_scored_many(client, auth, app)
     monkeypatch.setattr("app.image_enhance.is_configured", lambda: True)
     data = client.get("/app/pdp-scoring/results").data
-    # Main image (index 1): no standalone enhance link; combined action instead.
-    assert f"/app/pdp-scoring/enhance/{sid}/1".encode() not in data
+    # Main image (index 1): no standalone enhance form; combined action instead.
+    assert f'action="/app/pdp-scoring/enhance/{sid}/1"'.encode() not in data
     assert b"Fix &amp; enhance main image" in data
-    assert f"/app/pdp-scoring/whitebg/{sid}".encode() in data
-    # Gallery image (index 2): keeps its own enhance link.
-    assert f"/app/pdp-scoring/enhance/{sid}/2".encode() in data
+    assert f'action="/app/pdp-scoring/whitebg/{sid}"'.encode() in data
+    # Gallery image (index 2): keeps its own enhance form.
+    assert f'action="/app/pdp-scoring/enhance/{sid}/2"'.encode() in data

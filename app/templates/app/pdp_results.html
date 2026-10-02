@@ -17,10 +17,38 @@
 ] %}
 
 {% block head_extra %}
-{# While any item is still scoring, refresh so results appear as the worker
-   completes them. No JS needed — CSP-safe. #}
-{% if pending %}<meta http-equiv="refresh" content="5" />{% endif %}
+{# While any item is still scoring — or any image fix is still running — refresh so
+   results (and finished fixes) appear as the worker completes them. No JS needed —
+   CSP-safe. ``enhance_pending`` is set by the route only when the feature is on. #}
+{% if pending or enhance_pending %}<meta http-equiv="refresh" content="5" />{% endif %}
 {% endblock %}
+
+{# Per-slot image-fix control. Renders one of four states from the state dict the
+   route attached (_annotate_enhance): a POST button to start the fix, a disabled
+   "Enhancing…" while the worker runs it (the page auto-refreshes), the finished
+   image inline + a download link, or a retry button on failure. The fixed image
+   is same-origin cached, so the strict CSP allows embedding it — the original CDN
+   image can't be, so it stays a link beside the result. #}
+{% macro enhance_control(state, label, post_url) %}
+  {%- if state.status == 'done' -%}
+    <span class="pdp-enhance pdp-enhance-done">
+      <img class="pdp-enhance-thumb" src="{{ state.inline_url }}" alt="Enhanced image preview" loading="lazy" />
+      <a class="pdp-enhance-link" href="{{ state.download_url }}">Download ↓</a>
+    </span>
+  {%- elif state.status in ['queued', 'processing'] -%}
+    <span class="pdp-enhance pdp-enhance-busy" title="Running — this page refreshes automatically">Enhancing… ⏳</span>
+  {%- elif state.status == 'error' -%}
+    <form method="post" action="{{ post_url }}" class="pdp-enhance pdp-enhance-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+      <span class="pdp-enhance-failed">Enhancement failed —</span> <button type="submit" class="pdp-enhance-btn">Retry</button>
+    </form>
+  {%- else -%}
+    <form method="post" action="{{ post_url }}" class="pdp-enhance pdp-enhance-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+      <button type="submit" class="pdp-enhance-btn">{{ label }} ↑</button>
+    </form>
+  {%- endif -%}
+{% endmacro %}
 
 {% block pane_content %}
 <div class="page-header">
@@ -199,27 +227,42 @@
             <p class="pdp-rec-none">No changes recommended — this dimension looks good.</p>
             {% endif %}
             {# Specific images flagged by the scorer (resolution below spec). Each
-               links to the full image in a new tab so the user can see exactly
-               which one to re-export (CSP blocks embedding the remote image). #}
+               links to the full original in a new tab (CSP blocks embedding the
+               remote image); the fix runs on the worker and shows inline when done.
+               The main image (index 1) is suppressed here when it also needs a
+               white background — the combined fix below does both in one call. #}
             {% if d.image_issues %}
             <ul class="pdp-img-issues">
               {% for img in d.image_issues %}
               <li>
                 {% if img.url %}<a href="{{ img.url }}" target="_blank" rel="noopener noreferrer">Image {{ img.index }}</a>{% else %}Image {{ img.index }}{% endif %}
                 — {{ img.px }}px{% if img.severity == 'low' %} (too small for zoom){% else %} (below the 2000px zoom spec){% endif %}
-                {# Upscale-to-2000px download — only when an AI provider is configured.
-                   The main image (index 1) is suppressed here when it also needs a
-                   white background: the combined "Fix & enhance main image" action
-                   below does both in one call (you can't chain two downloads). #}
-                {% if enhance_configured and img.url and not (d.white_bg_url and img.index == 1) %}· <a class="pdp-enhance-link" href="{{ url_for('pages.pdp_scoring_enhance', sid=it.id, index=img.index) }}" title="Upscale to 2000px (may take up to a minute)">Enhance to 2000px ↓</a>{% endif %}
+                {% if enhance_configured and img.enhance %} · {{ enhance_control(img.enhance, "Enhance to 2000px", url_for('pages.pdp_scoring_enhance', sid=it.id, index=img.index)) }}{% endif %}
               </li>
               {% endfor %}
             </ul>
             {% endif %}
             {# Combined main-image fix: white background + AI upscale + 2000px in a
                single call (Walmart main-image requirement). Only when configured. #}
-            {% if d.white_bg_url and enhance_configured %}
-            <p class="pdp-whitebg-fix"><a class="pdp-enhance-link" href="{{ url_for('pages.pdp_scoring_whitebg', sid=it.id) }}" title="White background + upscale to 2000px, in one step (may take up to a minute)">Fix &amp; enhance main image ↓</a></p>
+            {% if d.white_bg_fix and enhance_configured %}
+            <p class="pdp-whitebg-fix">{{ enhance_control(d.white_bg_fix, "Fix & enhance main image", url_for('pages.pdp_scoring_whitebg', sid=it.id)) }}</p>
+            {% endif %}
+            {# Per-item bulk controls (imagery dimension only): fix everything flagged
+               in one click, then grab all finished fixes as one ZIP. "Fix all" is a
+               metered batch of provider calls, so pdp_results.js confirms first. #}
+            {% if enhance_configured and d.key == 'imagery' and it.enhance_summary and it.enhance_summary.total %}
+            <div class="pdp-fixall">
+              {% if not it.enhance_summary.all_done %}
+              <form method="post" action="{{ it.enhance_summary.fix_all_url }}" class="pdp-enhance-form js-fixall">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+                <button type="submit" class="wbtn wbtn-secondary">Fix All Images For This Item</button>
+              </form>
+              {% endif %}
+              {% if it.enhance_summary.any_done %}
+              <a class="wbtn wbtn-secondary" href="{{ it.enhance_summary.zip_url }}">Download All As ZIP ↓</a>
+              {% endif %}
+              <span class="pdp-fixall-count">{{ it.enhance_summary.done }} of {{ it.enhance_summary.total }} fixed</span>
+            </div>
             {% endif %}
           </div>
           {% endfor %}

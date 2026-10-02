@@ -12,6 +12,7 @@ guarded by ``login_required``, so it is no longer world-reachable.
 import json
 import logging
 import os
+import re
 from datetime import datetime
 
 from flask import (
@@ -35,6 +36,7 @@ from app import (
     copy_jobs,
     fixtures,
     image_enhance,
+    image_jobs,
     jobs,
     messages,
     pdp,
@@ -472,15 +474,28 @@ def _score_summary(items: list[dict]) -> dict:
 def pdp_scoring_results():
     """Show the most recent scoring batch and poll until every item finishes."""
     items = [_row_view(r) for r in _batch_rows()]
+    # Annotate each flagged image with its async-fix status (button / spinner /
+    # inline result / retry). Only when the feature is configured — otherwise the
+    # whole enhance UI stays hidden and no job lookup is needed.
+    enhance_configured = image_enhance.is_configured()
+    enhance_pending = False
+    if enhance_configured and items:
+        jobs_map = image_jobs.jobs_for_items(
+            get_db(), [it["id"] for it in items], g.user["id"]
+        )
+        enhance_pending = _annotate_enhance(items, jobs_map, image_enhance.output_ext())
     return render_template(
         "app/pdp_results.html",
         breadcrumb="Content Studio · Product Detail Page Content Scoring",
         active_nav="pdp-scoring",
         items=items,
         summary=_score_summary(items),
-        # Gates the per-flagged-image "Enhance" link — hidden unless an upscaling
+        # Gates the per-flagged-image enhance controls — hidden unless an upscaling
         # provider/key is configured (the feature is inert otherwise).
-        enhance_configured=image_enhance.is_configured(),
+        enhance_configured=enhance_configured,
+        # Keeps the page's 5s meta-refresh alive while any fix is still running, so
+        # the inline result appears without a manual reload (mirrors scoring).
+        enhance_pending=enhance_pending,
     )
 
 
@@ -524,64 +539,268 @@ def _white_bg_image_url(row) -> str | None:
     return None
 
 
-def _serve_enhanced(sid, slot, *, source_url, operation, download_label):
-    """Enhance ``source_url`` with ``operation`` (once), cache under (sid, slot),
-    and return the file as a download. The caller has already confirmed ownership
-    and resolved the source URL from our own stored data (SSRF-safe). First call
-    hits the provider (can take up to a minute); later calls serve the cache.
+# Valid enhanced-image slots: a gallery image ("img2") or the main-image white-bg
+# fix ("whitebg"). Validated on the serve routes before any filesystem access, on
+# top of the path guard already inside ci_images.enhanced_image_path.
+_ENHANCE_SLOT_RE = re.compile(r"^(?:img\d+|whitebg)$")
+
+
+def _enhance_targets(row) -> list[tuple[str, str, str]]:
+    """Enhanceable ``(slot, operation, source_url)`` tuples for a scored row.
+
+    The single source of truth for which fixes an item offers, derived from the
+    imagery dimension of its stored result:
+    - every sub-2000px gallery image → ``("img{index}", "upscale", url)``;
+    - the main image when it also fails the white-background check →
+      ``("whitebg", "white_bg", url)``, which *supersedes* the plain upscale of
+      image 1 (the combined call does white-bg + upscale + resize in one, and you
+      can't chain two downloads).
+
+    Every URL originates from our own scrape (``result_json``), never request
+    input — the provider fetches it directly (SSRF guard).
+    """
+    if not row["result_json"]:
+        return []
+    try:
+        result = json.loads(row["result_json"])
+    except (ValueError, TypeError):
+        return []
+    imagery = next(
+        (d for d in result.get("dimensions", []) if d.get("key") == "imagery"), None
+    )
+    if not imagery:
+        return []
+    white_bg_url = imagery.get("white_bg_url")
+    targets: list[tuple[str, str, str]] = []
+    for issue in imagery.get("image_issues", []):
+        idx, url = issue.get("index"), issue.get("url")
+        if idx is None or not url:
+            continue
+        if white_bg_url and idx == 1:
+            continue  # the combined whitebg fix below covers the main image
+        targets.append((f"img{idx}", "upscale", url))
+    if white_bg_url:
+        targets.append(("whitebg", "white_bg", white_bg_url))
+    return targets
+
+
+def _enhance_slot_state(sid: int, slot: str, jobs_map: dict, ext: str) -> dict:
+    """UI state for one enhance slot: done (cached) / queued / processing / error / none.
+
+    The cache file is the source of truth for "done" (a job row may be absent for a
+    slot enhanced before this table existed, or pruned). Only when it isn't cached
+    do we fall back to the job's status. ``inline_url`` embeds the result on the
+    page (same-origin, CSP-allowed); ``download_url`` serves it as a file.
+    """
+    if ci_images.has_enhanced_image(sid, slot, ext):
+        status = "done"
+    else:
+        job = jobs_map.get((sid, slot))
+        status = job["status"] if job else "none"
+    return {
+        "slot": slot,
+        "status": status,
+        "inline_url": url_for("pages.pdp_scoring_enhanced", sid=sid, slot=slot),
+        "download_url": url_for("pages.pdp_scoring_enhanced_download", sid=sid, slot=slot),
+    }
+
+
+def _annotate_enhance(items: list[dict], jobs_map: dict, ext: str) -> bool:
+    """Attach enhance state to each item's imagery issues; return whether any pends.
+
+    Mutates each item in place: every flagged gallery image gets ``issue["enhance"]``
+    and a white-bg main image gets ``imagery["white_bg_fix"]`` (both the dict from
+    :func:`_enhance_slot_state`). Image 1 is left without a per-image control when a
+    white-bg fix applies (the combined fix handles it). Also sets
+    ``item["enhance_summary"]`` (counts for the "Fix all" / ZIP controls). Returns
+    True if any slot is still queued/processing, so the page keeps auto-refreshing.
+    """
+    pending = False
+    for it in items:
+        if not it["result"]:
+            continue
+        imagery = next(
+            (d for d in it["result"].get("dimensions", []) if d.get("key") == "imagery"),
+            None,
+        )
+        if not imagery:
+            continue
+        sid = it["id"]
+        white_bg_url = imagery.get("white_bg_url")
+        total = done = 0
+        for issue in imagery.get("image_issues", []):
+            idx, url = issue.get("index"), issue.get("url")
+            if idx is None or not url or (white_bg_url and idx == 1):
+                continue
+            state = _enhance_slot_state(sid, f"img{idx}", jobs_map, ext)
+            issue["enhance"] = state
+            total += 1
+            done += state["status"] == "done"
+            pending = pending or state["status"] in ("queued", "processing")
+        if white_bg_url:
+            state = _enhance_slot_state(sid, "whitebg", jobs_map, ext)
+            imagery["white_bg_fix"] = state
+            total += 1
+            done += state["status"] == "done"
+            pending = pending or state["status"] in ("queued", "processing")
+        it["enhance_summary"] = {
+            "total": total,
+            "done": done,
+            "all_done": total > 0 and done == total,
+            "any_done": done > 0,
+            "zip_url": url_for("pages.pdp_scoring_enhance_zip", sid=sid),
+            "fix_all_url": url_for("pages.pdp_scoring_enhance_all", sid=sid),
+        }
+    return pending
+
+
+def _owned_scored_row_or_404(sid: int):
+    """Return the scored row ``sid`` if the signed-in user owns it, else 404."""
+    rows = jobs.get_items(get_db(), [sid], g.user["id"])
+    if not rows:
+        abort(404)
+    return rows[0]
+
+
+@bp.route("/app/pdp-scoring/enhance/<int:sid>/<int:index>", methods=["POST"])
+@login_required
+def pdp_scoring_enhance(sid, index):
+    """Queue an upscale of a flagged gallery image; the worker runs it (async)."""
+    if not image_enhance.is_configured():
+        abort(503, description="Image enhancement is not configured.")
+    row = _owned_scored_row_or_404(sid)
+    source_url = _flagged_image_url(row, index)
+    if not source_url:
+        abort(404, description="No image available to enhance.")
+    image_jobs.enqueue_image_job(
+        get_db(), user_id=g.user["id"], scored_item_id=sid,
+        slot=f"img{index}", operation="upscale", source_url=source_url,
+        ext=image_enhance.output_ext(),
+    )
+    return redirect(url_for("pages.pdp_scoring_results"))
+
+
+@bp.route("/app/pdp-scoring/whitebg/<int:sid>", methods=["POST"])
+@login_required
+def pdp_scoring_whitebg(sid):
+    """Queue the combined main-image fix (white background + upscale), async."""
+    if not image_enhance.is_configured():
+        abort(503, description="Image enhancement is not configured.")
+    row = _owned_scored_row_or_404(sid)
+    source_url = _white_bg_image_url(row)
+    if not source_url:
+        abort(404, description="No image available to enhance.")
+    image_jobs.enqueue_image_job(
+        get_db(), user_id=g.user["id"], scored_item_id=sid,
+        slot="whitebg", operation="white_bg", source_url=source_url,
+        ext=image_enhance.output_ext(),
+    )
+    return redirect(url_for("pages.pdp_scoring_results"))
+
+
+@bp.route("/app/pdp-scoring/enhance-all/<int:sid>", methods=["POST"])
+@login_required
+def pdp_scoring_enhance_all(sid):
+    """Queue every available fix for one item in one go ("Fix all images").
+
+    Each is a metered provider call, so the template guards the button with a
+    confirm; here we just enqueue (idempotently — already-cached or in-flight slots
+    are skipped by :func:`app.image_jobs.enqueue_image_job`).
+    """
+    if not image_enhance.is_configured():
+        abort(503, description="Image enhancement is not configured.")
+    row = _owned_scored_row_or_404(sid)
+    targets = _enhance_targets(row)
+    ext = image_enhance.output_ext()
+    queued = 0
+    for slot, operation, source_url in targets:
+        if ci_images.has_enhanced_image(sid, slot, ext):
+            continue  # already fixed — don't re-spend a metered call
+        image_jobs.enqueue_image_job(
+            get_db(), user_id=g.user["id"], scored_item_id=sid,
+            slot=slot, operation=operation, source_url=source_url, ext=ext,
+        )
+        queued += 1
+    logger.info("Fix-all enqueued %d image job(s) for sid=%s user_id=%s", queued, sid, g.user["id"])
+    return redirect(url_for("pages.pdp_scoring_results"))
+
+
+def _serve_enhanced_file(sid: int, slot: str, *, as_attachment: bool):
+    """Serve a cached enhanced image for an owned item + valid slot, or 404.
+
+    Shared by the inline (``<img>``) and download routes. Ownership is checked
+    (IDOR), the slot is validated against :data:`_ENHANCE_SLOT_RE`, and the file
+    must already exist in the cache (the worker produces it) — this route never
+    calls the provider.
     """
     from flask import send_file
 
+    if not _ENHANCE_SLOT_RE.match(slot):
+        abort(404)
+    _owned_scored_row_or_404(sid)  # IDOR guard — must own the scored item
     ext = image_enhance.output_ext()
     path = ci_images.enhanced_image_path(sid, slot, ext)
-    if path and not ci_images.has_enhanced_image(sid, slot, ext):
-        if not image_enhance.is_configured():
-            abort(503, description="Image enhancement is not configured.")
-        if not source_url:
-            abort(404, description="No image available to enhance.")
-        try:
-            data = image_enhance.enhance(source_url, operation=operation)
-        except image_enhance.EnhanceNotConfigured:
-            abort(503, description="Image enhancement is not configured.")
-        except image_enhance.EnhanceError as e:
-            logger.warning("Enhance(%s) failed sid=%s slot=%s: %s", operation, sid, slot, e)
-            abort(502, description="Image enhancement failed — try again shortly.")
-        ci_images.save_enhanced_image(sid, slot, data, ext)
-        logger.info("Enhanced sid=%s slot=%s op=%s user_id=%s", sid, slot, operation, g.user["id"])
-
     if not path or not ci_images.has_enhanced_image(sid, slot, ext):
         abort(404)
+    download_name = (
+        "main-image-fixed" if slot == "whitebg" else f"image-{slot[3:]}-2000px"
+    )
     return send_file(
-        path, mimetype=image_enhance.output_mime(), as_attachment=True,
-        download_name=f"{download_label}.{ext}", max_age=0,
+        path, mimetype=image_enhance.output_mime(),
+        as_attachment=as_attachment, download_name=f"{download_name}.{ext}", max_age=0,
     )
 
 
-@bp.route("/app/pdp-scoring/enhance/<int:sid>/<int:index>")
+@bp.route("/app/pdp-scoring/enhanced/<int:sid>/<slot>")
 @login_required
-def pdp_scoring_enhance(sid, index):
-    """Upscale a flagged gallery image → download (user-scoped, cached)."""
-    rows = jobs.get_items(get_db(), [sid], g.user["id"])
-    if not rows:
-        abort(404)
-    item = rows[0]["item_id"] or sid
-    return _serve_enhanced(
-        sid, f"img{index}", source_url=_flagged_image_url(rows[0], index),
-        operation="upscale", download_label=f"enhanced-{item}-img{index}",
-    )
+def pdp_scoring_enhanced(sid, slot):
+    """Serve a cached enhanced image inline (for the results page ``<img>``)."""
+    return _serve_enhanced_file(sid, slot, as_attachment=False)
 
 
-@bp.route("/app/pdp-scoring/whitebg/<int:sid>")
+@bp.route("/app/pdp-scoring/enhanced/<int:sid>/<slot>/download")
 @login_required
-def pdp_scoring_whitebg(sid):
-    """Composite the main image on a pure-white background → download (cached)."""
-    rows = jobs.get_items(get_db(), [sid], g.user["id"])
-    if not rows:
-        abort(404)
-    item = rows[0]["item_id"] or sid
-    return _serve_enhanced(
-        sid, "whitebg", source_url=_white_bg_image_url(rows[0]),
-        operation="white_bg", download_label=f"main-image-fixed-{item}",
+def pdp_scoring_enhanced_download(sid, slot):
+    """Serve a cached enhanced image as a file download."""
+    return _serve_enhanced_file(sid, slot, as_attachment=True)
+
+
+@bp.route("/app/pdp-scoring/enhance-all/<int:sid>/download.zip")
+@login_required
+def pdp_scoring_enhance_zip(sid):
+    """Bundle every finished fix for one item into a single ZIP, named by position.
+
+    Includes only slots already cached (``done``); a fix still in flight is simply
+    absent from this build. 404 when nothing is ready yet.
+    """
+    import io
+    import zipfile
+
+    from flask import send_file
+
+    row = _owned_scored_row_or_404(sid)
+    ext = image_enhance.output_ext()
+    item = row["item_id"] or sid
+    buf = io.BytesIO()
+    written = 0
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for slot, _operation, _url in _enhance_targets(row):
+            path = ci_images.enhanced_image_path(sid, slot, ext)
+            if not path or not ci_images.has_enhanced_image(sid, slot, ext):
+                continue
+            arcname = (
+                f"main-image-fixed.{ext}" if slot == "whitebg"
+                else f"image-{slot[3:]}-2000px.{ext}"
+            )
+            zf.write(path, arcname=arcname)
+            written += 1
+    if not written:
+        abort(404, description="No finished image fixes to download yet.")
+    buf.seek(0)
+    logger.info("Enhanced-image ZIP: %d file(s) for sid=%s user_id=%s", written, sid, g.user["id"])
+    return send_file(
+        buf, mimetype="application/zip", as_attachment=True,
+        download_name=f"fixed-images-{item}.zip", max_age=0,
     )
 
 

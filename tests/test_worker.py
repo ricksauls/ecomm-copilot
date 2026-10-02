@@ -110,3 +110,95 @@ def test_drain_copy_processes_every_item_once(app, monkeypatch):
             ).fetchall()
         }
     assert statuses == {"done"}
+
+
+# --- Async image fixes (upscale / white-background) --------------------------
+
+
+def _seed_image_job(db, uid, item, slot="img2", operation="upscale",
+                    source_url="https://i5/x.jpg"):
+    """Create a scored item + a queued image job for it; return (sid, job_id)."""
+    from app import image_jobs
+    sid = jobs.enqueue_items(db, uid, [{"url": f"https://www.walmart.com/ip/{item}",
+                                        "item": str(item)}])[0]
+    job_id = image_jobs.enqueue_image_job(
+        db, user_id=uid, scored_item_id=sid, slot=slot,
+        operation=operation, source_url=source_url,
+    )
+    return sid, job_id
+
+
+def test_process_image_one_enhances_and_caches(app, monkeypatch, tmp_path):
+    monkeypatch.setenv("MEDIA_DIR", str(tmp_path))
+    from app import ci_images, image_jobs
+    with app.app_context():
+        uid = create_local_user("img1@example.com", "password123")
+        sid, _ = _seed_image_job(get_db(), uid, 1, source_url="https://i5/flagged.jpg")
+
+    calls = []
+
+    def fake_enhance(url, operation="upscale"):
+        calls.append((url, operation))
+        return b"ENHANCED-BYTES"
+
+    monkeypatch.setattr("app.image_enhance.enhance", fake_enhance)
+
+    conn = worker.connect(ensure=False)
+    try:
+        row = image_jobs.claim_next_image_job(conn)   # -> processing
+        worker.process_image_one(conn, row)
+        done = conn.execute("SELECT status FROM image_jobs WHERE id = ?",
+                            (row["id"],)).fetchone()["status"]
+    finally:
+        conn.close()
+
+    assert done == "done"
+    assert calls == [("https://i5/flagged.jpg", "upscale")]  # stored URL + operation
+    with app.app_context():
+        assert ci_images.has_enhanced_image(sid, "img2", "jpg")
+
+
+def test_process_image_one_marks_error_on_provider_failure(app, monkeypatch, tmp_path):
+    monkeypatch.setenv("MEDIA_DIR", str(tmp_path))
+    from app import image_enhance, image_jobs
+    with app.app_context():
+        uid = create_local_user("img2@example.com", "password123")
+        _seed_image_job(get_db(), uid, 2)
+
+    def boom(url, operation="upscale"):
+        raise image_enhance.EnhanceError("provider exploded")
+
+    monkeypatch.setattr("app.image_enhance.enhance", boom)
+
+    conn = worker.connect(ensure=False)
+    try:
+        row = image_jobs.claim_next_image_job(conn)
+        worker.process_image_one(conn, row)
+        job = conn.execute("SELECT status, error FROM image_jobs WHERE id = ?",
+                           (row["id"],)).fetchone()
+    finally:
+        conn.close()
+
+    assert job["status"] == "error"
+    assert "provider exploded" not in job["error"]  # internal detail not surfaced
+
+
+def test_drain_image_jobs_processes_every_job_once(app, monkeypatch, tmp_path):
+    monkeypatch.setenv("MEDIA_DIR", str(tmp_path))
+    with app.app_context():
+        uid = create_local_user("imgdrain@example.com", "password123")
+        db = get_db()
+        for i in range(1, 13):
+            _seed_image_job(db, uid, i)
+
+    monkeypatch.setattr("app.image_enhance.enhance", lambda url, operation="upscale": b"OK")
+    monkeypatch.setattr(worker, "SCORING_CONCURRENCY", 4)
+    monkeypatch.setattr(worker, "SUBMIT_STAGGER_S", (0, 0))
+
+    processed = worker.drain_image_jobs()
+
+    assert processed == 12
+    with app.app_context():
+        statuses = {r["status"] for r in get_db().execute(
+            "SELECT status FROM image_jobs").fetchall()}
+    assert statuses == {"done"}

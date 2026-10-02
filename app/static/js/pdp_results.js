@@ -225,9 +225,31 @@
     }
   }
 
+  // Confirm before a bulk "Fix all images" submit. Each fix is a metered provider
+  // call, so an accidental click shouldn't spend several at once. Progressive
+  // enhancement only: without JS the form still submits and the server still
+  // enforces auth + CSRF; this just guards the click.
+  function initFixAllConfirm() {
+    document.addEventListener("submit", function (event) {
+      var form = event.target;
+      if (!form.classList || !form.classList.contains("js-fixall")) {
+        return;
+      }
+      var ok = window.confirm(
+        "Fix every flagged image for this item? Each fix is a metered AI call."
+      );
+      if (!ok) {
+        event.preventDefault();
+      }
+    });
+  }
+
   // ── Wiring ──────────────────────────────────────────────────────────────────
 
   document.addEventListener("DOMContentLoaded", function () {
+    // The fix-all confirm is wired even when the results table is absent (e.g. a
+    // single-item view), since it listens on the document.
+    initFixAllConfirm();
     var body = document.querySelector(".pdp-body");
     if (!body) {
       return;
