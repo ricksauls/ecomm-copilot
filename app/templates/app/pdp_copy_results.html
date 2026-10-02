@@ -39,9 +39,11 @@
 <div class="page-header">
   <div>
     <h1>Product Detail Page Copy Content Creation</h1>
-    <p class="subtitle {{ 'subtitle-scoring' if pending else '' }}">
+    {# Static subtitle — the progress bar below carries the "in progress" cue, so
+       the text no longer flashes (matching the Content Scores screen). #}
+    <p class="subtitle">
       {{ items | length }} item{{ '' if items | length == 1 else 's' }}
-      {% if pending %}· working — this can take up to 1 minute per item{% else %}· ready{% endif %}
+      {% if pending %}· working — about 1 minute per 5 items{% else %}· ready{% endif %}
     </p>
   </div>
   <div class="header-buttons">
@@ -58,6 +60,20 @@
     <a href="{{ url_for('pages.pdp_copy') }}" class="wbtn wbtn-secondary">New batch</a>
   </div>
 </div>
+
+{% if pending %}
+{# Batch progress. Server-rendered and advances on the existing 5s poll (see
+   head_extra) — no JS, CSP-safe. 'done' is whatever the worker isn't actively
+   processing (fetched / done / failed); reuses the Content Scores bar styles. #}
+{% set total = progress.total %}
+{% set done = progress.done %}
+{% set pct = ((done / total * 100) | round(0, 'floor') | int) if total else 0 %}
+<div class="pdp-progress" role="progressbar" aria-valuemin="0" aria-valuemax="{{ total }}"
+     aria-valuenow="{{ done }}" aria-label="Copy progress">
+  <div class="pdp-progress-track"><span style="width: {{ pct }}%;"></span></div>
+  <span class="pdp-progress-label">{{ done }} of {{ total }} complete{% if progress.eta %} · {{ progress.eta }}{% endif %}</span>
+</div>
+{% endif %}
 
 {% if not items %}
 <div class="card card-pad">

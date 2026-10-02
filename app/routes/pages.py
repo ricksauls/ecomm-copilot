@@ -520,6 +520,30 @@ def _copy_batch_rows():
     return copy_jobs.get_copy_items(get_db(), ids, g.user["id"])
 
 
+# Statuses where the worker is actively processing a copy item; everything else
+# (fetched / done / blocked / error) has settled for now.
+_COPY_ACTIVE = ("queued", "fetching", "gen_queued", "generating")
+
+
+def _copy_progress(items: list[dict]) -> dict:
+    """Progress + time-left for an in-flight copy batch (mirrors _score_summary).
+
+    ``done`` counts items that have settled — the current copy fetched and resting
+    ('fetched'), fully generated ('done'), or failed — i.e. everything not still
+    being worked. ``pending`` is the active-work count that drives the
+    remaining-time estimate (reusing :func:`_eta_label`). A two-step batch shows a
+    fresh bar for each wave: fills during fetch, then again during generation.
+    """
+    total = len(items)
+    pending = sum(1 for it in items if it["status"] in _COPY_ACTIVE)
+    return {
+        "total": total,
+        "done": total - pending,
+        "pending": pending,
+        "eta": _eta_label(pending),
+    }
+
+
 def _fmt_captured(ts: str | None) -> str | None:
     """Format a stored ``YYYY-MM-DD HH:MM:SS`` (UTC) timestamp for display.
 
@@ -622,6 +646,7 @@ def pdp_copy_results():
         breadcrumb="Content Studio · Product Detail Page Copy Content Creation",
         active_nav="pdp-copy",
         items=items,
+        progress=_copy_progress(items),
     )
 
 

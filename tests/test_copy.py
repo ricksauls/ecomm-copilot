@@ -219,3 +219,17 @@ def test_fmt_captured_formats_and_tolerates_bad_input():
     assert _fmt_captured("2026-10-01 16:12:00") == "Oct 01, 2026 04:12 PM UTC"
     assert _fmt_captured(None) is None
     assert _fmt_captured("not a date") == "not a date"  # never 500s the page
+
+
+def test_copy_results_shows_progress_while_pending(client, auth):
+    # A freshly enqueued (unfetched) copy batch is pending: the subtitle shows the
+    # in-progress text, a progress bar (0 of 1 so far) with a time estimate, and no
+    # flashing class (parity with the Content Scores screen).
+    auth.register()
+    client.post("/app/pdp-copy", data={"urls": "https://www.walmart.com/ip/1"})
+    resp = client.get("/app/pdp-copy/results")
+    assert b"about 1 minute per 5 items" in resp.data
+    assert b'role="progressbar"' in resp.data
+    assert b"0 of 1 complete" in resp.data
+    assert b"less than a minute left" in resp.data
+    assert b"subtitle-scoring" not in resp.data  # no text flashing on this screen
