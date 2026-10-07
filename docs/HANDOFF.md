@@ -1,6 +1,6 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-10-07 (session 11 — batch copy rewrites bar beside image fixes; cost modal generalized; per-row copy badge; dedup-skip)._
+_Last updated: 2026-10-07 (session 11 — batch copy rewrites bar beside image fixes; cost modal generalized; per-row copy badge; dedup-skip; + wording/UI polish)._
 
 A working reference for picking up development. Read this first, then
 `CLAUDE.md` (coding standards) and `deploy/DEPLOY.md` (infra).
@@ -18,12 +18,23 @@ A working reference for picking up development. Read this first, then
 > Results** cross-link, and a counts-first cost estimate (`COPYGEN_PRICE_PER_ITEM`,
 > **no default** since copy cost is token-variable). The old header "Create New Copy
 > Content" button is gone (folded into the bar). Tests **354 passing**, `ruff` +
-> `pip-audit` clean. **Local only — NOT yet committed/pushed** (last deployed `main`
-> is session 10's `5543c1f`). No DB migration this session.
+> `pip-audit` clean. No DB migration this session.
 >
-> **To deploy:** push to `main` (auto-deploys; check for an active CI run first).
-> Optionally set `COPYGEN_PRICE_PER_ITEM` on the droplet to show a $ estimate for
-> copy (blank = counts only). Full detail in "## Session 2026-10-07 (session 11)".
+> **SHIPPED + DEPLOYED (2026-10-07).** `main` at **93d192f**; Deploy green; site 200;
+> both services active. Commits: `1d9c43e` (copy rewrites), `93d192f` (wording/UI
+> polish below). Optionally set `COPYGEN_PRICE_PER_ITEM` on the droplet to show a $
+> estimate for copy (blank = counts only). Full detail in "## Session 2026-10-07
+> (session 11)".
+>
+> **Wording/UI polish (commit 93d192f), per user request:**
+> - Batch button **"Fix All Flagged In Batch" → "Fix Images For All Items"** (+ the
+>   cost-modal title to match). *(Note: historical session-10/11 text below still
+>   says the old label — the live button is the new one.)*
+> - Expanded-row finished fix now shows **only a download link, no inline thumbnail**
+>   (it took too much room); `.pdp-enhance-thumb` CSS removed.
+> - Per-image link **"Download" → "Fix and Download"**.
+> - Scorer imagery recommendations **"Re-export … images …" → "Re-create … images …"**
+>   (both the flagged-image and the fallback variant).
 >
 > ---
 >
