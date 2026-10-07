@@ -182,6 +182,17 @@ _ACTIVITY_ACTIVE_NAV = {
     "ci-monitoring": "ci-activity",
 }
 
+# Topbar breadcrumb per activity kind, in the rail's "<main group> · <sub-item>"
+# form. The three content histories use their own history sub-item; the CI
+# histories (reached from the dashboard) use the closest Insights flow.
+_ACTIVITY_BREADCRUMB = {
+    "scored": "Product Content Scoring · View Scoring History",
+    "copy": "Copy Content Studio · View Copy Content Creation History",
+    "images": "Creative Content Studio · View Creative Content Creation History",
+    "ci-snapshot": "Insights · One-Time Snapshot",
+    "ci-monitoring": "Insights · Daily Monitoring",
+}
+
 
 def _activity_rows(db, uid, kind, since):
     """Shaped rows for one activity kind — month-scoped (``since`` set) or all-time.
@@ -314,7 +325,7 @@ def activity_all(kind):
     logger.info("Serving View All activity=%s user_id=%s rows=%d", kind, uid, len(rows))
     return render_template(
         "app/activity_all.html",
-        breadcrumb="Dashboard · " + title,
+        breadcrumb=_ACTIVITY_BREADCRUMB.get(kind, "Dashboard · " + title),
         active_nav=_ACTIVITY_ACTIVE_NAV.get(kind, "dashboard"),
         title=title,
         layout=layout,
@@ -339,7 +350,7 @@ def content_activity():
     logger.info("Serving View All Content Activity user_id=%s", uid)
     return render_template(
         "app/content_activity.html",
-        breadcrumb="Content Studio · View All Content Activity",
+        breadcrumb="Dashboard · View All Content Activity",
         active_nav="content-activity",
         scored=_activity_rows(db, uid, "scored", since=None),
         copy=_activity_rows(db, uid, "copy", since=None),
@@ -362,7 +373,7 @@ def ci_activity():
     logger.info("Serving View All Competitive Intelligence Activity user_id=%s", uid)
     return render_template(
         "app/ci_activity.html",
-        breadcrumb="Competitive Intelligence · View All Activity",
+        breadcrumb="Insights · View All Competitive Intelligence Activity",
         active_nav="ci-activity",
         snapshot=_activity_rows(db, uid, "ci-snapshot", since=None),
         monitoring=_activity_rows(db, uid, "ci-monitoring", since=None),
@@ -389,7 +400,7 @@ def pdp_scoring():
             return (
                 render_template(
                     "app/pdp_scoring.html",
-                    breadcrumb="Content Studio · Product Detail Page Content Scoring",
+                    breadcrumb="Product Content Scoring · Score Product Detail Page(s)",
                     active_nav="pdp-scoring",
                     submitted=False,
                     max_items=pdp.MAX_ITEMS,
@@ -414,7 +425,7 @@ def pdp_scoring():
     logger.info("Serving PDP Content Scoring intake")
     return render_template(
         "app/pdp_scoring.html",
-        breadcrumb="Content Studio · Product Detail Page Content Scoring",
+        breadcrumb="Product Content Scoring · Score Product Detail Page(s)",
         active_nav="pdp-scoring",
         submitted=False,
         max_items=pdp.MAX_ITEMS,
@@ -519,7 +530,7 @@ def pdp_scoring_results():
     copy_pending = bool(copy_batch and copy_batch["in_flight_any"])
     return render_template(
         "app/pdp_results.html",
-        breadcrumb="Content Studio · Product Detail Page Content Scoring",
+        breadcrumb="Product Content Scoring · Score Product Detail Page(s)",
         active_nav="pdp-scoring",
         items=items,
         summary=_score_summary(items),
@@ -1289,7 +1300,7 @@ def pdp_copy():
             return (
                 render_template(
                     "app/pdp_copy.html",
-                    breadcrumb="Content Studio · Product Detail Page Copy Content Creation",
+                    breadcrumb="Copy Content Studio · Product Detail Page Copy Content Creation",
                     active_nav="pdp-copy",
                     max_items=pdp.MAX_ITEMS,
                     error="No valid item URLs were provided.",
@@ -1313,7 +1324,7 @@ def pdp_copy():
     logger.info("Serving PDP Copy Content Creation intake")
     return render_template(
         "app/pdp_copy.html",
-        breadcrumb="Content Studio · Product Detail Page Copy Content Creation",
+        breadcrumb="Copy Content Studio · Product Detail Page Copy Content Creation",
         active_nav="pdp-copy",
         max_items=pdp.MAX_ITEMS,
         url_prefix=pdp.WALMART_IP_PREFIX,
@@ -1327,7 +1338,7 @@ def pdp_copy_results():
     items = [_copy_row_view(r) for r in _copy_batch_rows()]
     return render_template(
         "app/pdp_copy_results.html",
-        breadcrumb="Content Studio · Product Detail Page Copy Content Creation",
+        breadcrumb="Copy Content Studio · Product Detail Page Copy Content Creation",
         active_nav="pdp-copy",
         items=items,
         progress=_copy_progress(items),
@@ -2018,7 +2029,7 @@ def ci_snapshot_home():
     logger.info("Serving CI snapshot home user_id=%s", g.user["id"])
     return render_template(
         "app/ci_snapshot_home.html",
-        breadcrumb="Competitive Intelligence · One-Time Snapshot",
+        breadcrumb="Insights · One-Time Snapshot",
         active_nav="ci-snapshot",
         groups=ci_config.list_groups(get_db(), g.user["id"], mode="snapshot"),
     )
@@ -2049,7 +2060,7 @@ def ci_monitoring_home():
     db = get_db()
     return render_template(
         "app/ci_monitoring_home.html",
-        breadcrumb="Competitive Intelligence · Daily Monitoring",
+        breadcrumb="Insights · Daily Monitoring",
         active_nav="ci-monitoring",
         groups=ci_config.list_groups(db, g.user["id"], mode="monitoring"),
         next_run=ci_analysis.next_monitoring_run(),
@@ -2100,7 +2111,7 @@ def ci_group_config(group_id):
     latest_run = ci_jobs.latest_run(db, group_id)
     return render_template(
         "app/ci_group_config.html",
-        breadcrumb=f"Competitive Intelligence · {group['name']}",
+        breadcrumb=f"Insights · {group['name']}",
         active_nav=_ci_active_nav(group["mode"]),
         group=group,
         brands=ci_config.list_brands(db, group_id, g.user["id"]),
@@ -2425,7 +2436,7 @@ def ci_snapshot_results(group_id):
                 len(data["rank_rows"]))
     return render_template(
         "app/ci_snapshot_results.html",
-        breadcrumb=f"Competitive Intelligence · {group['name']}",
+        breadcrumb=f"Insights · {group['name']}",
         active_nav="ci-snapshot",
         group=group,
         run=run,
@@ -2532,7 +2543,7 @@ def ci_view_snapshot():
                 data["run"]["id"] if data["run"] else None)
     return render_template(
         "app/ci_view_snapshot.html",
-        breadcrumb="Competitive Intelligence · View Snapshot",
+        breadcrumb="Insights · View Snapshot",
         active_nav="ci-view-snapshot",
         groups=groups,
         selected=selected,
@@ -2598,7 +2609,7 @@ def ci_view():
                 g.user["id"], selected["id"] if selected else None, period, available)
     return render_template(
         "app/ci_view.html",
-        breadcrumb="Competitive Intelligence · View Monitoring",
+        breadcrumb="Insights · View Monitoring",
         active_nav="ci-view",
         groups=groups,
         selected=selected,

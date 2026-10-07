@@ -32,7 +32,9 @@
 <details class="rail-group" data-group="{{ key }}"{% if active in slugs %} open{% endif %}>
   <summary class="rail-group-head">
     <span class="rail-ico">{{ rail_icon(key) }}</span>
-    <span class="rail-main-label">{{ title }}</span>
+    {# `title` is a trusted static label and may include an explicit <br> to
+       control wrapping (e.g. keep "…Content" and "Studio" on separate lines). #}
+    <span class="rail-main-label">{{ title | safe }}</span>
     <span class="rail-toggle" aria-hidden="true"></span>
   </summary>
   <div class="rail-children">
@@ -81,7 +83,7 @@
     </a>
 
     {{ rail_group('scoring', 'Product Content Scoring', scoring_items, active_nav) }}
-    {{ rail_group('copy', 'Copy Content Studio', copy_items, active_nav) }}
+    {{ rail_group('copy', 'Copy Content<br>Studio', copy_items, active_nav) }}
     {{ rail_group('creative', 'Creative Content Studio', creative_items, active_nav) }}
     {{ rail_group('reporting', 'Insights', reporting_items, active_nav) }}
 
