@@ -1,6 +1,17 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-10-07 (session 12 — left-rail menu restructure + collapsible icon/tree-line rail redesign; Available Credits hidden; bot account confirmed removed. Session 11 — batch copy rewrites; cost modal generalized; wording/UI polish; signup honeypot; "Re-export"→"Re-create" data fix)._
+_Last updated: 2026-10-07 (session 12 — left-rail menu restructure + collapsible icon/tree-line rail redesign; breadcrumbs aligned to "<main group> · <sub-item>"; View Scoring History grouped by run ("Brands/Products Scored", up to 3 items + "And N more…"); Available Credits hidden; bot account confirmed removed. Session 11 — batch copy rewrites; cost modal generalized; wording/UI polish; signup honeypot; "Re-export"→"Re-create" data fix)._
+
+> **Session 12 — View Scoring History grouped by run (2026-10-07).** The scoring
+> history (`/app/activity/scored`) now shows **one row per scoring action**
+> (`batch_id`), retitled **"Brands/Products Scored"**: each run lists up to three
+> of its items (Brand + Product columns kept, stacked; Score on the right) with an
+> **"And N more…"** line under Product, and the row reopens the whole run
+> (`pdp_scoring_item`). History screen only — the dashboard's monthly scored table
+> is unchanged. Code: `pages._scored_runs` + a `kind == "scored"` branch in
+> `activity_all` → new `activity_scored_runs.html` + `_dash_tables.scored_runs_table`
+> macro (`.dash-row-runs`/`.run-stack` CSS); `jobs.list_scored_activity` now also
+> selects `batch_id`. **358 tests**, `ruff` clean.
 
 > **Session 12 rail redesign (2026-10-07) — collapsible icon menu with tree
 > lines.** The rail was reworked to a collapsible design (reference-matched):

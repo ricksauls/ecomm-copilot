@@ -202,7 +202,7 @@ def list_scored_activity(conn: sqlite3.Connection, user_id: int, since: str | No
     activity table shows: item id (for the cached thumbnail), title, brand, score,
     and when it ran. Capped at ``limit`` so the query stays bounded.
     """
-    sql = ("SELECT id, item_id, url, title, brand, overall, created_at "
+    sql = ("SELECT id, item_id, url, title, brand, overall, created_at, batch_id "
            "FROM scored_items WHERE user_id = ? AND status = 'scored'")
     params: list = [user_id]
     if since:

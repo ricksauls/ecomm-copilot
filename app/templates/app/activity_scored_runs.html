@@ -1,0 +1,27 @@
+{% extends "app/base.html" %}
+{% import "app/_dash_tables.html" as t %}
+{% block title %}{{ title }} — DISCOtech{% endblock %}
+
+{% block pane_content %}
+{# View Scoring History: the full, all-time scored history grouped by run (one row
+   per scoring action; each lists up to three of its items + "And N more…"). #}
+<div class="page-header">
+  <div>
+    <p class="label eyebrow">All activity</p>
+    <h1>{{ title }}</h1>
+    <p class="subtitle">{{ runs | length }} scoring run{{ '' if runs | length == 1 else 's' }}, most recent first</p>
+  </div>
+  <div class="header-buttons">
+    <a href="{{ url_for('pages.dashboard') }}" class="wbtn wbtn-secondary">← Dashboard</a>
+  </div>
+</div>
+
+<div class="dash-tables">
+  {{ t.scored_runs_table(title, "All records", runs, empty) }}
+</div>
+{% endblock %}
+
+{% block scripts %}
+{# Column sort (Date) + image hover-preview, same as the dashboard tables. #}
+<script src="{{ static_url('js/dashboard.js') }}"></script>
+{% endblock %}

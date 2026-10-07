@@ -53,6 +53,56 @@
 </details>
 {% endmacro %}
 
+{# Scoring-history table: one row per scoring run. Same columns as the per-item
+   product table (image · date · brand · product · score), but Brand/Product/Score
+   stack up to three of the run's items, with an "And N more…" line under Product.
+   The thumbnail and date are the run's; the row reopens the whole run. #}
+{% macro scored_runs_table(title, sub, runs, empty) %}
+<details class="card dash-table" open>
+  {{ _summary(title, sub, runs | length, '') }}
+  <div class="dash-body">
+    <div class="dash-cols dash-cols-product has-score dash-head-row">
+      <div class="col" data-nosort>Image</div>
+      <div class="col">Date</div>
+      <div class="col" data-nosort>Brand</div>
+      <div class="col" data-nosort>Product</div>
+      <div class="col r" data-nosort>Score</div>
+    </div>
+    {% for run in runs %}
+    <a class="dash-cols dash-cols-product has-score dash-row dash-row-link dash-row-runs"
+       href="{{ run.result_url }}">
+      <div class="col dash-thumb-cell">
+        {% if run.image_url %}
+          <img class="dash-thumb" src="{{ run.image_url }}" alt="" loading="lazy" />
+        {% else %}
+          <div class="dash-thumb placeholder"></div>
+        {% endif %}
+      </div>
+      <div class="col dash-date" data-sort="{{ run.sort_date }}">{{ run.date }}</div>
+      <div class="col">
+        <span class="run-stack">
+          {% for it in run.shown %}<span class="run-line">{{ it.brand }}</span>{% endfor %}
+        </span>
+      </div>
+      <div class="col dash-title">
+        <span class="run-stack">
+          {% for it in run.shown %}<span class="run-line">{{ it.title }}</span>{% endfor %}
+          {% if run.more %}<span class="run-more">And {{ run.more }} more…</span>{% endif %}
+        </span>
+      </div>
+      <div class="col r">
+        <span class="run-stack run-stack-r">
+          {% for it in run.shown %}<span class="run-line">{{ it.score if it.score is not none else '—' }}</span>{% endfor %}
+        </span>
+      </div>
+    </a>
+    {% else %}
+    <div class="dash-empty">{{ empty }}</div>
+    {% endfor %}
+  </div>
+</details>
+{% endmacro %}
+
 {# A Competitive Intelligence table: name · date · my brand/items · competitor brand/items. #}
 {% macro ci_table(title, sub, rows, empty='Nothing this month yet.', all_url='', cap=false) %}
 <details class="card dash-table" open>

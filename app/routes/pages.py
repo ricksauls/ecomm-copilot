@@ -228,6 +228,53 @@ def _activity_rows(db, uid, kind, since):
     return []
 
 
+def _scored_runs(db, uid) -> list[dict]:
+    """Group a user's scored items into one summary row per scoring action.
+
+    Items submitted together share a ``batch_id`` (one scoring run). This rolls
+    the all-time scored history up by run: each run shows up to three of its
+    items (brand + title + score, mirroring the per-item columns) plus an
+    "And N more…" count, its date, the first item's thumbnail, and a link that
+    reopens the whole run. Items scored before run tracking have no ``batch_id``
+    and each stand alone. Most-recent run first (the query is already newest-first).
+    """
+    groups: dict[str, dict] = {}
+    order: list[str] = []
+    for r in jobs.list_scored_activity(db, uid, None):
+        # Ungrouped (pre-batch) items each form their own single-item run.
+        key = r["batch_id"] or f"item-{r['id']}"
+        group = groups.get(key)
+        if group is None:
+            group = groups[key] = {
+                "first_id": r["id"],          # any sibling reopens the whole run
+                "image_item_id": r["item_id"],
+                "sort_date": r["created_at"] or "",
+                "date": _format_activity_date(r["created_at"]),
+                "items": [],
+            }
+            order.append(key)
+        group["items"].append({
+            "brand": (r["brand"] or "").strip() or "—",
+            "title": r["title"] or r["item_id"] or r["url"],
+            "score": r["overall"],
+        })
+
+    runs = []
+    for key in order:
+        group = groups[key]
+        shown = group["items"][:3]
+        runs.append({
+            "date": group["date"],
+            "sort_date": group["sort_date"],
+            "image_url": _item_image_url(group["image_item_id"]),
+            "count": len(group["items"]),
+            "shown": shown,
+            "more": len(group["items"]) - len(shown),  # 0 when nothing hidden
+            "result_url": url_for("pages.pdp_scoring_item", sid=group["first_id"]),
+        })
+    return runs
+
+
 @bp.route("/")
 def landing():
     """Marketing landing page. Public, dark surface."""
@@ -321,6 +368,21 @@ def activity_all(kind):
     title, layout, with_score, empty = meta
     db = get_db()
     uid = g.user["id"]
+
+    # Scoring history groups by run (one row per scoring action); every other
+    # activity stays one row per record.
+    if kind == "scored":
+        runs = _scored_runs(db, uid)
+        logger.info("Serving View All scoring runs user_id=%s runs=%d", uid, len(runs))
+        return render_template(
+            "app/activity_scored_runs.html",
+            breadcrumb=_ACTIVITY_BREADCRUMB.get(kind),
+            active_nav=_ACTIVITY_ACTIVE_NAV.get(kind, "dashboard"),
+            title="Brands/Products Scored",
+            runs=runs,
+            empty="Nothing scored yet.",
+        )
+
     rows = _activity_rows(db, uid, kind, since=None)  # all-time
     logger.info("Serving View All activity=%s user_id=%s rows=%d", kind, uid, len(rows))
     return render_template(

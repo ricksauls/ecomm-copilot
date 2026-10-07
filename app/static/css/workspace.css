@@ -751,6 +751,35 @@ img.dash-thumb {
   color: var(--cool-gray);
 }
 
+/* Scoring-history runs: a row summarizes a whole scoring action, so its
+   Brand/Product/Score cells stack up to three items. Align the row to the top
+   (the thumbnail and date sit against the first line), let each cell hold a
+   vertical stack, and keep per-line truncation so long values can't widen the
+   grid. The "And N more…" line is a muted hint under the products. */
+.dash-cols.dash-row-runs {
+  align-items: start;
+}
+.run-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.run-stack-r {
+  align-items: flex-end;
+}
+.run-stack .run-line {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.run-more {
+  margin-top: 1px;
+  font-size: 12px;
+  color: var(--cool-gray);
+}
+
 /* Keyboard focus visibility */
 a:focus-visible,
 .wbtn:focus-visible,

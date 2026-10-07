@@ -202,6 +202,36 @@ def test_view_all_shows_all_time_records(client, auth, app):
     assert b"All activity" in resp.data
 
 
+def test_scoring_history_groups_by_run(client, auth, app):
+    # View Scoring History rolls items up by scoring run: a run of five items is
+    # ONE row showing up to three brands/products plus "And 2 more…", retitled
+    # "Brands/Products Scored", and still linking back to reopen the run.
+    from app import jobs
+    from app.db import get_db
+
+    auth.register(email="runs@example.com")
+    with app.app_context():
+        db = get_db()
+        uid = db.execute("SELECT id FROM users WHERE email = ?", ("runs@example.com",)).fetchone()["id"]
+        # One enqueue_items call == one batch == one run.
+        ids = jobs.enqueue_items(db, uid, [
+            {"url": f"https://www.walmart.com/ip/{n}", "item": str(n), "brand": f"Brand{n}"}
+            for n in range(1, 6)
+        ])
+        for i, sid in enumerate(ids, start=1):
+            jobs.save_result(db, sid, 80 + i, {"overall": 80 + i}, f"Product {i}")
+        db.commit()
+
+    body = client.get("/app/activity/scored").data
+    assert b"Brands/Products Scored" in body          # retitled heading + table
+    assert b"And 2 more" in body                      # 5 items - 3 shown = 2 more
+    # Five items collapse into a single run row (one row link).
+    assert body.count(b"dash-row-runs") == 1
+    # The three most-recent items in the run show; the other two are hidden.
+    assert b"Product 5" in body and b"Product 3" in body
+    assert b"Product 1" not in body and b"Product 2" not in body
+
+
 def test_view_all_unknown_kind_404s(client, auth):
     auth.register(email="va2@example.com")
     assert client.get("/app/activity/bogus").status_code == 404
