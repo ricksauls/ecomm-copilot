@@ -1,40 +1,68 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-10-07 (session 11 — batch copy rewrites bar beside image fixes; cost modal generalized; per-row copy badge; dedup-skip; + wording/UI polish)._
+_Last updated: 2026-10-07 (session 11 — batch copy rewrites; cost modal generalized; wording/UI polish; signup honeypot; "Re-export"→"Re-create" data fix)._
 
 A working reference for picking up development. Read this first, then
 `CLAUDE.md` (coding standards) and `deploy/DEPLOY.md` (infra).
 
-> **Next session — start here (last worked 2026-10-07, session 11).** **Batch copy
-> rewrites are built and verified** (browser-tested on a seeded batch). The scoring
-> results page now has a unified **"Bulk actions"** section holding two sibling bars:
-> **Image fixes** (session 10) and **Copy rewrites** (new). Copy gets the same
-> treatment as images — **Rewrite Copy For All Items** / **Rewrite Copy For Selected**
-> (same row checkboxes), each behind the **shared cost-preflight modal**, which was
-> **generalized** to render server-formatted strings so one modal serves both
-> features (and any future metered action). Also new: a **per-row copy badge**
-> (`✓ copy 64→88` / `⏳ generating` / `copy failed`), **dedup-skip** (items already
-> having a done/in-flight copy are skipped — matched by item id/URL), a **View Copy
-> Results** cross-link, and a counts-first cost estimate (`COPYGEN_PRICE_PER_ITEM`,
-> **no default** since copy cost is token-variable). The old header "Create New Copy
-> Content" button is gone (folded into the bar). Tests **354 passing**, `ruff` +
-> `pip-audit` clean. No DB migration this session.
+> **Next session — start here (last worked 2026-10-07, session 11).**
+> **Everything below is SHIPPED + DEPLOYED and verified live.** `main` at **273e5bb**;
+> last Deploy green; site 200; both services active. Tests **357 passing**, `ruff` +
+> `pip-audit` clean. No open/half-built work; tree clean.
 >
-> **SHIPPED + DEPLOYED (2026-10-07).** `main` at **93d192f**; Deploy green; site 200;
-> both services active. Commits: `1d9c43e` (copy rewrites), `93d192f` (wording/UI
-> polish below). Optionally set `COPYGEN_PRICE_PER_ITEM` on the droplet to show a $
-> estimate for copy (blank = counts only). Full detail in "## Session 2026-10-07
-> (session 11)".
+> **What session 11 shipped (newest first, with commits):**
+> 1. **Signup honeypot** (`273e5bb`) — a bot registered via the public signup form
+>    (`etdhogdk@formtests.info`), so signup now has a hidden decoy `website` field
+>    (off-screen, not focusable, aria-hidden, autocomplete off). The server rejects a
+>    non-empty honeypot before creating any account (generic 400 + a WARNING log with
+>    ip/ua, no secrets). See `app/auth.py` + `signup.html` + `.hp-field` in
+>    `public.css`.
+> 2. **Flagged-image lines de-reddened** (`a5c406e`) — the `.pdp-img-issues` lines now
+>    use the regular `--mid-gray` (they were signal-red, which read as errors).
+>    Genuine error states (Enhancement failed, failed badges, blocked/error notes,
+>    error status, "needs work" count) are still red by design.
+> 3. **Green fix-and-download labels + ZIP rename + indented fix lines** (`984f417`) —
+>    per-item ZIP "Download All As ZIP" → **"Fix And Download All As Zip"**; both it
+>    and the per-image **"Fix and Download"** link are green (new `--signal-green`
+>    token; `a.pdp-enhance-link` specificity beats the red `.pdp-img-issues a`); the
+>    image-fix lines are indented with a left hairline rule to set them apart from the
+>    generic recommendations.
+> 4. **Wording/UI polish** (`93d192f`) — batch button **"Fix All Flagged In Batch" →
+>    "Fix Images For All Items"** (+ modal title); expanded-row finished fix shows a
+>    download link only, **no inline thumbnail** (`.pdp-enhance-thumb` removed);
+>    per-image **"Download" → "Fix and Download"**; scorer recs **"Re-export …" →
+>    "Re-create …"**. *(NB: historical session-10/11 text further below still shows the
+>    OLD "Fix All Flagged In Batch" label — the live button is the new one.)*
+> 5. **Batch copy rewrites** (`1d9c43e`) — the headline feature; full detail in
+>    "## Session 2026-10-07 (session 11)" below. Scoring results page now has a unified
+>    **"Bulk actions"** section with two sibling bars: **Image fixes** (session 10) and
+>    **Copy rewrites** (new), both behind the shared cost-preflight modal.
 >
-> **Wording/UI polish (commit 93d192f), per user request:**
-> - Batch button **"Fix All Flagged In Batch" → "Fix Images For All Items"** (+ the
->   cost-modal title to match). *(Note: historical session-10/11 text below still
->   says the old label — the live button is the new one.)*
-> - Expanded-row finished fix now shows **only a download link, no inline thumbnail**
->   (it took too much room); `.pdp-enhance-thumb` CSS removed.
-> - Per-image link **"Download" → "Fix and Download"**.
-> - Scorer imagery recommendations **"Re-export … images …" → "Re-create … images …"**
->   (both the flagged-image and the fallback variant).
+> **One-time data fix (not a commit).** Recommendations are stored in
+> `scored_items.result_json` at scoring time, so the 11 items scored before `93d192f`
+> still said "Re-export". Normalized them on the droplet with a backed-up
+> `UPDATE … REPLACE('Re-export','Re-create')` (0 remaining). The code produces
+> "Re-create" for all new scores.
+>
+> **Open housekeeping (nothing blocking):**
+> - **Bot account still in the DB** — `etdhogdk@formtests.info` (users.id 8, 0
+>   activity). Delete via **Admin → Users** (`/admin/users`) when desired; it wasn't
+>   deleted for the user (hard-deleting a prod account is theirs to do).
+> - **DB backup on the droplet** — `app.db.bak-20261007-181537` (2.7M, from the
+>   Re-export fix). Safe to `rm` once the user confirms results look right.
+>
+> **Likely next-ups (user's stated focus was "image fixes, edits, and creation"):**
+> - **PDP Image Set Creation** — still a nav placeholder (the "creation" piece never
+>   built). The natural next feature in the image track.
+> - Carried-over from sessions 10/11: **cross-image-batch dedup** (a re-scored SKU's
+>   image slots still pay per row), **per-item copy Retry** on the scoring page.
+> - If signup spam continues past the honeypot: **email verification** or an
+>   **allowlist** signup model (these are client tools, so an allowlist may fit).
+>
+> **Infra reminders:** optionally set `COPYGEN_PRICE_PER_ITEM` on the droplet to show
+> a $ estimate for copy rewrites (blank = counts only); `IMAGE_UPSCALE_PRICE_PER_IMAGE`
+> defaults to $0.04. The image-fix feature is ON (Claid key live). Deploy caution
+> (worker restart orphans in-flight CI scrapes) is unchanged — see §2/§9.
 >
 > ---
 >
