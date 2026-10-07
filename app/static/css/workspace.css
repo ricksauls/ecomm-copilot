@@ -139,10 +139,9 @@ body.workspace {
   box-shadow: inset 3px 0 0 var(--accent);
 }
 
-/* Main-option group label (the four content groups): the primary tier, so it
-   is larger and brighter than its sub-items and matches the flush top-level
-   items in size/weight. Distinct from `.rail-section-label`, the small
-   uppercase eyebrow still used for the subordinate Admin grouping. */
+/* Main-option group label (every top-level group: the content groups plus
+   Admin): the primary tier, so it is larger and brighter than its sub-items and
+   matches the flush top-level items (Dashboard, Contact Us) in size/weight. */
 .rail-group-label {
   padding: 2px 12px 5px;
   font-size: 14px;
@@ -234,10 +233,11 @@ body.workspace {
   /* Let long emails wrap fully rather than truncate. */
   overflow-wrap: anywhere;
 }
-/* Sign-out sits last in the rail, set well apart with generous space above and
-   left-aligned (30px) with the "Available credits" label. */
+/* Sign-out sits last in the rail, directly under the signed-in account block,
+   with a small gap so the two read as one bottom cluster (name above, sign out
+   below). Left-aligned at 30px. */
 .signout-form {
-  margin: 66px 24px 0 30px;
+  margin: 14px 24px 0 30px;
 }
 /* A real POST button stripped of native chrome so it reads as the same quiet
    label it did before, with a clear hover affordance. */
@@ -1822,24 +1822,12 @@ body.cost-modal-open {
    Added 2026-08-21 for the admin screens (Users, Items scored). */
 
 /* Labelled nav sections sit under the main nav, each set apart by a hairline.
-   `.rail-section` is the generic separator used by the top-level menu groups
-   (Scoring, Copy, Creative, Reporting) and the trailing Contact Us item;
-   `.rail-studio`/`.rail-ci` are retained for backward compatibility. */
-.rail-section,
-.rail-studio,
-.rail-admin,
-.rail-ci {
+   `.rail-section` is the generic separator used by every top-level menu group
+   (Scoring, Copy, Creative, Reporting, Admin) and the trailing Contact Us item. */
+.rail-section {
   margin-top: 14px;
   padding-top: 12px;
   border-top: 1px solid var(--graphite);
-}
-.rail-section-label {
-  padding: 0 12px 4px;
-  font-size: 9.5px;
-  font-weight: 600;
-  letter-spacing: 0.11em;
-  text-transform: uppercase;
-  color: var(--cool-gray);
 }
 /* Count pill trailing a sub-item (users total, items total). */
 .nav-item .nav-count {

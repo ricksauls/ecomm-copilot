@@ -107,14 +107,6 @@
 
   <div class="rail-spacer"></div>
 
-  {# Signed-in account. #}
-  <div class="user-block">
-    <div class="user-chip">{{ (current_user['email'][0] | upper) if current_user else '?' }}</div>
-    <div class="user-meta">
-      <div class="who">{{ current_user['email'] if current_user else '' }}</div>
-    </div>
-  </div>
-
   {# Available Credits is hidden for now (removed from the rail pending the
      credits model). The block is intentionally omitted rather than toggled. #}
 
@@ -122,8 +114,8 @@
      enforce access server-side regardless). The individual admin tables live
      inside the User Activity overview; System Activity is a stub. #}
   {% if is_admin %}
-  <div class="rail-nav rail-admin">
-    <div class="rail-section-label">Admin</div>
+  <div class="rail-nav rail-section">
+    <div class="rail-group-label">Admin</div>
     <a href="{{ url_for('pages.admin_activity') }}"
        class="nav-item {{ 'active' if active_nav == 'admin-activity' else '' }}">
       <span class="mark"></span>User Activity
@@ -134,6 +126,14 @@
     </a>
   </div>
   {% endif %}
+
+  {# Signed-in account sits just above Sign Out. #}
+  <div class="user-block">
+    <div class="user-chip">{{ (current_user['email'][0] | upper) if current_user else '?' }}</div>
+    <div class="user-meta">
+      <div class="who">{{ current_user['email'] if current_user else '' }}</div>
+    </div>
+  </div>
 
   {# Sign-out sits last, set apart, left-aligned with the nav items. #}
   <form method="post" action="{{ url_for('auth.signout') }}" class="signout-form">

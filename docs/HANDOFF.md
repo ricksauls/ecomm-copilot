@@ -20,8 +20,12 @@ _Last updated: 2026-10-07 (session 12 — left-rail menu restructure; Available 
 > are the larger/brighter tier (14px semibold, new `.rail-group-label`) and
 > sub-items the smaller muted tier (12px); Dashboard + Contact Us sit flush with
 > the group labels on one left edge (`.nav-item-flush`, mark dropped, active shown
-> as a flush inset accent stripe). Admin keeps its small uppercase eyebrow
-> (`.rail-section-label`). Browser-verified; **357 tests**, `ruff` clean.
+> as a flush inset accent stripe). **Admin section unified** with the rest of the
+> rail (same `.rail-section` + `.rail-group-label` as the content groups; the small
+> uppercase eyebrow `.rail-section-label` and the legacy `.rail-studio`/`.rail-ci`/
+> `.rail-admin` classes were removed as dead). **Signed-in account block moved** to
+> sit directly above Sign Out (Sign Out top margin 66px→14px so they read as one
+> bottom cluster). Browser-verified; **357 tests**, `ruff` clean.
 
 
 A working reference for picking up development. Read this first, then
