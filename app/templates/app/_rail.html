@@ -1,11 +1,48 @@
 {# Fixed navigation rail. `active_nav` (a slug like "dashboard") selects the
    highlighted item. `client_mode` hides the credits card when true.
 
-   Top-level options, in order: Dashboard, Product Detail Page Content Scoring,
-   Copy Content Studio, Creative Content Studio, Reporting · Insights · Analytics,
-   Contact Us. The three Studio groups and the Reporting group are labelled
-   sections (a non-link header + its sub-items), matching the Admin section's
-   pattern. Dashboard and Contact Us are standalone items with no sub-menu. #}
+   Layout: standalone leaf links (Dashboard, Contact Us) and collapsible groups
+   (Scoring, Copy, Creative, Reporting, Admin). Each main option has an outline
+   icon; groups add a +/- toggle and reveal their children — connected by tree
+   lines — when expanded. Groups are collapsed by default; the group holding the
+   current page auto-opens (and rail.js remembers manual open/close per tab). #}
+
+{# --- Outline icons (inline SVG; CSP-safe, inherit currentColor). --- #}
+{% macro rail_icon(name) -%}
+{%- if name == 'dashboard' -%}
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+{%- elif name == 'scoring' -%}
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3h8a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M9.3 12.4l1.9 1.9 3.6-3.7"/></svg>
+{%- elif name == 'copy' -%}
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L18.5 9.5l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>
+{%- elif name == 'creative' -%}
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.6"/><path d="M21 15l-5-4.5L6.5 20"/></svg>
+{%- elif name == 'reporting' -%}
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16"/><rect x="6" y="11.5" width="3" height="6.5" rx="0.6"/><rect x="10.5" y="7" width="3" height="11" rx="0.6"/><rect x="15" y="9.5" width="3" height="8.5" rx="0.6"/></svg>
+{%- elif name == 'contact' -%}
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H9l-4 4v-4H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z"/></svg>
+{%- elif name == 'admin' -%}
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.5v2.5M12 19v2.5M4.6 4.6l1.8 1.8M17.6 17.6l1.8 1.8M2.5 12h2.5M19 12h2.5M4.6 19.4l1.8-1.8M17.6 6.4l1.8-1.8"/></svg>
+{%- endif -%}
+{%- endmacro %}
+
+{# --- Collapsible group: icon + title + (+/-) over tree-connected children. --- #}
+{% macro rail_group(key, title, items, active) -%}
+{% set slugs = items | map('first') | list %}
+<details class="rail-group" data-group="{{ key }}"{% if active in slugs %} open{% endif %}>
+  <summary class="rail-group-head">
+    <span class="rail-ico">{{ rail_icon(key) }}</span>
+    <span class="rail-main-label">{{ title }}</span>
+    <span class="rail-toggle" aria-hidden="true"></span>
+  </summary>
+  <div class="rail-children">
+    {% for slug, label, href in items %}
+    <a href="{{ href }}" class="nav-sub-item{{ ' active' if active == slug else '' }}">{{ label }}</a>
+    {% endfor %}
+  </div>
+</details>
+{%- endmacro %}
+
 <nav class="rail">
   <div class="rail-brand">
     <div class="name">
@@ -16,92 +53,43 @@
     <div class="tagline">Your eCommerce CoPilot.</div>
   </div>
 
-  {# Dashboard sits on its own at the top (no sub-menu). `nav-item-flush` aligns
-     its label with the group section labels (every top-level option shares one
-     left edge; only sub-items indent). #}
-  <div class="rail-nav">
-    <a href="{{ url_for('pages.dashboard') }}"
-       class="nav-item nav-item-flush {{ 'active' if active_nav == 'dashboard' else '' }}">
-      <span class="mark"></span>Dashboard
-    </a>
-  </div>
-
-  {# Each labelled group below is `(slug, label, href)` rows rendered by the
-     shared loop, so adding or re-pointing a sub-item is a one-line change. A
-     '#' href is a not-yet-built placeholder (no target yet). #}
-
-  {# Product Detail Page Content Scoring — the scoring intake + its history. #}
+  {# Group item lists — `(slug, label, href)`; `#` is a not-yet-built page. #}
   {% set scoring_items = [
     ('pdp-scoring', 'Score Product Detail Page(s)', url_for('pages.pdp_scoring')),
     ('history-scored', 'View Scoring History', url_for('pages.activity_all', kind='scored')),
   ] %}
-  <div class="rail-nav rail-section">
-    <div class="rail-group-label">Product Detail Page Content Scoring</div>
-    {% for slug, label, href in scoring_items %}
-    <a href="{{ href }}" class="nav-item {{ 'active' if active_nav == slug else '' }}">
-      <span class="mark"></span>{{ label }}
-    </a>
-    {% endfor %}
-  </div>
-
-  {# Copy Content Studio — AI copy rewrite + its history. #}
   {% set copy_items = [
     ('pdp-copy', 'Product Detail Page Copy Content Creation', url_for('pages.pdp_copy')),
     ('history-copy', 'View Copy Content Creation History', url_for('pages.activity_all', kind='copy')),
   ] %}
-  <div class="rail-nav rail-section">
-    <div class="rail-group-label">Copy Content Studio</div>
-    {% for slug, label, href in copy_items %}
-    <a href="{{ href }}" class="nav-item {{ 'active' if active_nav == slug else '' }}">
-      <span class="mark"></span>{{ label }}
-    </a>
-    {% endfor %}
-  </div>
-
-  {# Creative Content Studio — image/creative creation + its history. The
-     creation page isn't built yet (placeholder href '#'); the history view
-     reuses the shared all-time activity screen (kind=images). #}
   {% set creative_items = [
     ('pdp-image-set', 'Product Detail Page Creative Content Creation', '#'),
     ('history-images', 'View Creative Content Creation History', url_for('pages.activity_all', kind='images')),
   ] %}
-  <div class="rail-nav rail-section">
-    <div class="rail-group-label">Creative Content Studio</div>
-    {% for slug, label, href in creative_items %}
-    <a href="{{ href }}" class="nav-item {{ 'active' if active_nav == slug else '' }}">
-      <span class="mark"></span>{{ label }}
-    </a>
-    {% endfor %}
-  </div>
-
-  {# Reporting · Insights · Analytics — currently home to the Competitive
-     Intelligence flows (One-Time Snapshot, Daily Monitoring, View History). #}
   {% set reporting_items = [
     ('ci-snapshot', 'One-Time Snapshot', url_for('pages.ci_snapshot_home')),
     ('ci-monitoring', 'Daily Monitoring', url_for('pages.ci_monitoring_home')),
     ('ci-activity', 'View All Competitive Intelligence Activity', url_for('pages.ci_activity')),
   ] %}
-  <div class="rail-nav rail-section">
-    <div class="rail-group-label">Reporting · Insights · Analytics</div>
-    {% for slug, label, href in reporting_items %}
-    <a href="{{ href }}" class="nav-item {{ 'active' if active_nav == slug else '' }}">
-      <span class="mark"></span>{{ label }}
-    </a>
-    {% endfor %}
-  </div>
 
-  {# Contact Us for everyone; the count badge shows unread admin replies. The
-     parenthetical hints at what the channel is for (support, feature asks).
-     Last of the main options, set off by the section hairline with a little
-     extra space above (`rail-contact`) to separate it from the content groups. #}
-  <div class="rail-nav rail-section rail-contact">
+  <div class="rail-nav rail-menu">
+    {# Dashboard — standalone link, no sub-menu. #}
+    <a href="{{ url_for('pages.dashboard') }}"
+       class="rail-leaf{{ ' active' if active_nav == 'dashboard' else '' }}">
+      <span class="rail-ico">{{ rail_icon('dashboard') }}</span>
+      <span class="rail-main-label">Dashboard</span>
+    </a>
+
+    {{ rail_group('scoring', 'Product Detail Page Content Scoring', scoring_items, active_nav) }}
+    {{ rail_group('copy', 'Copy Content Studio', copy_items, active_nav) }}
+    {{ rail_group('creative', 'Creative Content Studio', creative_items, active_nav) }}
+    {{ rail_group('reporting', 'Reporting · Insights · Analytics', reporting_items, active_nav) }}
+
+    {# Contact Us — standalone link; the badge shows unread admin replies. #}
     <a href="{{ url_for('pages.contact_home') }}"
-       class="nav-item nav-item-stacked nav-item-flush {{ 'active' if active_nav == 'contact' else '' }}">
-      <span class="mark"></span>
-      <span class="nav-label">
-        Contact Us
-        <span class="nav-sub">(questions, issues, customizations etc.)</span>
-      </span>
+       class="rail-leaf rail-leaf-spaced{{ ' active' if active_nav == 'contact' else '' }}">
+      <span class="rail-ico">{{ rail_icon('contact') }}</span>
+      <span class="rail-main-label">Contact Us</span>
       {% if msg_unread_count %}<span class="nav-count nav-count-alert">{{ msg_unread_count }}</span>{% endif %}
     </a>
   </div>
@@ -111,20 +99,15 @@
   {# Available Credits is hidden for now (removed from the rail pending the
      credits model). The block is intentionally omitted rather than toggled. #}
 
-  {# Admin section — sits above Sign Out. Only rendered for admins (the routes
-     enforce access server-side regardless). The individual admin tables live
-     inside the User Activity overview; System Activity is a stub. #}
+  {# Admin — same collapsible treatment; only rendered for admins (routes
+     enforce access server-side regardless). #}
   {% if is_admin %}
-  <div class="rail-nav rail-section">
-    <div class="rail-group-label">Admin</div>
-    <a href="{{ url_for('pages.admin_activity') }}"
-       class="nav-item {{ 'active' if active_nav == 'admin-activity' else '' }}">
-      <span class="mark"></span>User Activity
-    </a>
-    <a href="{{ url_for('pages.admin_system_activity') }}"
-       class="nav-item {{ 'active' if active_nav == 'admin-system-activity' else '' }}">
-      <span class="mark"></span>System Activity
-    </a>
+  {% set admin_items = [
+    ('admin-activity', 'User Activity', url_for('pages.admin_activity')),
+    ('admin-system-activity', 'System Activity', url_for('pages.admin_system_activity')),
+  ] %}
+  <div class="rail-nav rail-menu">
+    {{ rail_group('admin', 'Admin', admin_items, active_nav) }}
   </div>
   {% endif %}
 

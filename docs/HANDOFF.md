@@ -1,6 +1,23 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-10-07 (session 12 — left-rail menu restructure; Available Credits hidden; bot account confirmed removed. Session 11 — batch copy rewrites; cost modal generalized; wording/UI polish; signup honeypot; "Re-export"→"Re-create" data fix)._
+_Last updated: 2026-10-07 (session 12 — left-rail menu restructure + collapsible icon/tree-line rail redesign; Available Credits hidden; bot account confirmed removed. Session 11 — batch copy rewrites; cost modal generalized; wording/UI polish; signup honeypot; "Re-export"→"Re-create" data fix)._
+
+> **Session 12 rail redesign (2026-10-07) — collapsible icon menu with tree
+> lines.** The rail was reworked to a collapsible design (reference-matched):
+> each main option has an **outline icon**; the five groups (Scoring, Copy,
+> Creative, Reporting, Admin) are native **`<details>`** with a CSS-drawn **+/−**
+> toggle, **collapsed by default**, revealing children joined by **rounded
+> tree-connector lines** (trunk + elbow, `--rail-line` color token on `.rail`);
+> Dashboard + Contact Us are leaf links (no toggle). The group holding the current
+> page auto-opens (`active` slug ∈ group), and **`app/static/js/rail.js`**
+> (external, CSP-safe, loaded in `base.html`) remembers manual open/close per tab
+> via sessionStorage. Icons are inline SVG via a `rail_icon()` Jinja macro; groups
+> via a `rail_group()` macro. Replaced the prior `.nav-item*`/`.rail-group-label`/
+> `.rail-section` rail CSS with `.rail-leaf`/`.rail-group-head`/`.rail-ico`/
+> `.rail-toggle`/`.rail-children`/`.nav-sub-item` (old classes removed as dead).
+> Browser-verified (collapsed default, auto-open, +/− toggle, tree lines, JS
+> persistence); **357 tests**, `ruff` clean.
+
 
 > **Session 12 (2026-10-07) — left-rail navigation restructure.** The rail
 > (`app/templates/app/_rail.html`) now has six top-level options in order:
