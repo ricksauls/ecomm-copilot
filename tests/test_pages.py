@@ -199,7 +199,7 @@ def test_view_all_shows_all_time_records(client, auth, app):
     resp = client.get("/app/activity/scored")
     assert resp.status_code == 200
     assert b"Old Scored Product" in resp.data
-    assert b"All activity" in resp.data
+    assert b"Brands/Products Scored" in resp.data
 
 
 def test_scoring_history_groups_by_run(client, auth, app):
