@@ -25,6 +25,39 @@ def test_signup_duplicate_email_is_rejected(client, auth):
     assert b"already registered" in resp.data.lower()
 
 
+def test_signup_page_has_honeypot_field(client):
+    # The decoy field and its hidden class must render, or the bot trap is inert.
+    data = client.get("/signup").data
+    assert b'name="website"' in data
+    assert b"hp-field" in data
+
+
+def test_signup_honeypot_blocks_bot(client, app):
+    # A filled hidden "website" field means an automated bot filled every field:
+    # reject with a 400, start no session, and create no account.
+    resp = client.post("/signup", data={
+        "email": "bot@formtests.info", "password": "password123",
+        "website": "http://spam.example",
+    })
+    assert resp.status_code == 400
+    assert client.get("/app").status_code == 302  # no session established
+    with app.app_context():
+        from app.db import get_db
+        n = get_db().execute(
+            "SELECT COUNT(*) FROM users WHERE email = ?", ("bot@formtests.info",)
+        ).fetchone()[0]
+        assert n == 0  # no account created
+
+
+def test_signup_succeeds_with_blank_honeypot(client):
+    # A genuine submission leaves the honeypot empty (sent blank here) and succeeds.
+    resp = client.post("/signup", data={
+        "email": "real@example.com", "password": "password123", "website": "",
+    })
+    assert resp.status_code == 302
+    assert resp.headers["Location"].endswith("/app")
+
+
 def test_login_success(client, auth):
     auth.register(email="log@example.com", password="password123")
     auth.logout()

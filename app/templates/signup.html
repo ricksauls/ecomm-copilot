@@ -45,6 +45,17 @@
                required value="{{ email or '' }}" placeholder="you@agency.com" />
       </div>
 
+      {# Honeypot: a decoy field a real user never sees (positioned off-screen,
+         removed from the tab order and the accessibility tree). Automated signup
+         bots that blindly fill every field will populate it; the server rejects any
+         submission where it's non-empty (see auth.signup). Not a real input —
+         ``name="website"`` is a plausible-looking lure, and autocomplete is off so
+         a browser/password manager never fills it for a genuine user. #}
+      <div class="hp-field" aria-hidden="true">
+        <label for="website">Website</label>
+        <input type="text" id="website" name="website" tabindex="-1" autocomplete="off" />
+      </div>
+
       <div class="field">
         <label for="password">Password</label>
         <input type="password" id="password" name="password"

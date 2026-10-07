@@ -38,6 +38,24 @@ def signup():
         return redirect(url_for("pages.dashboard"))
 
     if request.method == "POST":
+        # Honeypot: the hidden "website" decoy field (see signup.html) is invisible
+        # to real users, so any value means an automated bot filled every field.
+        # Reject before touching validation or the service layer — bot traffic never
+        # creates a user. Fail closed with a generic message that doesn't reveal the
+        # trap. Logged at WARNING for auditability; X-Forwarded-For is nginx's record
+        # of the real client (remote_addr is the proxy), neither of which is PII.
+        if request.form.get("website", "").strip():
+            client_ip = request.headers.get("X-Forwarded-For") or request.remote_addr
+            logger.warning(
+                "Signup rejected (honeypot tripped) ip=%s ua=%r",
+                client_ip, request.headers.get("User-Agent", "")[:200],
+            )
+            return render_template(
+                "signup.html",
+                error="Something went wrong. Please try again.",
+                email="",
+            ), 400
+
         email = request.form.get("email", "")
         password = request.form.get("password", "")
 
