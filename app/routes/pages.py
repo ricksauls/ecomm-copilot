@@ -479,11 +479,14 @@ def pdp_scoring_results():
     # whole enhance UI stays hidden and no job lookup is needed.
     enhance_configured = image_enhance.is_configured()
     enhance_pending = False
+    enhance_batch = None
     if enhance_configured and items:
         jobs_map = image_jobs.jobs_for_items(
             get_db(), [it["id"] for it in items], g.user["id"]
         )
-        enhance_pending = _annotate_enhance(items, jobs_map, image_enhance.output_ext())
+        state = _annotate_enhance(items, jobs_map, image_enhance.output_ext())
+        enhance_pending = state["pending"]
+        enhance_batch = state["batch"]
     return render_template(
         "app/pdp_results.html",
         breadcrumb="Content Studio · Product Detail Page Content Scoring",
@@ -496,6 +499,11 @@ def pdp_scoring_results():
         # Keeps the page's 5s meta-refresh alive while any fix is still running, so
         # the inline result appears without a manual reload (mirrors scoring).
         enhance_pending=enhance_pending,
+        # Batch roll-up (counts across the whole table) driving the batch action
+        # bar: fix-all / fix-selected / ZIP / retry / cancel + the progress line.
+        enhance_batch=enhance_batch,
+        # Shown in the cost-preflight modal; None → modal shows counts only.
+        enhance_price=image_enhance.price_per_image() if enhance_configured else None,
     )
 
 
@@ -605,17 +613,24 @@ def _enhance_slot_state(sid: int, slot: str, jobs_map: dict, ext: str) -> dict:
     }
 
 
-def _annotate_enhance(items: list[dict], jobs_map: dict, ext: str) -> bool:
-    """Attach enhance state to each item's imagery issues; return whether any pends.
+def _annotate_enhance(items: list[dict], jobs_map: dict, ext: str) -> dict:
+    """Attach enhance state to each item's imagery issues; return page-level state.
 
     Mutates each item in place: every flagged gallery image gets ``issue["enhance"]``
     and a white-bg main image gets ``imagery["white_bg_fix"]`` (both the dict from
     :func:`_enhance_slot_state`). Image 1 is left without a per-image control when a
     white-bg fix applies (the combined fix handles it). Also sets
-    ``item["enhance_summary"]`` (counts for the "Fix all" / ZIP controls). Returns
-    True if any slot is still queued/processing, so the page keeps auto-refreshing.
+    ``item["enhance_summary"]`` — per-item counts (total / done / queued /
+    processing / failed) for the row's "Fix all" / ZIP controls and status badge.
+
+    Returns ``{"pending": bool, "batch": {...}}``: ``pending`` is True when any
+    slot is still queued/processing (so the page keeps auto-refreshing), and
+    ``batch`` rolls the per-item counts up across the whole table to drive the
+    batch action bar (fix-all / ZIP / retry / cancel) and its progress line.
     """
     pending = False
+    # Batch roll-up across every item on the page (the "fix everything" scope).
+    batch = {"total": 0, "done": 0, "queued": 0, "processing": 0, "failed": 0}
     for it in items:
         if not it["result"]:
             continue
@@ -627,31 +642,135 @@ def _annotate_enhance(items: list[dict], jobs_map: dict, ext: str) -> bool:
             continue
         sid = it["id"]
         white_bg_url = imagery.get("white_bg_url")
-        total = done = 0
+        # Per-item tally by state, so the row badge can read "M done · K failed".
+        counts = {"total": 0, "done": 0, "queued": 0, "processing": 0, "failed": 0}
+
+        def _tally(state):
+            counts["total"] += 1
+            status = state["status"]
+            if status == "done":
+                counts["done"] += 1
+            elif status == "queued":
+                counts["queued"] += 1
+            elif status == "processing":
+                counts["processing"] += 1
+            elif status == "error":
+                counts["failed"] += 1
+
         for issue in imagery.get("image_issues", []):
             idx, url = issue.get("index"), issue.get("url")
             if idx is None or not url or (white_bg_url and idx == 1):
                 continue
             state = _enhance_slot_state(sid, f"img{idx}", jobs_map, ext)
             issue["enhance"] = state
-            total += 1
-            done += state["status"] == "done"
-            pending = pending or state["status"] in ("queued", "processing")
+            _tally(state)
         if white_bg_url:
             state = _enhance_slot_state(sid, "whitebg", jobs_map, ext)
             imagery["white_bg_fix"] = state
-            total += 1
-            done += state["status"] == "done"
-            pending = pending or state["status"] in ("queued", "processing")
+            _tally(state)
+
+        pending = pending or counts["queued"] > 0 or counts["processing"] > 0
         it["enhance_summary"] = {
-            "total": total,
-            "done": done,
-            "all_done": total > 0 and done == total,
-            "any_done": done > 0,
+            **counts,
+            "in_flight": counts["queued"] + counts["processing"],
+            "all_done": counts["total"] > 0 and counts["done"] == counts["total"],
+            "any_done": counts["done"] > 0,
             "zip_url": url_for("pages.pdp_scoring_enhance_zip", sid=sid),
             "fix_all_url": url_for("pages.pdp_scoring_enhance_all", sid=sid),
         }
-    return pending
+        for key in batch:
+            batch[key] += counts[key]
+
+    batch.update({
+        "any": batch["total"] > 0,
+        "any_done": batch["done"] > 0,
+        "any_failed": batch["failed"] > 0,
+        "in_flight": batch["queued"] + batch["processing"],
+    })
+    return {"pending": pending, "batch": batch}
+
+
+# Claim priority for batch image fixes: main-image white-background (the hard
+# Walmart main-image gate) drains ahead of gallery upscales, so an interrupted
+# batch delivers the compliance wins first (see image_jobs.claim_next_image_job).
+_WHITEBG_PRIORITY = 10
+_UPSCALE_PRIORITY = 0
+
+
+def _target_priority(operation: str) -> int:
+    """Claim priority for an enhance operation (white_bg ahead of upscale)."""
+    return _WHITEBG_PRIORITY if operation == "white_bg" else _UPSCALE_PRIORITY
+
+
+def _batch_enhance_plan(rows: list, jobs_map: dict, ext: str) -> dict:
+    """What a batch fix over ``rows`` would newly run, plus its cost estimate.
+
+    Walks every row's :func:`_enhance_targets` and classifies each slot:
+    - already cached (``has_enhanced_image``) → counted as ``already_fixed`` and
+      skipped (never re-spent);
+    - already ``queued``/``processing`` (from ``jobs_map``) → skipped too, since
+      it's going to run regardless and re-enqueue is a no-op (no *new* charge);
+    - otherwise (no job yet, or a prior ``error`` to retry) → a job to enqueue,
+      which is a new metered call.
+
+    So the returned counts reflect the *additional* spend a confirm would incur —
+    exactly what the cost-preflight modal shows and what the enqueue route runs
+    (both call this, so estimate and action never diverge). ``source_url`` on each
+    job originates from our own scrape (SSRF-safe, via ``_enhance_targets``).
+    """
+    plan_jobs: list[dict] = []
+    already_fixed = 0
+    whitebg = upscale = 0
+    item_ids: set[int] = set()
+    for row in rows:
+        sid = row["id"]
+        for slot, operation, source_url in _enhance_targets(row):
+            if ci_images.has_enhanced_image(sid, slot, ext):
+                already_fixed += 1
+                continue
+            job = jobs_map.get((sid, slot))
+            if job is not None and job["status"] in ("queued", "processing"):
+                continue  # already going to run — not a new charge
+            plan_jobs.append({
+                "sid": sid, "slot": slot, "operation": operation,
+                "source_url": source_url, "priority": _target_priority(operation),
+            })
+            item_ids.add(sid)
+            if operation == "white_bg":
+                whitebg += 1
+            else:
+                upscale += 1
+    total = whitebg + upscale
+    price = image_enhance.price_per_image()
+    return {
+        "jobs": plan_jobs,
+        "whitebg": whitebg,
+        "upscale": upscale,
+        "total": total,
+        "already_fixed": already_fixed,
+        "items": len(item_ids),
+        "price_per_image": price,
+        "est_cost": round(total * price, 2) if price is not None else None,
+    }
+
+
+def _enhance_batch_rows() -> list:
+    """Resolve the scored rows a batch image action targets, from the POST form.
+
+    ``all=1`` → the whole current session batch (the "fix everything" scope);
+    otherwise the ticked ``item_ids`` (the selected-subset scope), each resolved
+    through :func:`jobs.get_items` so a foreign or unknown id is silently dropped
+    (IDOR guard). Returns ``[]`` when nothing is selected.
+    """
+    if request.form.get("all"):
+        return _batch_rows()
+    try:
+        ids = [int(v) for v in request.form.getlist("item_ids")]
+    except ValueError:
+        abort(400, description="Invalid item selection.")
+    if not ids:
+        return []
+    return jobs.get_items(get_db(), ids, g.user["id"])
 
 
 def _owned_scored_row_or_404(sid: int):
@@ -722,6 +841,101 @@ def pdp_scoring_enhance_all(sid):
         )
         queued += 1
     logger.info("Fix-all enqueued %d image job(s) for sid=%s user_id=%s", queued, sid, g.user["id"])
+    return redirect(url_for("pages.pdp_scoring_results"))
+
+
+@bp.route("/app/pdp-scoring/enhance-batch/estimate", methods=["POST"])
+@login_required
+def pdp_scoring_enhance_batch_estimate():
+    """Cost-preflight for a batch fix: JSON counts + a dollar estimate, no enqueue.
+
+    The results page's cost modal POSTs the current scope (``all=1`` or ticked
+    ``item_ids``) here and renders the response before the user confirms. Counts
+    reflect only the *additional* metered calls a confirm would make — already
+    cached and already in-flight slots are excluded (see :func:`_batch_enhance_plan`).
+    """
+    if not image_enhance.is_configured():
+        abort(503, description="Image enhancement is not configured.")
+    rows = _enhance_batch_rows()
+    ext = image_enhance.output_ext()
+    jobs_map = image_jobs.jobs_for_items(
+        get_db(), [r["id"] for r in rows], g.user["id"]
+    ) if rows else {}
+    plan = _batch_enhance_plan(rows, jobs_map, ext)
+    return jsonify({
+        "items": plan["items"],
+        "whitebg": plan["whitebg"],
+        "upscale": plan["upscale"],
+        "total": plan["total"],
+        "already_fixed": plan["already_fixed"],
+        "price_per_image": plan["price_per_image"],
+        "est_cost": plan["est_cost"],
+    })
+
+
+@bp.route("/app/pdp-scoring/enhance-batch", methods=["POST"])
+@login_required
+def pdp_scoring_enhance_batch():
+    """Enqueue every needed fix across a batch scope ("fix all" or selected items).
+
+    Each fix is a metered provider call, so the UI guards this behind the
+    cost-preflight modal; here we build the same plan the estimate showed and
+    enqueue it. Idempotent/cache-skipping via :func:`_batch_enhance_plan` +
+    :func:`app.image_jobs.enqueue_image_job`, so a re-run only fills gaps.
+    """
+    if not image_enhance.is_configured():
+        abort(503, description="Image enhancement is not configured.")
+    rows = _enhance_batch_rows()
+    if not rows:
+        logger.info("Batch fix: nothing selected, user_id=%s", g.user["id"])
+        return redirect(url_for("pages.pdp_scoring_results"))
+    db = get_db()
+    ext = image_enhance.output_ext()
+    jobs_map = image_jobs.jobs_for_items(db, [r["id"] for r in rows], g.user["id"])
+    plan = _batch_enhance_plan(rows, jobs_map, ext)
+    for job in plan["jobs"]:
+        image_jobs.enqueue_image_job(
+            db, user_id=g.user["id"], scored_item_id=job["sid"], slot=job["slot"],
+            operation=job["operation"], source_url=job["source_url"], ext=ext,
+            priority=job["priority"],
+        )
+    scope = "all" if request.form.get("all") else "selected"
+    logger.info(
+        "Batch fix (%s): enqueued %d image job(s) across %d item(s), %d already fixed, user_id=%s",
+        scope, len(plan["jobs"]), plan["items"], plan["already_fixed"], g.user["id"],
+    )
+    return redirect(url_for("pages.pdp_scoring_results"))
+
+
+@bp.route("/app/pdp-scoring/enhance-batch/retry-failed", methods=["POST"])
+@login_required
+def pdp_scoring_enhance_batch_retry():
+    """Re-queue every failed image fix in the batch scope ("Retry failed")."""
+    if not image_enhance.is_configured():
+        abort(503, description="Image enhancement is not configured.")
+    rows = _enhance_batch_rows()
+    n = image_jobs.requeue_failed_for_items(
+        get_db(), [r["id"] for r in rows], g.user["id"]
+    )
+    logger.info("Batch retry: re-queued %d failed image job(s), user_id=%s", n, g.user["id"])
+    return redirect(url_for("pages.pdp_scoring_results"))
+
+
+@bp.route("/app/pdp-scoring/enhance-batch/cancel", methods=["POST"])
+@login_required
+def pdp_scoring_enhance_batch_cancel():
+    """Cancel still-queued image fixes in the batch scope ("Stop").
+
+    In-flight (processing) calls can't be refunded, so only queued rows are
+    dropped (see :func:`app.image_jobs.cancel_queued_for_items`).
+    """
+    if not image_enhance.is_configured():
+        abort(503, description="Image enhancement is not configured.")
+    rows = _enhance_batch_rows()
+    n = image_jobs.cancel_queued_for_items(
+        get_db(), [r["id"] for r in rows], g.user["id"]
+    )
+    logger.info("Batch cancel: dropped %d queued image job(s), user_id=%s", n, g.user["id"])
     return redirect(url_for("pages.pdp_scoring_results"))
 
 
@@ -801,6 +1015,82 @@ def pdp_scoring_enhance_zip(sid):
     return send_file(
         buf, mimetype="application/zip", as_attachment=True,
         download_name=f"fixed-images-{item}.zip", max_age=0,
+    )
+
+
+def _enhanced_zip_arcname(slot: str, ext: str) -> str:
+    """Filename for a fixed image inside the batch ZIP, by its slot/position."""
+    return (
+        f"main-image-fixed.{ext}" if slot == "whitebg"
+        else f"image-{slot[3:]}-2000px.{ext}"
+    )
+
+
+@bp.route("/app/pdp-scoring/enhance-batch/download.zip")
+@login_required
+def pdp_scoring_enhance_batch_zip():
+    """Bundle every finished fix across the whole batch, organized by item.
+
+    Layout: one folder per item (``item-<item#>/``, or ``item-<sid>/`` when the
+    SKU number is unknown), fixed images named by gallery position, plus a
+    top-level ``manifest.csv`` mapping each fixed file back to the item and its
+    original image URL — so the user knows what to re-upload where (the manifest
+    is half the value at batch scale). Only slots already cached (``done``) are
+    included; in-flight fixes are simply absent. 404 when nothing is ready.
+    """
+    import csv
+    import io
+    import zipfile
+
+    from flask import send_file
+
+    rows = _batch_rows()
+    ext = image_enhance.output_ext()
+    buf = io.BytesIO()
+    manifest_rows: list[list[str]] = []
+    written = 0
+    # Item-number collisions (a re-scored SKU appearing twice) would otherwise
+    # clobber each other's folder — suffix the sid to keep each row's folder unique.
+    seen_folders: set[str] = set()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for row in rows:
+            sid = row["id"]
+            item_no = row["item_id"] or sid
+            folder = f"item-{item_no}"
+            if folder in seen_folders:
+                folder = f"item-{item_no}-{sid}"
+            product = row["title"] or ""
+            row_has_file = False
+            for slot, _operation, source_url in _enhance_targets(row):
+                path = ci_images.enhanced_image_path(sid, slot, ext)
+                if not path or not ci_images.has_enhanced_image(sid, slot, ext):
+                    continue
+                arcname = _enhanced_zip_arcname(slot, ext)
+                zf.write(path, arcname=f"{folder}/{arcname}")
+                manifest_rows.append([
+                    str(item_no), product, source_url or "", f"{folder}/{arcname}",
+                ])
+                written += 1
+                row_has_file = True
+            if row_has_file:
+                seen_folders.add(folder)
+        if written:
+            # Written last so it sees every folder name chosen above.
+            manifest = io.StringIO()
+            w = csv.writer(manifest)
+            w.writerow(["Item ID", "Product Name", "Original Image URL", "Fixed File"])
+            w.writerows(manifest_rows)
+            zf.writestr("manifest.csv", manifest.getvalue())
+    if not written:
+        abort(404, description="No finished image fixes to download yet.")
+    buf.seek(0)
+    logger.info(
+        "Batch enhanced-image ZIP: %d file(s) across %d item(s) user_id=%s",
+        written, len(seen_folders), g.user["id"],
+    )
+    return send_file(
+        buf, mimetype="application/zip", as_attachment=True,
+        download_name="fixed-images-batch.zip", max_age=0,
     )
 
 

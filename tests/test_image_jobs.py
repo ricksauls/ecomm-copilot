@@ -121,3 +121,74 @@ def test_reclaim_orphaned_marks_processing_as_error(app):
         reclaimed = image_jobs.reclaim_orphaned_image_jobs(db)
         assert reclaimed == 1
         assert image_jobs.get_image_job(db, claimed["id"], uid)["status"] == "error"
+
+
+def test_claim_honors_priority_over_fifo(app):
+    """A higher-priority job is claimed before an older lower-priority one."""
+    with app.app_context():
+        db = get_db()
+        uid = create_local_user("prio@example.com", "password123")
+        sid = _scored_item(db, uid)
+        # Enqueue a low-priority upscale first, then a high-priority whitebg.
+        low = image_jobs.enqueue_image_job(
+            db, user_id=uid, scored_item_id=sid, slot="img2",
+            operation="upscale", source_url="https://i5/2.jpg", priority=0,
+        )
+        high = image_jobs.enqueue_image_job(
+            db, user_id=uid, scored_item_id=sid, slot="whitebg",
+            operation="white_bg", source_url="https://i5/main.jpg", priority=10,
+        )
+        # Despite being enqueued second (higher id), the whitebg job claims first.
+        first = image_jobs.claim_next_image_job(db)
+        assert first["id"] == high
+        second = image_jobs.claim_next_image_job(db)
+        assert second["id"] == low
+
+
+def test_cancel_queued_drops_only_queued(app):
+    """Cancel removes queued rows but leaves in-flight/done/error untouched."""
+    with app.app_context():
+        db = get_db()
+        uid = create_local_user("cancel@example.com", "password123")
+        sid = _scored_item(db, uid)
+        _enqueue(db, uid, sid, slot="img2")  # enqueued first → claimed first
+        _enqueue(db, uid, sid, slot="img3")  # stays queued
+        image_jobs.claim_next_image_job(db)  # claims img2 (oldest) -> processing
+        n = image_jobs.cancel_queued_for_items(db, [sid], uid)
+        assert n == 1  # only the still-queued img3 is dropped
+        remaining = {r["slot"]: r["status"] for r in db.execute(
+            "SELECT slot, status FROM image_jobs WHERE scored_item_id = ?", (sid,)
+        ).fetchall()}
+        assert remaining == {"img2": "processing"}
+
+
+def test_cancel_queued_scoped_to_user(app):
+    """One user's cancel never touches another user's queued jobs (IDOR)."""
+    with app.app_context():
+        db = get_db()
+        uid = create_local_user("own@example.com", "password123")
+        other = create_local_user("other@example.com", "password123")
+        sid = _scored_item(db, uid)
+        _enqueue(db, uid, sid)
+        # 'other' cancelling the same sid id affects nothing they don't own.
+        assert image_jobs.cancel_queued_for_items(db, [sid], other) == 0
+        assert db.execute("SELECT COUNT(*) FROM image_jobs").fetchone()[0] == 1
+
+
+def test_requeue_failed_resets_errors_only(app):
+    """Retry re-queues error rows; done/queued rows are left as they are."""
+    with app.app_context():
+        db = get_db()
+        uid = create_local_user("retry@example.com", "password123")
+        sid = _scored_item(db, uid)
+        failed = _enqueue(db, uid, sid, slot="img2")
+        image_jobs.mark_image_failed(db, failed, "boom")
+        done = _enqueue(db, uid, sid, slot="img3")
+        image_jobs.mark_image_done(db, done)
+        n = image_jobs.requeue_failed_for_items(db, [sid], uid)
+        assert n == 1
+        states = {r["slot"]: r["status"] for r in db.execute(
+            "SELECT slot, status FROM image_jobs WHERE scored_item_id = ?", (sid,)
+        ).fetchall()}
+        assert states == {"img2": "queued", "img3": "done"}
+        assert image_jobs.get_image_job(db, failed, uid)["error"] is None

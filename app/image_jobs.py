@@ -41,6 +41,7 @@ def enqueue_image_job(
     operation: str,
     source_url: str,
     ext: str = "jpg",
+    priority: int = 0,
 ) -> int | None:
     """Queue an image fix for one (scored_item, slot); return its id, or None.
 
@@ -50,6 +51,10 @@ def enqueue_image_job(
     - a prior ``error`` (or ``done``) row is reset to ``queued`` so the user can
       retry / re-run a slot;
     - otherwise a fresh ``queued`` row is inserted.
+
+    ``priority`` orders the claim queue (higher drains first); batch runs pass a
+    higher value for main-image white-background fixes so the hard Walmart gate is
+    delivered before gallery upscales if a run is interrupted.
 
     ``source_url`` must come from our own stored scrape (resolved by the caller
     from the scored item's result), never arbitrary request input — the provider
@@ -67,8 +72,8 @@ def enqueue_image_job(
         # A finished/failed row: reset it to run again (retry or re-enhance).
         conn.execute(
             "UPDATE image_jobs SET status = 'queued', operation = ?, source_url = ?, "
-            "ext = ?, error = NULL, updated_at = datetime('now') WHERE id = ?",
-            (operation, source_url, ext, existing["id"]),
+            "ext = ?, priority = ?, error = NULL, updated_at = datetime('now') WHERE id = ?",
+            (operation, source_url, ext, priority, existing["id"]),
         )
         conn.commit()
         logger.info(
@@ -78,9 +83,9 @@ def enqueue_image_job(
         return int(existing["id"])
 
     cur = conn.execute(
-        "INSERT INTO image_jobs (user_id, scored_item_id, slot, operation, source_url, ext, status) "
-        "VALUES (?, ?, ?, ?, ?, ?, 'queued')",
-        (user_id, scored_item_id, slot, operation, source_url, ext),
+        "INSERT INTO image_jobs (user_id, scored_item_id, slot, operation, source_url, ext, priority, status) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, 'queued')",
+        (user_id, scored_item_id, slot, operation, source_url, ext, priority),
     )
     conn.commit()
     logger.info(
@@ -106,11 +111,13 @@ def claim_next_image_job(conn: sqlite3.Connection) -> sqlite3.Row | None:
 
     Uses a conditional UPDATE so concurrent worker threads can't grab the same
     row; a lost race retries the next candidate. Returns the claimed row, or None
-    when there's no work.
+    when there's no work. Higher ``priority`` drains first (main-image white-bg
+    ahead of gallery upscales); ties fall back to FIFO by id.
     """
     while True:
         candidate = conn.execute(
-            "SELECT id FROM image_jobs WHERE status = 'queued' ORDER BY id LIMIT 1"
+            "SELECT id FROM image_jobs WHERE status = 'queued' "
+            "ORDER BY priority DESC, id LIMIT 1"
         ).fetchone()
         if candidate is None:
             return None
@@ -173,6 +180,63 @@ def jobs_for_items(
         (user_id, *scored_item_ids),
     ).fetchall()
     return {(r["scored_item_id"], r["slot"]): r for r in rows}
+
+
+def cancel_queued_for_items(
+    conn: sqlite3.Connection, scored_item_ids: list[int], user_id: int
+) -> int:
+    """Delete still-``queued`` image jobs for the given items; return the count.
+
+    Backs the batch "Stop" action. Only ``queued`` rows are removed — a job already
+    ``processing`` is mid-provider-call and can't be refunded, so it's left to
+    finish; ``done``/``error`` rows are untouched (their result/retry still stands).
+    Deleting rather than marking a terminal state keeps the ``(scored_item_id,
+    slot)`` slot free, so the user can re-queue it cleanly later. Scoped to
+    ``user_id`` (IDOR guard). No-op (returns 0) for an empty id list.
+    """
+    if not scored_item_ids:
+        return 0
+    placeholders = ",".join("?" for _ in scored_item_ids)
+    cur = conn.execute(
+        f"DELETE FROM image_jobs WHERE user_id = ? AND status = 'queued' "
+        f"AND scored_item_id IN ({placeholders})",
+        (user_id, *scored_item_ids),
+    )
+    conn.commit()
+    if cur.rowcount:
+        logger.info(
+            "Cancelled %d queued image job(s) for %d item(s) user_id=%s",
+            cur.rowcount, len(scored_item_ids), user_id,
+        )
+    return cur.rowcount
+
+
+def requeue_failed_for_items(
+    conn: sqlite3.Connection, scored_item_ids: list[int], user_id: int
+) -> int:
+    """Reset ``error`` image jobs for the given items back to ``queued``; return count.
+
+    Backs the batch "Retry failed" action — re-runs the stored operation against
+    the stored (SSRF-safe) source URL at the same priority. Only ``error`` rows are
+    touched; a ``done`` row stays cached (no re-spend) and an in-flight row is left
+    alone. Scoped to ``user_id`` (IDOR guard). No-op for an empty id list.
+    """
+    if not scored_item_ids:
+        return 0
+    placeholders = ",".join("?" for _ in scored_item_ids)
+    cur = conn.execute(
+        f"UPDATE image_jobs SET status = 'queued', error = NULL, "
+        f"updated_at = datetime('now') WHERE user_id = ? AND status = 'error' "
+        f"AND scored_item_id IN ({placeholders})",
+        (user_id, *scored_item_ids),
+    )
+    conn.commit()
+    if cur.rowcount:
+        logger.info(
+            "Re-queued %d failed image job(s) for %d item(s) user_id=%s",
+            cur.rowcount, len(scored_item_ids), user_id,
+        )
+    return cur.rowcount
 
 
 def reclaim_orphaned_image_jobs(conn: sqlite3.Connection) -> int:

@@ -117,12 +117,15 @@ CREATE TABLE IF NOT EXISTS image_jobs (
     source_url     TEXT    NOT NULL,  -- resolved from our own stored scrape (SSRF-safe)
     ext            TEXT    NOT NULL DEFAULT 'jpg',
     status         TEXT    NOT NULL DEFAULT 'queued',  -- queued|processing|done|error
+    priority       INTEGER NOT NULL DEFAULT 0,  -- higher drains first (main-image white-bg ahead of gallery upscales)
     error          TEXT,
     created_at     TEXT    NOT NULL DEFAULT (datetime('now')),
     updated_at     TEXT    NOT NULL DEFAULT (datetime('now')),
     UNIQUE(scored_item_id, slot)
 );
 CREATE INDEX IF NOT EXISTS idx_image_jobs_status ON image_jobs(status);
+-- Claim order: queued rows, highest priority first, then FIFO by id.
+CREATE INDEX IF NOT EXISTS idx_image_jobs_claim ON image_jobs(status, priority DESC, id);
 CREATE INDEX IF NOT EXISTS idx_image_jobs_item ON image_jobs(scored_item_id);
 
 -- ── Competitive Intelligence ────────────────────────────────────────────────
@@ -406,6 +409,15 @@ def _migrate(conn: sqlite3.Connection) -> None:
     if ci_group_cols and "mode" not in ci_group_cols:
         conn.execute("ALTER TABLE ci_groups ADD COLUMN mode TEXT NOT NULL DEFAULT 'snapshot'")
         logger.info("Migrated ci_groups: added 'mode' column")
+
+    # image_jobs.priority orders the claim queue so main-image white-background
+    # fixes (the hard Walmart gate) drain ahead of gallery upscales — an
+    # interrupted batch then delivers the compliance wins first. Existing rows
+    # default to 0 (plain FIFO), unchanged.
+    image_cols = {row[1] for row in conn.execute("PRAGMA table_info(image_jobs)")}
+    if image_cols and "priority" not in image_cols:
+        conn.execute("ALTER TABLE image_jobs ADD COLUMN priority INTEGER NOT NULL DEFAULT 0")
+        logger.info("Migrated image_jobs: added 'priority' column")
 
 
 def ensure_schema(conn: sqlite3.Connection) -> None:

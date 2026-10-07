@@ -39,6 +39,28 @@ def test_enhance_raises_when_not_configured(monkeypatch):
         image_enhance.enhance("https://img.example/x.jpg")
 
 
+def test_price_per_image_defaults_to_claid_action_price(monkeypatch):
+    # Unset → Claid's published $0.04/action default.
+    monkeypatch.delenv("IMAGE_UPSCALE_PRICE_PER_IMAGE", raising=False)
+    assert image_enhance.price_per_image() == 0.04
+
+
+def test_price_per_image_override_and_opt_out(monkeypatch):
+    monkeypatch.setenv("IMAGE_UPSCALE_PRICE_PER_IMAGE", "0.09")
+    assert image_enhance.price_per_image() == 0.09
+    # Explicit empty string opts out of the dollar figure (counts only).
+    monkeypatch.setenv("IMAGE_UPSCALE_PRICE_PER_IMAGE", "")
+    assert image_enhance.price_per_image() is None
+
+
+def test_price_per_image_bad_value_falls_back_to_default(monkeypatch):
+    # A typo or a negative price must never hide the cost — fall back to default.
+    monkeypatch.setenv("IMAGE_UPSCALE_PRICE_PER_IMAGE", "not-a-number")
+    assert image_enhance.price_per_image() == 0.04
+    monkeypatch.setenv("IMAGE_UPSCALE_PRICE_PER_IMAGE", "-1")
+    assert image_enhance.price_per_image() == 0.04
+
+
 def test_output_format_helpers(monkeypatch):
     monkeypatch.setenv("IMAGE_UPSCALE_OUTPUT_FORMAT", "png")
     assert image_enhance.output_format() == "png"

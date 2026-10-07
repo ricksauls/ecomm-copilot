@@ -19,6 +19,10 @@ Env:
     IMAGE_UPSCALE_MODE          Claid upscale mode (default "smart_enhance")
     IMAGE_UPSCALE_TARGET_PX     longest-edge target, px (default 2000 — Walmart zoom)
     IMAGE_UPSCALE_OUTPUT_FORMAT "jpeg" (default) or "png"
+    IMAGE_UPSCALE_PRICE_PER_IMAGE  provider price per fix in USD (default 0.04,
+                                Claid's per-action price) — drives the batch
+                                cost-preflight estimate; set empty to show counts
+                                only (no dollar figure)
 """
 
 import logging
@@ -35,6 +39,9 @@ _DOWNLOAD_TIMEOUT_S = 30
 _DEFAULT_MODE = "smart_enhance"   # Claid's e-commerce product-image upscale
 _DEFAULT_TARGET_PX = 2000         # Walmart's image-zoom recommendation
 _DEFAULT_FORMAT = "jpeg"
+# Claid bills one "action" per image edit; this is that published list price in
+# USD. Used only to estimate spend before a batch run — never to bill or gate.
+_DEFAULT_PRICE_PER_IMAGE = 0.04
 
 
 class EnhanceError(RuntimeError):
@@ -72,6 +79,41 @@ def output_ext() -> str:
 def output_mime() -> str:
     """MIME type matching :func:`output_format`."""
     return "image/jpeg" if output_format() == "jpeg" else "image/png"
+
+
+def price_per_image() -> float | None:
+    """Per-fix price in USD for the batch cost estimate, or ``None`` for no figure.
+
+    Contract on ``IMAGE_UPSCALE_PRICE_PER_IMAGE``:
+    - unset → the default (:data:`_DEFAULT_PRICE_PER_IMAGE`, Claid's $0.04/action);
+    - a valid non-negative number → that price;
+    - an explicit empty string → ``None`` so the preflight shows counts only;
+    - anything unparseable → the default (logged), so a typo never hides the cost.
+
+    This only estimates spend shown to the user before they confirm a batch; it
+    never meters, bills, or blocks — the provider is the source of truth on cost.
+    """
+    raw = os.environ.get("IMAGE_UPSCALE_PRICE_PER_IMAGE")
+    if raw is None:
+        return _DEFAULT_PRICE_PER_IMAGE
+    raw = raw.strip()
+    if raw == "":
+        return None  # operator opted out of the dollar figure — counts only
+    try:
+        price = float(raw)
+    except ValueError:
+        logger.warning(
+            "Invalid IMAGE_UPSCALE_PRICE_PER_IMAGE=%r; using %.2f",
+            raw, _DEFAULT_PRICE_PER_IMAGE,
+        )
+        return _DEFAULT_PRICE_PER_IMAGE
+    if price < 0:
+        logger.warning(
+            "Negative IMAGE_UPSCALE_PRICE_PER_IMAGE=%r; using %.2f",
+            raw, _DEFAULT_PRICE_PER_IMAGE,
+        )
+        return _DEFAULT_PRICE_PER_IMAGE
+    return price
 
 
 # Operations the client supports, both config-gated behind the same provider/key:

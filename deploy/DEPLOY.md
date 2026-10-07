@@ -156,6 +156,16 @@ per-item **"Fix all images"** that queues every flagged fix and a **"Download al
 as ZIP"** of the results, all via Claid.ai. Each finished fix shows inline on the
 page and is downloadable as a file to re-upload to Walmart.
 
+**Batch fixing** (results table): a batch bar fixes flagged images across the
+**whole batch** or the **ticked items**, drains main-image white-bg fixes first
+(priority), and bundles every finished fix into one **by-item ZIP + `manifest.csv`**
+(item → original URL → fixed file). Each "Fix" button first shows a **cost-preflight
+modal** — real counts of new fixes and a dollar estimate — before spending.
+**Retry Failed** re-queues errored fixes; **Cancel Queued** drops still-queued
+jobs (in-flight calls finish). The estimate uses `IMAGE_UPSCALE_PRICE_PER_IMAGE`
+(USD per fix, default `0.04` = Claid's per-action price); set it empty to show
+counts only. It only estimates — it never meters, bills, or blocks.
+
 **Config-gated and inert by default** — nothing shows or runs until you set
 `IMAGE_UPSCALE_API_KEY` in `.env` (see `.env.example` for `IMAGE_UPSCALE_*`). To
 enable, set the key and restart **both** services:

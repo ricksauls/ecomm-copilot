@@ -18,9 +18,14 @@
 
 {% block head_extra %}
 {# While any item is still scoring — or any image fix is still running — refresh so
-   results (and finished fixes) appear as the worker completes them. No JS needed —
-   CSP-safe. ``enhance_pending`` is set by the route only when the feature is on. #}
-{% if pending or enhance_pending %}<meta http-equiv="refresh" content="5" />{% endif %}
+   results (and finished fixes) appear as the worker completes them. With JS, the
+   reload is driven by pdp_results.js (reading the marker meta below) so the cost
+   modal can pause it mid-decision; without JS, the <noscript> meta-refresh is the
+   fallback. Both are CSP-safe. ``enhance_pending`` is set only when the feature's on. #}
+{% if pending or enhance_pending %}
+<noscript><meta http-equiv="refresh" content="5" /></noscript>
+<meta name="pdp-refresh-seconds" content="5" />
+{% endif %}
 {% endblock %}
 
 {# Per-slot image-fix control. Renders one of four states from the state dict the
@@ -116,6 +121,57 @@
 </div>
 
 <p class="copy-select-hint">Tick items and choose <strong>Create New Copy Content</strong> to rewrite their Title, Description, and Key Features. Click a row to see its recommendations.</p>
+
+{# Batch image-fix bar: fix every flagged image across the batch, or just the
+   ticked items. The two "Fix" buttons are JS-driven (type=button) so they can
+   show the cost-preflight modal before spending — each fix is a metered AI call.
+   Retry/Cancel/ZIP carry no new cost, so they're plain forms/links that also work
+   without JS. Shown only when the feature is configured and the batch has flagged
+   images. Counts come from the route (_annotate_enhance batch roll-up). #}
+{% if enhance_configured and enhance_batch and enhance_batch.any %}
+<div class="pdp-batchbar card card-pad" role="group" aria-label="Batch image fixes">
+  <div class="pdp-batchbar-info">
+    <span class="pdp-batchbar-title">Image fixes</span>
+    <span class="pdp-batchbar-progress">
+      {{ enhance_batch.done }} of {{ enhance_batch.total }} fixed
+      {%- if enhance_batch.in_flight %} · {{ enhance_batch.in_flight }} running{% endif %}
+      {%- if enhance_batch.failed %} · {{ enhance_batch.failed }} failed{% endif %}
+    </span>
+  </div>
+  <div class="pdp-batchbar-actions">
+    {# data-* drive the shared cost modal in pdp_results.js: fetch an estimate for
+       the scope, show it, and on confirm POST to the action URL. #}
+    <button type="button" class="wbtn wbtn-primary js-cost-action"
+            data-scope="all"
+            data-estimate-url="{{ url_for('pages.pdp_scoring_enhance_batch_estimate') }}"
+            data-action-url="{{ url_for('pages.pdp_scoring_enhance_batch') }}"
+            data-title="Fix all flagged images in this batch">Fix All Flagged In Batch</button>
+    {# Enabled by pdp_results.js only while at least one row is ticked. #}
+    <button type="button" class="wbtn wbtn-secondary js-cost-action js-fix-selected" disabled
+            data-scope="selected"
+            data-estimate-url="{{ url_for('pages.pdp_scoring_enhance_batch_estimate') }}"
+            data-action-url="{{ url_for('pages.pdp_scoring_enhance_batch') }}"
+            data-title="Fix flagged images for the selected items">Fix Images For Selected</button>
+    {% if enhance_batch.any_done %}
+    <a class="wbtn wbtn-secondary" href="{{ url_for('pages.pdp_scoring_enhance_batch_zip') }}">Download Fixed Images (ZIP) ↓</a>
+    {% endif %}
+    {% if enhance_batch.any_failed %}
+    <form method="post" action="{{ url_for('pages.pdp_scoring_enhance_batch_retry') }}" class="pdp-batchbar-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+      <input type="hidden" name="all" value="1" />
+      <button type="submit" class="wbtn wbtn-secondary">Retry Failed ({{ enhance_batch.failed }})</button>
+    </form>
+    {% endif %}
+    {% if enhance_batch.queued %}
+    <form method="post" action="{{ url_for('pages.pdp_scoring_enhance_batch_cancel') }}" class="pdp-batchbar-form js-cancel-queued">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+      <input type="hidden" name="all" value="1" />
+      <button type="submit" class="wbtn wbtn-ghost">Cancel Queued ({{ enhance_batch.queued }})</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
 {% endif %}
 
 {# Selection form: the per-item checkboxes below post together to the copy flow.
@@ -201,6 +257,18 @@
             {% elif it.status == 'blocked' %}Couldn’t fetch
             {% else %}Error{% endif %}
           </span>
+          {# Image-fix badge: a compact roll-up of this item's flagged-image fixes,
+             visible without expanding the row. Only when the feature is on and the
+             item has flagged images. #}
+          {% if enhance_configured and it.enhance_summary and it.enhance_summary.total %}
+          {% set es = it.enhance_summary %}
+          <span class="pdp-fix-badge{% if es.failed %} has-failed{% elif es.all_done %} all-done{% endif %}"
+                title="Image fixes for this item">
+            {%- if es.in_flight %}⏳ {% elif es.all_done %}✓ {% endif -%}
+            {{ es.done }}/{{ es.total }} fixed
+            {%- if es.failed %} · {{ es.failed }} failed{% endif -%}
+          </span>
+          {% endif %}
         </div>
         {# Expand caret — only scored rows have a detail panel to reveal. #}
         <div class="col pdp-caret-cell">
@@ -266,7 +334,7 @@
               {% if it.enhance_summary.any_done %}
               <a class="wbtn wbtn-secondary" href="{{ it.enhance_summary.zip_url }}">Download All As ZIP ↓</a>
               {% endif %}
-              <span class="pdp-fixall-count">{{ it.enhance_summary.done }} of {{ it.enhance_summary.total }} fixed</span>
+              <span class="pdp-fixall-count">{{ it.enhance_summary.done }} of {{ it.enhance_summary.total }} fixed{% if it.enhance_summary.in_flight %} · {{ it.enhance_summary.in_flight }} running{% endif %}{% if it.enhance_summary.failed %} · {{ it.enhance_summary.failed }} failed{% endif %}</span>
             </div>
             {% endif %}
           </div>
@@ -284,6 +352,36 @@
 </div>
 {% endif %}
 </form>
+
+{# Reusable cost-preflight modal. Hidden until a [data-cost-action] button opens
+   it (pdp_results.js): the script fetches a live estimate for the chosen scope,
+   fills the summary + dollar figure, and on confirm POSTs to the action URL. Kept
+   generic (title/summary/cost are filled by JS) so other metered actions can
+   reuse it later. Only rendered when the enhance feature is configured. #}
+{% if enhance_configured %}
+<div class="cost-modal" id="cost-modal" hidden>
+  <div class="cost-modal-backdrop" data-cost-cancel></div>
+  <div class="cost-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="cost-modal-title">
+    <h2 id="cost-modal-title" class="cost-modal-title">Confirm image fixes</h2>
+    <div class="cost-modal-body">
+      <p class="cost-modal-loading">Calculating estimate…</p>
+      <div class="cost-modal-detail" hidden>
+        <p class="cost-modal-summary"></p>
+        <p class="cost-modal-cost"></p>
+        <p class="cost-modal-note">Each fix is a metered AI call. Images already fixed or in progress are skipped — you’re only charged for new fixes.</p>
+      </div>
+      <p class="cost-modal-empty" hidden>Nothing new to fix — every flagged image in this scope is already fixed or in progress.</p>
+      <p class="cost-modal-error" hidden>Couldn’t estimate the cost just now. Close this and try again.</p>
+    </div>
+    <div class="cost-modal-actions">
+      <button type="button" class="wbtn wbtn-secondary" data-cost-cancel>Cancel</button>
+      <button type="button" class="wbtn wbtn-primary cost-modal-confirm" disabled>Confirm &amp; Fix</button>
+    </div>
+  </div>
+  {# CSRF for the estimate fetch and the dynamically-built confirm POST. #}
+  <input type="hidden" id="cost-modal-csrf" value="{{ csrf_token() }}" />
+</div>
+{% endif %}
 
 {# No-JS fallback: the detail panels are collapsed only once pdp_results.js marks
    the page (.pdp-js). Without JS that class never appears, so this keeps every

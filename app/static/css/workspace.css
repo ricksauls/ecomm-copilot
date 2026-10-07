@@ -1580,6 +1580,145 @@ a:focus-visible,
   font-size: 12px;
   color: var(--cool-gray);
 }
+
+/* ── Batch image-fix bar + per-row badge + cost modal ────────────────────────
+   Added for batch image fixing: a table-level bar to fix every/selected item's
+   flagged images, a compact per-row status badge, and a reusable cost-preflight
+   modal shown before the metered run. */
+
+/* Batch bar: title + progress on the left, actions on the right. */
+.pdp-batchbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-12);
+  margin-bottom: var(--space-14);
+  padding: var(--space-12) var(--space-16);
+}
+.pdp-batchbar-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.pdp-batchbar-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--black);
+}
+.pdp-batchbar-progress {
+  font-size: 12px;
+  color: var(--cool-gray);
+}
+.pdp-batchbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-8);
+}
+.pdp-batchbar-form {
+  margin: 0;
+}
+/* A quiet, borderless button for the low-stakes "Cancel Queued" action. */
+.wbtn-ghost {
+  background: transparent;
+  color: var(--mid-gray);
+}
+.wbtn-ghost:hover {
+  color: var(--signal-red);
+}
+.wbtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Per-row fix badge: a small chip under the status badge. */
+.pdp-fix-badge {
+  display: inline-block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--cool-gray);
+  white-space: nowrap;
+}
+.pdp-fix-badge.all-done {
+  color: var(--mid-gray);
+}
+.pdp-fix-badge.has-failed {
+  color: var(--signal-red);
+}
+
+/* Cost-preflight modal: a centered dialog over a dimmed backdrop. */
+.cost-modal[hidden] {
+  display: none;
+}
+.cost-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-20);
+}
+.cost-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(11, 18, 32, 0.45);
+}
+.cost-modal-dialog {
+  position: relative;
+  width: 100%;
+  max-width: 440px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.2);
+  padding: var(--space-24);
+}
+.cost-modal-title {
+  margin: 0 0 var(--space-12);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--black);
+}
+.cost-modal-body {
+  font-size: 13px;
+  color: var(--black);
+  line-height: 1.5;
+}
+.cost-modal-summary {
+  margin: 0 0 var(--space-8);
+  font-weight: 500;
+}
+.cost-modal-cost {
+  margin: 0 0 var(--space-8);
+  font-weight: 600;
+}
+.cost-modal-note {
+  margin: 0;
+  font-size: 12px;
+  color: var(--cool-gray);
+}
+.cost-modal-loading,
+.cost-modal-empty,
+.cost-modal-error {
+  margin: 0;
+  color: var(--mid-gray);
+}
+.cost-modal-error {
+  color: var(--signal-red);
+}
+.cost-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-8);
+  margin-top: var(--space-20);
+}
+/* Lock background scroll while the modal is open. */
+body.cost-modal-open {
+  overflow: hidden;
+}
+
 /* Non-scored rows (blocked/error): a short reason under the row. */
 .pdp-note {
   margin: 0;

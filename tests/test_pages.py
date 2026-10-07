@@ -705,3 +705,203 @@ def test_whitebg_only_uses_standalone_line(client, auth, app, monkeypatch):
     assert b'class="pdp-whitebg-fix"' in data
     assert b"Main image" in data
     assert f'action="/app/pdp-scoring/whitebg/{sid}"'.encode() in data
+
+
+# --- Batch image fixing (whole-batch + selected) + cost preflight ------------
+
+def _seed_batch_two(client, auth, app):
+    """Register and score a two-item batch into the session.
+
+    Item A (``_IMAGERY_MANY``): one gallery upscale (img2) + the combined
+    main-image white-bg fix (whitebg) — img1 is covered by whitebg, not enqueued
+    alone. Item B (``_IMAGERY_WITH_ISSUE``): one gallery upscale (img2). So the
+    batch offers 3 fixes total — 2 upscales + 1 white-bg — across 2 items.
+    """
+    auth.register()
+    with app.app_context():
+        from app import jobs
+        from app.db import get_db
+        db = get_db()
+        uid = db.execute("SELECT id FROM users ORDER BY id LIMIT 1").fetchone()["id"]
+        sids = jobs.enqueue_items(db, uid, [
+            {"url": "https://www.walmart.com/ip/111", "item": "111"},
+            {"url": "https://www.walmart.com/ip/222", "item": "222"},
+        ])
+        jobs.save_result(db, sids[0], 66, _IMAGERY_MANY, "ProdA")
+        jobs.save_result(db, sids[1], 72, _IMAGERY_WITH_ISSUE, "ProdB")
+    # Point the session's "current batch" at these two items (the route normally
+    # does this at intake; we seed directly so the test controls the batch).
+    with client.session_transaction() as sess:
+        sess["pdp_batch_ids"] = sids
+    return sids
+
+
+def test_batch_bar_hidden_when_not_configured(client, auth, app):
+    _seed_batch_two(client, auth, app)
+    assert b"Fix All Flagged In Batch" not in client.get("/app/pdp-scoring/results").data
+
+
+def test_batch_bar_shown_when_configured(client, auth, app, monkeypatch):
+    _seed_batch_two(client, auth, app)
+    monkeypatch.setattr("app.image_enhance.is_configured", lambda: True)
+    data = client.get("/app/pdp-scoring/results").data
+    assert b"Fix All Flagged In Batch" in data
+    assert b"Fix Images For Selected" in data
+
+
+def test_batch_estimate_counts_whole_batch(client, auth, app, monkeypatch):
+    _seed_batch_two(client, auth, app)
+    monkeypatch.setattr("app.image_enhance.is_configured", lambda: True)
+    monkeypatch.setenv("IMAGE_UPSCALE_PRICE_PER_IMAGE", "0.04")
+    est = client.post("/app/pdp-scoring/enhance-batch/estimate", data={"all": "1"}).get_json()
+    assert est["total"] == 3
+    assert est["whitebg"] == 1
+    assert est["upscale"] == 2
+    assert est["items"] == 2
+    assert est["already_fixed"] == 0
+    assert est["price_per_image"] == 0.04
+    assert est["est_cost"] == 0.12  # 3 × $0.04
+
+
+def test_batch_estimate_selected_subset_only(client, auth, app, monkeypatch):
+    sids = _seed_batch_two(client, auth, app)
+    monkeypatch.setattr("app.image_enhance.is_configured", lambda: True)
+    # Only item B (one upscale) is ticked.
+    est = client.post(
+        "/app/pdp-scoring/enhance-batch/estimate", data={"item_ids": str(sids[1])}
+    ).get_json()
+    assert est["total"] == 1
+    assert est["upscale"] == 1
+    assert est["whitebg"] == 0
+    assert est["items"] == 1
+
+
+def test_batch_estimate_skips_already_fixed(client, auth, app, monkeypatch, tmp_path):
+    monkeypatch.setenv("MEDIA_DIR", str(tmp_path))
+    sids = _seed_batch_two(client, auth, app)
+    monkeypatch.setattr("app.image_enhance.is_configured", lambda: True)
+    _seed_cached_enhanced(app, sids[0], "img2", b"DONE")  # A's upscale already done
+    est = client.post("/app/pdp-scoring/enhance-batch/estimate", data={"all": "1"}).get_json()
+    assert est["total"] == 2          # A whitebg + B img2
+    assert est["already_fixed"] == 1  # A img2 skipped
+
+
+def test_batch_estimate_skips_in_flight(client, auth, app, monkeypatch):
+    sids = _seed_batch_two(client, auth, app)
+    monkeypatch.setattr("app.image_enhance.is_configured", lambda: True)
+    client.post(f"/app/pdp-scoring/enhance/{sids[1]}/2")  # B img2 already queued
+    est = client.post("/app/pdp-scoring/enhance-batch/estimate", data={"all": "1"}).get_json()
+    # The queued slot isn't a *new* charge, so it's excluded from the estimate.
+    assert est["total"] == 2  # A img2 + A whitebg
+
+
+def test_batch_enqueue_all_sets_priority(client, auth, app, monkeypatch):
+    _seed_batch_two(client, auth, app)
+    monkeypatch.setattr("app.image_enhance.is_configured", lambda: True)
+    assert client.post("/app/pdp-scoring/enhance-batch", data={"all": "1"}).status_code == 302
+    with app.app_context():
+        from app.db import get_db
+        rows = get_db().execute(
+            "SELECT slot, operation, priority FROM image_jobs"
+        ).fetchall()
+        assert len(rows) == 3
+        by_op = {r["operation"]: r["priority"] for r in rows}
+        # White-bg (the hard Walmart gate) drains ahead of gallery upscales.
+        assert by_op["white_bg"] == 10
+        assert by_op["upscale"] == 0
+
+
+def test_batch_enqueue_selected_only(client, auth, app, monkeypatch):
+    sids = _seed_batch_two(client, auth, app)
+    monkeypatch.setattr("app.image_enhance.is_configured", lambda: True)
+    client.post("/app/pdp-scoring/enhance-batch", data={"item_ids": str(sids[1])})
+    with app.app_context():
+        from app.db import get_db
+        rows = get_db().execute(
+            "SELECT scored_item_id FROM image_jobs"
+        ).fetchall()
+        assert {r["scored_item_id"] for r in rows} == {sids[1]}
+
+
+def test_batch_enqueue_not_configured_returns_503(client, auth, app, monkeypatch):
+    _seed_batch_two(client, auth, app)
+    monkeypatch.setattr("app.image_enhance.is_configured", lambda: False)
+    assert client.post("/app/pdp-scoring/enhance-batch", data={"all": "1"}).status_code == 503
+
+
+def test_batch_enqueue_nothing_selected_is_noop(client, auth, app, monkeypatch):
+    _seed_batch_two(client, auth, app)
+    monkeypatch.setattr("app.image_enhance.is_configured", lambda: True)
+    resp = client.post("/app/pdp-scoring/enhance-batch", data={})  # neither all nor ids
+    assert resp.status_code == 302
+    with app.app_context():
+        from app.db import get_db
+        assert get_db().execute("SELECT COUNT(*) FROM image_jobs").fetchone()[0] == 0
+
+
+def test_batch_enqueue_ignores_foreign_ids(client, auth, app, monkeypatch):
+    _seed_batch_two(client, auth, app)
+    monkeypatch.setattr("app.image_enhance.is_configured", lambda: True)
+    other_sid = _seed_other_users_item(app, _IMAGERY_WITH_ISSUE, "stranger@example.com")
+    client.post("/app/pdp-scoring/enhance-batch", data={"item_ids": str(other_sid)})
+    with app.app_context():
+        from app.db import get_db
+        # A foreign id resolves to no owned rows → nothing enqueued (IDOR guard).
+        assert get_db().execute("SELECT COUNT(*) FROM image_jobs").fetchone()[0] == 0
+
+
+def test_batch_retry_requeues_failed(client, auth, app, monkeypatch):
+    sids = _seed_batch_two(client, auth, app)
+    monkeypatch.setattr("app.image_enhance.is_configured", lambda: True)
+    client.post(f"/app/pdp-scoring/enhance/{sids[1]}/2")  # queue B img2
+    with app.app_context():
+        from app import image_jobs
+        from app.db import get_db
+        db = get_db()
+        job = db.execute("SELECT id FROM image_jobs").fetchone()
+        image_jobs.mark_image_failed(db, job["id"], "boom")
+    client.post("/app/pdp-scoring/enhance-batch/retry-failed", data={"all": "1"})
+    with app.app_context():
+        from app.db import get_db
+        assert get_db().execute("SELECT status FROM image_jobs").fetchone()["status"] == "queued"
+
+
+def test_batch_cancel_drops_queued(client, auth, app, monkeypatch):
+    sids = _seed_batch_two(client, auth, app)
+    monkeypatch.setattr("app.image_enhance.is_configured", lambda: True)
+    client.post(f"/app/pdp-scoring/enhance/{sids[1]}/2")  # queue B img2
+    client.post("/app/pdp-scoring/enhance-batch/cancel", data={"all": "1"})
+    with app.app_context():
+        from app.db import get_db
+        assert get_db().execute("SELECT COUNT(*) FROM image_jobs").fetchone()[0] == 0
+
+
+def test_batch_zip_by_item_with_manifest(client, auth, app, monkeypatch, tmp_path):
+    import io
+    import zipfile
+
+    monkeypatch.setenv("MEDIA_DIR", str(tmp_path))
+    sids = _seed_batch_two(client, auth, app)
+    monkeypatch.setattr("app.image_enhance.is_configured", lambda: True)
+    _seed_cached_enhanced(app, sids[0], "img2", b"A2")
+    _seed_cached_enhanced(app, sids[0], "whitebg", b"AMAIN")
+    _seed_cached_enhanced(app, sids[1], "img2", b"B2")
+    resp = client.get("/app/pdp-scoring/enhance-batch/download.zip")
+    assert resp.status_code == 200
+    assert resp.mimetype == "application/zip"
+    names = set(zipfile.ZipFile(io.BytesIO(resp.data)).namelist())
+    # One folder per item (by Walmart item number), files named by position.
+    assert "item-111/image-2-2000px.jpg" in names
+    assert "item-111/main-image-fixed.jpg" in names
+    assert "item-222/image-2-2000px.jpg" in names
+    assert "manifest.csv" in names
+    manifest = zipfile.ZipFile(io.BytesIO(resp.data)).read("manifest.csv").decode()
+    assert "Item ID,Product Name,Original Image URL,Fixed File" in manifest
+    assert "item-111/main-image-fixed.jpg" in manifest
+
+
+def test_batch_zip_404_when_nothing_ready(client, auth, app, monkeypatch, tmp_path):
+    monkeypatch.setenv("MEDIA_DIR", str(tmp_path))
+    _seed_batch_two(client, auth, app)
+    monkeypatch.setattr("app.image_enhance.is_configured", lambda: True)
+    assert client.get("/app/pdp-scoring/enhance-batch/download.zip").status_code == 404

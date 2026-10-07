@@ -20,6 +20,44 @@
   // takes effect immediately rather than flashing every panel open.
   document.documentElement.classList.add("pdp-js");
 
+  // ── Auto-refresh (JS-controlled, pausable) ───────────────────────────────────
+  //
+  // The page auto-refreshes every few seconds while scoring/fixes run. With JS we
+  // drive that reload ourselves (from the marker meta the template emits) instead
+  // of a hard <meta http-equiv="refresh">, so the cost modal can PAUSE it — a
+  // metered-spend confirmation must not vanish from under the user mid-decision.
+  // Without JS, the template's <noscript> meta-refresh is the fallback.
+  var autoRefresh = null;
+
+  function createAutoRefresh() {
+    var meta = document.querySelector('meta[name="pdp-refresh-seconds"]');
+    if (!meta) {
+      return { pause: function () {}, resume: function () {} };
+    }
+    var seconds = parseInt(meta.getAttribute("content"), 10) || 5;
+    var timer = null;
+    var paused = false;
+    function arm() {
+      if (paused || timer !== null) {
+        return;
+      }
+      timer = window.setTimeout(function () {
+        window.location.reload();
+      }, seconds * 1000);
+    }
+    function disarm() {
+      if (timer !== null) {
+        window.clearTimeout(timer);
+        timer = null;
+      }
+    }
+    arm();
+    return {
+      pause: function () { paused = true; disarm(); },
+      resume: function () { paused = false; arm(); },
+    };
+  }
+
   // ── Sorting ────────────────────────────────────────────────────────────────
 
   // A cell's sort key: an explicit data-sort (score, or -1 for unmeasured) wins,
@@ -188,6 +226,7 @@
       // Bulk controls act on visible rows, so re-sync them to the filtered set.
       refreshSelectAll(body);
       refreshExpandAll(body);
+      refreshFixSelected();
     });
   }
 
@@ -241,11 +280,13 @@
           }
         });
         master.indeterminate = false;
+        refreshFixSelected();
       });
       // A per-row box changing re-derives the header's checked/indeterminate state.
       body.addEventListener("change", function (event) {
         if (event.target.matches('input[name="item_ids"]')) {
           refreshSelectAll(body);
+          refreshFixSelected();
         }
       });
     }
@@ -285,12 +326,224 @@
     });
   }
 
+  // ── Cost-preflight modal (reusable) ──────────────────────────────────────────
+  //
+  // A generic confirm-with-estimate dialog for metered actions. A trigger button
+  // carries data-scope / data-estimate-url / data-action-url / data-title. On
+  // click we POST the current scope to the estimate URL, show the returned counts
+  // and dollar figure, and on confirm build+submit a POST to the action URL. Kept
+  // action-agnostic so other metered features can reuse the same modal later.
+
+  // The ticked item ids (used by the "selected" scope and to enable its button).
+  function selectedItemIds() {
+    return Array.prototype.slice
+      .call(document.querySelectorAll('input[name="item_ids"]:checked'))
+      .map(function (b) { return b.value; });
+  }
+
+  // The batch "Fix Images For Selected" button is inert with nothing ticked.
+  function refreshFixSelected() {
+    var btn = document.querySelector(".js-fix-selected");
+    if (btn) {
+      btn.disabled = selectedItemIds().length === 0;
+    }
+  }
+
+  function csrfToken() {
+    var el = document.getElementById("cost-modal-csrf");
+    return el ? el.value : "";
+  }
+
+  function pluralize(n, one, many) {
+    return n + " " + (n === 1 ? one : many);
+  }
+
+  // Build the human summary line from the estimate payload.
+  function summaryText(est) {
+    var parts = [];
+    if (est.whitebg) {
+      parts.push(pluralize(est.whitebg, "white-background fix", "white-background fixes"));
+    }
+    if (est.upscale) {
+      parts.push(pluralize(est.upscale, "upscale", "upscales"));
+    }
+    var fixes = parts.length ? parts.join(" + ") : "0 fixes";
+    var text = fixes + " across " + pluralize(est.items, "item", "items") + ".";
+    if (est.already_fixed) {
+      text += " " + est.already_fixed + " already fixed — skipped.";
+    }
+    return text;
+  }
+
+  function costText(est) {
+    if (est.price_per_image === null || est.price_per_image === undefined) {
+      return ""; // operator left the price unset — counts only
+    }
+    return (
+      "Estimated cost: ≈ $" + Number(est.est_cost).toFixed(2) +
+      " (" + est.total + " × $" + Number(est.price_per_image).toFixed(2) + " per fix)"
+    );
+  }
+
+  function initCostModal() {
+    var modal = document.getElementById("cost-modal");
+    if (!modal) {
+      return; // feature off — no modal rendered
+    }
+    var loading = modal.querySelector(".cost-modal-loading");
+    var detail = modal.querySelector(".cost-modal-detail");
+    var summaryEl = modal.querySelector(".cost-modal-summary");
+    var costEl = modal.querySelector(".cost-modal-cost");
+    var emptyEl = modal.querySelector(".cost-modal-empty");
+    var errorEl = modal.querySelector(".cost-modal-error");
+    var titleEl = modal.querySelector(".cost-modal-title");
+    var confirmBtn = modal.querySelector(".cost-modal-confirm");
+
+    // The action the modal will run if confirmed, captured when it opens.
+    var pending = null;
+
+    function setState(which) {
+      loading.hidden = which !== "loading";
+      detail.hidden = which !== "detail";
+      emptyEl.hidden = which !== "empty";
+      errorEl.hidden = which !== "error";
+      confirmBtn.disabled = which !== "detail";
+    }
+
+    function open() {
+      modal.hidden = false;
+      document.body.classList.add("cost-modal-open");
+      // Freeze the page's auto-refresh so the estimate doesn't vanish mid-read.
+      if (autoRefresh) {
+        autoRefresh.pause();
+      }
+    }
+    function close() {
+      modal.hidden = true;
+      document.body.classList.remove("cost-modal-open");
+      pending = null;
+      if (autoRefresh) {
+        autoRefresh.resume();
+      }
+    }
+
+    // Append scope fields (all=1 or one item_ids input per id) to a form/params.
+    function applyScope(add, scope, ids) {
+      if (scope === "all") {
+        add("all", "1");
+      } else {
+        ids.forEach(function (id) { add("item_ids", id); });
+      }
+    }
+
+    function fetchEstimate(trigger) {
+      var scope = trigger.getAttribute("data-scope");
+      var ids = selectedItemIds();
+      if (scope === "selected" && ids.length === 0) {
+        return; // nothing ticked — button should be disabled anyway
+      }
+      pending = { actionUrl: trigger.getAttribute("data-action-url"), scope: scope, ids: ids };
+      titleEl.textContent = trigger.getAttribute("data-title") || "Confirm";
+      setState("loading");
+      open();
+
+      var params = new URLSearchParams();
+      params.append("csrf_token", csrfToken());
+      applyScope(function (k, v) { params.append(k, v); }, scope, ids);
+
+      fetch(trigger.getAttribute("data-estimate-url"), {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: params.toString(),
+        credentials: "same-origin",
+      })
+        .then(function (r) {
+          if (!r.ok) { throw new Error("estimate failed"); }
+          return r.json();
+        })
+        .then(function (est) {
+          if (!est.total) {
+            setState("empty");
+            return;
+          }
+          summaryEl.textContent = summaryText(est);
+          var cost = costText(est);
+          costEl.textContent = cost;
+          costEl.hidden = cost === "";
+          setState("detail");
+        })
+        .catch(function () {
+          setState("error");
+        });
+    }
+
+    // Open on any cost-action trigger (buttons live in the batch bar).
+    document.addEventListener("click", function (event) {
+      var trigger = event.target.closest(".js-cost-action");
+      if (!trigger || trigger.disabled) {
+        return;
+      }
+      event.preventDefault();
+      fetchEstimate(trigger);
+    });
+
+    // Confirm: build a real POST form for the captured action + scope and submit.
+    confirmBtn.addEventListener("click", function () {
+      if (!pending) {
+        return;
+      }
+      var form = document.createElement("form");
+      form.method = "post";
+      form.action = pending.actionUrl;
+      function add(name, value) {
+        var input = document.createElement("input");
+        input.type = "hidden";
+        input.name = name;
+        input.value = value;
+        form.appendChild(input);
+      }
+      add("csrf_token", csrfToken());
+      applyScope(add, pending.scope, pending.ids);
+      document.body.appendChild(form);
+      form.submit();
+    });
+
+    // Cancel via either Cancel button or the backdrop.
+    modal.addEventListener("click", function (event) {
+      if (event.target.closest("[data-cost-cancel]")) {
+        close();
+      }
+    });
+    document.addEventListener("keydown", function (event) {
+      if (event.key === "Escape" && !modal.hidden) {
+        close();
+      }
+    });
+  }
+
+  // A plain confirm before cancelling queued fixes (no cost, but destructive).
+  function initCancelConfirm() {
+    document.addEventListener("submit", function (event) {
+      var form = event.target;
+      if (!form.classList || !form.classList.contains("js-cancel-queued")) {
+        return;
+      }
+      if (!window.confirm("Cancel all queued image fixes? In-progress fixes will still finish.")) {
+        event.preventDefault();
+      }
+    });
+  }
+
   // ── Wiring ──────────────────────────────────────────────────────────────────
 
   document.addEventListener("DOMContentLoaded", function () {
+    // Start the pausable auto-refresh first, so the cost modal can freeze it.
+    autoRefresh = createAutoRefresh();
     // The fix-all confirm is wired even when the results table is absent (e.g. a
     // single-item view), since it listens on the document.
     initFixAllConfirm();
+    initCostModal();
+    initCancelConfirm();
     var body = document.querySelector(".pdp-body");
     if (!body) {
       return;
@@ -304,5 +557,6 @@
     initBulk(body);
     refreshSelectAll(body);
     refreshExpandAll(body);
+    refreshFixSelected();
   });
 })();

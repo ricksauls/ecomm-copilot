@@ -1,23 +1,34 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-10-01 (session 9 — async image fixes + ZIP, UX refinements; batch-fix design notes)._
+_Last updated: 2026-10-07 (session 10 — batch image fixing: whole-batch + selected, reusable cost-preflight modal, priority ordering, by-item ZIP + manifest, retry/cancel)._
 
 A working reference for picking up development. Read this first, then
 `CLAUDE.md` (coding standards) and `deploy/DEPLOY.md` (infra).
 
-> **Next session — start here (last worked 2026-10-01, session 9).** The async
-> image-fix overhaul is **shipped, deployed, and verified live** — and the feature is
-> **ON**: the Claid key is set on the droplet, both services carry it, and a real
-> end-to-end enhance was confirmed (a 2000px JPEG came back). Nothing is half-built;
-> tree clean. Latest on `main`: **78131ec**. Tests **315 passing**, `ruff` +
-> `pip-audit` clean.
+> **Next session — start here (last worked 2026-10-07, session 10).** **Batch image
+> fixing is built and verified** (browser-tested on a seeded batch): the results
+> table now has a **batch bar** to fix flagged images across the **whole batch** or
+> just the **ticked items**, each gated by a **reusable cost-preflight modal** that
+> shows the real count of *new* fixes and a dollar estimate before spending. Also
+> shipped: **priority ordering** (white-bg fixes drain first), a **by-item batch ZIP
+> + manifest.csv**, **Retry Failed** / **Cancel Queued**, per-row fix badges, and a
+> JS-controlled auto-refresh so the modal can't be wiped mid-decision. The image-fix
+> feature is still **ON + verified live** (Claid key set on the droplet). Nothing
+> half-built; tree clean. Tests **337 passing**, `ruff` + `pip-audit` clean.
+> **NOT yet committed or deployed** — session 10 is local only (see "commit" note
+> below). Latest *pushed* `main` is still **78131ec** (session 9).
 >
-> **Pick up here → batch image fixing.** Design + build **"fix all items/images
-> across a scored batch"** (the deferred Phase 3, reframed as a *management /
-> cost-control* problem). The full design discussion — recommended phased cut +
-> open questions — is captured in **"## Batch image fixes — design ideas (next up)"**
-> below. The user is thinking it through and will choose a direction next session;
-> **nothing is committed to yet.**
+> **Before deploying session 10:** set `IMAGE_UPSCALE_PRICE_PER_IMAGE=0.04` in the
+> droplet `.env` (the estimate's per-fix price; already in `.env.example`), and the
+> `image_jobs.priority` column migrates automatically on startup (additive). No other
+> infra change. Restart **both** web + worker as usual.
+>
+> **Possible next-ups (not started):** (1) **dedup across the batch** — a re-scored
+> SKU in two rows pays twice today (cache is keyed per `scored_item_id`); dedup by
+> item-id + source URL before enqueue (design decision #7 below; deliberately scoped
+> OUT of session 10 to keep cost semantics simple). (2) per-item **Retry** on a
+> failed single fix (batch Retry exists; per-item doesn't). (3) the older
+> re-score / consistency items carried over from session 9 (below).
 >
 > **What session 9 shipped (all live on main + deployed):**
 > 1. Image fixes are **async** on the background worker (new `image_jobs` queue,
@@ -57,6 +68,74 @@ A working reference for picking up development. Read this first, then
 > which orphans any in-flight CI scrape (marked `error`). Check for an active run
 > before pushing while scrapes may be happening — see §2/§9. A docs-only push still
 > deploys + restarts.
+
+---
+
+## Session 2026-10-07 (session 10)
+
+**Batch image fixing (the full roadmap) + a reusable cost-preflight modal.** Built
+on session 9's per-item async fixes. **Browser-verified** on a seeded batch; **337
+tests** (`ruff` + `pip-audit` clean). **Local only — not yet committed/pushed.**
+
+### What shipped
+- **Batch action bar** (`pdp_results.html`, shown only when the feature's configured
+  and the batch has flagged images): **"Fix All Flagged In Batch"** (whole batch) and
+  **"Fix Images For Selected"** (reuses the table's existing `item_ids` checkboxes;
+  enabled by JS only when ≥1 row is ticked), plus **Download Fixed Images (ZIP)**,
+  **Retry Failed (N)**, **Cancel Queued (N)**, and a progress line (`done / total ·
+  running · failed`). A compact per-row fix badge in the Status cell mirrors it.
+- **Reusable cost-preflight modal** (`cost-modal` in the template + `pdp_results.js`
+  + `.cost-modal*` CSS). A `[data-cost-action]` trigger carries `data-scope` /
+  `data-estimate-url` / `data-action-url`; JS POSTs the scope to the estimate route,
+  renders *"X white-bg fixes + Y upscales across Z items; N already fixed — skipped"*
+  + *"≈ $NN (total × $price per fix)"*, and on confirm builds+submits the real POST.
+  Kept action-agnostic so other metered features can reuse it. **Verified: a scope
+  with 4 new fixes showed "≈ $0.16 (4 × $0.04)" and enqueued exactly those 4.**
+- **Routes** (`pages.py`): `POST .../enhance-batch` (enqueue), `POST
+  .../enhance-batch/estimate` (JSON counts+cost, no enqueue), `POST
+  .../enhance-batch/retry-failed`, `POST .../enhance-batch/cancel`, `GET
+  .../enhance-batch/download.zip`. `_enhance_batch_rows` resolves scope (`all=1` →
+  session batch; else owned `item_ids`, IDOR-guarded). `_batch_enhance_plan` is the
+  single source of truth the estimate **and** the enqueue both use (so they never
+  diverge): it skips already-cached **and** already-in-flight slots, counting only
+  *new* metered calls. SSRF guard unchanged (URLs come from our own scrape).
+- **Priority ordering** (`image_jobs` + `db.py`): new additive `priority` column;
+  `claim_next_image_job` orders `priority DESC, id`. Batch enqueue tags white-bg
+  fixes priority 10, upscales 0 — an interrupted run delivers the hard Walmart
+  main-image gate first. `cancel_queued_for_items` (deletes queued rows, leaves
+  in-flight) and `requeue_failed_for_items` (error → queued) back the two buttons.
+- **By-item batch ZIP + manifest** (`pages.pdp_scoring_enhance_batch_zip`): one folder
+  per SKU (`item-<n>/`, suffixed by sid on collision), files named by position, plus
+  a top-level `manifest.csv` (Item ID / Product Name / Original Image URL / Fixed
+  File) so the user knows what to re-upload where.
+- **Cost config** (`image_enhance.price_per_image`): reads
+  `IMAGE_UPSCALE_PRICE_PER_IMAGE` — unset → default **$0.04** (Claid's per-action
+  price), explicit empty → counts only, invalid/negative → default (logged). Estimate
+  only; never meters/bills/blocks. In `.env.example` + DEPLOY.md.
+- **Auto-refresh made pausable** (`pdp_results.js` + `head_extra`): the 5s results
+  reload is now JS-driven (from a `<meta name="pdp-refresh-seconds">` marker) with a
+  `<noscript>` meta-refresh fallback, so the cost modal pauses it and can't be wiped
+  mid-decision. (This was a real bug caught in browser verification.)
+
+### Tests (22 added → 337)
+`test_image_enhance.py`: price contract (default/override/opt-out/bad-value).
+`test_image_jobs.py`: priority claim order, cancel-queued (queued-only, IDOR),
+retry-failed (errors-only). `test_pages.py`: batch bar visibility, estimate counts
+(whole-batch / selected / cache-skip / in-flight-skip / $ math), enqueue (all +
+selected + priority + 503 + nothing-selected + foreign-id IDOR), retry, cancel, and
+the by-item ZIP + manifest (+ 404-when-empty).
+
+### Deliberately scoped OUT (noted for next session)
+Cross-batch **dedup** (design decision #7 below): a re-scored SKU in multiple rows
+still pays per row, because the enhanced-image cache is keyed per `scored_item_id`.
+Doing it right means paying once and fanning the result to every matching slot —
+left out to keep session 10's cost semantics simple and reviewable.
+
+### Commit when ready
+Local only. Deploying = pushing to `main` (auto-deploy; check for an active CI run
+first — see the deploy caution). Suggested commit scope: the 12 changed files listed
+by `git status` (app code, template, JS, CSS, tests, `.env.example`, DEPLOY.md, this
+handoff). Set `IMAGE_UPSCALE_PRICE_PER_IMAGE=0.04` on the droplet before/at deploy.
 
 ---
 
