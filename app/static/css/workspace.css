@@ -122,8 +122,9 @@ body.workspace {
    is open, leaving a minus. Drawn in CSS so it stays crisp at any zoom. */
 .rail-toggle {
   position: relative;
-  width: 13px;
-  height: 13px;
+  width: 11px;
+  height: 11px;
+  margin-left: 6px;               /* breathing room between the label and the +/- */
   flex-shrink: 0;
   color: var(--cool-gray);
 }
@@ -204,9 +205,10 @@ body.workspace {
   background: var(--graphite);
 }
 
-/* Extra breathing room above Contact Us (the last, support-oriented option). */
+/* Extra breathing room above Contact Us (the last, support-oriented option) —
+   clearly separating it from the content groups above. */
 .rail-leaf-spaced {
-  margin-top: 16px;
+  margin-top: 32px;
 }
 
 .rail-spacer {
