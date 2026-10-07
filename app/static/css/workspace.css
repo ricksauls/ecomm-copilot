@@ -1504,10 +1504,10 @@ a:focus-visible,
 .pdp-img-issues li {
   font-size: 12px;
   line-height: 1.5;
-  color: var(--signal-red);
+  color: var(--mid-gray);  /* regular recommendation text colour (not red) */
 }
 .pdp-img-issues a {
-  color: var(--signal-red);
+  color: var(--mid-gray);  /* image link reads as regular text, just underlined */
   font-weight: 600;
   text-decoration: underline;
 }
