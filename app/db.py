@@ -124,8 +124,11 @@ CREATE TABLE IF NOT EXISTS image_jobs (
     UNIQUE(scored_item_id, slot)
 );
 CREATE INDEX IF NOT EXISTS idx_image_jobs_status ON image_jobs(status);
--- Claim order: queued rows, highest priority first, then FIFO by id.
-CREATE INDEX IF NOT EXISTS idx_image_jobs_claim ON image_jobs(status, priority DESC, id);
+-- NB: the claim-order index idx_image_jobs_claim references the `priority`
+-- column, which is added by _migrate on pre-existing DBs. It is therefore
+-- created in _migrate (after the column is guaranteed to exist), NOT here —
+-- this script runs before _migrate, so an index on `priority` here would fail
+-- on an already-created image_jobs table that predates the column.
 CREATE INDEX IF NOT EXISTS idx_image_jobs_item ON image_jobs(scored_item_id);
 
 -- ── Competitive Intelligence ────────────────────────────────────────────────
@@ -418,6 +421,15 @@ def _migrate(conn: sqlite3.Connection) -> None:
     if image_cols and "priority" not in image_cols:
         conn.execute("ALTER TABLE image_jobs ADD COLUMN priority INTEGER NOT NULL DEFAULT 0")
         logger.info("Migrated image_jobs: added 'priority' column")
+    # Create the claim-order index here (not in _SCHEMA): it references `priority`,
+    # which only exists after the ALTER above on pre-existing DBs. IF NOT EXISTS +
+    # running after the column is guaranteed makes this idempotent for both fresh
+    # and migrated databases. Guarded on the table existing at all.
+    if image_cols:
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_image_jobs_claim "
+            "ON image_jobs(status, priority DESC, id)"
+        )
 
 
 def ensure_schema(conn: sqlite3.Connection) -> None:
