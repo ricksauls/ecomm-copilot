@@ -16,10 +16,12 @@
     <div class="tagline">Your eCommerce CoPilot.</div>
   </div>
 
-  {# Dashboard sits on its own at the top (no sub-menu). #}
+  {# Dashboard sits on its own at the top (no sub-menu). `nav-item-flush` aligns
+     its label with the group section labels (every top-level option shares one
+     left edge; only sub-items indent). #}
   <div class="rail-nav">
     <a href="{{ url_for('pages.dashboard') }}"
-       class="nav-item {{ 'active' if active_nav == 'dashboard' else '' }}">
+       class="nav-item nav-item-flush {{ 'active' if active_nav == 'dashboard' else '' }}">
       <span class="mark"></span>Dashboard
     </a>
   </div>
@@ -34,7 +36,7 @@
     ('history-scored', 'View Scoring History', url_for('pages.activity_all', kind='scored')),
   ] %}
   <div class="rail-nav rail-section">
-    <div class="rail-section-label">Product Detail Page Content Scoring</div>
+    <div class="rail-group-label">Product Detail Page Content Scoring</div>
     {% for slug, label, href in scoring_items %}
     <a href="{{ href }}" class="nav-item {{ 'active' if active_nav == slug else '' }}">
       <span class="mark"></span>{{ label }}
@@ -48,7 +50,7 @@
     ('history-copy', 'View Copy Content Creation History', url_for('pages.activity_all', kind='copy')),
   ] %}
   <div class="rail-nav rail-section">
-    <div class="rail-section-label">Copy Content Studio</div>
+    <div class="rail-group-label">Copy Content Studio</div>
     {% for slug, label, href in copy_items %}
     <a href="{{ href }}" class="nav-item {{ 'active' if active_nav == slug else '' }}">
       <span class="mark"></span>{{ label }}
@@ -64,7 +66,7 @@
     ('history-images', 'View Creative Content Creation History', url_for('pages.activity_all', kind='images')),
   ] %}
   <div class="rail-nav rail-section">
-    <div class="rail-section-label">Creative Content Studio</div>
+    <div class="rail-group-label">Creative Content Studio</div>
     {% for slug, label, href in creative_items %}
     <a href="{{ href }}" class="nav-item {{ 'active' if active_nav == slug else '' }}">
       <span class="mark"></span>{{ label }}
@@ -80,7 +82,7 @@
     ('ci-activity', 'View All Competitive Intelligence Activity', url_for('pages.ci_activity')),
   ] %}
   <div class="rail-nav rail-section">
-    <div class="rail-section-label">Reporting · Insights · Analytics</div>
+    <div class="rail-group-label">Reporting · Insights · Analytics</div>
     {% for slug, label, href in reporting_items %}
     <a href="{{ href }}" class="nav-item {{ 'active' if active_nav == slug else '' }}">
       <span class="mark"></span>{{ label }}
@@ -93,7 +95,7 @@
      Last of the main options, set off by the section hairline. #}
   <div class="rail-nav rail-section">
     <a href="{{ url_for('pages.contact_home') }}"
-       class="nav-item nav-item-stacked {{ 'active' if active_nav == 'contact' else '' }}">
+       class="nav-item nav-item-stacked nav-item-flush {{ 'active' if active_nav == 'contact' else '' }}">
       <span class="mark"></span>
       <span class="nav-label">
         Contact Us

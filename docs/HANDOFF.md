@@ -16,7 +16,12 @@ _Last updated: 2026-10-07 (session 12 — left-rail menu restructure; Available 
 > rail). `activity_all` now sets `active_nav` per kind (`_ACTIVITY_ACTIVE_NAV`) so
 > the history sub-items highlight. The old combined **View All Content Activity**
 > page (`/app/content-activity`) still works by URL but is no longer linked in the
-> nav. Browser-verified; **357 tests**, `ruff` clean.
+> nav. **Rail typography/alignment** (follow-up in the same session): main options
+> are the larger/brighter tier (14px semibold, new `.rail-group-label`) and
+> sub-items the smaller muted tier (12px); Dashboard + Contact Us sit flush with
+> the group labels on one left edge (`.nav-item-flush`, mark dropped, active shown
+> as a flush inset accent stripe). Admin keeps its small uppercase eyebrow
+> (`.rail-section-label`). Browser-verified; **357 tests**, `ruff` clean.
 
 
 A working reference for picking up development. Read this first, then

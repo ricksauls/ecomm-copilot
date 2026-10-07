@@ -63,13 +63,17 @@ body.workspace {
   flex-direction: column;
   gap: 1px;
 }
+/* Sub-menu items are the secondary tier: smaller and muted, so a group's
+   children read as subordinate to its (larger, brighter) main-option label.
+   Top-level clickable items (Dashboard, Contact Us) override this to the
+   main-option size via `.nav-item-flush` below. */
 .nav-item {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 9px 12px;
+  padding: 7px 12px;
   border-radius: var(--radius-card);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--cool-gray);
   text-decoration: none;
@@ -113,6 +117,37 @@ body.workspace {
 }
 .nav-item.active .mark {
   background: var(--accent);
+}
+
+/* Top-level standalone items (Dashboard, Contact Us) are main options, not
+   sub-items: they take the larger, brighter main-option type and sit flush
+   with the group labels (one shared left edge). The accent mark is dropped so
+   the label aligns at the group-label indent; active state shows a flush inset
+   accent stripe instead, and hover gives a faint surface cue. */
+.nav-item-flush {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--canvas);
+}
+.nav-item-flush .mark {
+  display: none;
+}
+.nav-item-flush:hover {
+  background: rgba(234, 239, 247, 0.06);
+}
+.nav-item-flush.active {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+/* Main-option group label (the four content groups): the primary tier, so it
+   is larger and brighter than its sub-items and matches the flush top-level
+   items in size/weight. Distinct from `.rail-section-label`, the small
+   uppercase eyebrow still used for the subordinate Admin grouping. */
+.rail-group-label {
+  padding: 2px 12px 5px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--canvas);
 }
 
 .rail-spacer {
