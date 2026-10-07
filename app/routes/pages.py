@@ -169,6 +169,19 @@ _ACTIVITY_META = {
                       "No monitoring groups yet."),
 }
 
+# Which rail item the View-All screen highlights, per activity kind. The three
+# content histories each map to their own rail sub-item (so "View Scoring
+# History" etc. light up); the CI histories map to the Reporting section's
+# "View All Competitive Intelligence Activity" item. Unknown kinds never reach
+# here (activity_all 404s first), so a plain dict is sufficient.
+_ACTIVITY_ACTIVE_NAV = {
+    "scored": "history-scored",
+    "copy": "history-copy",
+    "images": "history-images",
+    "ci-snapshot": "ci-activity",
+    "ci-monitoring": "ci-activity",
+}
+
 
 def _activity_rows(db, uid, kind, since):
     """Shaped rows for one activity kind — month-scoped (``since`` set) or all-time.
@@ -302,7 +315,7 @@ def activity_all(kind):
     return render_template(
         "app/activity_all.html",
         breadcrumb="Dashboard · " + title,
-        active_nav="dashboard",
+        active_nav=_ACTIVITY_ACTIVE_NAV.get(kind, "dashboard"),
         title=title,
         layout=layout,
         with_score=with_score,

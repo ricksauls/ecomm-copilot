@@ -318,8 +318,14 @@ def test_content_activity_shows_all_three_tables_all_time(client, auth, app):
     assert b"Old Content Item" in resp.data
     assert f"/app/pdp-scoring/item/{sid}".encode() in resp.data
 
-    # The nav link is present on an authenticated page.
-    assert b"/app/content-activity" in client.get("/app").data
+    # The rail no longer carries the combined "View All Content Activity" link —
+    # it was replaced by per-category history items under each Studio group. The
+    # page itself is still reachable by URL; the rail now links the per-category
+    # histories (scoring/copy/creative) instead.
+    rail = client.get("/app").data
+    assert b"/app/activity/scored" in rail  # View Scoring History
+    assert b"/app/activity/copy" in rail  # View Copy Content Creation History
+    assert b"/app/activity/images" in rail  # View Creative Content Creation History
 
 
 def test_content_activity_requires_login(client):

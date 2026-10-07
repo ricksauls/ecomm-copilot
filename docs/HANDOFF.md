@@ -1,6 +1,23 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-10-07 (session 11 — batch copy rewrites; cost modal generalized; wording/UI polish; signup honeypot; "Re-export"→"Re-create" data fix)._
+_Last updated: 2026-10-07 (session 12 — left-rail menu restructure; Available Credits hidden; bot account confirmed removed. Session 11 — batch copy rewrites; cost modal generalized; wording/UI polish; signup honeypot; "Re-export"→"Re-create" data fix)._
+
+> **Session 12 (2026-10-07) — left-rail navigation restructure.** The rail
+> (`app/templates/app/_rail.html`) now has six top-level options in order:
+> **Dashboard**; **Product Detail Page Content Scoring** (→ Score Product Detail
+> Page(s) = scoring intake, View Scoring History = `/app/activity/scored`); **Copy
+> Content Studio** (→ PDP Copy Content Creation, View Copy Content Creation History
+> = `/app/activity/copy`); **Creative Content Studio** (→ PDP Creative Content
+> Creation = placeholder `#`, not built; View Creative Content Creation History =
+> `/app/activity/images`); **Reporting · Insights · Analytics** (the former
+> Competitive Intelligence section, same three items); **Contact Us** (moved last).
+> The three Studio groups + Reporting use the labelled-section pattern (new generic
+> `.rail-section` CSS class). **Available Credits is hidden** (block removed from the
+> rail). `activity_all` now sets `active_nav` per kind (`_ACTIVITY_ACTIVE_NAV`) so
+> the history sub-items highlight. The old combined **View All Content Activity**
+> page (`/app/content-activity`) still works by URL but is no longer linked in the
+> nav. Browser-verified; **357 tests**, `ruff` clean.
+
 
 A working reference for picking up development. Read this first, then
 `CLAUDE.md` (coding standards) and `deploy/DEPLOY.md` (infra).
@@ -45,9 +62,9 @@ A working reference for picking up development. Read this first, then
 > "Re-create" for all new scores.
 >
 > **Open housekeeping (nothing blocking):**
-> - **Bot account still in the DB** — `etdhogdk@formtests.info` (users.id 8, 0
->   activity). Delete via **Admin → Users** (`/admin/users`) when desired; it wasn't
->   deleted for the user (hard-deleting a prod account is theirs to do).
+> - **Bot account removed** — `etdhogdk@formtests.info` (was users.id 8) is no longer
+>   in the prod DB (confirmed 2026-10-07: live `app.db` holds only ids 2/3/6/7). Done;
+>   nothing further needed.
 > - **DB backup on the droplet** — `app.db.bak-20261007-181537` (2.7M, from the
 >   Re-export fix). Safe to `rm` once the user confirms results look right.
 >
