@@ -199,7 +199,9 @@ body.workspace {
 
 /* User block (sign-out target) */
 .user-block {
-  margin: 0 12px;
+  /* Top margin sets the signed-in account apart from whatever precedes it
+     (the Admin section for admins, otherwise the rail body). */
+  margin: 28px 12px 0;
   padding: 8px 12px;
   border-radius: var(--radius-card);
   display: flex;
@@ -1828,6 +1830,12 @@ body.cost-modal-open {
   margin-top: 14px;
   padding-top: 12px;
   border-top: 1px solid var(--graphite);
+}
+/* Contact Us is the last main option and a slightly different kind (support,
+   not a content tool), so it gets extra breathing room above the content
+   groups. */
+.rail-contact {
+  margin-top: 30px;
 }
 /* Count pill trailing a sub-item (users total, items total). */
 .nav-item .nav-count {

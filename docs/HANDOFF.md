@@ -25,7 +25,11 @@ _Last updated: 2026-10-07 (session 12 — left-rail menu restructure; Available 
 > uppercase eyebrow `.rail-section-label` and the legacy `.rail-studio`/`.rail-ci`/
 > `.rail-admin` classes were removed as dead). **Signed-in account block moved** to
 > sit directly above Sign Out (Sign Out top margin 66px→14px so they read as one
-> bottom cluster). Browser-verified; **357 tests**, `ruff` clean.
+> bottom cluster). **Rail spacing tweaks:** extra space above Contact Us
+> (`.rail-contact`, 30px) to set it off from the content groups, and a 28px top
+> margin on the account block so the signed-in user name is clearly separated from
+> the Admin section (and the rail body for non-admins). Browser-verified; **357
+> tests**, `ruff` clean.
 
 
 A working reference for picking up development. Read this first, then

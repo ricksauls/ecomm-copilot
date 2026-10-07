@@ -92,8 +92,9 @@
 
   {# Contact Us for everyone; the count badge shows unread admin replies. The
      parenthetical hints at what the channel is for (support, feature asks).
-     Last of the main options, set off by the section hairline. #}
-  <div class="rail-nav rail-section">
+     Last of the main options, set off by the section hairline with a little
+     extra space above (`rail-contact`) to separate it from the content groups. #}
+  <div class="rail-nav rail-section rail-contact">
     <a href="{{ url_for('pages.contact_home') }}"
        class="nav-item nav-item-stacked nav-item-flush {{ 'active' if active_nav == 'contact' else '' }}">
       <span class="mark"></span>
