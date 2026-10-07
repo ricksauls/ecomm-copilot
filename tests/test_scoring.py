@@ -155,6 +155,10 @@ def test_imagery_grades_every_image_and_flags_sub_spec_ones():
     sev = {i["index"]: i["severity"] for i in issues}
     assert sev == {2: "mid", 3: "low"}
 
+    # The flagged-image recommendation uses "Re-create" (standardized wording).
+    assert any(r.startswith("Re-create the flagged image(s)") for r in imagery.recommendations)
+    assert not any("Re-export" in r for r in imagery.recommendations)
+
     # count 6 -> 60; resolution: measured=5, zoom_ready=3, partial=1 ->
     # credit (3 + 0.5)/5 = 0.7 -> round(40*0.7)=28. base 88, no white-bg blend.
     assert imagery.score == 88

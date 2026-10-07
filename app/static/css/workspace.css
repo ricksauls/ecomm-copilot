@@ -1557,14 +1557,6 @@ a:focus-visible,
 .pdp-enhance-failed {
   color: var(--signal-red);
 }
-/* Finished fix: a small inline thumbnail of the enhanced (same-origin) image. */
-.pdp-enhance-thumb {
-  max-height: 44px;
-  width: auto;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  vertical-align: middle;
-}
 /* Per-item bulk bar: fix-all + ZIP + a done/total count. */
 .pdp-fixall {
   display: flex;

@@ -186,7 +186,7 @@ def _resolution_points(
             return _RES_POINTS
         if pdp.max_image_px >= _RES_MIN_PX:
             findings.append("Images below the 2000px zoom recommendation")
-            recs.append("Re-export images at 2000x2000 so Walmart zoom engages")
+            recs.append("Re-create images at 2000x2000 so Walmart zoom engages")
             return _RES_POINTS // 2
         recs.append("Provide 2000x2000 images for zoom")
         return 0
@@ -213,7 +213,7 @@ def _resolution_points(
                 "severity": "low" if px < _RES_MIN_PX else "mid",
             })
     if image_issues:
-        recs.append("Re-export the flagged image(s) at 2000x2000 so Walmart zoom engages")
+        recs.append("Re-create the flagged image(s) at 2000x2000 so Walmart zoom engages")
 
     return round(_RES_POINTS * credit)
 

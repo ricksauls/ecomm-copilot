@@ -529,14 +529,17 @@ def test_results_shows_enhancing_while_queued(client, auth, app, monkeypatch):
     assert b'http-equiv="refresh"' in data
 
 
-def test_results_shows_inline_image_when_done(client, auth, app, monkeypatch, tmp_path):
+def test_results_shows_download_link_when_done(client, auth, app, monkeypatch, tmp_path):
     monkeypatch.setenv("MEDIA_DIR", str(tmp_path))
     sid = _seed_scored_with_issue(client, auth, app)
     monkeypatch.setattr("app.image_enhance.is_configured", lambda: True)
     _seed_cached_enhanced(app, sid, "img2", b"UPSCALED")
     data = client.get("/app/pdp-scoring/results").data
-    # The finished fix is embedded inline and offered as a ZIP of what's ready.
-    assert f"/app/pdp-scoring/enhanced/{sid}/img2".encode() in data
+    # The finished fix offers a download link (+ a ZIP of what's ready). The inline
+    # thumbnail was dropped to save space, so there's no <img> preview of the result.
+    assert f"/app/pdp-scoring/enhanced/{sid}/img2/download".encode() in data
+    assert b"Fix and Download" in data
+    assert b"Enhanced image preview" not in data  # the thumbnail <img> is gone
     assert b"Download All As ZIP" in data
 
 
@@ -738,14 +741,14 @@ def _seed_batch_two(client, auth, app):
 
 def test_batch_bar_hidden_when_not_configured(client, auth, app):
     _seed_batch_two(client, auth, app)
-    assert b"Fix All Flagged In Batch" not in client.get("/app/pdp-scoring/results").data
+    assert b"Fix Images For All Items" not in client.get("/app/pdp-scoring/results").data
 
 
 def test_batch_bar_shown_when_configured(client, auth, app, monkeypatch):
     _seed_batch_two(client, auth, app)
     monkeypatch.setattr("app.image_enhance.is_configured", lambda: True)
     data = client.get("/app/pdp-scoring/results").data
-    assert b"Fix All Flagged In Batch" in data
+    assert b"Fix Images For All Items" in data
     assert b"Fix Images For Selected" in data
 
 

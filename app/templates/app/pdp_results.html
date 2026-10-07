@@ -30,15 +30,14 @@
 
 {# Per-slot image-fix control. Renders one of four states from the state dict the
    route attached (_annotate_enhance): a POST button to start the fix, a disabled
-   "Enhancing…" while the worker runs it (the page auto-refreshes), the finished
-   image inline + a download link, or a retry button on failure. The fixed image
-   is same-origin cached, so the strict CSP allows embedding it — the original CDN
-   image can't be, so it stays a link beside the result. #}
+   "Enhancing…" while the worker runs it (the page auto-refreshes), a download link
+   for the finished image, or a retry button on failure. The finished result is a
+   download link only — the inline thumbnail was dropped (it took too much room in
+   the expanded row); the fixed image is still served same-origin from the cache. #}
 {% macro enhance_control(state, label, post_url) %}
   {%- if state.status == 'done' -%}
     <span class="pdp-enhance pdp-enhance-done">
-      <img class="pdp-enhance-thumb" src="{{ state.inline_url }}" alt="Enhanced image preview" loading="lazy" />
-      <a class="pdp-enhance-link" href="{{ state.download_url }}">Download ↓</a>
+      <a class="pdp-enhance-link" href="{{ state.download_url }}">Fix and Download ↓</a>
     </span>
   {%- elif state.status in ['queued', 'processing'] -%}
     <span class="pdp-enhance pdp-enhance-busy" title="Running — this page refreshes automatically">Enhancing… ⏳</span>
@@ -151,8 +150,8 @@
               data-scope="all"
               data-estimate-url="{{ url_for('pages.pdp_scoring_enhance_batch_estimate') }}"
               data-action-url="{{ url_for('pages.pdp_scoring_enhance_batch') }}"
-              data-title="Fix all flagged images in this batch"
-              data-confirm-label="Confirm &amp; Fix">Fix All Flagged In Batch</button>
+              data-title="Fix images for all items in this batch"
+              data-confirm-label="Confirm &amp; Fix">Fix Images For All Items</button>
       {# Enabled by pdp_results.js only while at least one row is ticked. #}
       <button type="button" class="wbtn wbtn-secondary js-cost-action js-needs-selection" disabled
               data-scope="selected"
