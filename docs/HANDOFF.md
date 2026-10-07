@@ -1,6 +1,13 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-10-07 (session 12 — left-rail menu restructure + collapsible icon/tree-line rail redesign; breadcrumbs aligned to "<main group> · <sub-item>"; View Scoring History grouped by run ("Brands/Products Scored", up to 3 items + "And N more…"); Available Credits hidden; bot account confirmed removed. Session 11 — batch copy rewrites; cost modal generalized; wording/UI polish; signup honeypot; "Re-export"→"Re-create" data fix)._
+_Last updated: 2026-10-07 (session 12 — UI/UX pass: collapsible icon/tree-line rail redesign + menu/breadcrumb relabeling; View Scoring History grouped by run; "View copy results" scoped/latest/missing; assorted cleanups. Session 11 — batch copy rewrites; cost modal generalized; signup honeypot; "Re-export"→"Re-create" data fix)._
+
+> **⚠️ The blocks immediately below are chronological session-12 notes; some
+> describe intermediate states that were later changed in the same session (menu
+> labels, and the `.rail-group-label`/`.nav-item-flush` rail typography — those
+> classes no longer exist; the rail is now the collapsible icon design). For the
+> authoritative current state and final labels, read the "Next session — start
+> here" block further down.**
 
 > **Session 12 — "View copy results" scoped + latest + missing (2026-10-07).**
 > The scoring page's **View Copy Results** link now scopes to the **ticked rows**
@@ -74,66 +81,88 @@ _Last updated: 2026-10-07 (session 12 — left-rail menu restructure + collapsib
 A working reference for picking up development. Read this first, then
 `CLAUDE.md` (coding standards) and `deploy/DEPLOY.md` (infra).
 
-> **Next session — start here (last worked 2026-10-07, session 11).**
-> **Everything below is SHIPPED + DEPLOYED and verified live.** `main` at **273e5bb**;
-> last Deploy green; site 200; both services active. Tests **357 passing**, `ruff` +
-> `pip-audit` clean. No open/half-built work; tree clean.
+> **Next session — start here (last worked 2026-10-07, session 12).**
+> **Everything below is SHIPPED + DEPLOYED and verified live.** `main` at **4708c8c**;
+> last Deploy green; droplet on the same commit; both services active. Tests **359
+> passing**, `ruff` clean. No open/half-built work; tree clean.
 >
-> **What session 11 shipped (newest first, with commits):**
-> 1. **Signup honeypot** (`273e5bb`) — a bot registered via the public signup form
->    (`etdhogdk@formtests.info`), so signup now has a hidden decoy `website` field
->    (off-screen, not focusable, aria-hidden, autocomplete off). The server rejects a
->    non-empty honeypot before creating any account (generic 400 + a WARNING log with
->    ip/ua, no secrets). See `app/auth.py` + `signup.html` + `.hp-field` in
->    `public.css`.
-> 2. **Flagged-image lines de-reddened** (`a5c406e`) — the `.pdp-img-issues` lines now
->    use the regular `--mid-gray` (they were signal-red, which read as errors).
->    Genuine error states (Enhancement failed, failed badges, blocked/error notes,
->    error status, "needs work" count) are still red by design.
-> 3. **Green fix-and-download labels + ZIP rename + indented fix lines** (`984f417`) —
->    per-item ZIP "Download All As ZIP" → **"Fix And Download All As Zip"**; both it
->    and the per-image **"Fix and Download"** link are green (new `--signal-green`
->    token; `a.pdp-enhance-link` specificity beats the red `.pdp-img-issues a`); the
->    image-fix lines are indented with a left hairline rule to set them apart from the
->    generic recommendations.
-> 4. **Wording/UI polish** (`93d192f`) — batch button **"Fix All Flagged In Batch" →
->    "Fix Images For All Items"** (+ modal title); expanded-row finished fix shows a
->    download link only, **no inline thumbnail** (`.pdp-enhance-thumb` removed);
->    per-image **"Download" → "Fix and Download"**; scorer recs **"Re-export …" →
->    "Re-create …"**. *(NB: historical session-10/11 text further below still shows the
->    OLD "Fix All Flagged In Batch" label — the live button is the new one.)*
-> 5. **Batch copy rewrites** (`1d9c43e`) — the headline feature; full detail in
->    "## Session 2026-10-07 (session 11)" below. Scoring results page now has a unified
->    **"Bulk actions"** section with two sibling bars: **Image fixes** (session 10) and
->    **Copy rewrites** (new), both behind the shared cost-preflight modal.
->
-> **One-time data fix (not a commit).** Recommendations are stored in
-> `scored_items.result_json` at scoring time, so the 11 items scored before `93d192f`
-> still said "Re-export". Normalized them on the droplet with a backed-up
-> `UPDATE … REPLACE('Re-export','Re-create')` (0 remaining). The code produces
-> "Re-create" for all new scores.
+> **Session 12 was a UI/UX pass over the left rail and the content screens.**
+> Headlines (all shipped + deployed):
+> 1. **Rail redesigned** into a collapsible, icon-led menu (`_rail.html` +
+>    `app/static/js/rail.js` + rail CSS in `workspace.css`): an outline inline-SVG
+>    icon per main option (via a `rail_icon()` macro); the five groups are native
+>    `<details>` with a CSS-drawn **+/−** toggle (via a `rail_group()` macro),
+>    **collapsed by default**, children joined by **rounded tree-connector lines**
+>    (`--rail-line` token); Dashboard + Contact Us are leaf links (no toggle). The
+>    group holding the current page auto-opens; `rail.js` (external, CSP-safe)
+>    remembers manual open/close per tab via sessionStorage. Main options 13px,
+>    sub-items 12px. Classes: `.rail-leaf` / `.rail-group-head` / `.rail-ico` /
+>    `.rail-toggle` / `.rail-children` / `.nav-sub-item` (the earlier same-session
+>    `.rail-group-label` / `.nav-item-flush` / `.rail-section*` / `.rail-studio` /
+>    `.rail-ci` are **gone**). **Available Credits is hidden.** The signed-in account
+>    block sits just above Sign Out.
+> 2. **Final menu labels** (top to bottom): **Dashboard** · **Product Content
+>    Scoring** (→ Score Product Detail Page(s) = `/app/pdp-scoring`; View Scoring
+>    History = `/app/activity/scored`) · **Copy Content Studio** (→ Product Detail
+>    Page Copy Content Creation = `/app/pdp-copy`; View Copy Content Creation History
+>    = `/app/activity/copy`) · **Creative Content Studio** (→ **Product Detail Page
+>    Image Set Creation** = placeholder `#`, not built; View Creative Content Creation
+>    History = `/app/activity/images`) · **Insights** (the former Competitive
+>    Intelligence section: One-Time Snapshot / Daily Monitoring / View All Competitive
+>    Intelligence Activity) · **Contact Us** (with the "(questions, issues,
+>    customizations etc.)" hint) · **Admin** (admins only). "Copy Content Studio"
+>    wraps to two lines via an explicit `<br>` in the label.
+> 3. **Breadcrumbs** now read **"<main group> · <sub-item>"** app-wide (e.g.
+>    "Product Content Scoring · Score Product Detail Page(s)", "Insights · One-Time
+>    Snapshot"); leaf pages (Dashboard, Contact Us) stay single; CI group pages use
+>    "Insights · <group name>". `_ACTIVITY_BREADCRUMB` maps the history kinds.
+> 4. **View Scoring History grouped by run** — `/app/activity/scored` shows one row
+>    per scoring action (`batch_id`), titled **"Brands/Products Scored"**, listing up
+>    to 3 items (Brand + Product columns, stacked; Score right) + **"And N more…"**;
+>    the row reopens the whole run. History screen only. (`pages._scored_runs`,
+>    `activity_scored_runs.html`, `_dash_tables.scored_runs_table`.)
+> 5. **"View Copy Results"** (scoring page copy bar) now scopes to the **ticked rows**
+>    (falls back to the whole batch), shows the **latest copy per product**, and
+>    **lists selected items with no copy** as "Copy has not been created for this
+>    item." (`pdp_scoring_view_copy` + `copy_jobs.copy_item_ids_for_items` +
+>    `session[_COPY_MISSING_KEY]` rendered in `pdp_copy_results.html`).
+> 6. **Smaller cleanups:** scoring intake heading → "Score Product Detail Page(s)";
+>    **"Download To Excel" button removed** from the copy results page (CSV + PDF
+>    remain; the `.xlsx` route still works by URL, just unlinked; `openpyxl` still a
+>    dep); **"All activity" eyebrow removed** from the three content history screens.
 >
 > **Open housekeeping (nothing blocking):**
-> - **Bot account removed** — `etdhogdk@formtests.info` (was users.id 8) is no longer
->   in the prod DB (confirmed 2026-10-07: live `app.db` holds only ids 2/3/6/7). Done;
->   nothing further needed.
 > - **DB backup on the droplet** — `app.db.bak-20261007-181537` (2.7M, from the
->   Re-export fix). Safe to `rm` once the user confirms results look right.
+>   session-11 Re-export fix). Safe to `rm` once results look right.
+> - Bot account `etdhogdk@formtests.info` already removed (confirmed; prod DB holds
+>   only legit users).
 >
-> **Likely next-ups (user's stated focus was "image fixes, edits, and creation"):**
-> - **PDP Image Set Creation** — still a nav placeholder (the "creation" piece never
->   built). The natural next feature in the image track.
+> **Likely next-ups:**
+> - **PDP Image Set Creation** — still a nav placeholder ("Product Detail Page Image
+>   Set Creation", href `#`). The main unbuilt feature in the image/creative track,
+>   and the user's stated focus ("image fixes, edits, and creation").
 > - Carried-over from sessions 10/11: **cross-image-batch dedup** (a re-scored SKU's
->   image slots still pay per row), **per-item copy Retry** on the scoring page.
+>   image slots still pay per row); **per-item copy Retry** on the scoring page.
+> - **Excel export** — its button is gone; decide whether to fully remove the
+>   `/app/pdp-copy/results.xlsx` route + `openpyxl` dep, or keep it URL-accessible.
+>   (User asked to format the CSV with column widths / AutoFit — not possible in CSV;
+>   that formatting only works in `.xlsx`, so it was left as-is per their call.)
 > - If signup spam continues past the honeypot: **email verification** or an
->   **allowlist** signup model (these are client tools, so an allowlist may fit).
+>   **allowlist** signup model.
 >
-> **Infra reminders:** optionally set `COPYGEN_PRICE_PER_ITEM` on the droplet to show
-> a $ estimate for copy rewrites (blank = counts only); `IMAGE_UPSCALE_PRICE_PER_IMAGE`
-> defaults to $0.04. The image-fix feature is ON (Claid key live). Deploy caution
-> (worker restart orphans in-flight CI scrapes) is unchanged — see §2/§9.
+> **Infra reminders:** optionally set `COPYGEN_PRICE_PER_ITEM` (copy-rewrite $
+> estimate; blank = counts only); `IMAGE_UPSCALE_PRICE_PER_IMAGE` defaults to $0.04;
+> image-fix is ON (Claid key live). **Deploy caution:** a push restarts the worker,
+> orphaning any in-flight CI scrape — check for an active run before pushing (see
+> §2/§9). *New this session:* a push twice briefly triggered **two concurrent deploys
+> that raced**; git safely aborted the loser (no harm), but hardening `deploy.yml`
+> (a lock, or `git reset --hard origin/main`) is a possible cleanup.
 >
 > ---
+>
+> _Session 11's "what shipped" summary now lives in the "## Session 2026-10-07
+> (session 11)" detail section below; the chronological session-12 notes above this
+> block have the fine-grained per-change detail._
 >
 > **Session 10 (still accurate, shipped + deployed).** **Batch image
 > fixing is built and verified** (browser-tested on a seeded batch): the results
