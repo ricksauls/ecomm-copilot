@@ -13,15 +13,25 @@ A working reference for picking up development. Read this first, then
 > shipped: **priority ordering** (white-bg fixes drain first), a **by-item batch ZIP
 > + manifest.csv**, **Retry Failed** / **Cancel Queued**, per-row fix badges, and a
 > JS-controlled auto-refresh so the modal can't be wiped mid-decision. The image-fix
-> feature is still **ON + verified live** (Claid key set on the droplet). Nothing
-> half-built; tree clean. Tests **337 passing**, `ruff` + `pip-audit` clean.
-> **NOT yet committed or deployed** — session 10 is local only (see "commit" note
-> below). Latest *pushed* `main` is still **78131ec** (session 9).
+> feature is **ON + verified live** (Claid key set on the droplet). Tests **338
+> passing**, `ruff` + `pip-audit` clean.
 >
-> **Before deploying session 10:** set `IMAGE_UPSCALE_PRICE_PER_IMAGE=0.04` in the
-> droplet `.env` (the estimate's per-fix price; already in `.env.example`), and the
-> `image_jobs.priority` column migrates automatically on startup (additive). No other
-> infra change. Restart **both** web + worker as usual.
+> **SHIPPED + DEPLOYED (2026-10-07).** `main` at **7504be1**; Deploy workflow green;
+> site 200; both services active. The per-fix price defaults to **$0.04** in code, so
+> no droplet `.env` change was needed (set `IMAGE_UPSCALE_PRICE_PER_IMAGE` only to
+> override).
+>
+> **Deploy hotfix landed (commit 7504be1) — read this.** The first deploy of session
+> 10 (1110f72) **crashed the web service (502)**: the `image_jobs` claim-order index
+> (`idx_image_jobs_claim`, on the new `priority` column) was defined in `db._SCHEMA`,
+> which `ensure_schema` runs **before** `_migrate` adds the column. Fresh DBs were
+> fine (CREATE TABLE includes `priority`) so tests/local passed, but the droplet's
+> pre-existing `image_jobs` had no `priority` yet → `OperationalError: no such column:
+> priority` on startup. Fixed by moving the index creation into `_migrate` (after the
+> column is ensured) + a regression test (`test_db.test_migrate_adds_priority_to_
+> preexisting_image_jobs`). **Lesson: never index a migrated-in column from `_SCHEMA`
+> — it runs before `_migrate`.** Service was restored mid-incident with a manual
+> additive `ALTER`/`CREATE INDEX` on the droplet, then the code hotfix deployed clean.
 >
 > **Possible next-ups (not started):** (1) **dedup across the batch** — a re-scored
 > SKU in two rows pays twice today (cache is keyed per `scored_item_id`); dedup by
@@ -131,11 +141,10 @@ still pays per row, because the enhanced-image cache is keyed per `scored_item_i
 Doing it right means paying once and fanning the result to every matching slot —
 left out to keep session 10's cost semantics simple and reviewable.
 
-### Commit when ready
-Local only. Deploying = pushing to `main` (auto-deploy; check for an active CI run
-first — see the deploy caution). Suggested commit scope: the 12 changed files listed
-by `git status` (app code, template, JS, CSS, tests, `.env.example`, DEPLOY.md, this
-handoff). Set `IMAGE_UPSCALE_PRICE_PER_IMAGE=0.04` on the droplet before/at deploy.
+### Shipped
+Commits `1110f72` (feature) + `7504be1` (migration-order hotfix — see the start-here
+block). Deployed to the droplet; site verified 200; both services active after a
+clean startup. No droplet `.env` change was required (price defaults to $0.04).
 
 ---
 
