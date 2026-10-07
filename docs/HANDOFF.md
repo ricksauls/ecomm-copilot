@@ -1,11 +1,33 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-10-07 (session 10 — batch image fixing: whole-batch + selected, reusable cost-preflight modal, priority ordering, by-item ZIP + manifest, retry/cancel)._
+_Last updated: 2026-10-07 (session 11 — batch copy rewrites bar beside image fixes; cost modal generalized; per-row copy badge; dedup-skip)._
 
 A working reference for picking up development. Read this first, then
 `CLAUDE.md` (coding standards) and `deploy/DEPLOY.md` (infra).
 
-> **Next session — start here (last worked 2026-10-07, session 10).** **Batch image
+> **Next session — start here (last worked 2026-10-07, session 11).** **Batch copy
+> rewrites are built and verified** (browser-tested on a seeded batch). The scoring
+> results page now has a unified **"Bulk actions"** section holding two sibling bars:
+> **Image fixes** (session 10) and **Copy rewrites** (new). Copy gets the same
+> treatment as images — **Rewrite Copy For All Items** / **Rewrite Copy For Selected**
+> (same row checkboxes), each behind the **shared cost-preflight modal**, which was
+> **generalized** to render server-formatted strings so one modal serves both
+> features (and any future metered action). Also new: a **per-row copy badge**
+> (`✓ copy 64→88` / `⏳ generating` / `copy failed`), **dedup-skip** (items already
+> having a done/in-flight copy are skipped — matched by item id/URL), a **View Copy
+> Results** cross-link, and a counts-first cost estimate (`COPYGEN_PRICE_PER_ITEM`,
+> **no default** since copy cost is token-variable). The old header "Create New Copy
+> Content" button is gone (folded into the bar). Tests **354 passing**, `ruff` +
+> `pip-audit` clean. **Local only — NOT yet committed/pushed** (last deployed `main`
+> is session 10's `5543c1f`). No DB migration this session.
+>
+> **To deploy:** push to `main` (auto-deploys; check for an active CI run first).
+> Optionally set `COPYGEN_PRICE_PER_ITEM` on the droplet to show a $ estimate for
+> copy (blank = counts only). Full detail in "## Session 2026-10-07 (session 11)".
+>
+> ---
+>
+> **Session 10 (still accurate, shipped + deployed).** **Batch image
 > fixing is built and verified** (browser-tested on a seeded batch): the results
 > table now has a **batch bar** to fix flagged images across the **whole batch** or
 > just the **ticked items**, each gated by a **reusable cost-preflight modal** that
@@ -78,6 +100,80 @@ A working reference for picking up development. Read this first, then
 > which orphans any in-flight CI scrape (marked `error`). Check for an active run
 > before pushing while scrapes may be happening — see §2/§9. A docs-only push still
 > deploys + restarts.
+
+---
+
+## Session 2026-10-07 (session 11)
+
+**Batch copy rewrites, as a sibling to batch image fixes — and the cost modal made
+truly reusable.** Prompted by the user noticing the copy and image flows felt
+disconnected. **Browser-verified** on a seeded batch; **354 tests** (`ruff` +
+`pip-audit` clean). **Local only — not yet committed/pushed.** No DB migration.
+
+### What shipped
+- **Unified "Bulk actions" section** (`pdp_results.html`): one card holding two
+  sibling bars — **Image fixes** (unchanged from session 10) and **Copy rewrites**
+  (new). Both act on the **same** row selection (the existing `item_ids` checkboxes)
+  or the whole batch. The old header **"Create New Copy Content"** button is removed
+  — copy entry now lives entirely in the bar.
+- **Copy rewrites bar**: **Rewrite Copy For All Items** / **Rewrite Copy For Selected**
+  (JS-driven, open the cost modal) + **View Copy Results** (cross-link) + a progress
+  line (`N of M have new copy · K generating · J failed`). A `<noscript>` fallback
+  submit keeps a no-JS path.
+- **Cost modal generalized** (the reusable primitive the user asked for): the
+  estimate endpoints now return **server-formatted display strings** — `summary`,
+  `skipped`, `cost`, `note` — plus raw counts, and the modal just renders them. One
+  modal serves image fixes **and** copy rewrites; a `data-confirm-label` sets the
+  button text ("Confirm & Fix" / "Confirm & Rewrite"). `_cost_line()` + `_plural()`
+  are the shared formatters. The image estimate was updated to the same shape (raw
+  fields kept, so its tests are unchanged).
+- **Dedup / cost-skip for copy** (`copy_jobs.copy_states_for_items`): a scored item
+  is matched to its existing copy by **item id, else URL** (copy has no FK to
+  scored_items). A batch rewrite **skips** items that already have a **done or
+  in-flight** copy (never re-spends); an item whose only prior copy **failed** is
+  eligible (a retry). Mirrors the image cache-skip. `_copy_batch_plan` is the single
+  source of truth the estimate and the enqueue share; `reused` (carries
+  `record_json` → generation skips the re-fetch) vs `refetch` is surfaced in the
+  estimate.
+- **Per-row copy badge** (`_annotate_copy` → `it['copy_state']`; **NB** the key is
+  `copy_state`, not `copy` — `it.copy` in Jinja resolves to the dict's `.copy`
+  method, a bug caught in testing): `✓ copy 64→88` (done, current→projected),
+  `⏳ copy generating` (in-flight), `copy failed`. Hidden when the item has no copy.
+- **View-copy cross-link** (`pdp_scoring_view_copy` + `copy_jobs.copy_item_ids_for_items`):
+  points the copy session batch at all copy for the scored batch's products, then
+  opens the copy results page.
+- **Cost config** (`copygen.price_per_item`): `COPYGEN_PRICE_PER_ITEM`, USD per
+  rewrite, **no default** (a rewrite's cost is token-variable + two-phase) — blank →
+  counts only; set → `≈ $N` in the modal. In `.env.example` + DEPLOY.md.
+- **Auto-refresh** now also stays alive while a copy rewrite is **generating**
+  (`copy_pending`), reusing the pausable JS refresh from session 10.
+
+### Deliberately kept different (not over-unified)
+The **copy results stay on their dedicated comparison page** (side-by-side current
+vs new text + score delta + Excel/CSV/PDF) — an image result is a thumbnail that
+fits inline; a copy result is paragraphs that don't. So the *controls* unified,
+the *results view* stayed specialized. And copy is **not provider-gated** (always
+shown; generation needs `ANTHROPIC_API_KEY`, which the worker enforces), unlike the
+image bar which gates on `IMAGE_UPSCALE_API_KEY`.
+
+### Verified end to end (seeded batch)
+Copy bar progress + per-row badges render; the copy modal showed "1 item will be
+rewritten (1 re-fetch the page first)" + "2 already have copy — skipped" + counts-only
+(no price set) + "Confirm & Rewrite"; confirming enqueued **only** the eligible item
+and landed on the copy results page (the done + in-flight items were skipped). The
+image modal still renders correctly through the shared path ("≈ $0.16 (4 × $0.04)").
+No console errors.
+
+### Tests (+16 → 354)
+`test_copygen.py` (price contract), `test_copy_jobs.py` (copy_states matching by
+id/URL + dedup buckets + IDOR; copy_item_ids), `test_pages.py` (copy bar visibility,
+estimate counts/reused-refetch/skip/price/selected, enqueue all/selected/skip/
+nothing-to-do, per-row badge, view-copy).
+
+### Still open (next-ups)
+Unchanged from session 10: cross-**image**-batch dedup (a re-scored SKU's image
+slots still pay per row). New minor: per-item **Retry** on a single failed copy
+(batch has none on the scoring page; the copy results page has its own re-run).
 
 ---
 

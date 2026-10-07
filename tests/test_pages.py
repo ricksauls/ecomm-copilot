@@ -905,3 +905,140 @@ def test_batch_zip_404_when_nothing_ready(client, auth, app, monkeypatch, tmp_pa
     _seed_batch_two(client, auth, app)
     monkeypatch.setattr("app.image_enhance.is_configured", lambda: True)
     assert client.get("/app/pdp-scoring/enhance-batch/download.zip").status_code == 404
+
+
+# --- Batch copy rewrites (scoring-page bulk action + cost preflight) ----------
+
+_COPY_RECORD = {"title": "Acme Hot Sauce", "bullets": ["a", "b"],
+                "description": "desc", "target_keywords": ["hot sauce"]}
+
+
+def _seed_batch_for_copy(client, auth, app):
+    """Two scored items carrying record_json (so a rewrite reuses the scored content)."""
+    auth.register()
+    with app.app_context():
+        from app import jobs
+        from app.db import get_db
+        db = get_db()
+        uid = db.execute("SELECT id FROM users ORDER BY id LIMIT 1").fetchone()["id"]
+        sids = jobs.enqueue_items(db, uid, [
+            {"url": "https://www.walmart.com/ip/501", "item": "501"},
+            {"url": "https://www.walmart.com/ip/502", "item": "502"},
+        ])
+        jobs.save_result(db, sids[0], 70, {"dimensions": []}, "ProdA", record=_COPY_RECORD)
+        jobs.save_result(db, sids[1], 75, {"dimensions": []}, "ProdB", record=_COPY_RECORD)
+    with client.session_transaction() as sess:
+        sess["pdp_batch_ids"] = sids
+    return sids
+
+
+def _give_done_copy(app, item, url, projected=95):
+    with app.app_context():
+        from app import copy_jobs
+        from app.db import get_db
+        db = get_db()
+        uid = db.execute("SELECT id FROM users ORDER BY id LIMIT 1").fetchone()["id"]
+        cid = copy_jobs.enqueue_copy_items(db, uid, [{"url": url, "item": item}])[0]
+        copy_jobs.save_generated_copy(db, cid, new={}, projected_overall=projected)
+        return cid
+
+
+def test_copy_bar_shown_when_scored(client, auth, app):
+    _seed_batch_for_copy(client, auth, app)
+    data = client.get("/app/pdp-scoring/results").data
+    assert b"Copy rewrites" in data
+    assert b"Rewrite Copy For All Items" in data
+
+
+def test_copy_estimate_counts_all_reused(client, auth, app, monkeypatch):
+    _seed_batch_for_copy(client, auth, app)
+    monkeypatch.delenv("COPYGEN_PRICE_PER_ITEM", raising=False)
+    est = client.post("/app/pdp-scoring/create-copy/estimate", data={"all": "1"}).get_json()
+    assert est["total"] == 2
+    assert est["reused"] == 2          # both carry record_json → no re-fetch
+    assert est["refetch"] == 0
+    assert est["already_copied"] == 0
+    assert est["price_per_item"] is None  # no default → counts only
+    assert est["cost"] == ""
+    assert "2 items will be rewritten" in est["summary"]
+
+
+def test_copy_estimate_with_price(client, auth, app, monkeypatch):
+    _seed_batch_for_copy(client, auth, app)
+    monkeypatch.setenv("COPYGEN_PRICE_PER_ITEM", "0.10")
+    est = client.post("/app/pdp-scoring/create-copy/estimate", data={"all": "1"}).get_json()
+    assert est["est_cost"] == 0.20
+    assert "$0.20" in est["cost"]
+
+
+def test_copy_estimate_skips_already_copied(client, auth, app):
+    _seed_batch_for_copy(client, auth, app)
+    _give_done_copy(app, "501", "https://www.walmart.com/ip/501")
+    est = client.post("/app/pdp-scoring/create-copy/estimate", data={"all": "1"}).get_json()
+    assert est["total"] == 1
+    assert est["already_copied"] == 1
+
+
+def test_copy_estimate_selected_subset(client, auth, app):
+    sids = _seed_batch_for_copy(client, auth, app)
+    est = client.post(
+        "/app/pdp-scoring/create-copy/estimate", data={"item_ids": str(sids[1])}
+    ).get_json()
+    assert est["total"] == 1
+
+
+def test_copy_batch_enqueue_all_creates_jobs(client, auth, app):
+    _seed_batch_for_copy(client, auth, app)
+    resp = client.post("/app/pdp-scoring/create-copy", data={"all": "1"})
+    assert resp.status_code == 302
+    assert "/app/pdp-copy/results" in resp.headers["Location"]
+    with app.app_context():
+        from app.db import get_db
+        assert get_db().execute("SELECT COUNT(*) FROM copy_items").fetchone()[0] == 2
+
+
+def test_copy_batch_enqueue_selected_only(client, auth, app):
+    sids = _seed_batch_for_copy(client, auth, app)
+    client.post("/app/pdp-scoring/create-copy", data={"item_ids": str(sids[1])})
+    with app.app_context():
+        from app.db import get_db
+        rows = get_db().execute("SELECT item_id FROM copy_items").fetchall()
+        assert {r["item_id"] for r in rows} == {"502"}
+
+
+def test_copy_batch_skips_already_copied(client, auth, app):
+    _seed_batch_for_copy(client, auth, app)
+    _give_done_copy(app, "501", "https://www.walmart.com/ip/501")  # 501 already has copy
+    client.post("/app/pdp-scoring/create-copy", data={"all": "1"})
+    with app.app_context():
+        from app.db import get_db
+        items = [r["item_id"] for r in get_db().execute(
+            "SELECT item_id FROM copy_items"
+        ).fetchall()]
+        assert items.count("501") == 1  # not re-created
+        assert items.count("502") == 1  # the only new rewrite
+
+
+def test_copy_batch_nothing_to_do_returns_to_scoring(client, auth, app):
+    _seed_batch_for_copy(client, auth, app)
+    _give_done_copy(app, "501", "https://www.walmart.com/ip/501")
+    _give_done_copy(app, "502", "https://www.walmart.com/ip/502")
+    resp = client.post("/app/pdp-scoring/create-copy", data={"all": "1"})
+    assert resp.status_code == 302
+    # Everything already had copy → nothing enqueued, bounce back to scoring.
+    assert "/app/pdp-scoring/results" in resp.headers["Location"]
+
+
+def test_copy_badge_rendered_for_done(client, auth, app):
+    _seed_batch_for_copy(client, auth, app)
+    _give_done_copy(app, "501", "https://www.walmart.com/ip/501")
+    data = client.get("/app/pdp-scoring/results").data
+    assert b"pdp-copy-badge all-done" in data
+
+
+def test_view_copy_sets_batch_and_redirects(client, auth, app):
+    _seed_batch_for_copy(client, auth, app)
+    _give_done_copy(app, "501", "https://www.walmart.com/ip/501")
+    resp = client.get("/app/pdp-scoring/view-copy")
+    assert resp.status_code == 302
+    assert "/app/pdp-copy/results" in resp.headers["Location"]

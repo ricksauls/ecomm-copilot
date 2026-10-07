@@ -1587,14 +1587,40 @@ a:focus-visible,
    modal shown before the metered run. */
 
 /* Batch bar: title + progress on the left, actions on the right. */
+/* Bulk-actions section: one card holding the image-fix and copy-rewrite bars as
+   sibling rows, so the two read as a pair rather than disconnected controls. */
+.pdp-bulk {
+  margin-bottom: var(--space-14);
+  padding: var(--space-12) var(--space-16);
+}
+.pdp-bulk-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-8) var(--space-12);
+  padding-bottom: var(--space-8);
+}
+.pdp-bulk-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--black);
+}
+.pdp-bulk-hint {
+  font-size: 12px;
+  color: var(--cool-gray);
+}
+
 .pdp-batchbar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-12);
-  margin-bottom: var(--space-14);
-  padding: var(--space-12) var(--space-16);
+  padding: var(--space-12) 0;
+}
+/* Separate stacked bars inside the section with a hairline (not on the first). */
+.pdp-batchbar + .pdp-batchbar {
+  border-top: 1px solid var(--divider);
 }
 .pdp-batchbar-info {
   display: flex;
@@ -1647,6 +1673,21 @@ a:focus-visible,
   color: var(--signal-red);
 }
 
+/* Per-row copy badge: same compact chip as the fix badge, stacked under it. */
+.pdp-copy-badge {
+  display: inline-block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--cool-gray);
+  white-space: nowrap;
+}
+.pdp-copy-badge.all-done {
+  color: var(--mid-gray);
+}
+.pdp-copy-badge.has-failed {
+  color: var(--signal-red);
+}
+
 /* Cost-preflight modal: a centered dialog over a dimmed backdrop. */
 .cost-modal[hidden] {
   display: none;
@@ -1689,6 +1730,11 @@ a:focus-visible,
 .cost-modal-summary {
   margin: 0 0 var(--space-8);
   font-weight: 500;
+}
+.cost-modal-skipped {
+  margin: 0 0 var(--space-8);
+  font-size: 12px;
+  color: var(--cool-gray);
 }
 .cost-modal-cost {
   margin: 0 0 var(--space-8);

@@ -32,6 +32,32 @@ logger = logging.getLogger(__name__)
 # Default when COPYGEN_MODEL is unset. Kept in sync with app.config["COPYGEN_MODEL"].
 DEFAULT_MODEL = "claude-opus-5"
 
+
+def price_per_item() -> float | None:
+    """Approx USD per copy rewrite for the batch cost estimate, or None for counts-only.
+
+    Unlike the image provider's flat per-fix price, a copy rewrite's real cost is
+    token-variable (and a non-reused item also pays a page re-fetch), so there is
+    **no default** — ``IMAGE_UPSCALE_PRICE_PER_IMAGE``'s opposite: the figure only
+    appears when an operator sets ``COPYGEN_PRICE_PER_ITEM`` to their own rough
+    number. Contract: unset/empty → None (the preflight shows counts only); a valid
+    non-negative number → that; anything unparseable or negative → None (logged),
+    so a typo degrades to counts rather than showing a wrong dollar figure. Estimate
+    only — never meters, bills, or blocks.
+    """
+    raw = os.environ.get("COPYGEN_PRICE_PER_ITEM")
+    if raw is None or raw.strip() == "":
+        return None
+    try:
+        price = float(raw.strip())
+    except ValueError:
+        logger.warning("Invalid COPYGEN_PRICE_PER_ITEM=%r; showing counts only", raw)
+        return None
+    if price < 0:
+        logger.warning("Negative COPYGEN_PRICE_PER_ITEM=%r; showing counts only", raw)
+        return None
+    return price
+
 # Output ceiling. The generated copy is small (a title, a handful of bullets, and
 # a ~150-300 word description) but the model also spends thinking tokens, so this
 # leaves comfortable headroom without inviting runaway output.

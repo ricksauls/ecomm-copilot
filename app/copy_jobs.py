@@ -131,6 +131,107 @@ def get_copy_items(conn: sqlite3.Connection, ids: list[int], user_id: int) -> li
     ).fetchall()
 
 
+# Copy-status buckets used when matching a scored item to its existing copy: a
+# "done" or in-flight copy means a batch rewrite should skip the item (don't
+# re-spend); a copy whose only attempts failed is eligible to re-run.
+_DONE_STATUSES = ("done",)
+_INFLIGHT_STATUSES = ("queued", "fetching", "fetched", "gen_queued", "generating")
+_FAILED_STATUSES = ("blocked", "error")
+
+
+def copy_states_for_items(
+    conn: sqlite3.Connection, user_id: int, keys
+) -> dict[str, dict]:
+    """Summarize each scored item's existing copy, keyed by its item id (or URL).
+
+    ``keys`` is an iterable of ``(item_id, url)`` pairs for the scored items on the
+    results page. Copy lives in its own ``copy_items`` rows (no FK to scored_items),
+    so a scored item is matched to its copy by **item id when present, else URL** —
+    the same identity ``count_copy_products`` keys on. Returns ``{key -> summary}``
+    where ``key`` is the item id (or URL) and ``summary`` carries both the dedup
+    signals (``has_done`` / ``has_inflight`` / ``has_failed`` — so a batch rewrite
+    skips items already covered or in flight) and the latest attempt's display
+    fields (``latest_status`` / ``latest_projected`` / ``latest_current`` /
+    ``latest_copy_item_id`` — for the per-row copy badge). Scoped to ``user_id``
+    (IDOR guard); ``{}`` for empty input.
+
+    A copy row is indexed under BOTH its item id and its URL, so a scored item
+    finds it by either identity even if one side lacks the item number.
+    """
+    item_ids = sorted({k[0] for k in keys if k[0]})
+    urls = sorted({k[1] for k in keys if k[1]})
+    if not item_ids and not urls:
+        return {}
+    clauses: list[str] = []
+    params: list = [user_id]
+    if item_ids:
+        clauses.append(f"item_id IN ({','.join('?' for _ in item_ids)})")
+        params += item_ids
+    if urls:
+        clauses.append(f"url IN ({','.join('?' for _ in urls)})")
+        params += urls
+    rows = conn.execute(
+        "SELECT id, item_id, url, status, current_overall, projected_overall "
+        f"FROM copy_items WHERE user_id = ? AND ({' OR '.join(clauses)}) ORDER BY id",
+        params,
+    ).fetchall()
+    states: dict[str, dict] = {}
+
+    def _entry(key: str) -> dict:
+        return states.setdefault(key, {
+            "has_done": False, "has_inflight": False, "has_failed": False,
+            "latest_status": None, "latest_projected": None,
+            "latest_current": None, "latest_copy_item_id": None,
+        })
+
+    for r in rows:
+        status = r["status"]
+        for key in (r["item_id"], r["url"]):
+            if not key:
+                continue
+            e = _entry(key)
+            if status in _DONE_STATUSES:
+                e["has_done"] = True
+            elif status in _INFLIGHT_STATUSES:
+                e["has_inflight"] = True
+            elif status in _FAILED_STATUSES:
+                e["has_failed"] = True
+            # Rows are ordered by id asc, so the last write wins = latest attempt.
+            e["latest_status"] = status
+            e["latest_projected"] = r["projected_overall"]
+            e["latest_current"] = r["current_overall"]
+            e["latest_copy_item_id"] = r["id"]
+    return states
+
+
+def copy_item_ids_for_items(
+    conn: sqlite3.Connection, user_id: int, keys
+) -> list[int]:
+    """Copy_items ids whose item id or URL matches any of ``keys`` (owned by user).
+
+    Backs the "View copy results" cross-link from the scoring page: point the copy
+    session batch at all copy this user has for the scored batch's products. Same
+    matching as :func:`copy_states_for_items`; ordered by id. ``[]`` for empty input.
+    """
+    item_ids = sorted({k[0] for k in keys if k[0]})
+    urls = sorted({k[1] for k in keys if k[1]})
+    if not item_ids and not urls:
+        return []
+    clauses: list[str] = []
+    params: list = [user_id]
+    if item_ids:
+        clauses.append(f"item_id IN ({','.join('?' for _ in item_ids)})")
+        params += item_ids
+    if urls:
+        clauses.append(f"url IN ({','.join('?' for _ in urls)})")
+        params += urls
+    rows = conn.execute(
+        f"SELECT id FROM copy_items WHERE user_id = ? AND ({' OR '.join(clauses)}) ORDER BY id",
+        params,
+    ).fetchall()
+    return [r["id"] for r in rows]
+
+
 def has_claimable_items(conn: sqlite3.Connection) -> bool:
     """True if any copy row is waiting for a worker (queued or gen_queued).
 

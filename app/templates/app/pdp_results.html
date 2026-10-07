@@ -22,7 +22,7 @@
    reload is driven by pdp_results.js (reading the marker meta below) so the cost
    modal can pause it mid-decision; without JS, the <noscript> meta-refresh is the
    fallback. Both are CSP-safe. ``enhance_pending`` is set only when the feature's on. #}
-{% if pending or enhance_pending %}
+{% if pending or enhance_pending or copy_pending %}
 <noscript><meta http-equiv="refresh" content="5" /></noscript>
 <meta name="pdp-refresh-seconds" content="5" />
 {% endif %}
@@ -67,10 +67,9 @@
     </p>
   </div>
   <div class="header-buttons">
+    {# Copy rewrites moved into the "Bulk actions" section below, beside image
+       fixes (both act on the same row selection). #}
     {% if has_scored %}
-    {# Submits the selection form below (associated via the form= attribute) so
-       the checked items are sent to Copy Content Creation. #}
-    <button type="submit" form="copy-select-form" class="wbtn wbtn-primary">Create New Copy Content</button>
     <a href="{{ url_for('pages.pdp_scoring_results_pdf') }}" class="wbtn wbtn-secondary">Download PDF</a>
     {% endif %}
     <a href="{{ url_for('pages.pdp_scoring') }}" class="wbtn wbtn-secondary">Score More</a>
@@ -120,56 +119,103 @@
   </div>
 </div>
 
-<p class="copy-select-hint">Tick items and choose <strong>Create New Copy Content</strong> to rewrite their Title, Description, and Key Features. Click a row to see its recommendations.</p>
+{# ── Bulk actions ────────────────────────────────────────────────────────────
+   Image fixes + copy rewrites side by side. Both act on the SAME selection (the
+   row checkboxes) or the whole batch, and both metered "All/Selected" buttons open
+   the shared cost-preflight modal (pdp_results.js) before spending. Shown when
+   either feature has something to act on. #}
+{% set show_image_bar = enhance_configured and enhance_batch and enhance_batch.any %}
+{% set show_copy_bar = copy_batch and copy_batch.any %}
+{% if show_image_bar or show_copy_bar %}
+<div class="pdp-bulk card card-pad">
+  <div class="pdp-bulk-head">
+    <span class="pdp-bulk-title">Bulk actions</span>
+    <span class="pdp-bulk-hint">Tick rows to act on a selection, or use an “All” button. Click a row to see its recommendations.</span>
+  </div>
 
-{# Batch image-fix bar: fix every flagged image across the batch, or just the
-   ticked items. The two "Fix" buttons are JS-driven (type=button) so they can
-   show the cost-preflight modal before spending — each fix is a metered AI call.
-   Retry/Cancel/ZIP carry no new cost, so they're plain forms/links that also work
-   without JS. Shown only when the feature is configured and the batch has flagged
-   images. Counts come from the route (_annotate_enhance batch roll-up). #}
-{% if enhance_configured and enhance_batch and enhance_batch.any %}
-<div class="pdp-batchbar card card-pad" role="group" aria-label="Batch image fixes">
-  <div class="pdp-batchbar-info">
-    <span class="pdp-batchbar-title">Image fixes</span>
-    <span class="pdp-batchbar-progress">
-      {{ enhance_batch.done }} of {{ enhance_batch.total }} fixed
-      {%- if enhance_batch.in_flight %} · {{ enhance_batch.in_flight }} running{% endif %}
-      {%- if enhance_batch.failed %} · {{ enhance_batch.failed }} failed{% endif %}
-    </span>
+  {# Image fixes: fix every flagged image in the batch, or the ticked rows. "Fix"
+     buttons are JS-driven so they can show the cost modal first (metered AI call);
+     Retry/Cancel/ZIP carry no new cost and work without JS. #}
+  {% if show_image_bar %}
+  <div class="pdp-batchbar" role="group" aria-label="Batch image fixes">
+    <div class="pdp-batchbar-info">
+      <span class="pdp-batchbar-title">Image fixes</span>
+      <span class="pdp-batchbar-progress">
+        {{ enhance_batch.done }} of {{ enhance_batch.total }} fixed
+        {%- if enhance_batch.in_flight %} · {{ enhance_batch.in_flight }} running{% endif %}
+        {%- if enhance_batch.failed %} · {{ enhance_batch.failed }} failed{% endif %}
+      </span>
+    </div>
+    <div class="pdp-batchbar-actions">
+      <button type="button" class="wbtn wbtn-primary js-cost-action"
+              data-scope="all"
+              data-estimate-url="{{ url_for('pages.pdp_scoring_enhance_batch_estimate') }}"
+              data-action-url="{{ url_for('pages.pdp_scoring_enhance_batch') }}"
+              data-title="Fix all flagged images in this batch"
+              data-confirm-label="Confirm &amp; Fix">Fix All Flagged In Batch</button>
+      {# Enabled by pdp_results.js only while at least one row is ticked. #}
+      <button type="button" class="wbtn wbtn-secondary js-cost-action js-needs-selection" disabled
+              data-scope="selected"
+              data-estimate-url="{{ url_for('pages.pdp_scoring_enhance_batch_estimate') }}"
+              data-action-url="{{ url_for('pages.pdp_scoring_enhance_batch') }}"
+              data-title="Fix flagged images for the selected items"
+              data-confirm-label="Confirm &amp; Fix">Fix Images For Selected</button>
+      {% if enhance_batch.any_done %}
+      <a class="wbtn wbtn-secondary" href="{{ url_for('pages.pdp_scoring_enhance_batch_zip') }}">Download Fixed Images (ZIP) ↓</a>
+      {% endif %}
+      {% if enhance_batch.any_failed %}
+      <form method="post" action="{{ url_for('pages.pdp_scoring_enhance_batch_retry') }}" class="pdp-batchbar-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+        <input type="hidden" name="all" value="1" />
+        <button type="submit" class="wbtn wbtn-secondary">Retry Failed ({{ enhance_batch.failed }})</button>
+      </form>
+      {% endif %}
+      {% if enhance_batch.queued %}
+      <form method="post" action="{{ url_for('pages.pdp_scoring_enhance_batch_cancel') }}" class="pdp-batchbar-form js-cancel-queued">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+        <input type="hidden" name="all" value="1" />
+        <button type="submit" class="wbtn wbtn-ghost">Cancel Queued ({{ enhance_batch.queued }})</button>
+      </form>
+      {% endif %}
+    </div>
   </div>
-  <div class="pdp-batchbar-actions">
-    {# data-* drive the shared cost modal in pdp_results.js: fetch an estimate for
-       the scope, show it, and on confirm POST to the action URL. #}
-    <button type="button" class="wbtn wbtn-primary js-cost-action"
-            data-scope="all"
-            data-estimate-url="{{ url_for('pages.pdp_scoring_enhance_batch_estimate') }}"
-            data-action-url="{{ url_for('pages.pdp_scoring_enhance_batch') }}"
-            data-title="Fix all flagged images in this batch">Fix All Flagged In Batch</button>
-    {# Enabled by pdp_results.js only while at least one row is ticked. #}
-    <button type="button" class="wbtn wbtn-secondary js-cost-action js-fix-selected" disabled
-            data-scope="selected"
-            data-estimate-url="{{ url_for('pages.pdp_scoring_enhance_batch_estimate') }}"
-            data-action-url="{{ url_for('pages.pdp_scoring_enhance_batch') }}"
-            data-title="Fix flagged images for the selected items">Fix Images For Selected</button>
-    {% if enhance_batch.any_done %}
-    <a class="wbtn wbtn-secondary" href="{{ url_for('pages.pdp_scoring_enhance_batch_zip') }}">Download Fixed Images (ZIP) ↓</a>
-    {% endif %}
-    {% if enhance_batch.any_failed %}
-    <form method="post" action="{{ url_for('pages.pdp_scoring_enhance_batch_retry') }}" class="pdp-batchbar-form">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-      <input type="hidden" name="all" value="1" />
-      <button type="submit" class="wbtn wbtn-secondary">Retry Failed ({{ enhance_batch.failed }})</button>
-    </form>
-    {% endif %}
-    {% if enhance_batch.queued %}
-    <form method="post" action="{{ url_for('pages.pdp_scoring_enhance_batch_cancel') }}" class="pdp-batchbar-form js-cancel-queued">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-      <input type="hidden" name="all" value="1" />
-      <button type="submit" class="wbtn wbtn-ghost">Cancel Queued ({{ enhance_batch.queued }})</button>
-    </form>
-    {% endif %}
+  {% endif %}
+
+  {# Copy rewrites: generate new Title/Description/Key Features for all scored
+     items, or the ticked rows. Like image fixes, the "Rewrite" buttons open the
+     cost modal first (each is a metered Claude call); already-covered items are
+     skipped server-side. Results open on the dedicated copy comparison page. #}
+  {% if show_copy_bar %}
+  <div class="pdp-batchbar" role="group" aria-label="Batch copy rewrites">
+    <div class="pdp-batchbar-info">
+      <span class="pdp-batchbar-title">Copy rewrites</span>
+      <span class="pdp-batchbar-progress">
+        {{ copy_batch.done }} of {{ copy_batch.scored }} have new copy
+        {%- if copy_batch.in_flight %} · {{ copy_batch.in_flight }} generating{% endif %}
+        {%- if copy_batch.failed %} · {{ copy_batch.failed }} failed{% endif %}
+      </span>
+    </div>
+    <div class="pdp-batchbar-actions">
+      <button type="button" class="wbtn wbtn-primary js-cost-action"
+              data-scope="all"
+              data-estimate-url="{{ url_for('pages.pdp_scoring_copy_estimate') }}"
+              data-action-url="{{ url_for('pages.pdp_scoring_create_copy') }}"
+              data-title="Rewrite copy for all items in this batch"
+              data-confirm-label="Confirm &amp; Rewrite">Rewrite Copy For All Items</button>
+      <button type="button" class="wbtn wbtn-secondary js-cost-action js-needs-selection" disabled
+              data-scope="selected"
+              data-estimate-url="{{ url_for('pages.pdp_scoring_copy_estimate') }}"
+              data-action-url="{{ url_for('pages.pdp_scoring_create_copy') }}"
+              data-title="Rewrite copy for the selected items"
+              data-confirm-label="Confirm &amp; Rewrite">Rewrite Copy For Selected</button>
+      {% if copy_batch.any_copy %}
+      <a class="wbtn wbtn-secondary" href="{{ url_for('pages.pdp_scoring_view_copy') }}">View Copy Results →</a>
+      {% endif %}
+      {# No-JS fallback: submit the ticked items straight to the copy flow (no modal). #}
+      <noscript><button type="submit" form="copy-select-form" class="wbtn wbtn-secondary">Rewrite Copy For Selected</button></noscript>
+    </div>
   </div>
+  {% endif %}
 </div>
 {% endif %}
 {% endif %}
@@ -269,6 +315,22 @@
             {%- if es.failed %} · {{ es.failed }} failed{% endif -%}
           </span>
           {% endif %}
+          {# Copy-rewrite badge: this item's rewrite state (mirrors the image badge).
+             Hidden when the item has no copy yet, to keep the cell quiet. Keyed on
+             ``copy_state`` — ``it.copy`` would hit the dict's built-in .copy method. #}
+          {% set cs = it.copy_state %}
+          {% if cs and cs.status and cs.status != 'none' %}
+          <span class="pdp-copy-badge{% if cs.status == 'failed' %} has-failed{% elif cs.status == 'done' %} all-done{% endif %}"
+                title="Copy rewrite for this item">
+            {%- if cs.status == 'done' -%}
+              ✓ copy{% if cs.current is not none and cs.projected is not none %} {{ cs.current }}→{{ cs.projected }}{% endif %}
+            {%- elif cs.status == 'in_flight' -%}
+              ⏳ copy generating
+            {%- else -%}
+              copy failed
+            {%- endif -%}
+          </span>
+          {% endif %}
         </div>
         {# Expand caret — only scored rows have a detail panel to reveal. #}
         <div class="col pdp-caret-cell">
@@ -358,24 +420,28 @@
    fills the summary + dollar figure, and on confirm POSTs to the action URL. Kept
    generic (title/summary/cost are filled by JS) so other metered actions can
    reuse it later. Only rendered when the enhance feature is configured. #}
-{% if enhance_configured %}
+{% if has_scored %}
 <div class="cost-modal" id="cost-modal" hidden>
   <div class="cost-modal-backdrop" data-cost-cancel></div>
   <div class="cost-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="cost-modal-title">
-    <h2 id="cost-modal-title" class="cost-modal-title">Confirm image fixes</h2>
+    {# Title, summary, skipped line, cost line, note, confirm label and empty-state
+       are all filled by pdp_results.js from the estimate response, so this one
+       modal serves both image fixes and copy rewrites (and any future action). #}
+    <h2 id="cost-modal-title" class="cost-modal-title">Confirm</h2>
     <div class="cost-modal-body">
       <p class="cost-modal-loading">Calculating estimate…</p>
       <div class="cost-modal-detail" hidden>
         <p class="cost-modal-summary"></p>
-        <p class="cost-modal-cost"></p>
-        <p class="cost-modal-note">Each fix is a metered AI call. Images already fixed or in progress are skipped — you’re only charged for new fixes.</p>
+        <p class="cost-modal-skipped" hidden></p>
+        <p class="cost-modal-cost" hidden></p>
+        <p class="cost-modal-note"></p>
       </div>
-      <p class="cost-modal-empty" hidden>Nothing new to fix — every flagged image in this scope is already fixed or in progress.</p>
+      <p class="cost-modal-empty" hidden>Nothing new to do — everything in this scope is already done or in progress.</p>
       <p class="cost-modal-error" hidden>Couldn’t estimate the cost just now. Close this and try again.</p>
     </div>
     <div class="cost-modal-actions">
       <button type="button" class="wbtn wbtn-secondary" data-cost-cancel>Cancel</button>
-      <button type="button" class="wbtn wbtn-primary cost-modal-confirm" disabled>Confirm &amp; Fix</button>
+      <button type="button" class="wbtn wbtn-primary cost-modal-confirm" disabled>Confirm</button>
     </div>
   </div>
   {# CSRF for the estimate fetch and the dynamically-built confirm POST. #}

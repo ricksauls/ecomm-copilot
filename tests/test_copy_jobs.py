@@ -239,3 +239,52 @@ def test_concurrent_claim_next_copy_never_double_claims(app):
     # claimable since these rows aren't auto_generate).
     assert sorted(claimed) == sorted(ids)
     assert len(claimed) == len(set(claimed))
+
+
+def test_copy_states_matches_by_item_id_and_url(app):
+    with app.app_context():
+        uid = create_local_user("states@example.com", "password123")
+        db = get_db()
+        # One done copy (item 100), one in-flight (item 200), one failed (item 300).
+        done = copy_jobs.enqueue_copy_items(db, uid, [{"url": "https://w/ip/100", "item": "100"}])[0]
+        copy_jobs.save_generated_copy(db, done, new={}, projected_overall=95)
+        copy_jobs.enqueue_copy_items(db, uid, [{"url": "https://w/ip/200", "item": "200"}])
+        copy_jobs.claim_next_copy(db)  # 100 is 'done'; claims 200 -> 'fetching' (in-flight)
+        failed = copy_jobs.enqueue_copy_items(db, uid, [{"url": "https://w/ip/300", "item": "300"}])[0]
+        copy_jobs.mark_copy_failed(db, failed, "error", "boom")
+
+        keys = [("100", "https://w/ip/100"), ("200", "https://w/ip/200"),
+                ("300", "https://w/ip/300"), ("999", "https://w/ip/999")]
+        states = copy_jobs.copy_states_for_items(db, uid, keys)
+        assert states["100"]["has_done"] is True
+        assert states["100"]["latest_projected"] == 95
+        assert states["200"]["has_inflight"] is True   # 'fetching' counts as in-flight
+        assert states["300"]["has_failed"] is True
+        assert "999" not in states                      # no copy for this item
+        # Matchable by URL too (not just item id).
+        assert states["https://w/ip/100"]["has_done"] is True
+
+
+def test_copy_states_scoped_to_user(app):
+    with app.app_context():
+        uid = create_local_user("own2@example.com", "password123")
+        other = create_local_user("other2@example.com", "password123")
+        db = get_db()
+        cid = copy_jobs.enqueue_copy_items(db, uid, [{"url": "https://w/ip/55", "item": "55"}])[0]
+        copy_jobs.save_generated_copy(db, cid, new={}, projected_overall=90)
+        # Another user sees nothing for the same key (IDOR guard).
+        assert copy_jobs.copy_states_for_items(db, other, [("55", "https://w/ip/55")]) == {}
+
+
+def test_copy_item_ids_for_items(app):
+    with app.app_context():
+        uid = create_local_user("ids@example.com", "password123")
+        db = get_db()
+        a = copy_jobs.enqueue_copy_items(db, uid, [{"url": "https://w/ip/1", "item": "1"}])[0]
+        b = copy_jobs.enqueue_copy_items(db, uid, [{"url": "https://w/ip/2", "item": "2"}])[0]
+        copy_jobs.enqueue_copy_items(db, uid, [{"url": "https://w/ip/3", "item": "3"}])
+        got = copy_jobs.copy_item_ids_for_items(
+            db, uid, [("1", "https://w/ip/1"), ("2", "https://w/ip/2")]
+        )
+        assert got == sorted([a, b])
+        assert copy_jobs.copy_item_ids_for_items(db, uid, []) == []

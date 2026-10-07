@@ -34,6 +34,7 @@ from app import (
     ci_images,
     ci_jobs,
     copy_jobs,
+    copygen,
     fixtures,
     image_enhance,
     image_jobs,
@@ -487,6 +488,22 @@ def pdp_scoring_results():
         state = _annotate_enhance(items, jobs_map, image_enhance.output_ext())
         enhance_pending = state["pending"]
         enhance_batch = state["batch"]
+
+    # Copy rewrites: annotate each scored row with its existing-copy state (for the
+    # per-row badge) and roll the batch up for the copy bar. Always on — copy is a
+    # core feature (no provider gate, unlike image fixes); generation just needs
+    # ANTHROPIC_API_KEY, which the worker enforces.
+    copy_batch = None
+    if items:
+        scored_keys = [
+            (it["item_id"], it["url"]) for it in items if it["status"] == "scored"
+        ]
+        copy_states = copy_jobs.copy_states_for_items(
+            get_db(), g.user["id"], scored_keys
+        ) if scored_keys else {}
+        copy_batch = _annotate_copy(items, copy_states)
+    # Keep the auto-refresh alive while a copy rewrite is still generating, too.
+    copy_pending = bool(copy_batch and copy_batch["in_flight_any"])
     return render_template(
         "app/pdp_results.html",
         breadcrumb="Content Studio · Product Detail Page Content Scoring",
@@ -504,6 +521,11 @@ def pdp_scoring_results():
         enhance_batch=enhance_batch,
         # Shown in the cost-preflight modal; None → modal shows counts only.
         enhance_price=image_enhance.price_per_image() if enhance_configured else None,
+        # Copy-rewrite batch roll-up (per-row badge counts + bar state). Always set
+        # when there are items — copy has no provider gate.
+        copy_batch=copy_batch,
+        # Extends the auto-refresh condition so a generating rewrite updates live.
+        copy_pending=copy_pending,
     )
 
 
@@ -590,6 +612,24 @@ def _enhance_targets(row) -> list[tuple[str, str, str]]:
     if white_bg_url:
         targets.append(("whitebg", "white_bg", white_bg_url))
     return targets
+
+
+def _plural(n: int, one: str, many: str | None = None) -> str:
+    """'1 fix' / '2 fixes' — the count plus its singular/plural noun."""
+    return f"{n} {one if n == 1 else (many or one + 's')}"
+
+
+def _cost_line(total: int, price: float | None, unit: str) -> str:
+    """The '≈ $X (N × $Y per unit)' estimate line, or '' when no price is set.
+
+    Shared by the image-fix and copy-rewrite cost modals so both read identically.
+    An estimate only — the real charge is the provider's (see the per-feature price
+    helpers). Empty when the operator left the price unset (counts-only preflight).
+    """
+    if price is None or total <= 0:
+        return ""
+    return (f"Estimated cost: ≈ ${round(total * price, 2):.2f} "
+            f"({total} × ${price:.2f} per {unit})")
 
 
 def _enhance_slot_state(sid: int, slot: str, jobs_map: dict, ext: str) -> dict:
@@ -754,13 +794,14 @@ def _batch_enhance_plan(rows: list, jobs_map: dict, ext: str) -> dict:
     }
 
 
-def _enhance_batch_rows() -> list:
-    """Resolve the scored rows a batch image action targets, from the POST form.
+def _scope_scored_rows() -> list:
+    """Resolve the scored rows a batch bulk action targets, from the POST form.
 
-    ``all=1`` → the whole current session batch (the "fix everything" scope);
-    otherwise the ticked ``item_ids`` (the selected-subset scope), each resolved
-    through :func:`jobs.get_items` so a foreign or unknown id is silently dropped
-    (IDOR guard). Returns ``[]`` when nothing is selected.
+    Shared by the image-fix and copy-rewrite batch actions (both act on the same
+    scoring-results selection). ``all=1`` → the whole current session batch (the
+    "everything" scope); otherwise the ticked ``item_ids`` (the selected-subset
+    scope), each resolved through :func:`jobs.get_items` so a foreign or unknown id
+    is silently dropped (IDOR guard). Returns ``[]`` when nothing is selected.
     """
     if request.form.get("all"):
         return _batch_rows()
@@ -856,12 +897,22 @@ def pdp_scoring_enhance_batch_estimate():
     """
     if not image_enhance.is_configured():
         abort(503, description="Image enhancement is not configured.")
-    rows = _enhance_batch_rows()
+    rows = _scope_scored_rows()
     ext = image_enhance.output_ext()
     jobs_map = image_jobs.jobs_for_items(
         get_db(), [r["id"] for r in rows], g.user["id"]
     ) if rows else {}
     plan = _batch_enhance_plan(rows, jobs_map, ext)
+    # Human-readable strings the (generic) cost modal renders verbatim, alongside
+    # the raw counts. Building them here keeps per-feature wording server-side.
+    parts = []
+    if plan["whitebg"]:
+        parts.append(_plural(plan["whitebg"], "white-background fix", "white-background fixes"))
+    if plan["upscale"]:
+        parts.append(_plural(plan["upscale"], "upscale"))
+    summary = (" + ".join(parts) if parts else "0 fixes") + \
+        f" across {_plural(plan['items'], 'item')}."
+    skipped = f"{plan['already_fixed']} already fixed — skipped." if plan["already_fixed"] else ""
     return jsonify({
         "items": plan["items"],
         "whitebg": plan["whitebg"],
@@ -870,6 +921,12 @@ def pdp_scoring_enhance_batch_estimate():
         "already_fixed": plan["already_fixed"],
         "price_per_image": plan["price_per_image"],
         "est_cost": plan["est_cost"],
+        # Uniform display fields the cost modal renders (see pdp_results.js).
+        "summary": summary,
+        "skipped": skipped,
+        "cost": _cost_line(plan["total"], plan["price_per_image"], "fix"),
+        "note": ("Each fix is a metered AI call. Images already fixed or in progress "
+                 "are skipped — you’re only charged for new fixes."),
     })
 
 
@@ -885,7 +942,7 @@ def pdp_scoring_enhance_batch():
     """
     if not image_enhance.is_configured():
         abort(503, description="Image enhancement is not configured.")
-    rows = _enhance_batch_rows()
+    rows = _scope_scored_rows()
     if not rows:
         logger.info("Batch fix: nothing selected, user_id=%s", g.user["id"])
         return redirect(url_for("pages.pdp_scoring_results"))
@@ -913,7 +970,7 @@ def pdp_scoring_enhance_batch_retry():
     """Re-queue every failed image fix in the batch scope ("Retry failed")."""
     if not image_enhance.is_configured():
         abort(503, description="Image enhancement is not configured.")
-    rows = _enhance_batch_rows()
+    rows = _scope_scored_rows()
     n = image_jobs.requeue_failed_for_items(
         get_db(), [r["id"] for r in rows], g.user["id"]
     )
@@ -931,7 +988,7 @@ def pdp_scoring_enhance_batch_cancel():
     """
     if not image_enhance.is_configured():
         abort(503, description="Image enhancement is not configured.")
-    rows = _enhance_batch_rows()
+    rows = _scope_scored_rows()
     n = image_jobs.cancel_queued_for_items(
         get_db(), [r["id"] for r in rows], g.user["id"]
     )
@@ -1381,30 +1438,36 @@ def pdp_copy_status():
     return jsonify({"pending": pending, "items": items})
 
 
-@bp.route("/app/pdp-scoring/create-copy", methods=["POST"])
-@login_required
-def pdp_scoring_create_copy():
-    """Cross-link from the scoring screen: create copy jobs for selected items.
+def _copy_match_key(row) -> str | None:
+    """Identity used to match a scored item to its existing copy: item id, else URL."""
+    return (row["item_id"] or row["url"]) or None
 
-    Takes the item ids checked on the scoring results page, resolves them to URLs
-    (scoped to the user — IDOR guard), and enqueues copy jobs that fetch the
-    current copy AND generate new copy in one pass (``auto_generate``). Redirects
-    to the copy results page.
+
+def _copy_batch_plan(rows: list, states: dict) -> dict:
+    """What a batch copy rewrite over scored ``rows`` would newly generate + its est.
+
+    Only **scored** items are eligible (a rewrite improves already-scored content).
+    An item is skipped when it already has a done or in-flight copy (``states`` from
+    :func:`copy_jobs.copy_states_for_items`) — mirrors the image cache-skip, so a
+    re-run only fills gaps and never silently re-spends; an item whose only prior
+    copy attempt failed is included (a retry). Of the included items, ``reused``
+    already carry the scored ``record_json`` so generation skips the browser
+    re-fetch; ``refetch`` must re-fetch the PDP first. Returns the ready-to-enqueue
+    ``prefetched`` / ``to_fetch`` payloads (same shapes ``copy_jobs`` expects) plus
+    counts and the (optional, approximate) dollar estimate.
     """
-    try:
-        selected = [int(v) for v in request.form.getlist("item_ids")]
-    except ValueError:
-        abort(400, description="Invalid item selection.")
-    db = get_db()
-    rows = [r for r in jobs.get_items(db, selected, g.user["id"]) if r["url"]]
-
-    # Split by whether we already have the fetched content on the scored row: a
-    # scored item carrying record_json skips the browser re-fetch and goes straight
-    # to generation; anything else (older score without the record, or a
-    # blocked/errored item) still takes the normal fetch path.
-    prefetched, to_fetch = [], []
+    prefetched: list[dict] = []
+    to_fetch: list[dict] = []
+    already_copied = 0
     for r in rows:
-        if r["status"] == "scored" and r["record_json"]:
+        if r["status"] != "scored" or not r["url"]:
+            continue
+        key = _copy_match_key(r)
+        st = states.get(key) if key else None
+        if st and (st["has_done"] or st["has_inflight"]):
+            already_copied += 1  # already covered — don't re-spend
+            continue
+        if r["record_json"]:
             record = json.loads(r["record_json"])
             current = {
                 "title": record.get("title"),
@@ -1421,22 +1484,152 @@ def pdp_scoring_create_copy():
             })
         else:
             to_fetch.append({"url": r["url"], "item": r["item_id"], "brand": r["brand"]})
+    total = len(prefetched) + len(to_fetch)
+    price = copygen.price_per_item()
+    return {
+        "prefetched": prefetched, "to_fetch": to_fetch,
+        "reused": len(prefetched), "refetch": len(to_fetch),
+        "total": total, "already_copied": already_copied, "items": total,
+        "price_per_item": price,
+        "est_cost": round(total * price, 2) if price is not None else None,
+    }
 
-    if not prefetched and not to_fetch:
-        # Nothing valid selected — send them back to the scoring results.
-        logger.info("PDP copy cross-link: no valid items selected, user_id=%s", g.user["id"])
+
+def _annotate_copy(items: list[dict], states: dict) -> dict:
+    """Attach each scored item's copy state (for the row badge) + roll up the batch.
+
+    Mutates each scored item: sets ``it['copy_state']`` to ``{status, current,
+    projected}`` where status is ``done`` / ``in_flight`` / ``failed`` / ``none``
+    (matched to its copy by item id or URL via ``states``). (The key is
+    ``copy_state``, not ``copy`` — ``it.copy`` in Jinja would resolve to the dict's
+    built-in ``.copy`` method, not the item.) Returns the page roll-up the copy bar
+    reads: counts per bucket, whether the batch has any scored item at all
+    (``any``), whether any copy exists to view (``any_copy``), and whether any copy
+    is still generating (``in_flight_any``, which keeps the page's auto-refresh on).
+    """
+    batch = {"scored": 0, "done": 0, "in_flight": 0, "failed": 0, "none": 0}
+    for it in items:
+        if it["status"] != "scored":
+            continue
+        batch["scored"] += 1
+        key = it["item_id"] or it["url"]
+        st = states.get(key) if key else None
+        if st and st["has_done"]:
+            bucket = "done"
+        elif st and st["has_inflight"]:
+            bucket = "in_flight"
+        elif st and st["has_failed"]:
+            bucket = "failed"
+        else:
+            bucket = "none"
+        batch[bucket] += 1
+        it["copy_state"] = {
+            "status": bucket,
+            "current": st["latest_current"] if st else None,
+            "projected": st["latest_projected"] if st else None,
+        }
+    batch["any"] = batch["scored"] > 0
+    batch["any_copy"] = batch["done"] + batch["in_flight"] + batch["failed"] > 0
+    batch["in_flight_any"] = batch["in_flight"] > 0
+    return batch
+
+
+@bp.route("/app/pdp-scoring/create-copy", methods=["POST"])
+@login_required
+def pdp_scoring_create_copy():
+    """Batch copy rewrite from the scoring screen: create copy jobs for a scope.
+
+    Scope is ``all=1`` (every scored item in the batch) or the ticked ``item_ids``
+    (:func:`_scope_scored_rows`). Each metered rewrite is guarded by the cost modal;
+    here we build the same plan the estimate showed, skip items already covered
+    (done/in-flight copy), and enqueue the rest — prefetched rows (reusing the
+    scored PdpRecord) straight to generation, the others via the fetch path. Sets
+    the copy session batch and redirects to the copy results page.
+    """
+    db = get_db()
+    rows = _scope_scored_rows()
+    states = copy_jobs.copy_states_for_items(
+        db, g.user["id"], [(r["item_id"], r["url"]) for r in rows]
+    ) if rows else {}
+    plan = _copy_batch_plan(rows, states)
+    if not plan["total"]:
+        # Nothing to do — empty scope, or every eligible item already has copy.
+        logger.info(
+            "Batch copy: nothing to rewrite (%d already had copy), user_id=%s",
+            plan["already_copied"], g.user["id"],
+        )
         return redirect(url_for("pages.pdp_scoring_results"))
-
     ids: list[int] = []
-    if prefetched:
-        ids += copy_jobs.create_prefetched_copy_items(db, g.user["id"], prefetched)
-    if to_fetch:
-        ids += copy_jobs.enqueue_copy_items(db, g.user["id"], to_fetch, auto_generate=True)
+    if plan["prefetched"]:
+        ids += copy_jobs.create_prefetched_copy_items(db, g.user["id"], plan["prefetched"])
+    if plan["to_fetch"]:
+        ids += copy_jobs.enqueue_copy_items(db, g.user["id"], plan["to_fetch"], auto_generate=True)
     session[_COPY_BATCH_KEY] = ids
+    scope = "all" if request.form.get("all") else "selected"
     logger.info(
-        "PDP copy cross-link: %d reused + %d re-fetch, user_id=%s",
-        len(prefetched), len(to_fetch), g.user["id"],
+        "Batch copy (%s): %d reused + %d re-fetch, %d already had copy, user_id=%s",
+        scope, plan["reused"], plan["refetch"], plan["already_copied"], g.user["id"],
     )
+    return redirect(url_for("pages.pdp_copy_results"))
+
+
+@bp.route("/app/pdp-scoring/create-copy/estimate", methods=["POST"])
+@login_required
+def pdp_scoring_copy_estimate():
+    """Cost-preflight for a batch copy rewrite: JSON counts (+ optional $), no enqueue.
+
+    Mirrors the image estimate endpoint and returns the same uniform display fields
+    the cost modal renders. Counts reflect only items that would be *newly* rewritten
+    — already-covered and in-flight items are excluded (see :func:`_copy_batch_plan`).
+    """
+    db = get_db()
+    rows = _scope_scored_rows()
+    states = copy_jobs.copy_states_for_items(
+        db, g.user["id"], [(r["item_id"], r["url"]) for r in rows]
+    ) if rows else {}
+    plan = _copy_batch_plan(rows, states)
+    detail = []
+    if plan["reused"]:
+        detail.append(f"{plan['reused']} reuse the scored content")
+    if plan["refetch"]:
+        detail.append(f"{plan['refetch']} re-fetch the page first")
+    summary = _plural(plan["total"], "item") + " will be rewritten" + \
+        ((" (" + ", ".join(detail) + ")") if detail else "") + "."
+    skipped = f"{plan['already_copied']} already have copy — skipped." if plan["already_copied"] else ""
+    return jsonify({
+        "items": plan["items"],
+        "reused": plan["reused"],
+        "refetch": plan["refetch"],
+        "total": plan["total"],
+        "already_copied": plan["already_copied"],
+        "price_per_item": plan["price_per_item"],
+        "est_cost": plan["est_cost"],
+        # Uniform display fields the cost modal renders (see pdp_results.js).
+        "summary": summary,
+        "skipped": skipped,
+        "cost": _cost_line(plan["total"], plan["price_per_item"], "item"),
+        "note": ("Each rewrite is a metered AI call (Claude). Items that already have "
+                 "copy or are in progress are skipped; reused items skip the re-fetch."),
+    })
+
+
+@bp.route("/app/pdp-scoring/view-copy")
+@login_required
+def pdp_scoring_view_copy():
+    """Point the copy session batch at the scored batch's copy, then show it.
+
+    The "View copy results" link from the scoring page's copy bar: gather every
+    copy_item this user has for the current scored batch's products (matched by
+    item id / URL) and open the copy results page on them. 404-free — an empty
+    match simply lands on an empty copy results page.
+    """
+    rows = _batch_rows()
+    ids = copy_jobs.copy_item_ids_for_items(
+        get_db(), g.user["id"], [(r["item_id"], r["url"]) for r in rows]
+    )
+    session[_COPY_BATCH_KEY] = ids
+    logger.info("View copy results from scoring: %d matching copy item(s), user_id=%s",
+                len(ids), g.user["id"])
     return redirect(url_for("pages.pdp_copy_results"))
 
 

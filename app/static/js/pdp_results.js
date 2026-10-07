@@ -226,7 +226,7 @@
       // Bulk controls act on visible rows, so re-sync them to the filtered set.
       refreshSelectAll(body);
       refreshExpandAll(body);
-      refreshFixSelected();
+      refreshNeedsSelection();
     });
   }
 
@@ -280,13 +280,13 @@
           }
         });
         master.indeterminate = false;
-        refreshFixSelected();
+        refreshNeedsSelection();
       });
       // A per-row box changing re-derives the header's checked/indeterminate state.
       body.addEventListener("change", function (event) {
         if (event.target.matches('input[name="item_ids"]')) {
           refreshSelectAll(body);
-          refreshFixSelected();
+          refreshNeedsSelection();
         }
       });
     }
@@ -341,48 +341,18 @@
       .map(function (b) { return b.value; });
   }
 
-  // The batch "Fix Images For Selected" button is inert with nothing ticked.
-  function refreshFixSelected() {
-    var btn = document.querySelector(".js-fix-selected");
-    if (btn) {
-      btn.disabled = selectedItemIds().length === 0;
-    }
+  // "Selected"-scope buttons (image fixes + copy rewrites) are inert until at
+  // least one row is ticked.
+  function refreshNeedsSelection() {
+    var disabled = selectedItemIds().length === 0;
+    Array.prototype.slice
+      .call(document.querySelectorAll(".js-needs-selection"))
+      .forEach(function (btn) { btn.disabled = disabled; });
   }
 
   function csrfToken() {
     var el = document.getElementById("cost-modal-csrf");
     return el ? el.value : "";
-  }
-
-  function pluralize(n, one, many) {
-    return n + " " + (n === 1 ? one : many);
-  }
-
-  // Build the human summary line from the estimate payload.
-  function summaryText(est) {
-    var parts = [];
-    if (est.whitebg) {
-      parts.push(pluralize(est.whitebg, "white-background fix", "white-background fixes"));
-    }
-    if (est.upscale) {
-      parts.push(pluralize(est.upscale, "upscale", "upscales"));
-    }
-    var fixes = parts.length ? parts.join(" + ") : "0 fixes";
-    var text = fixes + " across " + pluralize(est.items, "item", "items") + ".";
-    if (est.already_fixed) {
-      text += " " + est.already_fixed + " already fixed — skipped.";
-    }
-    return text;
-  }
-
-  function costText(est) {
-    if (est.price_per_image === null || est.price_per_image === undefined) {
-      return ""; // operator left the price unset — counts only
-    }
-    return (
-      "Estimated cost: ≈ $" + Number(est.est_cost).toFixed(2) +
-      " (" + est.total + " × $" + Number(est.price_per_image).toFixed(2) + " per fix)"
-    );
   }
 
   function initCostModal() {
@@ -393,11 +363,14 @@
     var loading = modal.querySelector(".cost-modal-loading");
     var detail = modal.querySelector(".cost-modal-detail");
     var summaryEl = modal.querySelector(".cost-modal-summary");
+    var skippedEl = modal.querySelector(".cost-modal-skipped");
     var costEl = modal.querySelector(".cost-modal-cost");
+    var noteEl = modal.querySelector(".cost-modal-note");
     var emptyEl = modal.querySelector(".cost-modal-empty");
     var errorEl = modal.querySelector(".cost-modal-error");
     var titleEl = modal.querySelector(".cost-modal-title");
     var confirmBtn = modal.querySelector(".cost-modal-confirm");
+    var confirmDefault = confirmBtn.textContent;
 
     // The action the modal will run if confirmed, captured when it opens.
     var pending = null;
@@ -444,6 +417,7 @@
       }
       pending = { actionUrl: trigger.getAttribute("data-action-url"), scope: scope, ids: ids };
       titleEl.textContent = trigger.getAttribute("data-title") || "Confirm";
+      confirmBtn.textContent = trigger.getAttribute("data-confirm-label") || confirmDefault;
       setState("loading");
       open();
 
@@ -466,10 +440,14 @@
             setState("empty");
             return;
           }
-          summaryEl.textContent = summaryText(est);
-          var cost = costText(est);
-          costEl.textContent = cost;
-          costEl.hidden = cost === "";
+          // The server formats the wording for each action; the modal just renders
+          // the strings, so it stays action-agnostic.
+          summaryEl.textContent = est.summary || "";
+          skippedEl.textContent = est.skipped || "";
+          skippedEl.hidden = !est.skipped;
+          costEl.textContent = est.cost || "";
+          costEl.hidden = !est.cost;
+          noteEl.textContent = est.note || "";
           setState("detail");
         })
         .catch(function () {
@@ -557,6 +535,6 @@
     initBulk(body);
     refreshSelectAll(body);
     refreshExpandAll(body);
-    refreshFixSelected();
+    refreshNeedsSelection();
   });
 })();

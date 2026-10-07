@@ -166,6 +166,17 @@ jobs (in-flight calls finish). The estimate uses `IMAGE_UPSCALE_PRICE_PER_IMAGE`
 (USD per fix, default `0.04` = Claid's per-action price); set it empty to show
 counts only. It only estimates — it never meters, bills, or blocks.
 
+**Batch copy rewrites** (same results table, in the "Bulk actions" section beside
+image fixes): **Rewrite Copy For All Items** / **Rewrite Copy For Selected** generate
+new Title/Description/Key Features for the scored batch, each behind the **same
+cost-preflight modal** (a rewrite is a metered Claude call). Items that already have
+copy or are in progress are skipped (matched by item id / URL). Results open on the
+dedicated copy comparison page; a per-row badge shows each item's copy state. Copy is
+**not provider-gated** (always available; generation needs `ANTHROPIC_API_KEY`, which
+the worker enforces). The cost estimate uses `COPYGEN_PRICE_PER_ITEM` (approximate USD
+per rewrite) — **no default** since a rewrite's cost is token-variable, so leave it
+blank for counts-only or set your own rough figure.
+
 **Config-gated and inert by default** — nothing shows or runs until you set
 `IMAGE_UPSCALE_API_KEY` in `.env` (see `.env.example` for `IMAGE_UPSCALE_*`). To
 enable, set the key and restart **both** services:

@@ -107,3 +107,21 @@ def test_resolve_model_env_override(monkeypatch):
     assert copygen.resolve_model() == "claude-sonnet-5"
     monkeypatch.delenv("COPYGEN_MODEL", raising=False)
     assert copygen.resolve_model() == copygen.DEFAULT_MODEL
+
+
+def test_price_per_item_counts_only_by_default(monkeypatch):
+    # No default (unlike image fixes): unset or empty → None (counts-only preflight).
+    monkeypatch.delenv("COPYGEN_PRICE_PER_ITEM", raising=False)
+    assert copygen.price_per_item() is None
+    monkeypatch.setenv("COPYGEN_PRICE_PER_ITEM", "")
+    assert copygen.price_per_item() is None
+
+
+def test_price_per_item_override_and_bad_values(monkeypatch):
+    monkeypatch.setenv("COPYGEN_PRICE_PER_ITEM", "0.12")
+    assert copygen.price_per_item() == 0.12
+    # A typo or negative price degrades to counts-only rather than a wrong figure.
+    monkeypatch.setenv("COPYGEN_PRICE_PER_ITEM", "cheap")
+    assert copygen.price_per_item() is None
+    monkeypatch.setenv("COPYGEN_PRICE_PER_ITEM", "-1")
+    assert copygen.price_per_item() is None
