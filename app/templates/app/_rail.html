@@ -85,11 +85,15 @@
     {{ rail_group('creative', 'Creative Content Studio', creative_items, active_nav) }}
     {{ rail_group('reporting', 'Insights', reporting_items, active_nav) }}
 
-    {# Contact Us — standalone link; the badge shows unread admin replies. #}
+    {# Contact Us — standalone link with a muted hint at what the channel is for;
+       the badge shows unread admin replies. #}
     <a href="{{ url_for('pages.contact_home') }}"
-       class="rail-leaf rail-leaf-spaced{{ ' active' if active_nav == 'contact' else '' }}">
+       class="rail-leaf rail-leaf-spaced rail-leaf-stacked{{ ' active' if active_nav == 'contact' else '' }}">
       <span class="rail-ico">{{ rail_icon('contact') }}</span>
-      <span class="rail-main-label">Contact Us</span>
+      <span class="rail-leaf-body">
+        <span class="rail-leaf-title">Contact Us</span>
+        <span class="rail-sub">(questions, issues, customizations etc.)</span>
+      </span>
       {% if msg_unread_count %}<span class="nav-count nav-count-alert">{{ msg_unread_count }}</span>{% endif %}
     </a>
   </div>

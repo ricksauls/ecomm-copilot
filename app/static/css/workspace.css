@@ -77,7 +77,7 @@ body.workspace {
   gap: 11px;
   padding: 9px 12px;
   border-radius: var(--radius-card);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--canvas);
   text-decoration: none;
@@ -116,6 +116,28 @@ body.workspace {
 .rail-main-label {
   flex: 1;
   min-width: 0;
+}
+
+/* Stacked leaf (Contact Us): a two-line item — title plus a muted hint. The
+   icon and badge align to the top so they sit against the first line. */
+.rail-leaf-stacked {
+  align-items: flex-start;
+}
+.rail-leaf-stacked .rail-ico {
+  margin-top: 1px;
+}
+.rail-leaf-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.rail-sub {
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.3;
+  color: var(--cool-gray);
 }
 
 /* +/- toggle: two 1.5px bars form a plus; the vertical bar hides when the group
