@@ -146,7 +146,7 @@ body.workspace {
   position: relative;
   width: 11px;
   height: 11px;
-  margin-left: 6px;               /* breathing room between the label and the +/- */
+  margin-left: 3.5px;             /* tightened: label-to-+/- gap is this + the 11px row gap */
   flex-shrink: 0;
   color: var(--cool-gray);
 }
