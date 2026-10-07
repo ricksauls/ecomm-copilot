@@ -280,11 +280,13 @@ def test_copy_item_ids_for_items(app):
     with app.app_context():
         uid = create_local_user("ids@example.com", "password123")
         db = get_db()
-        a = copy_jobs.enqueue_copy_items(db, uid, [{"url": "https://w/ip/1", "item": "1"}])[0]
+        copy_jobs.enqueue_copy_items(db, uid, [{"url": "https://w/ip/1", "item": "1"}])
         b = copy_jobs.enqueue_copy_items(db, uid, [{"url": "https://w/ip/2", "item": "2"}])[0]
         copy_jobs.enqueue_copy_items(db, uid, [{"url": "https://w/ip/3", "item": "3"}])
+        # A second version for product 1 — only the latest (higher id) is returned.
+        a2 = copy_jobs.enqueue_copy_items(db, uid, [{"url": "https://w/ip/1", "item": "1"}])[0]
         got = copy_jobs.copy_item_ids_for_items(
             db, uid, [("1", "https://w/ip/1"), ("2", "https://w/ip/2")]
         )
-        assert got == sorted([a, b])
+        assert got == sorted([a2, b])  # one id per product, the latest copy of #1
         assert copy_jobs.copy_item_ids_for_items(db, uid, []) == []

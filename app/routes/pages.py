@@ -51,6 +51,10 @@ logger = logging.getLogger(__name__)
 # Session keys holding the ids of the most recent scoring / copy batches.
 _BATCH_KEY = "pdp_batch_ids"
 _COPY_BATCH_KEY = "pdp_copy_batch_ids"
+# Selected items that had no copy yet when "View copy results" ran — listed on
+# the copy results page so the user sees they weren't created. Set by
+# `pdp_scoring_view_copy`; cleared whenever a fresh copy batch is created.
+_COPY_MISSING_KEY = "pdp_copy_missing"
 
 bp = Blueprint("pages", __name__)
 
@@ -1377,6 +1381,7 @@ def pdp_copy():
         ]
         ids = copy_jobs.enqueue_copy_items(get_db(), g.user["id"], items)
         session[_COPY_BATCH_KEY] = ids
+        session.pop(_COPY_MISSING_KEY, None)  # fresh batch — drop any prior "missing" note
         logger.info(
             "PDP copy: enqueued %d item(s) for current-copy fetch, %d rejected, user_id=%s",
             len(ids), len(rejected), g.user["id"],
@@ -1396,13 +1401,20 @@ def pdp_copy():
 @bp.route("/app/pdp-copy/results")
 @login_required
 def pdp_copy_results():
-    """Show the current copy batch: current copy, and new copy once generated."""
+    """Show the current copy batch: current copy, and new copy once generated.
+
+    Also lists any selected items that had no copy when "View copy results" ran
+    (``_COPY_MISSING_KEY``), so the user sees copy wasn't created for them. Read
+    (not popped) so it survives the in-flight auto-refresh; it's cleared when a
+    fresh copy batch is created.
+    """
     items = [_copy_row_view(r) for r in _copy_batch_rows()]
     return render_template(
         "app/pdp_copy_results.html",
         breadcrumb="Copy Content Studio · Product Detail Page Copy Content Creation",
         active_nav="pdp-copy",
         items=items,
+        missing=session.get(_COPY_MISSING_KEY, []),
         progress=_copy_progress(items),
     )
 
@@ -1437,6 +1449,7 @@ def pdp_copy_item(cid):
     if not ids:
         abort(404)
     session[_COPY_BATCH_KEY] = ids
+    session.pop(_COPY_MISSING_KEY, None)  # viewing a specific copy — no "missing" note
     return redirect(url_for("pages.pdp_copy_results"))
 
 
@@ -1651,6 +1664,7 @@ def pdp_scoring_create_copy():
     if plan["to_fetch"]:
         ids += copy_jobs.enqueue_copy_items(db, g.user["id"], plan["to_fetch"], auto_generate=True)
     session[_COPY_BATCH_KEY] = ids
+    session.pop(_COPY_MISSING_KEY, None)  # fresh batch — drop any prior "missing" note
     scope = "all" if request.form.get("all") else "selected"
     logger.info(
         "Batch copy (%s): %d reused + %d re-fetch, %d already had copy, user_id=%s",
@@ -1704,18 +1718,37 @@ def pdp_scoring_copy_estimate():
 def pdp_scoring_view_copy():
     """Point the copy session batch at the scored batch's copy, then show it.
 
-    The "View copy results" link from the scoring page's copy bar: gather every
-    copy_item this user has for the current scored batch's products (matched by
-    item id / URL) and open the copy results page on them. 404-free — an empty
-    match simply lands on an empty copy results page.
+    The "View copy results" link from the scoring page's copy bar. Scopes to the
+    ticked rows when the link carries a selection (``item_ids`` = scored-item ids,
+    kept to the current session batch so a foreign id is ignored); with no
+    selection it uses the whole batch. For each product it takes the **latest**
+    copy created (see :func:`copy_jobs.copy_item_ids_for_items`). 404-free — an
+    empty match simply lands on an empty copy results page.
     """
+    db = get_db()
+    uid = g.user["id"]
     rows = _batch_rows()
-    ids = copy_jobs.copy_item_ids_for_items(
-        get_db(), g.user["id"], [(r["item_id"], r["url"]) for r in rows]
-    )
+    selected = set(request.args.getlist("item_ids"))
+    if selected:
+        rows = [r for r in rows if str(r["id"]) in selected]
+
+    keys = [(r["item_id"], r["url"]) for r in rows]
+    ids = copy_jobs.copy_item_ids_for_items(db, uid, keys)
     session[_COPY_BATCH_KEY] = ids
-    logger.info("View copy results from scoring: %d matching copy item(s), user_id=%s",
-                len(ids), g.user["id"])
+
+    # Selected products that have no copy yet (keyed item-id-else-URL, matching
+    # copy_states_for_items): list them on the results page so the user sees copy
+    # wasn't created for them rather than them silently dropping out.
+    states = copy_jobs.copy_states_for_items(db, uid, keys)
+    missing = [
+        {"item_id": r["item_id"], "url": r["url"],
+         "title": r["title"] or r["item_id"] or r["url"]}
+        for r in rows if (r["item_id"] or r["url"]) not in states
+    ]
+    session[_COPY_MISSING_KEY] = missing
+
+    logger.info("View copy results from scoring: %d with copy, %d missing, user_id=%s",
+                len(ids), len(missing), uid)
     return redirect(url_for("pages.pdp_copy_results"))
 
 

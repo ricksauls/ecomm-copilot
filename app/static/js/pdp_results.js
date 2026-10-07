@@ -350,6 +350,29 @@
       .forEach(function (btn) { btn.disabled = disabled; });
   }
 
+  // "View Copy Results": scope the view to the ticked rows when any are selected
+  // (the route then shows the latest copy per selected product); with nothing
+  // ticked, the plain href views the whole batch.
+  function initViewCopy() {
+    var link = document.querySelector(".js-view-copy");
+    if (!link) {
+      return;
+    }
+    link.addEventListener("click", function (event) {
+      var ids = selectedItemIds();
+      if (ids.length === 0) {
+        return; // no selection → follow the default href (whole batch)
+      }
+      event.preventDefault();
+      var base = link.getAttribute("href");
+      var sep = base.indexOf("?") === -1 ? "?" : "&";
+      var qs = ids
+        .map(function (id) { return "item_ids=" + encodeURIComponent(id); })
+        .join("&");
+      window.location.href = base + sep + qs;
+    });
+  }
+
   function csrfToken() {
     var el = document.getElementById("cost-modal-csrf");
     return el ? el.value : "";
@@ -536,5 +559,6 @@
     refreshSelectAll(body);
     refreshExpandAll(body);
     refreshNeedsSelection();
+    initViewCopy();
   });
 })();

@@ -2106,6 +2106,10 @@ body.cost-modal-open {
   color: var(--black);
   border-color: var(--black);
 }
+/* "No copy yet" — a muted badge for selected items that have no copy created. */
+.status-badge.status-none {
+  color: var(--mid-gray);
+}
 
 /* Prompt above the scoring results when selecting items to rewrite. */
 .copy-select-hint {

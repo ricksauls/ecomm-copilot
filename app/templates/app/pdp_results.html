@@ -208,7 +208,7 @@
               data-title="Rewrite copy for the selected items"
               data-confirm-label="Confirm &amp; Rewrite">Rewrite Copy For Selected</button>
       {% if copy_batch.any_copy %}
-      <a class="wbtn wbtn-secondary" href="{{ url_for('pages.pdp_scoring_view_copy') }}">View Copy Results →</a>
+      <a class="wbtn wbtn-secondary js-view-copy" href="{{ url_for('pages.pdp_scoring_view_copy') }}">View Copy Results →</a>
       {% endif %}
       {# No-JS fallback: submit the ticked items straight to the copy flow (no modal). #}
       <noscript><button type="submit" form="copy-select-form" class="wbtn wbtn-secondary">Rewrite Copy For Selected</button></noscript>

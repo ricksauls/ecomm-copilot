@@ -207,11 +207,15 @@ def copy_states_for_items(
 def copy_item_ids_for_items(
     conn: sqlite3.Connection, user_id: int, keys
 ) -> list[int]:
-    """Copy_items ids whose item id or URL matches any of ``keys`` (owned by user).
+    """Latest copy_item id per product whose item id or URL matches ``keys``.
 
-    Backs the "View copy results" cross-link from the scoring page: point the copy
-    session batch at all copy this user has for the scored batch's products. Same
-    matching as :func:`copy_states_for_items`; ordered by id. ``[]`` for empty input.
+    Backs the "View copy results" cross-link from the scoring page. A product can
+    have copy created more than once (each creation is its own ``copy_items`` row,
+    i.e. a version), so this returns only the **most recent** copy per product —
+    the link should land on the latest version, not every past one. Products are
+    keyed by item id when present, else URL (same matching as
+    :func:`copy_states_for_items`); recency is by row id (monotonic). Ids are
+    returned ascending. ``[]`` for empty input.
     """
     item_ids = sorted({k[0] for k in keys if k[0]})
     urls = sorted({k[1] for k in keys if k[1]})
@@ -226,10 +230,15 @@ def copy_item_ids_for_items(
         clauses.append(f"url IN ({','.join('?' for _ in urls)})")
         params += urls
     rows = conn.execute(
-        f"SELECT id FROM copy_items WHERE user_id = ? AND ({' OR '.join(clauses)}) ORDER BY id",
+        f"SELECT id, item_id, url FROM copy_items WHERE user_id = ? "
+        f"AND ({' OR '.join(clauses)}) ORDER BY id",
         params,
     ).fetchall()
-    return [r["id"] for r in rows]
+    # Ascending id order → the last row seen for each product is its latest copy.
+    latest: dict = {}
+    for r in rows:
+        latest[r["item_id"] or r["url"]] = r["id"]
+    return sorted(latest.values())
 
 
 def has_claimable_items(conn: sqlite3.Connection) -> bool:

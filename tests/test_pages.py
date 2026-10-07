@@ -288,6 +288,40 @@ def test_activity_item_route_is_ownership_scoped(client, auth, app):
     assert client.get(f"/app/pdp-scoring/item/{foreign_sid}").status_code == 404
 
 
+def test_view_copy_scopes_to_selection_and_lists_missing(client, auth, app):
+    # "View copy results" scoped to the ticked items shows copy for those that
+    # have it and lists the rest with a "copy not created" note.
+    from app import jobs, copy_jobs
+    from app.db import get_db
+    from app.routes.pages import _BATCH_KEY
+
+    auth.register(email="vc@example.com")
+    with app.app_context():
+        db = get_db()
+        uid = db.execute("SELECT id FROM users WHERE email = ?", ("vc@example.com",)).fetchone()["id"]
+        sids = jobs.enqueue_items(db, uid, [
+            {"url": "https://w/ip/10", "item": "10", "brand": "Acme"},
+            {"url": "https://w/ip/11", "item": "11", "brand": "Globex"},
+        ])
+        jobs.save_result(db, sids[0], 80, {"overall": 80}, "Has Copy Product")
+        jobs.save_result(db, sids[1], 70, {"overall": 70}, "No Copy Product")
+        # Copy exists only for the first item.
+        copy_jobs.enqueue_copy_items(db, uid, [{"url": "https://w/ip/10", "item": "10"}])
+        db.commit()
+
+    with client.session_transaction() as sess:
+        sess[_BATCH_KEY] = sids
+
+    resp = client.get(
+        f"/app/pdp-scoring/view-copy?item_ids={sids[0]}&item_ids={sids[1]}",
+        follow_redirects=True,
+    )
+    assert resp.status_code == 200
+    body = resp.data
+    assert b"Copy has not been created for this item." in body  # the missing note
+    assert b"No Copy Product" in body                           # the uncovered item is listed
+
+
 def test_row_click_opens_whole_run(client, auth, app):
     # Clicking one item's row opens the whole run it was submitted with — all items
     # scored together (sharing a batch_id) appear, not just the clicked one.

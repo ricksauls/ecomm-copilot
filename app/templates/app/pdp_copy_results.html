@@ -43,6 +43,7 @@
        the text no longer flashes (matching the Content Scores screen). #}
     <p class="subtitle">
       {{ items | length }} item{{ '' if items | length == 1 else 's' }}
+      {% if missing %}· {{ missing | length }} without copy{% endif %}
       {% if pending %}· working — about 1 minute per 5 items{% else %}· ready{% endif %}
     </p>
   </div>
@@ -79,7 +80,7 @@
 </div>
 {% endif %}
 
-{% if not items %}
+{% if not items and not missing %}
 <div class="card card-pad">
   <p class="results-count">No items in this batch. <a href="{{ url_for('pages.pdp_copy') }}">Add some</a>.</p>
 </div>
@@ -137,6 +138,22 @@
     {% endif %}
   </div>
   {% endif %}
+</div>
+{% endfor %}
+
+{# Selected items that have no copy yet (from "View copy results"). Listed so the
+   user sees copy wasn't created for them, rather than silently dropping out. #}
+{% for m in missing %}
+<div class="card card-pad copy-card copy-card-missing">
+  <div class="copy-card-head">
+    <div class="score-id">
+      {% if m.item_id %}<span class="item-no">Item #{{ m.item_id }}</span>{% endif %}
+      {% if m.url %}<a href="{{ m.url }}" class="item-url" target="_blank" rel="noopener noreferrer">{{ m.url }}</a>{% endif %}
+      {% if m.title and m.title != m.url %}<span class="item-title">{{ m.title }}</span>{% endif %}
+    </div>
+    <span class="status-badge status-none">No copy yet</span>
+  </div>
+  <p class="score-pending">Copy has not been created for this item.</p>
 </div>
 {% endfor %}
 {% endblock %}

@@ -2,6 +2,17 @@
 
 _Last updated: 2026-10-07 (session 12 — left-rail menu restructure + collapsible icon/tree-line rail redesign; breadcrumbs aligned to "<main group> · <sub-item>"; View Scoring History grouped by run ("Brands/Products Scored", up to 3 items + "And N more…"); Available Credits hidden; bot account confirmed removed. Session 11 — batch copy rewrites; cost modal generalized; wording/UI polish; signup honeypot; "Re-export"→"Re-create" data fix)._
 
+> **Session 12 — "View copy results" scoped + latest + missing (2026-10-07).**
+> The scoring page's **View Copy Results** link now scopes to the **ticked rows**
+> (`item_ids` query, built by `pdp_results.js` `initViewCopy`; falls back to the
+> whole batch when none ticked), shows the **latest copy per product**
+> (`copy_jobs.copy_item_ids_for_items` now returns the newest copy_item per
+> product, not all versions), and **lists selected items that have no copy** with
+> "Copy has not been created for this item." (computed in `pdp_scoring_view_copy`
+> via `copy_states_for_items`, stashed in `session[_COPY_MISSING_KEY]`, rendered by
+> `pdp_copy_results.html` as `.copy-card-missing`; the note is cleared whenever a
+> fresh copy batch is created). **359 tests**, `ruff` clean.
+>
 > **Session 12 — View Scoring History grouped by run (2026-10-07).** The scoring
 > history (`/app/activity/scored`) now shows **one row per scoring action**
 > (`batch_id`), retitled **"Brands/Products Scored"**: each run lists up to three
