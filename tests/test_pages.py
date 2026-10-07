@@ -540,7 +540,7 @@ def test_results_shows_download_link_when_done(client, auth, app, monkeypatch, t
     assert f"/app/pdp-scoring/enhanced/{sid}/img2/download".encode() in data
     assert b"Fix and Download" in data
     assert b"Enhanced image preview" not in data  # the thumbnail <img> is gone
-    assert b"Download All As ZIP" in data
+    assert b"Fix And Download All As Zip" in data
 
 
 # --- Fix-all + ZIP (Phase 2) -------------------------------------------------

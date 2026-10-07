@@ -393,7 +393,7 @@
               </form>
               {% endif %}
               {% if it.enhance_summary.any_done %}
-              <a class="wbtn wbtn-secondary" href="{{ it.enhance_summary.zip_url }}">Download All As ZIP ↓</a>
+              <a class="wbtn wbtn-secondary pdp-fixdl-green" href="{{ it.enhance_summary.zip_url }}">Fix And Download All As Zip ↓</a>
               {% endif %}
               <span class="pdp-fixall-count">{{ it.enhance_summary.done }} of {{ it.enhance_summary.total }} fixed{% if it.enhance_summary.in_flight %} · {{ it.enhance_summary.in_flight }} running{% endif %}{% if it.enhance_summary.failed %} · {{ it.enhance_summary.failed }} failed{% endif %}</span>
             </div>

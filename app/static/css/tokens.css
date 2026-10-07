@@ -65,6 +65,7 @@
   --control-border: #c7d2e0; /* outline button borders; chip borders */
   --row-hover: #f6f8fc;      /* table row hover; the highlighted "this is you" row */
   --signal-red: #ff3b30;     /* warnings, validation errors, destructive hover, decline deltas, alert badges */
+  --signal-green: #16a34a;   /* positive actions — "Fix and Download" image-fix links (readable on white) */
   --accent: #2e6dff;         /* Electric Blue — brand-identity accent (see file header) */
 
   /* --- Typography --- */

@@ -1493,9 +1493,13 @@ a:focus-visible,
 /* Flagged images (e.g. resolution below spec) under the Imagery dimension. Each
    row names the image (a link to the full file) and the issue, in the warning
    colour so it reads as an action item. */
+/* Image-specific fix lines (flagged images + the white-bg fix) are indented with
+   a hairline rule so they read as a distinct group from the generic
+   recommendation list above them. */
 .pdp-img-issues {
-  margin: 6px 0 0;
-  padding-left: 16px;
+  margin: 6px 0 0 8px;
+  padding-left: 20px;
+  border-left: 2px solid var(--divider);
 }
 .pdp-img-issues li {
   font-size: 12px;
@@ -1507,9 +1511,11 @@ a:focus-visible,
   font-weight: 600;
   text-decoration: underline;
 }
-/* White-background fix sits just under the imagery recs/issues. */
+/* White-background fix sits just under the imagery recs/issues — same indent. */
 .pdp-whitebg-fix {
-  margin: 6px 0 0;
+  margin: 6px 0 0 8px;
+  padding-left: 12px;
+  border-left: 2px solid var(--divider);
   font-size: 12px;
 }
 
@@ -1545,10 +1551,19 @@ a:focus-visible,
 .pdp-enhance-btn:hover {
   opacity: 0.85;
 }
-.pdp-enhance-link {
-  color: var(--accent);
+/* a.pdp-enhance-link (not just .pdp-enhance-link) so the green beats the red
+   `.pdp-img-issues a` rule — the "Fix and Download" link lives inside a flagged
+   (red) image line, so it needs equal element-specificity + later source order. */
+a.pdp-enhance-link {
+  color: var(--signal-green);
   font-weight: 600;
   text-decoration: underline;
+}
+/* "Fix And Download All As Zip" button — green label to match the per-image
+   "Fix and Download" link (keeps the secondary button's fill/border). */
+.pdp-fixdl-green,
+.pdp-fixdl-green:hover {
+  color: var(--signal-green);
 }
 .pdp-enhance-busy {
   color: var(--cool-gray);
