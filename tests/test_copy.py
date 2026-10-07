@@ -241,7 +241,6 @@ def test_copy_export_buttons_appear_only_when_done(client, auth, app):
     auth.register()
     client.post("/app/pdp-copy", data={"urls": "https://www.walmart.com/ip/1"})
     before = client.get("/app/pdp-copy/results").data
-    assert b"Download To Excel" not in before
     assert b"Download CSV" not in before
     with app.app_context():
         db = get_db()
@@ -256,7 +255,7 @@ def test_copy_export_buttons_appear_only_when_done(client, auth, app):
             projected_overall=88,
         )
     after = client.get("/app/pdp-copy/results").data
-    assert b"Download To Excel" in after
+    assert b"Download To Excel" not in after  # Excel button removed; CSV/PDF remain
     assert b"Download CSV" in after
 
 
