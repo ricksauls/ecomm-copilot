@@ -1,19 +1,50 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-10-08 (session 14 — Image Set UX + controls: fixed the misleading
-intake checkerboard, added a cutout-screen **image-type picker** (gates generation + cost),
-a "~30s per image" wait message, and a **product-id (Walmart item number) file-naming
-convention**. Session 13 — built the **PDP Image Set Creation** feature: full vertical slice,
-Walmart URL prefill, AI feature-callout auto-fill, async planning, and real OpenAI image
-generation turned on in prod)._
+_Last updated: 2026-10-08 (session 14 — Image Set UX + controls + a rebuilt size-comparison:
+fixed the misleading intake checkerboard, added a cutout-screen **image-type picker** (gates
+generation + cost), a "~30s per image" wait message, a **product-id (Walmart item number)
+file-naming convention**, and replaced the programmatic size-comparison with an **AI
+scale-comparison** (reference objects + brand-colored bars, auto-detected brand color).
+Session 13 — built the **PDP Image Set Creation** feature: full vertical slice, Walmart URL
+prefill, AI feature-callout auto-fill, async planning, and real OpenAI image generation in prod)._
 
 > ## ⭐ Next session — START HERE (session 14, 2026-10-08)
 >
-> **Everything below shipped + deployed; `main` at `d566a7b`, CI + Deploy green, 449
+> **Everything below shipped + deployed; `main` at `b0297a6`, CI + Deploy green, 458
 > tests passing, `ruff` clean. The `selected_types` migration is confirmed live on the
-> droplet.** Session 14 was a UX + controls pass on the Image Set flow built in session 13.
+> droplet.** Session 14 was a UX + controls pass on the Image Set flow built in session 13,
+> plus a rebuild of the size-comparison asset.
+>
+> ### ⭐ Needs a live eyeball first (session 15, start here)
+> The **AI size-comparison shipped but hasn't been judged against the user's reference yet**
+> — the offline mock can't render the real reference objects. First task: generate a
+> size-comparison for the OFF! product in prod and compare to the reference (TV remote +
+> paperback book, green bars). Most likely tuning spots: **relative-scale accuracy** (whether
+> OpenAI sizes the remote/book believably — the source app flagged this needs human review),
+> **bar proportions/fonts** in `templates.render_size_comparison_bars` (first-pass sizes), and
+> the **auto-detected bar color**. Reference image is in this session's chat.
 >
 > ### What shipped this session
+> - **AI scale-comparison (SIZE_COMPARISON rebuilt to match the source app).** Was a
+>   programmatic measurement diagram; now ports the source app's approach: pick the 1–2
+>   everyday objects closest in real size (`app/imageset/reference_objects.py` — e.g. TV
+>   remote + paperback book for a 7″ product), send the cutout to `edit_image` with
+>   `prompts.build_size_comparison_prompt` (model places the objects at true relative scale on
+>   white, draws no text), then composite a branded header bar (headline) + footer bar
+>   (dimensions + "shown next to … for scale" caption) via
+>   `templates.render_size_comparison_bars`. `_gen_size_comparison` in `generate.py` drives it;
+>   **a product with no dimensions falls back to the old programmatic diagram**
+>   (`_gen_size_comparison_diagram`) — no AI spend, no bad scale anchor. ⚠️ **This moved
+>   SIZE_COMPARISON from free → ~$0.04/AI image** (gated by the type picker).
+>   - **Brand colors (auto-detect + user override):** `compose.detect_dominant_color` samples
+>     the product's dominant hue (ignores transparent/greyscale/near-white);
+>     `generate.resolve_brand_palette` = user colors win → else detected → else default. Intake
+>     form gained **Primary/Secondary/Accent** fields (`pdp_image_set.html`), primary pre-filled
+>     with the detected color (`_detect_project_brand_color` in `pages.py`). Invalid hex dropped
+>     server-side; blank = auto-detect.
+>   - **Gotcha banked:** the bundled Pillow font (`compose.font` → `load_default`) has **no "×"
+>     glyph** — it renders as a tofu box. The dimensions line uses `"x"` instead. Any future
+>     bar/label copy must stick to basic Latin + `·`/`"`; verify new glyphs with a quick ink test.
 > - **Intake checkerboard fix** — the intake photo preview used the `.cutout-frame`
 >   checkerboard, which wrongly implied the background was already removed (the user
 >   flagged this: "I click the button and the next screen shows the exact same thing").
@@ -58,7 +89,9 @@ generation turned on in prod)._
 >   `remove.bg` key for busy photos (`IMAGESET_BG_PROVIDER=removebg` + `BACKGROUND_REMOVAL_API_KEY`).
 >
 > ### Commits this session (all on main)
-> `d566a7b` Image Set: cutout-screen type picker, clearer intake UX, product-id file naming (HEAD).
+> `d566a7b` cutout-screen type picker, clearer intake UX, product-id file naming ·
+> `dd8c058` docs: session-14 handoff · `b0297a6` AI scale-comparison with reference objects +
+> brand-colored bars (HEAD).
 >
 > _(Session 13's "start here" block follows below — still accurate for the Image Set
 > architecture: async worker planning/generation, pluggable mock-by-default providers, the
