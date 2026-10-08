@@ -32,9 +32,8 @@
 
     <fieldset class="type-picker">
       <legend class="type-picker-legend">Which images do you want created?</legend>
-      <p class="type-picker-hint">Pick the image types to generate — you only pay for what you
-        select. Types marked “not ready yet” are coming soon; selecting one generates nothing for
-        now.</p>
+      <p class="type-picker-hint">Pick the images to generate — you only pay for what you select.
+        Untick any you don’t need.</p>
       <div class="type-picker-grid">
         {% for c in type_choices %}
         <label class="type-option{{ ' type-option-soon' if not c.ready else '' }}">

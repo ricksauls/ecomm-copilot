@@ -124,6 +124,33 @@ def draw_text_centered(
     draw.text(xy, text, font=font(size, bold=bold), fill=fill, anchor=anchor)
 
 
+def wrap_text(text: str, font: ImageFont.FreeTypeFont, max_width: float,
+              max_lines: int = 2) -> list[str]:
+    """Greedily wrap ``text`` to lines that fit ``max_width`` px in ``font``.
+
+    Caps at ``max_lines``, truncating the final line with an ellipsis when the
+    text is longer — so a long feature headline/benefit never overruns its column.
+    """
+    words = (text or "").split()
+    if not words:
+        return []
+    lines, cur = [], words[0]
+    for w in words[1:]:
+        if font.getlength(f"{cur} {w}") <= max_width:
+            cur = f"{cur} {w}"
+        else:
+            lines.append(cur)
+            cur = w
+    lines.append(cur)
+    if len(lines) > max_lines:
+        lines = lines[:max_lines]
+        last = lines[-1]
+        while last and font.getlength(f"{last}…") > max_width:
+            last = last[:-1].rstrip()
+        lines[-1] = f"{last}…" if last else "…"
+    return lines
+
+
 def cover_scene(scene: Image.Image, size: int = CANVAS_SIZE) -> Image.Image:
     """Resize a scene to fully cover the square canvas (center-crop overflow)."""
     return ImageOps.fit(scene.convert("RGB"), (size, size), method=Image.LANCZOS)

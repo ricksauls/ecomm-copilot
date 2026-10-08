@@ -1,8 +1,8 @@
 """Creative plan for the image-set pipeline.
 
-The plan proposes exactly eight assets (2 lifestyle, 2 feature-callout, 2
-product-in-use, 1 size-comparison, 1 infographic) from the approved product
-facts. It is the text-planning step the source app ran on ``gpt-4o-mini``; here
+The plan proposes exactly seven assets (2 lifestyle, 2 feature-callout, 2
+product-in-use, 1 size-comparison) from the approved product facts. It is the
+text-planning step the source app ran on ``gpt-4o-mini``; here
 it runs on **Claude** (reusing the app's existing Anthropic integration — see
 :mod:`app.copygen`), with a deterministic **mock** planner so the pipeline runs
 offline with no key.
@@ -23,21 +23,20 @@ logger = logging.getLogger(__name__)
 # Default Claude model for planning; overridable so a cheaper model can be used
 # for the planning call without a code change.
 DEFAULT_MODEL = "claude-opus-5"
-# The plan is 8 assets each with scene/usage/instruction text, so the JSON is
+# The plan is 7 assets each with scene/usage/instruction text, so the JSON is
 # large; with medium effort (thinking tokens) a small budget truncates the output
 # mid-string and the JSON won't parse. Keep this generous.
 _MAX_TOKENS = 8000
 
-ASSET_TYPES = ("LIFESTYLE", "FEATURE_CALLOUT", "PRODUCT_IN_USE", "SIZE_COMPARISON", "INFOGRAPHIC")
+ASSET_TYPES = ("LIFESTYLE", "FEATURE_CALLOUT", "PRODUCT_IN_USE", "SIZE_COMPARISON")
 LAYOUT_STYLES = ("product-left", "product-center", "product-right")
 
-# The exact package composition every plan must contain (8 assets total).
+# The exact package composition every plan must contain (7 assets total).
 REQUIRED_COMPOSITION = {
     "LIFESTYLE": 2,
     "FEATURE_CALLOUT": 2,
     "PRODUCT_IN_USE": 2,
     "SIZE_COMPARISON": 1,
-    "INFOGRAPHIC": 1,
 }
 
 # Field length caps mirror the source app's schema; they bound untrusted model
@@ -146,8 +145,7 @@ def build_creative_plan_prompt(ctx: PlanProductContext) -> str:
         "- Two distinct LIFESTYLE scenes (variationNumber 1 and 2)\n"
         "- Two FEATURE_CALLOUT concepts (variationNumber 1 and 2)\n"
         "- Two distinct PRODUCT_IN_USE concepts (variationNumber 1 and 2)\n"
-        "- One SIZE_COMPARISON concept (variationNumber 1)\n"
-        "- One INFOGRAPHIC concept (variationNumber 1)\n\n"
+        "- One SIZE_COMPARISON concept (variationNumber 1)\n\n"
         "Rules:\n"
         "- Only use approved facts. Do NOT invent dimensions, claims, ingredients, durations, "
         "certifications, safety information, or comparisons.\n"
@@ -155,8 +153,6 @@ def build_creative_plan_prompt(ctx: PlanProductContext) -> str:
         "- The two PRODUCT_IN_USE concepts must be meaningfully different usage scenarios.\n"
         "- FEATURE_CALLOUT items must set assignedFeatureIds to 2-3 approved feature ids; the "
         "two callouts should not unnecessarily repeat features.\n"
-        "- INFOGRAPHIC must set assignedFeatureIds to 4-6 approved feature ids (or as many as "
-        "exist).\n"
         "- Each asset has ONE primary communication objective. Keep copy brief for mobile.\n"
         "- assignedFeatureIds MUST be chosen only from the ids listed below.\n\n"
         "Product:\n"
@@ -206,12 +202,15 @@ def _parse_item(raw: dict, valid_ids: set[str]) -> PlanItem:
 def _validate_and_parse(obj: dict, valid_ids: set[str]) -> CreativePlan:
     """Validate the raw plan object and build a :class:`CreativePlan`.
 
-    Enforces exactly eight items in the required composition — the same contract
-    the source app's schema enforced — so downstream generation can rely on it.
+    Enforces the exact required composition (``REQUIRED_COMPOSITION``) so
+    downstream generation can rely on it.
     """
+    required_total = sum(REQUIRED_COMPOSITION.values())
     raw_items = obj.get("items")
-    if not isinstance(raw_items, list) or len(raw_items) != 8:
-        raise PlanError(f"Creative plan must contain exactly 8 items, got {len(raw_items or [])}")
+    if not isinstance(raw_items, list) or len(raw_items) != required_total:
+        raise PlanError(
+            f"Creative plan must contain exactly {required_total} items, "
+            f"got {len(raw_items or [])}")
     items = [_parse_item(it if isinstance(it, dict) else {}, valid_ids) for it in raw_items]
 
     counts: dict[str, int] = {}
@@ -301,7 +300,6 @@ def mock_plan(ctx: PlanProductContext) -> CreativePlan:
         PlanItem("PRODUCT_IN_USE", 2, f"{ctx.name} at work",
                  usage_scenario=f"A person using {ctx.name} in {envs[-1] if len(envs) > 1 else envs[0]}."),
         PlanItem("SIZE_COMPARISON", 1, f"{ctx.name} size", layout_style="product-center"),
-        PlanItem("INFOGRAPHIC", 1, f"{ctx.name} at a glance", assigned_feature_ids=pick(0, 6)),
     ]
     logger.debug("mock plan product=%r items=%d", ctx.name, len(items))
     return CreativePlan(items=items)

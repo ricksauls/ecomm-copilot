@@ -190,3 +190,58 @@ def build_size_comparison_prompt(
         "- Change the package color or product type, or add a competing brand.\n\n"
         "This result requires human review to confirm the relative sizes are accurate."
     )
+
+
+def build_product_in_use_prompt(
+    *,
+    product_name: str,
+    usage_scenario: str,
+    environment: str,
+    product_height: str = "",
+    product_width: str = "",
+    weight: str = "",
+    extra_instructions: str = "",
+) -> str:
+    """Prompt for the product-in-use IMAGE-EDIT workflow (ported from the source app).
+
+    Sent to ``edit_image`` with the real product image as reference: a forward-facing
+    person uses the product at true hand-held scale, with the real packaging preserved
+    and no invented text/claims. Always needs human review (packaging + hand placement).
+    """
+    size_facts = [
+        f"about {product_height} tall" if product_height else "",
+        f"about {product_width} wide" if product_width else "",
+        weight or "",
+    ]
+    size_facts = [s for s in size_facts if s]
+    size_line = (
+        f"The product is a small handheld consumer item ({', '.join(size_facts)})."
+        if size_facts else "The product is a small handheld consumer item."
+    )
+    extra = f"\nAdditional direction:\n{extra_instructions}" if extra_instructions else ""
+    return (
+        "Create a photorealistic product-in-use image using the supplied product image "
+        "as the product reference.\n\n"
+        f"Product: {product_name}\n\n"
+        f"Usage scenario:\n{usage_scenario}\n\n"
+        f"Environment:\n{environment}\n{extra}\n\n"
+        "Realistic scale (important):\n"
+        f"- {size_line}\n"
+        "- Show it at its true real-world size relative to the person: comfortably held "
+        "in one hand, sized to match the real dimensions above.\n"
+        "- Do NOT enlarge or oversize the product. It should occupy only the hand — never "
+        "appear as large as the person's forearm, torso, or head.\n"
+        "- Match the product's scale to the distance and perspective of the hand holding it.\n\n"
+        "Person & orientation (important):\n"
+        "- The person must be FORWARD-FACING — facing the camera, not turned away, not in "
+        "back view, not in strict profile.\n"
+        "- Because the supplied product image shows the product's FRONT, the held product "
+        "must also show its front toward the camera; the person's facing and the product's "
+        "front must agree — one coherent, real photo.\n"
+        "- The hand's grip and the package's up/down and front/back direction must look "
+        "physically real, with the front label readable to the viewer.\n\n"
+        "Preserve the supplied product's exact package shape, brand colors, cap/nozzle/"
+        "closure, proportions, logo placement, label structure, and identifying marks.\n\n"
+        "Do not: invent claims, add new text, add extra product variants, change the package "
+        "color or product type, add a competing brand, or show unsafe/implausible usage."
+    )

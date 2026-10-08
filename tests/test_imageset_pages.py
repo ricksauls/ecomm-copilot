@@ -106,8 +106,8 @@ def test_approve_enqueues_and_redirects_to_gallery(client, auth, tmp_path, monke
         _run_plan(db)
         project = isstore.get_project(db, pid, 1)
         assert project["status"] == isstore.STATUS_GENERATING
-        # 3 implemented assets (2 lifestyle + 1 size-comparison) were queued.
-        assert db.execute("SELECT COUNT(*) FROM imageset_jobs WHERE project_id = ?", (pid,)).fetchone()[0] == 3
+        # All 7 variations are implemented (2 lifestyle + 2 feature + 2 PIU + 1 size).
+        assert db.execute("SELECT COUNT(*) FROM imageset_jobs WHERE project_id = ?", (pid,)).fetchone()[0] == 7
 
 
 def test_gallery_and_status(client, auth, tmp_path, monkeypatch):
@@ -213,13 +213,15 @@ def test_approve_stores_selected_types(client, auth, tmp_path, monkeypatch):
     with client.application.app_context():
         db = get_db()
         pid = isstore.list_projects(db, 1)[0]["id"]
-    client.post(f"/app/pdp-image-set/{pid}/approve", data={"types": ["SIZE_COMPARISON"]})
+    # Tick two specific variations: Feature 1 and Size Comparison.
+    client.post(f"/app/pdp-image-set/{pid}/approve",
+                data={"types": ["FEATURE_CALLOUT:1", "SIZE_COMPARISON:1"]})
     with client.application.app_context():
         db = get_db()
         _run_plan(db)
-        # Only the one selected+implemented type was queued.
+        # Only the two selected variations were queued.
         assert db.execute("SELECT COUNT(*) FROM imageset_jobs WHERE project_id = ?",
-                          (pid,)).fetchone()[0] == 1
+                          (pid,)).fetchone()[0] == 2
 
 
 def test_idor_other_user_cannot_access(client, auth, tmp_path, monkeypatch):

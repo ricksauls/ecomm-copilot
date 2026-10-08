@@ -26,7 +26,7 @@ def _ctx(n_features=5):
 def test_mock_plan_has_required_composition(monkeypatch):
     monkeypatch.delenv("IMAGESET_PLAN_PROVIDER", raising=False)  # default mock
     plan = planmod.generate_plan(_ctx())
-    assert len(plan.items) == 8
+    assert len(plan.items) == 7
     counts = Counter(i.asset_type for i in plan.items)
     assert dict(counts) == planmod.REQUIRED_COMPOSITION
     # Only approved feature ids are ever assigned.
@@ -36,21 +36,21 @@ def test_mock_plan_has_required_composition(monkeypatch):
 
 
 def test_mock_plan_handles_no_features():
-    # No approved features → callouts/infographic simply carry none (no crash).
+    # No approved features → callouts simply carry none (no crash).
     plan = planmod.mock_plan(_ctx(n_features=0))
-    assert len(plan.items) == 8
+    assert len(plan.items) == 7
     assert all(i.assigned_feature_ids == [] for i in plan.items)
 
 
 # --- validation -------------------------------------------------------------
 
-def test_validation_requires_exactly_eight_items():
+def test_validation_requires_exact_item_count():
     with pytest.raises(planmod.PlanError):
         planmod._validate_and_parse({"items": []}, set())
 
 
 def test_validation_enforces_composition():
-    bad = {"items": [{"assetType": "LIFESTYLE", "variationNumber": 1, "title": "x"}] * 8}
+    bad = {"items": [{"assetType": "LIFESTYLE", "variationNumber": 1, "title": "x"}] * 7}
     with pytest.raises(planmod.PlanError):
         planmod._validate_and_parse(bad, set())
 
@@ -65,7 +65,6 @@ def test_validation_drops_hallucinated_feature_ids():
         {"assetType": "PRODUCT_IN_USE", "variationNumber": 1, "title": "e"},
         {"assetType": "PRODUCT_IN_USE", "variationNumber": 2, "title": "f"},
         {"assetType": "SIZE_COMPARISON", "variationNumber": 1, "title": "g"},
-        {"assetType": "INFOGRAPHIC", "variationNumber": 1, "title": "h"},
     ]
     plan = planmod._validate_and_parse({"items": items}, valid_ids={"f1", "f2"})
     callout = next(i for i in plan.items if i.asset_type == "FEATURE_CALLOUT" and i.variation_number == 1)
@@ -77,7 +76,7 @@ def test_validation_bounds_overlong_fields():
     items = [{"assetType": t, "variationNumber": v, "title": long, "sceneDescription": long}
              for t, v in [("LIFESTYLE", 1), ("LIFESTYLE", 2), ("FEATURE_CALLOUT", 1),
                           ("FEATURE_CALLOUT", 2), ("PRODUCT_IN_USE", 1), ("PRODUCT_IN_USE", 2),
-                          ("SIZE_COMPARISON", 1), ("INFOGRAPHIC", 1)]]
+                          ("SIZE_COMPARISON", 1)]]
     plan = planmod._validate_and_parse({"items": items}, set())
     assert all(len(i.title) <= planmod._MAX_TITLE for i in plan.items)
     assert all(len(i.scene_description) <= planmod._MAX_SCENE for i in plan.items)
@@ -136,9 +135,6 @@ def _valid_plan_json(include_ghost=False):
         {"assetType": "SIZE_COMPARISON", "variationNumber": 1, "title": "S1", "sceneDescription": "",
          "usageScenario": "", "assignedFeatureIds": [], "layoutStyle": "product-center",
          "generationInstructions": ""},
-        {"assetType": "INFOGRAPHIC", "variationNumber": 1, "title": "I1", "sceneDescription": "",
-         "usageScenario": "", "assignedFeatureIds": [], "layoutStyle": "product-left",
-         "generationInstructions": ""},
     ]
     return json.dumps({"items": items})
 
@@ -147,7 +143,7 @@ def test_claude_plan_parses_and_filters(monkeypatch):
     monkeypatch.setenv("IMAGESET_PLAN_PROVIDER", "claude")
     client = _FakeClient(_FakeResp(_valid_plan_json(include_ghost=True)))
     plan = planmod.generate_plan(_ctx(), client=client, model="claude-test")
-    assert len(plan.items) == 8
+    assert len(plan.items) == 7
     callout = next(i for i in plan.items if i.asset_type == "FEATURE_CALLOUT" and i.variation_number == 1)
     assert callout.assigned_feature_ids == ["f1"]  # "ghost" filtered against approved ids
     # The structured-output contract was requested.
@@ -168,7 +164,7 @@ def test_claude_plan_bad_json_raises():
 
 def test_generate_plan_falls_back_to_mock_on_failure(monkeypatch):
     # A Claude failure (here: unparseable JSON) must not break Approve — fall back
-    # to the deterministic 8-asset plan instead of raising.
+    # to the deterministic 7-asset plan instead of raising.
     monkeypatch.setenv("IMAGESET_PLAN_PROVIDER", "claude")
     plan = planmod.generate_plan(_ctx(), client=_FakeClient(_FakeResp("not json")))
-    assert len(plan.items) == 8
+    assert len(plan.items) == 7

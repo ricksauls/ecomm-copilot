@@ -393,11 +393,13 @@ def approve_cutout(conn: sqlite3.Connection, project_id: int) -> None:
 def set_selected_types(conn: sqlite3.Connection, project_id: int, types: list[str]) -> None:
     """Persist the asset types the user chose on the cutout screen.
 
-    Stored as a JSON array; only known plan types are kept (defense against a
-    tampered form). An empty list is stored as NULL, which generation reads as
-    "all implemented types" — the prior default — so the flow never dead-ends.
+    Stored as a JSON array of "TYPE:VARIATION" keys (a bare "TYPE" is also
+    accepted); only entries whose type is a known plan type are kept (defense
+    against a tampered form). An empty list is stored as NULL, which generation
+    reads as "all implemented types" — the prior default — so the flow never
+    dead-ends.
     """
-    valid = [t for t in types if t in planmod.ASSET_TYPES]
+    valid = [t for t in types if t.split(":", 1)[0] in planmod.ASSET_TYPES]
     payload = json.dumps(valid) if valid else None
     conn.execute(
         "UPDATE imageset_projects SET selected_types = ?, updated_at = datetime('now') "

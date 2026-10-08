@@ -13,10 +13,10 @@
     <h1>{{ project['name'] }} — Image Set</h1>
     <p class="subtitle">
       {% if planning %}Designing your image set… generation starts automatically. Planning and
-        generating can take up to ~30 seconds per image, so hang tight — you can leave this page
+        generating can take up to ~1 minute per image, so hang tight — you can leave this page
         and come back.
       {% elif pending %}Generating your images… this page updates as each one finishes. Each image
-        can take up to ~30 seconds, so hang tight — you can leave this page and come back.
+        can take up to ~1 minute, so hang tight — you can leave this page and come back.
       {% else %}Your image set is ready. Download individual images or the whole set.{% endif %}
     </p>
   </div>
@@ -36,7 +36,7 @@
     <div>
       <p class="fetching-title">Planning your image set…</p>
       <p class="fetching-hint">We’re designing the scenes. Images start generating next — this page
-        updates automatically. Planning and generating can take up to ~30 seconds per image.</p>
+        updates automatically. Planning and generating can take up to ~1 minute per image.</p>
     </div>
   </div>
   {% else %}

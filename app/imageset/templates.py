@@ -93,6 +93,93 @@ def format_dimensions_line(dimensions: dict) -> str:
     return "  ·  ".join(parts)
 
 
+# Muted neutral for the benefit line — a tier below the headline, still legible.
+_BENEFIT_COLOR = (65, 72, 79)
+_FEATURE_BG = (245, 247, 250)  # clean light surface
+
+
+def _feature_callout_regions(size: int, margin: int, layout: str):
+    """Return (product_rect, feature_rect) as (x, y, w, h) for a callout layout."""
+    if layout == "product-center":
+        prod = (margin, margin, size - 2 * margin, round(size * 0.44))
+        fy = round(size * 0.50)
+        return prod, (margin, fy, size - 2 * margin, size - margin - fy)
+    col_w = (size - 3 * margin) // 2
+    left_col = (margin, margin, col_w, size - 2 * margin)
+    right_col = (2 * margin + col_w, margin, col_w, size - 2 * margin)
+    # product-right puts the product in the right column, features on the left.
+    return (right_col, left_col) if layout == "product-right" else (left_col, right_col)
+
+
+def create_feature_callout(
+    *,
+    features: list[dict],
+    cutout: Image.Image,
+    brand: dict | None = None,
+    layout: str = "product-left",
+) -> bytes:
+    """Programmatic feature-callout: product cutout + headline/divider/benefit rows.
+
+    A clean, text-forward marketplace card on a light surface — the product beside
+    a vertically-centered stack of feature rows (bold uppercase headline in the
+    brand primary, a short accent divider, a muted benefit line). All copy is the
+    user's approved feature text drawn with Pillow (Inter), so nothing is AI-
+    invented. ``features`` is ``[{title, description}, …]``.
+    """
+    size, m = CANVAS_SIZE, SAFE_MARGIN
+    brand = brand or DEFAULT_BRAND
+    primary = _hex_to_rgb(brand.get("primary", DEFAULT_BRAND["primary"]))
+    secondary = _hex_to_rgb(brand.get("secondary", DEFAULT_BRAND["secondary"]))
+    canvas = Image.new("RGB", (size, size), _FEATURE_BG).convert("RGBA")
+
+    (pbx, pby, pbw, pbh), (frx, fry, frw, frh) = _feature_callout_regions(size, m, layout)
+    product = compose.fit_cutout(cutout, pbw * 0.92, pbh * 0.92)
+    canvas.alpha_composite(product, (round(pbx + (pbw - product.width) / 2),
+                                     round(pby + (pbh - product.height) / 2)))
+    draw = ImageDraw.Draw(canvas)
+
+    # Font sizes scale down a touch as the feature count grows so 2–3 rows fit.
+    n = max(1, len(features))
+    head_fs = 60 if n <= 2 else 52
+    ben_fs = 40 if n <= 2 else 36
+    head_font, ben_font = compose.font(head_fs, bold=True), compose.font(ben_fs)
+    head_lh, ben_lh = 1.16, 1.3
+    div_gap, div_h, row_gap = 18, 6, round(frh * 0.06)
+
+    # Pass 1: measure each row so the whole stack can be vertically centered.
+    blocks = []
+    for feat in features:
+        head_lines = compose.wrap_text((feat.get("title") or "").upper(), head_font, frw, 2)
+        benefit = (feat.get("description") or "").strip()
+        ben_lines = compose.wrap_text(benefit, ben_font, frw, 2) if benefit else []
+        head_h = len(head_lines) * head_fs * head_lh
+        ben_h = len(ben_lines) * ben_fs * ben_lh
+        total = head_h + ((div_gap + div_h + div_gap + ben_h) if ben_lines else 0)
+        widest = max([head_font.getlength(ln) for ln in head_lines]
+                     + [ben_font.getlength(ln) for ln in ben_lines] + [1.0])
+        blocks.append((head_lines, ben_lines, head_h, total, widest))
+
+    stack_h = sum(b[3] for b in blocks) + row_gap * (n - 1)
+    y = fry + max(0, (frh - stack_h) / 2)
+    for head_lines, ben_lines, head_h, total, widest in blocks:
+        yy = y
+        for line in head_lines:
+            draw.text((frx, yy), line, font=head_font, fill=primary)
+            yy += head_fs * head_lh
+        if ben_lines:
+            yy += div_gap
+            draw.rounded_rectangle([frx, yy, frx + min(frw, widest), yy + div_h],
+                                   radius=div_h / 2, fill=secondary)
+            yy += div_h + div_gap
+            for line in ben_lines:
+                draw.text((frx, yy), line, font=ben_font, fill=_BENEFIT_COLOR)
+                yy += ben_fs * ben_lh
+        y += total + row_gap
+
+    logger.debug("Built feature-callout: layout=%s features=%d", layout, n)
+    return compose.export_image(canvas)
+
+
 def _recenter_vertically(canvas: Image.Image, band_top: int, band_bottom: int,
                          *, bg=(255, 255, 255), threshold: int = 14) -> Image.Image:
     """Shift the image's content so it's vertically centered in [band_top, band_bottom].

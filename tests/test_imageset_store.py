@@ -75,9 +75,9 @@ def test_save_plan_creates_eight_assets(app):
         uid = create_local_user("e@example.com", "password123")
         pid = _project(db, uid)
         ids = store.save_plan_and_create_assets(db, pid, uid, _plan())
-        assert len(ids) == 8
+        assert len(ids) == 7
         assets = store.assets_for_project(db, pid, uid)
-        assert len(assets) == 8
+        assert len(assets) == 7
         assert store.get_project(db, pid, uid)["status"] == store.STATUS_PLANNING
         # The plan JSON was persisted for reproducibility.
         assert store.get_project(db, pid, uid)["plan_json"]
@@ -91,7 +91,7 @@ def test_save_plan_replaces_prior_assets(app):
         store.save_plan_and_create_assets(db, pid, uid, _plan())
         store.save_plan_and_create_assets(db, pid, uid, _plan())  # re-plan
         # A re-plan starts clean — still exactly 8, not 16.
-        assert len(store.assets_for_project(db, pid, uid)) == 8
+        assert len(store.assets_for_project(db, pid, uid)) == 7
 
 
 def test_update_asset_whitelist_and_idor(app):
@@ -115,9 +115,9 @@ def test_assigned_feature_ids_parse(app):
         uid = create_local_user("i@example.com", "password123")
         pid = _project(db, uid)
         store.save_plan_and_create_assets(db, pid, uid, _plan())
-        info = next(a for a in store.assets_for_project(db, pid, uid)
-                    if a["asset_type"] == "INFOGRAPHIC")
-        ids = store.asset_feature_ids(info)
+        callout = next(a for a in store.assets_for_project(db, pid, uid)
+                       if a["asset_type"] == "FEATURE_CALLOUT")
+        ids = store.asset_feature_ids(callout)
         assert isinstance(ids, list) and all(i.startswith("f") for i in ids)
 
 
@@ -187,7 +187,7 @@ def test_cancel_queued_for_project(app):
             isjobs.enqueue_asset_job(db, user_id=uid, project_id=pid, asset_id=aid)
         isjobs.claim_next_job(db)  # one goes processing (not cancellable)
         cancelled = isjobs.cancel_queued_for_project(db, pid, uid)
-        assert cancelled == 7  # 8 queued, 1 claimed → 7 removed
+        assert cancelled == 6  # 7 queued, 1 claimed → 6 removed
 
 
 # --- plan queue (async planning) --------------------------------------------

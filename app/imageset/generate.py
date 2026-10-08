@@ -16,7 +16,11 @@ import logging
 
 from app.imageset import compose, config, reference_objects, storage, templates
 from app.imageset import store as isstore
-from app.imageset.prompts import build_lifestyle_prompt, build_size_comparison_prompt
+from app.imageset.prompts import (
+    build_lifestyle_prompt,
+    build_product_in_use_prompt,
+    build_size_comparison_prompt,
+)
 from app.imageset.providers.background_removal import get_background_removal_provider
 from app.imageset.providers.image_generation import get_image_generation_provider
 
@@ -24,30 +28,33 @@ logger = logging.getLogger(__name__)
 
 # Asset types the slice can generate end-to-end. A run enqueues only these; the
 # others get their generators in a later phase.
-IMPLEMENTED_TYPES = frozenset({"LIFESTYLE", "SIZE_COMPARISON"})
+IMPLEMENTED_TYPES = frozenset({"LIFESTYLE", "FEATURE_CALLOUT", "PRODUCT_IN_USE", "SIZE_COMPARISON"})
 
-# The type picker shown on the cutout-review screen. Order drives the checkbox
-# list; keys must stay in sync with ``plan.ASSET_TYPES`` (guarded by a test).
-# ``ready`` mirrors IMPLEMENTED_TYPES — unready types still render (so the user
-# sees the roadmap and can test selection), but generate nothing until built.
-_ASSET_TYPE_META = (
-    ("LIFESTYLE", "Lifestyle", "Your product staged in a real-world scene."),
-    ("FEATURE_CALLOUT", "Feature Callout", "Headline + benefit lines pointing at the product."),
-    ("PRODUCT_IN_USE", "Product in Use", "The product shown being used in context."),
-    ("SIZE_COMPARISON", "Size Comparison", "Dimensions shown against a familiar reference."),
-    ("INFOGRAPHIC", "Infographic", "Key facts and benefits laid out as a graphic."),
+# The cutout-review picker: one entry per generatable asset *variation* so the
+# user can pick individual images (e.g. just Lifestyle 1), not whole types. Keys
+# are "TYPE:VARIATION" and must match the variations the plan creates
+# (``plan.REQUIRED_COMPOSITION``); a test guards the pairing. ``ready`` mirrors
+# IMPLEMENTED_TYPES.
+_VARIATION_META = (
+    ("LIFESTYLE", 1, "Lifestyle 1", "Your product staged in a real-world scene."),
+    ("LIFESTYLE", 2, "Lifestyle 2", "A second lifestyle scene, in a different setting."),
+    ("FEATURE_CALLOUT", 1, "Feature 1", "Headline + benefit callouts beside the product."),
+    ("FEATURE_CALLOUT", 2, "Feature 2", "A second feature-callout, highlighting other benefits."),
+    ("PRODUCT_IN_USE", 1, "Product In Use 1", "A person using the product in context."),
+    ("PRODUCT_IN_USE", 2, "Product In Use 2", "A second product-in-use scenario."),
+    ("SIZE_COMPARISON", 1, "Size Comparison", "Shown next to everyday objects for scale."),
 )
 
 
 def asset_type_choices() -> list[dict]:
-    """The cutout-review type picker, as display dicts (key/label/description/ready).
+    """The cutout-review picker, as display dicts (key/label/description/ready).
 
-    ``ready`` types are checked by default in the template; the rest are offered
-    but unchecked, since selecting one generates nothing until its generator ships.
+    One dict per asset variation; ``key`` is "TYPE:VARIATION". ``ready`` entries
+    are checked by default in the template.
     """
     return [
-        {"key": key, "label": label, "description": desc, "ready": key in IMPLEMENTED_TYPES}
-        for key, label, desc in _ASSET_TYPE_META
+        {"key": f"{t}:{v}", "label": label, "description": desc, "ready": t in IMPLEMENTED_TYPES}
+        for t, v, label, desc in _VARIATION_META
     ]
 
 # Lifestyle placement baseline (product ~62% tall, low ground line, soft
@@ -134,7 +141,7 @@ def _dim_string(dims: dict, key: str) -> str:
     return f"{value} {unit}".strip() if value is not None else ""
 
 
-def _gen_lifestyle(project, asset, cutout, logo) -> tuple[bytes, bytes, dict]:
+def _gen_lifestyle(conn, project, asset, cutout, logo) -> tuple[bytes, bytes, dict]:
     """AI scene background + composited approved cutout. Returns (final, scene, meta)."""
     category = project["category"] or "product"
     scene_desc = "\n".join(
@@ -172,7 +179,7 @@ def _gen_lifestyle(project, asset, cutout, logo) -> tuple[bytes, bytes, dict]:
     return compose.export_image(composed), scene.png, meta
 
 
-def _gen_size_comparison(project, asset, cutout, logo) -> tuple[bytes, bytes | None, dict]:
+def _gen_size_comparison(conn, project, asset, cutout, logo) -> tuple[bytes, bytes | None, dict]:
     """Scale comparison: AI scene (product + everyday reference objects) + brand bars.
 
     The product image is sent to the image model, which places one or two familiar
@@ -237,8 +244,86 @@ def _gen_size_comparison_diagram(project, asset, cutout) -> tuple[bytes, None, d
     return final, None, meta
 
 
+def _project_environments(project) -> list[str]:
+    """The project's intended-use environments (JSON array), or an empty list."""
+    try:
+        envs = json.loads(project["intended_environments"]) if project["intended_environments"] else []
+    except (json.JSONDecodeError, TypeError):
+        envs = []
+    return [e for e in envs if isinstance(e, str) and e.strip()]
+
+
+def _gen_product_in_use(conn, project, asset, cutout, logo) -> tuple[bytes, bytes, dict]:
+    """AI product-in-use: a forward-facing person using the product. (final, scene, meta).
+
+    Uses the ORIGINAL product photo as the edit reference (per the source app) so the
+    model preserves the real packaging while placing it in a hand at true scale.
+    """
+    dims = _dimensions(project)
+    envs = _project_environments(project)
+    environment = envs[0] if envs else f"a realistic setting for {project['category'] or 'the product'}"
+    name = project["name"] or project["category"] or "the product"
+    prompt = build_product_in_use_prompt(
+        product_name=name,
+        usage_scenario=asset["usage_scenario"] or f"A person using {name} as directed.",
+        environment=environment,
+        product_height=_dim_string(dims, "height"),
+        product_width=_dim_string(dims, "width"),
+        weight=dims.get("weight", ""),
+        extra_instructions=asset["generation_instructions"] or "",
+    )
+    # The original (opaque) photo is the best edit reference; fall back to the cutout.
+    reference = storage.load(project["original_path"]) or compose.to_png_bytes(cutout)
+    provider = get_image_generation_provider()
+    edited = provider.edit_image(
+        prompt=prompt, image=reference,
+        size=f"{config.AI_SCENE_SIZE}x{config.AI_SCENE_SIZE}",
+        context={"project_id": project["id"], "asset_type": "PRODUCT_IN_USE"},
+    )
+    canvas = compose.cover_scene(compose.load_image(edited.png))
+    if logo is not None:
+        canvas = compose.composite_logo(canvas, logo, corner="top-right")
+    meta = {"provider": edited.provider, "model": edited.model,
+            "estimated_cost_usd": edited.estimated_cost_usd, "prompt": prompt}
+    return compose.export_image(canvas), edited.png, meta
+
+
+def _features_for_asset(conn, project, asset) -> list[dict]:
+    """The approved features assigned to a callout asset (title/description dicts).
+
+    Reads the asset's ``assigned_feature_ids`` (feature_key values) and resolves
+    them against the project's features; falls back to the first few features when
+    none are assigned, so a callout always has something to show.
+    """
+    try:
+        ids = json.loads(asset["assigned_feature_ids"]) if asset["assigned_feature_ids"] else []
+    except (json.JSONDecodeError, TypeError):
+        ids = []
+    by_key = {r["feature_key"]: r for r in isstore.features_for_project(conn, project["id"])}
+    chosen = [by_key[k] for k in ids if k in by_key] or list(by_key.values())[:3]
+    return [{"title": r["title"], "description": r["description"]} for r in chosen]
+
+
+def _gen_feature_callout(conn, project, asset, cutout, logo) -> tuple[bytes, None, dict]:
+    """Programmatic feature-callout: product cutout + headline/divider/benefit rows.
+
+    Clean, text-forward card drawn entirely from the approved feature copy (no AI,
+    so no invented claims and no per-image cost). Returns (final, None, meta).
+    """
+    features = _features_for_asset(conn, project, asset)
+    final = templates.create_feature_callout(
+        features=features, cutout=cutout,
+        brand=resolve_brand_palette(project, cutout),
+        layout=asset["layout_style"] or "product-left",
+    )
+    meta = {"provider": "composition", "model": "feature-callout-v1", "estimated_cost_usd": 0.0}
+    return final, None, meta
+
+
 _GENERATORS = {
     "LIFESTYLE": _gen_lifestyle,
+    "FEATURE_CALLOUT": _gen_feature_callout,
+    "PRODUCT_IN_USE": _gen_product_in_use,
     "SIZE_COMPARISON": _gen_size_comparison,
 }
 
@@ -265,7 +350,7 @@ def process_asset(conn, asset, project) -> None:
     logo = compose.load_image(logo_bytes) if logo_bytes else None
 
     logger.info("Generating asset id=%s type=%s project=%s", asset_id, asset_type, project["id"])
-    final_bytes, scene_bytes, meta = generator(project, asset, cutout, logo)
+    final_bytes, scene_bytes, meta = generator(conn, project, asset, cutout, logo)
 
     pid = project["id"]
     scene_path = storage.save(pid, "scene", asset_id, scene_bytes) if scene_bytes else None
@@ -426,8 +511,12 @@ def enqueue_project_assets(conn, project, user_id: int, *, only_implemented: boo
     for asset in isstore.assets_for_project(conn, project["id"], user_id):
         if only_implemented and asset["asset_type"] not in IMPLEMENTED_TYPES:
             continue
-        if chosen is not None and asset["asset_type"] not in chosen:
-            continue
+        # Selection is per-variation ("TYPE:VARIATION"); accept a bare "TYPE" too
+        # for backward compatibility with any pre-per-variation selection.
+        if chosen is not None:
+            key = f'{asset["asset_type"]}:{asset["variation_number"]}'
+            if key not in chosen and asset["asset_type"] not in chosen:
+                continue
         jid = isjobs.enqueue_asset_job(
             conn, user_id=user_id, project_id=project["id"], asset_id=asset["id"]
         )

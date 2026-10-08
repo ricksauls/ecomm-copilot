@@ -109,6 +109,38 @@ def test_size_comparison_uses_ai_scene_with_dimensions(app, tmp_path, monkeypatc
         assert final.size == (CANVAS_SIZE, CANVAS_SIZE)
 
 
+def test_feature_callout_generates_programmatically(app, tmp_path, monkeypatch):
+    """Feature-callout is a programmatic card (no AI scene) → ready 2000² final."""
+    monkeypatch.setenv("MEDIA_DIR", str(tmp_path))
+    with app.app_context():
+        db = get_db()
+        uid = create_local_user("fc@example.com", "password123")
+        pid = _project_with_cutout(db, uid)
+        assets = _plan_and_assets(db, uid, pid)
+        fc = _asset_of(assets, "FEATURE_CALLOUT")
+        generate.process_asset(db, fc, isstore.get_project(db, pid, uid))
+        a = isstore.get_asset(db, fc["id"], uid)
+        assert a["status"] == "ready"
+        assert a["scene_path"] is None  # programmatic: no AI scene
+        assert Image.open(io.BytesIO(storage.load(a["final_path"]))).size == (CANVAS_SIZE, CANVAS_SIZE)
+
+
+def test_product_in_use_generates_via_ai(app, tmp_path, monkeypatch):
+    """Product-in-use edits the product photo → ready 2000² final with an AI scene."""
+    monkeypatch.setenv("MEDIA_DIR", str(tmp_path))
+    with app.app_context():
+        db = get_db()
+        uid = create_local_user("piu@example.com", "password123")
+        pid = _project_with_cutout(db, uid)
+        assets = _plan_and_assets(db, uid, pid)
+        piu = _asset_of(assets, "PRODUCT_IN_USE")
+        generate.process_asset(db, piu, isstore.get_project(db, pid, uid))
+        a = isstore.get_asset(db, piu["id"], uid)
+        assert a["status"] == "ready"
+        assert a["scene_path"] is not None  # AI edit scene was produced
+        assert Image.open(io.BytesIO(storage.load(a["final_path"]))).size == (CANVAS_SIZE, CANVAS_SIZE)
+
+
 def test_size_comparison_falls_back_to_diagram_without_dimensions(app, tmp_path, monkeypatch):
     """No height anchor → the programmatic measurement diagram (no AI scene)."""
     monkeypatch.setenv("MEDIA_DIR", str(tmp_path))
@@ -132,16 +164,18 @@ def test_size_comparison_falls_back_to_diagram_without_dimensions(app, tmp_path,
         assert Image.open(io.BytesIO(storage.load(a["final_path"]))).size == (CANVAS_SIZE, CANVAS_SIZE)
 
 
-def test_unimplemented_type_raises(app, tmp_path, monkeypatch):
+def test_asset_type_without_generator_raises(app, tmp_path, monkeypatch):
+    # Every plan type now has a generator; simulate a missing one (future type).
     monkeypatch.setenv("MEDIA_DIR", str(tmp_path))
+    monkeypatch.delitem(generate._GENERATORS, "SIZE_COMPARISON", raising=False)
     with app.app_context():
         db = get_db()
         uid = create_local_user("d@example.com", "password123")
         pid = _project_with_cutout(db, uid)
         assets = _plan_and_assets(db, uid, pid)
-        piu = _asset_of(assets, "PRODUCT_IN_USE")
+        sc = _asset_of(assets, "SIZE_COMPARISON")
         with pytest.raises(generate.GenerationError):
-            generate.process_asset(db, piu, isstore.get_project(db, pid, uid))
+            generate.process_asset(db, sc, isstore.get_project(db, pid, uid))
 
 
 def test_missing_cutout_raises(app, tmp_path, monkeypatch):
@@ -156,7 +190,7 @@ def test_missing_cutout_raises(app, tmp_path, monkeypatch):
             generate.process_asset(db, _asset_of(assets, "LIFESTYLE"), isstore.get_project(db, pid, uid))
 
 
-def test_enqueue_only_implemented_filters(app, tmp_path, monkeypatch):
+def test_enqueue_all_implemented_variations(app, tmp_path, monkeypatch):
     monkeypatch.setenv("MEDIA_DIR", str(tmp_path))
     with app.app_context():
         db = get_db()
@@ -164,33 +198,47 @@ def test_enqueue_only_implemented_filters(app, tmp_path, monkeypatch):
         pid = _project_with_cutout(db, uid)
         _plan_and_assets(db, uid, pid)
         job_ids = generate.enqueue_project_assets(db, isstore.get_project(db, pid, uid), uid)
-        # 2 LIFESTYLE + 1 SIZE_COMPARISON are implemented; the other 5 are skipped.
-        assert len(job_ids) == 3
+        # All 7 variations are now implemented (2 lifestyle + 2 feature + 2 PIU + 1 size).
+        assert len(job_ids) == 7
         assert isstore.get_project(db, pid, uid)["status"] == isstore.STATUS_GENERATING
 
 
-def test_enqueue_respects_selected_types(app, tmp_path, monkeypatch):
-    """Only the user-selected (and implemented) types are queued."""
+def test_enqueue_only_implemented_filters(app, tmp_path, monkeypatch):
+    # With only SIZE_COMPARISON "implemented", the other types are skipped.
+    monkeypatch.setenv("MEDIA_DIR", str(tmp_path))
+    monkeypatch.setattr(generate, "IMPLEMENTED_TYPES", frozenset({"SIZE_COMPARISON"}))
+    with app.app_context():
+        db = get_db()
+        uid = create_local_user("f2@example.com", "password123")
+        pid = _project_with_cutout(db, uid)
+        _plan_and_assets(db, uid, pid)
+        job_ids = generate.enqueue_project_assets(db, isstore.get_project(db, pid, uid), uid)
+        assert len(job_ids) == 1
+
+
+def test_enqueue_respects_selected_variations(app, tmp_path, monkeypatch):
+    """Only the user-selected variations are queued (per-variation keys)."""
     monkeypatch.setenv("MEDIA_DIR", str(tmp_path))
     with app.app_context():
         db = get_db()
         uid = create_local_user("sel@example.com", "password123")
         pid = _project_with_cutout(db, uid)
         _plan_and_assets(db, uid, pid)
-        # User ticks only SIZE_COMPARISON (plus an unbuilt type that generates nothing).
-        isstore.set_selected_types(db, pid, ["SIZE_COMPARISON", "INFOGRAPHIC"])
+        # Tick just Lifestyle 2 and Size Comparison.
+        isstore.set_selected_types(db, pid, ["LIFESTYLE:2", "SIZE_COMPARISON:1"])
         job_ids = generate.enqueue_project_assets(db, isstore.get_project(db, pid, uid), uid)
-        # Only the 1 SIZE_COMPARISON is both selected and implemented.
-        assert len(job_ids) == 1
+        assert len(job_ids) == 2
 
 
-def test_asset_type_choices_match_plan_types(app):
-    """The cutout picker's keys stay in sync with the planner's asset types."""
+def test_asset_type_choices_cover_plan_variations(app):
+    """The cutout picker's keys cover exactly the variations the plan creates."""
     choices = generate.asset_type_choices()
-    assert [c["key"] for c in choices] == list(planmod.ASSET_TYPES)
-    # Only the implemented types are checked-by-default.
-    ready = {c["key"] for c in choices if c["ready"]}
-    assert ready == set(generate.IMPLEMENTED_TYPES)
+    keys = [c["key"] for c in choices]
+    assert all(k.split(":")[0] in planmod.ASSET_TYPES for k in keys)
+    expected = {f"{t}:{v}"
+                for t, n in planmod.REQUIRED_COMPOSITION.items() for v in range(1, n + 1)}
+    assert set(keys) == expected
+    assert all(c["ready"] for c in choices)  # every type is implemented now
 
 
 # --- worker integration -----------------------------------------------------
@@ -222,7 +270,9 @@ def test_worker_marks_failed_on_bad_asset(app, tmp_path, monkeypatch):
         uid = create_local_user("h@example.com", "password123")
         pid = _project_with_cutout(db, uid)
         assets = _plan_and_assets(db, uid, pid)
-        # An unimplemented type fails loudly → job + asset both marked failed.
+        # A generator that raises fails loudly → job + asset both marked failed.
+        monkeypatch.setitem(generate._GENERATORS, "PRODUCT_IN_USE",
+                            lambda *a, **k: (_ for _ in ()).throw(generate.GenerationError("boom")))
         piu = _asset_of(assets, "PRODUCT_IN_USE")
         isjobs.enqueue_asset_job(db, user_id=uid, project_id=pid, asset_id=piu["id"])
         row = isjobs.claim_next_job(db)
