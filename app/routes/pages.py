@@ -1979,11 +1979,41 @@ def _imageset_intake_context(**extra):
     return ctx
 
 
+def _detect_project_brand_color(project) -> str | None:
+    """Auto-detect a draft's dominant brand color from its stored product photo.
+
+    Best-effort: a decode/IO failure just yields None (the form shows a blank
+    field and the default palette is used), so prefill never blocks on it.
+    """
+    rel = project["original_path"] if "original_path" in project.keys() else None
+    path = imageset_storage.abs_path(rel) if rel else None
+    if not path or not os.path.isfile(path):
+        return None
+    try:
+        from app.imageset import compose as _compose
+        from PIL import Image as _Image
+        with _Image.open(path) as img:
+            return _compose.detect_dominant_color(img)
+    except Exception:  # noqa: BLE001 - detection is a convenience, never fatal
+        logger.debug("Brand-color auto-detect failed for project=%s", project["id"], exc_info=True)
+        return None
+
+
 def _imageset_prefill_values(project) -> dict:
     """Flatten a draft's stored facts into plain form values for prefill."""
     dims = json.loads(project["dimensions_json"]) if project["dimensions_json"] else {}
     envs = json.loads(project["intended_environments"]) if project["intended_environments"] else []
     name = project["name"]
+    # Brand colors: the user's saved values win; otherwise suggest the auto-detected
+    # dominant color as the primary so the user can confirm or override it.
+    try:
+        colors = json.loads(project["brand_colors"]) if project["brand_colors"] else []
+    except (json.JSONDecodeError, TypeError):
+        colors = []
+    colors = [c if isinstance(c, str) else "" for c in colors] + ["", "", ""]
+    primary, secondary, accent = colors[0], colors[1], colors[2]
+    if not primary:
+        primary = _detect_project_brand_color(project) or ""
     return {
         "name": "" if name == "(fetching…)" else (name or ""),
         "brand": project["brand"] or "",
@@ -1997,14 +2027,25 @@ def _imageset_prefill_values(project) -> dict:
         "width": dims.get("width") if dims.get("width") is not None else "",
         "height": dims.get("height") if dims.get("height") is not None else "",
         "depth": dims.get("depth") if dims.get("depth") is not None else "",
+        "primary_color": primary,
+        "secondary_color": secondary,
+        "accent_color": accent,
     }
 
 
 def _parse_intake_fields(form) -> dict:
     """Pull the shared product facts (not the photo) from the intake form."""
     environments = [e.strip() for e in (form.get("environments") or "").split(",") if e.strip()]
-    colors = [c.strip() for c in (form.get("primary_color"), form.get("secondary_color"),
-                                  form.get("accent_color")) if c and c.strip()]
+    # Normalize brand colors to '#rrggbb', keeping slot order (primary, secondary,
+    # accent) — a blank or invalid entry becomes '' so later slots keep their meaning.
+    # A typo can't corrupt the palette; bad/blank slots fall back to the default.
+    colors = []
+    for raw in (form.get("primary_color"), form.get("secondary_color"), form.get("accent_color")):
+        v = (raw or "").strip().lstrip("#")
+        colors.append("#" + v.lower()
+                      if len(v) == 6 and all(ch in "0123456789abcdefABCDEF" for ch in v) else "")
+    while colors and not colors[-1]:
+        colors.pop()  # trim trailing empties so an all-blank form stores nothing
     return {
         "name": (form.get("name") or "").strip()[:200],
         "brand": (form.get("brand") or "").strip()[:120],

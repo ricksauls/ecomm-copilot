@@ -90,12 +90,13 @@ def test_lifestyle_asset_generates_final_2000(app, tmp_path, monkeypatch):
         assert final.size == (CANVAS_SIZE, CANVAS_SIZE)
 
 
-def test_size_comparison_asset_is_programmatic(app, tmp_path, monkeypatch):
+def test_size_comparison_uses_ai_scene_with_dimensions(app, tmp_path, monkeypatch):
+    """With a real height anchor, size-comparison renders an AI scene + branded bars."""
     monkeypatch.setenv("MEDIA_DIR", str(tmp_path))
     with app.app_context():
         db = get_db()
         uid = create_local_user("c@example.com", "password123")
-        pid = _project_with_cutout(db, uid)
+        pid = _project_with_cutout(db, uid)  # has dimensions (height 7.8 in)
         assets = _plan_and_assets(db, uid, pid)
         sc = _asset_of(assets, "SIZE_COMPARISON")
 
@@ -103,9 +104,32 @@ def test_size_comparison_asset_is_programmatic(app, tmp_path, monkeypatch):
         a = isstore.get_asset(db, sc["id"], uid)
         assert a["status"] == "ready"
         assert a["final_path"] and storage.load(a["final_path"]) is not None
-        assert a["scene_path"] is None  # programmatic: no AI scene
+        assert a["scene_path"] is not None  # AI scale-comparison scene was produced
         final = Image.open(io.BytesIO(storage.load(a["final_path"])))
         assert final.size == (CANVAS_SIZE, CANVAS_SIZE)
+
+
+def test_size_comparison_falls_back_to_diagram_without_dimensions(app, tmp_path, monkeypatch):
+    """No height anchor → the programmatic measurement diagram (no AI scene)."""
+    monkeypatch.setenv("MEDIA_DIR", str(tmp_path))
+    with app.app_context():
+        db = get_db()
+        uid = create_local_user("cd@example.com", "password123")
+        # Project with a cutout but NO dimensions (so no scale anchor).
+        pid = isstore.create_project(db, user_id=uid, name="No Dims", category="repellent")
+        for i in range(1, 6):
+            isstore.add_feature(db, pid, feature_key=f"f{i}", title=f"Feature {i}", position=i)
+        rel = storage.save(pid, "original", "product", _product_png())
+        isstore.set_original_image(db, pid, rel)
+        generate.run_cutout(db, isstore.get_project(db, pid, uid), uid)
+        isstore.approve_cutout(db, pid)
+        sc = _asset_of(_plan_and_assets(db, uid, pid), "SIZE_COMPARISON")
+
+        generate.process_asset(db, sc, isstore.get_project(db, pid, uid))
+        a = isstore.get_asset(db, sc["id"], uid)
+        assert a["status"] == "ready"
+        assert a["scene_path"] is None  # programmatic diagram: no AI scene
+        assert Image.open(io.BytesIO(storage.load(a["final_path"]))).size == (CANVAS_SIZE, CANVAS_SIZE)
 
 
 def test_unimplemented_type_raises(app, tmp_path, monkeypatch):

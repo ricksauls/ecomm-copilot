@@ -14,9 +14,9 @@ run can enqueue only the implemented ones (see :func:`enqueue_project_assets`).
 import json
 import logging
 
-from app.imageset import compose, storage, templates
+from app.imageset import compose, config, reference_objects, storage, templates
 from app.imageset import store as isstore
-from app.imageset.prompts import build_lifestyle_prompt
+from app.imageset.prompts import build_lifestyle_prompt, build_size_comparison_prompt
 from app.imageset.providers.background_removal import get_background_removal_provider
 from app.imageset.providers.image_generation import get_image_generation_provider
 
@@ -82,6 +82,44 @@ def brand_colors_for(project) -> dict:
     return out
 
 
+def resolve_brand_palette(project, cutout=None) -> dict:
+    """Brand palette for the size-comparison bars: user override → auto-detect → default.
+
+    If the user entered brand colors on intake, those win. Otherwise, when a cutout
+    is available, the product's dominant color is auto-detected and used as the
+    primary (the bar color). Falls back to the default palette when neither applies.
+    """
+    palette = brand_colors_for(project)
+    # Did the user set the PRIMARY slot specifically? (Other slots being set must not
+    # suppress auto-detect of the bar color.) brand_colors is [primary, secondary, accent].
+    user_set_primary = False
+    try:
+        stored = json.loads(project["brand_colors"]) if project["brand_colors"] else []
+        user_set_primary = bool(stored and isinstance(stored[0], str) and stored[0].strip())
+    except (json.JSONDecodeError, TypeError, IndexError):
+        user_set_primary = False
+    if not user_set_primary and cutout is not None:
+        detected = compose.detect_dominant_color(cutout)
+        if detected:
+            palette = dict(palette, primary=detected)
+            logger.info("Auto-detected brand color %s for project=%s", detected, project["id"])
+    return palette
+
+
+def _scale_caption(names: list[str]) -> str:
+    """Human caption like 'Shown next to a TV remote and a paperback book for scale'."""
+    if not names:
+        return ""
+    phrases = [f"{'an' if n[:1].lower() in 'aeiou' else 'a'} {n}" for n in names]
+    if len(phrases) == 1:
+        joined = phrases[0]
+    elif len(phrases) == 2:
+        joined = " and ".join(phrases)
+    else:
+        joined = ", ".join(phrases[:-1]) + ", and " + phrases[-1]
+    return f"Shown next to {joined} for scale"
+
+
 def _dimensions(project) -> dict:
     """Parse the project's stored dimensions JSON into a plain dict."""
     try:
@@ -134,8 +172,54 @@ def _gen_lifestyle(project, asset, cutout, logo) -> tuple[bytes, bytes, dict]:
     return compose.export_image(composed), scene.png, meta
 
 
-def _gen_size_comparison(project, asset, cutout, logo) -> tuple[bytes, None, dict]:
-    """Fully programmatic exact-measurement diagram. Returns (final, None, meta)."""
+def _gen_size_comparison(project, asset, cutout, logo) -> tuple[bytes, bytes | None, dict]:
+    """Scale comparison: AI scene (product + everyday reference objects) + brand bars.
+
+    The product image is sent to the image model, which places one or two familiar
+    objects (chosen by real size) beside it at true relative scale on pure white;
+    then the exact dimensions + a scale caption are composited into branded header/
+    footer bars. Needs a real product height as the scale anchor — without one we
+    fall back to the programmatic measurement diagram. Returns (final, scene, meta).
+    """
+    dims = _dimensions(project)
+    unit = dims.get("unit") or "in"
+    height = dims.get("height")
+    phrases, names = reference_objects.reference_phrases(height, unit, count=2) if height else ([], [])
+    if not phrases:
+        # No scale anchor (or no distinct reference) → the measurement diagram.
+        logger.info("Size-comparison: no scale anchor for project=%s, using diagram", project["id"])
+        return _gen_size_comparison_diagram(project, asset, cutout)
+
+    prompt = build_size_comparison_prompt(
+        product_name=project["name"] or project["category"] or "the product",
+        product_height=f"{height} {unit}".strip(),
+        product_width=_dim_string(dims, "width"),
+        reference_phrases=phrases,
+    )
+    provider = get_image_generation_provider()
+    scene = provider.edit_image(
+        prompt=prompt, image=compose.to_png_bytes(cutout),
+        size=f"{config.AI_SCENE_SIZE}x{config.AI_SCENE_SIZE}",
+        context={"project_id": project["id"], "asset_type": "SIZE_COMPARISON"},
+    )
+    final = templates.render_size_comparison_bars(
+        scene.png,
+        headline=asset["title"] or "See It Next to Everyday Items",
+        dimensions_line=templates.format_dimensions_line(dims),
+        caption=_scale_caption(names),
+        brand=resolve_brand_palette(project, cutout),
+    )
+    meta = {"provider": scene.provider, "model": scene.model,
+            "estimated_cost_usd": scene.estimated_cost_usd, "prompt": prompt}
+    return final, scene.png, meta
+
+
+def _gen_size_comparison_diagram(project, asset, cutout) -> tuple[bytes, None, dict]:
+    """Fully programmatic exact-measurement diagram (no AI). Returns (final, None, meta).
+
+    The fallback when a product has no dimensions to anchor a true-scale comparison:
+    draws measurement lines/labels from the user-entered facts only.
+    """
     dims = _dimensions(project)
     final = templates.create_size_comparison(
         title=asset["title"] or "Exact dimensions",

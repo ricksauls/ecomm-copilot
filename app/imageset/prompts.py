@@ -138,3 +138,55 @@ def build_backdrop_prompt(
         "attention.\n"
         "- Photorealistic, premium eCommerce look."
     )
+
+
+def build_size_comparison_prompt(
+    *,
+    product_name: str,
+    product_height: str,
+    product_width: str | None,
+    reference_phrases: list[str],
+) -> str:
+    """Scene prompt for the size-comparison IMAGE-EDIT workflow.
+
+    Unlike the lifestyle prompt (which forbids rendering the product), this one is
+    sent to ``edit_image`` with the real product image as the reference: the model
+    PRESERVES the supplied product and places one or two everyday reference objects
+    beside it at ACCURATE relative scale, anchored by the real dimensions. The model
+    draws NO text — the exact figures and headline are composited on afterward.
+    Ported from the source app's ``buildSizeComparisonScenePrompt``; because AI
+    relative scale isn't guaranteed, the result always needs human review.
+    """
+    ref_list = "\n".join(f"- {r}" for r in reference_phrases)
+    width_clause = f", {product_width} wide" if product_width else ""
+    return (
+        "Create a photorealistic size-comparison image using the supplied product "
+        "image as the product reference.\n\n"
+        f"Product: {product_name}\n"
+        f"Real product size: {product_height} tall{width_clause}.\n\n"
+        "Scene:\n"
+        "- Place the product upright on a clean, seamless PURE WHITE studio background "
+        "(white #FFFFFF, evenly lit — no gray, no colored gradient, no vignette) with "
+        "soft, even lighting and gentle contact shadows.\n"
+        "- Next to the product, place these everyday reference objects for scale:\n"
+        f"{ref_list}\n"
+        "- Arrange the product and the reference objects side by side on the SAME flat "
+        "surface, at the same eye level, so their heights can be compared directly.\n"
+        "- Center the product in the row and space the items EVENLY: the horizontal gap "
+        "between the product and each neighboring object must be equal, and the gaps "
+        "between all items consistent.\n\n"
+        "Accurate relative scale (critical):\n"
+        "- Size every object correctly RELATIVE to the product and to each other, based "
+        "on the real sizes given above. This image exists to show true size — the "
+        "proportions must be believable.\n"
+        "- Do NOT resize the product to match the references; resize the references to "
+        "their real size relative to the product.\n\n"
+        "Preserve the supplied product's exact package shape, brand colors, "
+        "cap/nozzle/closure, proportions, logo placement, and label structure.\n\n"
+        "Do not:\n"
+        "- Invent claims, add new text, numbers, rulers, or measurement labels (these "
+        "are added separately).\n"
+        "- Add any objects other than the product and the listed reference objects.\n"
+        "- Change the package color or product type, or add a competing brand.\n\n"
+        "This result requires human review to confirm the relative sizes are accurate."
+    )

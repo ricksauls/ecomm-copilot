@@ -62,6 +62,80 @@ def _vertical_label(text: str, size: int, color) -> Image.Image:
     return label.rotate(90, expand=True)
 
 
+def format_dimensions_line(dimensions: dict) -> str:
+    """One-line size summary like ``7" × 3" × 3" · Net 8 oz`` from the facts.
+
+    Uses the inch mark only when the unit is inches; otherwise appends the unit
+    (e.g. ``18 × 8 × 8 cm``). Net contents, when present, follow after a middot.
+    Returns '' when there are no measurements and no weight to show.
+    """
+    unit = (dimensions.get("unit") or "in").strip()
+
+    def _num(v) -> str | None:
+        if v is None or v == "":
+            return None
+        try:
+            f = float(v)
+        except (TypeError, ValueError):
+            return None
+        return str(int(f)) if f == int(f) else f"{f:g}"
+
+    hwd = [_num(dimensions.get(k)) for k in ("height", "width", "depth")]
+    hwd = [v for v in hwd if v is not None]
+    parts: list[str] = []
+    if hwd:
+        # Inches: an inch mark on each number (7" x 3" x 3"); other units: trailing unit.
+        # Separator is a lowercase "x" (not "×"): the bundled Pillow font has no
+        # multiplication-sign glyph, so "×" would render as a tofu box.
+        parts.append(' x '.join(f'{v}"' for v in hwd) if unit == "in"
+                     else f"{' x '.join(hwd)} {unit}")
+    if dimensions.get("weight"):
+        parts.append(f"Net {dimensions['weight']}")
+    return "  ·  ".join(parts)
+
+
+def render_size_comparison_bars(
+    scene_png: bytes,
+    *,
+    headline: str,
+    dimensions_line: str,
+    caption: str = "",
+    brand: dict | None = None,
+) -> bytes:
+    """Composite the branded header/footer bars over the AI size-comparison scene.
+
+    The scene (product + everyday reference objects on pure white, from the image
+    model) carries no text; here we overlay a top headline bar and a bottom bar
+    with the exact dimensions line and a scale caption — in the project's brand
+    color so it reads as on-brand creative. All copy is drawn programmatically, so
+    no figure or claim can be AI-invented.
+    """
+    size = CANVAS_SIZE
+    brand = brand or DEFAULT_BRAND
+    primary = _hex_to_rgb(brand.get("primary", DEFAULT_BRAND["primary"]))
+    canvas = compose.cover_scene(compose.load_image(scene_png), size)  # 2000² RGB
+    draw = ImageDraw.Draw(canvas)
+
+    top_h = round(size * 0.085)
+    draw.rectangle([0, 0, size, top_h], fill=primary)
+    if headline:
+        compose.draw_text_centered(draw, (size / 2, top_h / 2), headline,
+                                   size=round(top_h * 0.42), fill=(255, 255, 255), bold=True)
+
+    bottom_h = round(size * 0.145)
+    by = size - bottom_h
+    draw.rectangle([0, by, size, size], fill=primary)
+    if dimensions_line:
+        compose.draw_text_centered(draw, (size / 2, by + bottom_h * 0.37), dimensions_line,
+                                   size=round(bottom_h * 0.30), fill=(255, 255, 255), bold=True)
+    if caption:
+        compose.draw_text_centered(draw, (size / 2, by + bottom_h * 0.74), caption,
+                                   size=round(bottom_h * 0.165), fill=(226, 230, 236))
+
+    logger.debug("Rendered size-comparison bars: headline=%r dims=%r", headline, dimensions_line)
+    return compose.export_image(canvas)
+
+
 def create_size_comparison(
     *,
     title: str,

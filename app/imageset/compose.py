@@ -13,6 +13,7 @@ layer ``Image.rotate`` about the shape center. All functions take and return
 Pillow ``Image`` objects (RGB/RGBA); byte<->image conversion stays at the edges.
 """
 
+import colorsys
 import io
 import logging
 
@@ -21,6 +22,47 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
 from app.imageset.config import CANVAS_SIZE, SAFE_MARGIN
 
 logger = logging.getLogger(__name__)
+
+
+def detect_dominant_color(cutout: "Image.Image") -> str | None:
+    """Sample a product cutout's dominant *brand* color as '#rrggbb', or None.
+
+    Used to auto-suggest the size-comparison bar color from the product photo.
+    Looks only at opaque, saturated, mid-brightness pixels (ignores the
+    transparent background and near-white/near-black/greyscale label areas),
+    buckets them by hue, and returns the average color of the most prominent hue
+    bucket weighted by saturation. Returns None when the product has no clearly
+    colored region, so the caller can fall back to the default palette.
+    """
+    img = cutout.convert("RGBA").resize((80, 80), Image.LANCZOS)
+    # 12 hue buckets (30° each): accumulate (count, r, g, b, saturation) per bucket.
+    # Iterate raw RGBA bytes (4 per pixel) rather than getdata() (deprecated in Pillow 14).
+    raw = img.tobytes()
+    buckets: dict[int, list[float]] = {}
+    for i in range(0, len(raw), 4):
+        r, g, b, a = raw[i], raw[i + 1], raw[i + 2], raw[i + 3]
+        if a < 128:
+            continue  # transparent background
+        h, s, v = colorsys.rgb_to_hsv(r / 255, g / 255, b / 255)
+        if s < 0.25 or v < 0.15 or (v > 0.95 and s < 0.35):
+            continue  # greyscale / near-white / near-black — not a brand hue
+        key = int(h * 12) % 12
+        acc = buckets.setdefault(key, [0.0, 0.0, 0.0, 0.0, 0.0])
+        acc[0] += 1
+        acc[1] += r
+        acc[2] += g
+        acc[3] += b
+        acc[4] += s
+    if not buckets:
+        logger.debug("No dominant brand color detected in cutout")
+        return None
+    # Prominence = pixel count × average saturation (favors a vivid, common hue).
+    key = max(buckets, key=lambda k: buckets[k][0] * (buckets[k][4] / buckets[k][0]))
+    count, rs, gs, bs, _ = buckets[key]
+    hex_color = "#{:02x}{:02x}{:02x}".format(
+        round(rs / count), round(gs / count), round(bs / count))
+    logger.debug("Detected dominant brand color %s (bucket=%d, px=%d)", hex_color, key, int(count))
+    return hex_color
 
 
 def _clamp(v: float, lo: float, hi: float) -> float:

@@ -143,6 +143,22 @@
             <input type="text" id="weight" name="weight" class="text-input" maxlength="40"
                    value="{{ v('weight') }}" placeholder="e.g. 6 oz" /></div>
         </div>
+
+        {# Brand colors power the size-comparison bars. Primary is pre-filled with
+           the color auto-detected from the product photo; the user can override. #}
+        <label class="field-sublabel dims-heading">Brand Colors
+          <span class="field-optional">(optional — used for the size‑comparison bars; leave blank to auto‑detect)</span></label>
+        <div class="field-grid dims-grid">
+          <div class="field"><label class="field-sublabel" for="primary_color">Primary</label>
+            <input type="text" id="primary_color" name="primary_color" class="text-input"
+                   maxlength="7" value="{{ v('primary_color') }}" placeholder="#0B1F3A" /></div>
+          <div class="field"><label class="field-sublabel" for="secondary_color">Secondary</label>
+            <input type="text" id="secondary_color" name="secondary_color" class="text-input"
+                   maxlength="7" value="{{ v('secondary_color') }}" placeholder="#3E5C8A" /></div>
+          <div class="field"><label class="field-sublabel" for="accent_color">Accent</label>
+            <input type="text" id="accent_color" name="accent_color" class="text-input"
+                   maxlength="7" value="{{ v('accent_color') }}" placeholder="#F4B740" /></div>
+        </div>
       </div>
 
       <div class="form-section">
