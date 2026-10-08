@@ -654,6 +654,32 @@ def drain_imageset_jobs() -> int:
     return processed
 
 
+def process_imageset_fetch_one(conn: sqlite3.Connection, project: sqlite3.Row) -> None:
+    """Prefill one claimed image-set draft from its Walmart product URL.
+
+    Browser work (headed Chrome via ``fetch_pdp``), so it runs with the worker's
+    DISPLAY like scoring/copy — never in the web process. A fetch failure is
+    non-fatal: the draft drops back to an editable state with a note so the user
+    can fill it in manually. Never raises (a bad URL must not kill the worker).
+    """
+    pid = project["id"]
+    try:
+        imageset_generate.run_prefill(conn, project)
+        imageset_store.finish_fetch(conn, pid)
+        log.info("Prefilled image-set draft project=%s", pid)
+    except FetchBlocked:
+        imageset_store.fail_fetch(
+            conn, pid, "Walmart blocked the fetch — please fill in the product details manually.")
+    except FetchError:
+        imageset_store.fail_fetch(
+            conn, pid, "Couldn't read that product page — please fill in the details manually.")
+    except imageset_generate.GenerationError as e:
+        imageset_store.fail_fetch(conn, pid, str(e))
+    except Exception as e:  # noqa: BLE001 - a bad prefill must not kill the worker
+        log.exception("Unexpected error prefilling image-set draft project=%s", pid)
+        imageset_store.fail_fetch(conn, pid, f"Unexpected error: {e}")
+
+
 def main() -> None:
     """Claim-and-process loop. Runs until the process is stopped.
 
@@ -675,11 +701,14 @@ def main() -> None:
     reclaimed_runs = ci_jobs.reclaim_orphaned_runs(conn)
     reclaimed_images = image_jobs.reclaim_orphaned_image_jobs(conn)
     reclaimed_sets = imageset_jobs.reclaim_orphaned_jobs(conn)
-    if reclaimed_items or reclaimed_copy or reclaimed_runs or reclaimed_images or reclaimed_sets:
+    reclaimed_fetches = imageset_store.reclaim_orphaned_fetches(conn)
+    if (reclaimed_items or reclaimed_copy or reclaimed_runs or reclaimed_images
+            or reclaimed_sets or reclaimed_fetches):
         log.warning(
             "Startup: reclaimed %d scoring item(s), %d copy item(s), %d CI run(s), "
-            "%d image job(s), %d image-set job(s)",
-            reclaimed_items, reclaimed_copy, reclaimed_runs, reclaimed_images, reclaimed_sets,
+            "%d image job(s), %d image-set job(s), %d image-set prefill(s)",
+            reclaimed_items, reclaimed_copy, reclaimed_runs, reclaimed_images,
+            reclaimed_sets, reclaimed_fetches,
         )
     while True:
         # Scoring first and concurrently: drain the whole queue with the thread
@@ -695,6 +724,15 @@ def main() -> None:
             n = drain_copy()
             log.info("Copy wave complete — processed %d phase(s)", n)
             continue
+
+        # Image-set prefill next — browser work (headed Chrome) like scoring/copy,
+        # so it's grouped with them and ahead of the light HTTP/compositing queues.
+        # Processed one project per loop so multiple prefills are naturally paced.
+        if imageset_store.has_claimable_fetch(conn):
+            fetch_project = imageset_store.claim_next_fetch(conn)
+            if fetch_project is not None:
+                process_imageset_fetch_one(conn, fetch_project)
+                continue
 
         # Image fixes next — the lightest work (provider HTTP calls, no browser),
         # so clear them before the serial CI sweep. Runs only when scoring/copy are

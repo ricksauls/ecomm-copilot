@@ -197,6 +197,68 @@ def run_cutout(conn, project, user_id: int) -> str | None:
     return rel
 
 
+def _download_product_image(url: str) -> bytes | None:
+    """Download a Walmart main image and normalize it to PNG bytes. Best-effort.
+
+    Returns None on any failure (network, decode) — a missing fetched image just
+    means the user uploads one; it never fails the prefill. Walmart's image CDN
+    serves plain HTTP (no browser needed), same as the CI image cache.
+    """
+    if not url:
+        return None
+    try:
+        import io
+
+        import requests
+        from PIL import Image
+
+        resp = requests.get(url, timeout=15)
+        resp.raise_for_status()
+        img = Image.open(io.BytesIO(resp.content))
+        # Flatten to RGB on white (Walmart mains are white-bg) and re-encode as PNG
+        # so the stored original is a predictable format for the cutout step.
+        img = img.convert("RGB")
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        return buf.getvalue()
+    except Exception as e:  # noqa: BLE001 - a bad image just means the user uploads one
+        logger.warning("Could not fetch product image url=%s: %s", (url or "")[:80], e)
+        return None
+
+
+def run_prefill(conn, project, *, fetch=None) -> None:
+    """Fetch a Walmart PDP and prefill the draft project. Raises on fetch failure.
+
+    Fills name/brand/description, seeds features from the PDP bullets, and stores
+    the main image as the (replaceable) product photo without advancing the status,
+    so the user reviews the prefilled form next. ``fetch`` is injectable for tests;
+    in production it is :func:`app.fetch.fetch_pdp` (headed-Chrome, worker-only).
+    The caller marks the fetch finished/failed.
+    """
+    from app import pdp as pdp_mod
+
+    url = project["source_url"]
+    if not url:
+        raise GenerationError("This project has no product URL to fetch")
+    if fetch is None:
+        from app.fetch import fetch_pdp
+        fetch = fetch_pdp
+
+    record = fetch(url, pdp_mod.item_number_from_url(url))
+    isstore.apply_fetched_record(
+        conn, project["id"], name=record.title, brand=record.brand,
+        description=record.description,
+    )
+    isstore.replace_features_from_bullets(conn, project["id"], record.bullets or [])
+    data = _download_product_image(record.main_image_url)
+    if data:
+        rel = storage.save(project["id"], "original", "product", data)
+        if rel:
+            isstore.set_original_path(conn, project["id"], rel)
+    logger.info("Prefilled project=%s from %s (features=%d, image=%s)",
+                project["id"], (url or "")[:60], len(record.bullets or []), bool(data))
+
+
 def enqueue_project_assets(conn, project, user_id: int, *, only_implemented: bool = True) -> list[int]:
     """Queue generation jobs for a project's assets; return the job ids.
 

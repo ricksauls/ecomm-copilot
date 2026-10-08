@@ -19,6 +19,11 @@ from app.imageset import plan as planmod
 logger = logging.getLogger(__name__)
 
 # Project lifecycle statuses (see the imageset_projects schema in app.db).
+# ``fetching`` → a Walmart prefill is queued; ``fetching_active`` → a worker holds
+# it mid-fetch (used as a one-shot, per-project claim lock); both resolve to
+# ``draft`` (the editable, possibly prefilled, intake form).
+STATUS_FETCHING = "fetching"
+STATUS_FETCHING_ACTIVE = "fetching_active"
 STATUS_DRAFT = "draft"
 STATUS_CUTOUT_PENDING = "cutout_pending"
 STATUS_CUTOUT_APPROVED = "cutout_approved"
@@ -26,6 +31,9 @@ STATUS_PLANNING = "planning"
 STATUS_GENERATING = "generating"
 STATUS_READY = "ready"
 STATUS_FAILED = "failed"
+
+# Max product bullets to seed as features when prefilling from a PDP.
+_MAX_PREFILL_FEATURES = 6
 
 # Asset output-path columns an update may set — a hardcoded allowlist so a column
 # name can never come from caller input (defense in depth alongside parameters).
@@ -91,6 +99,34 @@ def get_project(conn: sqlite3.Connection, project_id: int, user_id: int) -> sqli
     ).fetchone()
 
 
+def update_project_fields(
+    conn: sqlite3.Connection,
+    project_id: int,
+    *,
+    name: str,
+    brand: str = "",
+    category: str = "",
+    description: str = "",
+    target_audience: str = "",
+    directions: str = "",
+    intended_environments: list[str] | None = None,
+    brand_colors: list[str] | None = None,
+    dimensions: dict | None = None,
+) -> None:
+    """Update a draft project's editable facts (used when the user submits the
+    prefilled form). Mirrors :func:`create_project`'s fields; leaves image/status
+    untouched."""
+    conn.execute(
+        "UPDATE imageset_projects SET name = ?, brand = ?, category = ?, description = ?, "
+        "target_audience = ?, directions = ?, intended_environments = ?, brand_colors = ?, "
+        "dimensions_json = ?, updated_at = datetime('now') WHERE id = ?",
+        (name, brand, category, description, target_audience, directions,
+         _json_or_none(intended_environments), _json_or_none(brand_colors),
+         _json_or_none(dimensions), project_id),
+    )
+    conn.commit()
+
+
 def list_projects(conn: sqlite3.Connection, user_id: int, limit: int = 100) -> list[sqlite3.Row]:
     """Return a user's projects, newest first (bounded)."""
     return conn.execute(
@@ -119,6 +155,151 @@ def set_original_image(conn: sqlite3.Connection, project_id: int, path: str) -> 
         (path, STATUS_CUTOUT_PENDING, project_id),
     )
     conn.commit()
+
+
+def set_original_path(conn: sqlite3.Connection, project_id: int, path: str) -> None:
+    """Record an original photo path WITHOUT advancing the status.
+
+    Used when prefilling from a fetched product image: the project stays a
+    ``draft`` so the user reviews the prefilled form (and can replace the photo)
+    before anything advances to the cutout step.
+    """
+    conn.execute(
+        "UPDATE imageset_projects SET original_path = ?, updated_at = datetime('now') "
+        "WHERE id = ?",
+        (path, project_id),
+    )
+    conn.commit()
+
+
+# --- Walmart prefill (fetch) -----------------------------------------------
+
+def create_draft_for_url(conn: sqlite3.Connection, *, user_id: int, url: str) -> int:
+    """Create a ``fetching`` draft tied to a product URL; return its id.
+
+    The name/brand/description are filled by the worker once the fetch completes
+    (:func:`apply_fetched_record`); until then the row carries a placeholder name.
+    """
+    cur = conn.execute(
+        "INSERT INTO imageset_projects (user_id, name, source_url, status) "
+        "VALUES (?, ?, ?, ?)",
+        (user_id, "(fetching…)", url, STATUS_FETCHING),
+    )
+    conn.commit()
+    logger.info("Created fetching draft id=%s user_id=%s", cur.lastrowid, user_id)
+    return int(cur.lastrowid)
+
+
+def has_claimable_fetch(conn: sqlite3.Connection) -> bool:
+    """True if any project is waiting for a Walmart prefill (status ``fetching``)."""
+    return conn.execute(
+        "SELECT 1 FROM imageset_projects WHERE status = ? LIMIT 1", (STATUS_FETCHING,)
+    ).fetchone() is not None
+
+
+def claim_next_fetch(conn: sqlite3.Connection) -> sqlite3.Row | None:
+    """Atomically claim the oldest project awaiting prefill (-> fetching_active).
+
+    Uses a conditional UPDATE so a restart/second worker can't double-fetch; the
+    project row itself is the one-shot queue (a prefill happens once per project).
+    """
+    while True:
+        candidate = conn.execute(
+            "SELECT id FROM imageset_projects WHERE status = ? ORDER BY id LIMIT 1",
+            (STATUS_FETCHING,),
+        ).fetchone()
+        if candidate is None:
+            return None
+        updated = conn.execute(
+            "UPDATE imageset_projects SET status = ?, updated_at = datetime('now') "
+            "WHERE id = ? AND status = ?",
+            (STATUS_FETCHING_ACTIVE, candidate["id"], STATUS_FETCHING),
+        )
+        conn.commit()
+        if updated.rowcount == 1:
+            return conn.execute(
+                "SELECT * FROM imageset_projects WHERE id = ?", (candidate["id"],)
+            ).fetchone()
+        # Lost the race; try the next waiting project.
+
+
+def apply_fetched_record(
+    conn: sqlite3.Connection, project_id: int, *, name: str, brand: str, description: str
+) -> None:
+    """Fill a draft's name/brand/description from a fetched PDP record."""
+    conn.execute(
+        "UPDATE imageset_projects SET name = ?, brand = ?, description = ?, "
+        "updated_at = datetime('now') WHERE id = ?",
+        (name[:200] or "(unnamed product)", (brand or "")[:120],
+         (description or "")[:2000], project_id),
+    )
+    conn.commit()
+
+
+def replace_features_from_bullets(
+    conn: sqlite3.Connection, project_id: int, bullets: list[str]
+) -> int:
+    """Seed a project's features from PDP bullets (replacing any). Returns the count.
+
+    Each bullet becomes an editable feature the user can trim/rewrite; capped so a
+    long PDP doesn't flood the form.
+    """
+    conn.execute("DELETE FROM imageset_features WHERE project_id = ?", (project_id,))
+    count = 0
+    for bullet in bullets:
+        text = (bullet or "").strip()
+        if not text:
+            continue
+        count += 1
+        conn.execute(
+            "INSERT INTO imageset_features (project_id, feature_key, title, position) "
+            "VALUES (?, ?, ?, ?)",
+            (project_id, f"f{count}", text[:120], count),
+        )
+        if count >= _MAX_PREFILL_FEATURES:
+            break
+    conn.commit()
+    return count
+
+
+def finish_fetch(conn: sqlite3.Connection, project_id: int) -> None:
+    """Mark a prefill complete — the draft is now the editable intake form."""
+    conn.execute(
+        "UPDATE imageset_projects SET status = ?, error = NULL, "
+        "updated_at = datetime('now') WHERE id = ?",
+        (STATUS_DRAFT, project_id),
+    )
+    conn.commit()
+
+
+def fail_fetch(conn: sqlite3.Connection, project_id: int, message: str) -> None:
+    """Record a prefill failure but leave the draft usable (user fills it manually)."""
+    conn.execute(
+        "UPDATE imageset_projects SET status = ?, error = ?, "
+        "updated_at = datetime('now') WHERE id = ?",
+        (STATUS_DRAFT, message[:500], project_id),
+    )
+    conn.commit()
+    logger.warning("Image-set prefill failed project=%s: %s", project_id, message)
+
+
+def reclaim_orphaned_fetches(conn: sqlite3.Connection) -> int:
+    """Reset any project stuck ``fetching_active`` to a usable draft — on worker startup.
+
+    A project still mid-fetch at startup was orphaned by a restart; dropping it to
+    ``draft`` lets the user fill it manually rather than wait forever. Relies on one
+    worker process (like the other queues).
+    """
+    updated = conn.execute(
+        "UPDATE imageset_projects SET status = ?, "
+        "error = 'Prefill was interrupted — please fill in the details or try again.', "
+        "updated_at = datetime('now') WHERE status = ?",
+        (STATUS_DRAFT, STATUS_FETCHING_ACTIVE),
+    )
+    conn.commit()
+    if updated.rowcount:
+        logger.warning("Reclaimed %d orphaned image-set prefill(s) on startup", updated.rowcount)
+    return updated.rowcount
 
 
 def set_cutout(conn: sqlite3.Connection, project_id: int, path: str) -> None:
@@ -180,6 +361,27 @@ def features_for_project(conn: sqlite3.Connection, project_id: int) -> list[sqli
         "SELECT * FROM imageset_features WHERE project_id = ? ORDER BY position, id",
         (project_id,),
     ).fetchall()
+
+
+def set_features(conn: sqlite3.Connection, project_id: int, items: list[dict]) -> int:
+    """Replace a project's features from form rows ``[{title, description}]``.
+
+    Blank titles are skipped; keys are assigned f1..fN in order. Returns the count.
+    """
+    conn.execute("DELETE FROM imageset_features WHERE project_id = ?", (project_id,))
+    count = 0
+    for item in items:
+        title = (item.get("title") or "").strip()
+        if not title:
+            continue
+        count += 1
+        conn.execute(
+            "INSERT INTO imageset_features (project_id, feature_key, title, description, position) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (project_id, f"f{count}", title[:120], (item.get("description") or "").strip()[:300], count),
+        )
+    conn.commit()
+    return count
 
 
 # --- plan + assets ----------------------------------------------------------

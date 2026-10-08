@@ -2736,6 +2736,20 @@ textarea.text-input { resize: vertical; line-height: 1.5; }
 }
 .empty-note { color: var(--mid-gray); }
 
+/* URL prefill box + fetching state. */
+.imageset-url-card { margin-bottom: 18px; }
+.imageset-url-row { display: flex; gap: 10px; align-items: center; margin-top: 10px; }
+.imageset-url-row .text-input { flex: 1; }
+.imageset-url-row .wbtn { flex-shrink: 0; }
+.imageset-fetching { display: flex; align-items: center; gap: 16px; }
+.fetching-title { font-size: 15px; font-weight: 600; margin: 0; }
+.fetching-hint { font-size: 12.5px; color: var(--mid-gray); margin: 4px 0 0; }
+
+/* Photo preview when prefilled from a fetched image. */
+.imageset-photo-preview { display: flex; gap: 18px; align-items: flex-start; flex-wrap: wrap; }
+.cutout-frame.small { width: 160px; height: 160px; }
+.csv-drop.compact { padding: 14px; margin-top: 10px; }
+
 /* Spinner for a generating asset. */
 .spinner {
   width: 22px;

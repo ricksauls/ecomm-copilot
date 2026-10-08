@@ -331,6 +331,7 @@ CREATE TABLE IF NOT EXISTS imageset_projects (
     cutout_approved_at     TEXT,          -- set when the human approves the cutout
     plan_json              TEXT,          -- the validated CreativePlan (JSON)
     batch_id               TEXT,          -- groups a generation run for history
+    source_url             TEXT,          -- Walmart PDP URL when prefilled from a product
     error                  TEXT,
     created_at             TEXT    NOT NULL DEFAULT (datetime('now')),
     updated_at             TEXT    NOT NULL DEFAULT (datetime('now'))
@@ -534,6 +535,15 @@ def _migrate(conn: sqlite3.Connection) -> None:
             "CREATE INDEX IF NOT EXISTS idx_image_jobs_claim "
             "ON image_jobs(status, priority DESC, id)"
         )
+
+    # imageset_projects.source_url holds the Walmart PDP URL when a project was
+    # prefilled from a product. Added after the table itself shipped, so existing
+    # (prod) rows need the ALTER; fresh DBs get it from _SCHEMA. Guarded on the
+    # table existing at all (older DBs predate the whole feature).
+    imgset_cols = {row[1] for row in conn.execute("PRAGMA table_info(imageset_projects)")}
+    if imgset_cols and "source_url" not in imgset_cols:
+        conn.execute("ALTER TABLE imageset_projects ADD COLUMN source_url TEXT")
+        logger.info("Migrated imageset_projects: added 'source_url' column")
 
 
 def ensure_schema(conn: sqlite3.Connection) -> None:

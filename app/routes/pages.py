@@ -1972,82 +1972,192 @@ def _validate_upload(file) -> tuple[bytes | None, str | None, str | None]:
 
 def _imageset_intake_context(**extra):
     """Shared render context for the intake form."""
-    ctx = {"breadcrumb": _IMGSET_BREADCRUMB, "active_nav": _IMGSET_NAV}
+    ctx = {"breadcrumb": _IMGSET_BREADCRUMB, "active_nav": _IMGSET_NAV,
+           "project": None, "features": [], "fetching": False, "has_image": False, "pf": {}}
     ctx.update(extra)
     return ctx
+
+
+def _imageset_prefill_values(project) -> dict:
+    """Flatten a draft's stored facts into plain form values for prefill."""
+    dims = json.loads(project["dimensions_json"]) if project["dimensions_json"] else {}
+    envs = json.loads(project["intended_environments"]) if project["intended_environments"] else []
+    name = project["name"]
+    return {
+        "name": "" if name == "(fetching…)" else (name or ""),
+        "brand": project["brand"] or "",
+        "category": project["category"] or "",
+        "description": project["description"] or "",
+        "target_audience": project["target_audience"] or "",
+        "directions": project["directions"] or "",
+        "environments": ", ".join(envs),
+        "unit": dims.get("unit") or "in",
+        "weight": dims.get("weight") or "",
+        "width": dims.get("width") if dims.get("width") is not None else "",
+        "height": dims.get("height") if dims.get("height") is not None else "",
+        "depth": dims.get("depth") if dims.get("depth") is not None else "",
+    }
+
+
+def _parse_intake_fields(form) -> dict:
+    """Pull the shared product facts (not the photo) from the intake form."""
+    environments = [e.strip() for e in (form.get("environments") or "").split(",") if e.strip()]
+    colors = [c.strip() for c in (form.get("primary_color"), form.get("secondary_color"),
+                                  form.get("accent_color")) if c and c.strip()]
+    return {
+        "name": (form.get("name") or "").strip()[:200],
+        "brand": (form.get("brand") or "").strip()[:120],
+        "category": (form.get("category") or "").strip()[:120],
+        "description": (form.get("description") or "").strip()[:2000],
+        "target_audience": (form.get("target_audience") or "").strip()[:500],
+        "directions": (form.get("directions") or "").strip()[:2000],
+        "intended_environments": environments[:8],
+        "brand_colors": colors or None,
+        "dimensions": _parse_dimensions(form),
+    }
+
+
+def _intake_feature_items(form) -> list[dict]:
+    """Zip the repeatable feature title/description inputs into dicts."""
+    titles = form.getlist("feature_title")
+    descs = form.getlist("feature_desc")
+    descs += [""] * (len(titles) - len(descs))
+    return [{"title": t, "description": d} for t, d in zip(titles, descs)]
+
+
+# Draft statuses from which the main intake form may be (re)submitted.
+_IMGSET_EDITABLE = {
+    imageset_store.STATUS_DRAFT, imageset_store.STATUS_CUTOUT_PENDING, imageset_store.STATUS_FAILED,
+}
 
 
 @bp.route("/app/pdp-image-set", methods=["GET", "POST"])
 @login_required
 def imageset_intake():
-    """Image-set intake: collect approved product facts + a photo, then cut out.
+    """Image-set intake: collect product facts + a photo, then cut out.
 
-    A POST validates the facts and the uploaded photo, creates the project, stores
-    the original, and runs background removal inline (one provider call) so the
-    user lands on the cutout-approval gate — the human check before any AI spend.
+    GET renders the blank form (with the optional "prefill from a product URL"
+    box). A POST creates a new project (manual entry) or updates a prefilled draft
+    (when a ``project_id`` is present), stores/keeps the product photo, and runs
+    background removal inline so the user lands on the cutout-approval gate.
     """
-    if request.method == "POST":
-        form = request.form
-        name = (form.get("name") or "").strip()
-        category = (form.get("category") or "").strip()
-        if not name or not category:
-            return render_template("app/pdp_image_set.html", **_imageset_intake_context(
-                error="Product name and category are required.", form=form)), 400
+    if request.method != "POST":
+        return render_template("app/pdp_image_set.html", **_imageset_intake_context())
 
-        data, ext, err = _validate_upload(request.files.get("photo"))
+    db, uid, form = get_db(), g.user["id"], request.form
+    fields = _parse_intake_fields(form)
+
+    # Editing a prefilled draft? Load it (IDOR + state guard) so a re-render on
+    # error keeps the user on the same project.
+    project = None
+    raw_pid = (form.get("project_id") or "").strip()
+    if raw_pid.isdigit():
+        project = imageset_store.get_project(db, int(raw_pid), uid)
+        if project is None or project["status"] not in _IMGSET_EDITABLE:
+            abort(404)
+
+    def _rerender(message, code):
+        proj = imageset_store.get_project(db, project["id"], uid) if project else None
+        feats = imageset_store.features_for_project(db, proj["id"]) if proj else []
+        return render_template("app/pdp_image_set.html", **_imageset_intake_context(
+            error=message, form=form, project=proj, features=feats,
+            has_image=bool(proj and proj["original_path"]))), code
+
+    if not fields["name"] or not fields["category"]:
+        return _rerender("Product name and category are required.", 400)
+
+    # Photo: a new upload always wins; otherwise a prefilled draft may reuse the
+    # fetched product image. A brand-new project must supply a photo.
+    upload = request.files.get("photo")
+    has_upload = bool(upload and upload.filename)
+    if has_upload:
+        data, ext, err = _validate_upload(upload)
         if err:
-            return render_template("app/pdp_image_set.html", **_imageset_intake_context(
-                error=err, form=form)), 400
+            return _rerender(err, 400)
+    elif not (project and project["original_path"]):
+        return _rerender("Please upload a product photo (or prefill from a product URL).", 400)
 
-        # Approved features (title [+ optional description]); blank rows ignored.
-        titles = form.getlist("feature_title")
-        descs = form.getlist("feature_desc")
-        environments = [e.strip() for e in (form.get("environments") or "").split(",") if e.strip()]
-        colors = [c.strip() for c in (form.get("primary_color"), form.get("secondary_color"),
-                                      form.get("accent_color")) if c and c.strip()]
+    # Persist the facts (create new, or update the draft) + features.
+    if project is None:
+        pid = imageset_store.create_project(db, user_id=uid, **fields)
+    else:
+        pid = project["id"]
+        imageset_store.update_project_fields(db, pid, **fields)
+    imageset_store.set_features(db, pid, _intake_feature_items(form))
 
-        db = get_db()
-        uid = g.user["id"]
-        pid = imageset_store.create_project(
-            db, user_id=uid, name=name[:200], brand=(form.get("brand") or "").strip()[:120],
-            category=category[:120], description=(form.get("description") or "").strip()[:2000],
-            target_audience=(form.get("target_audience") or "").strip()[:500],
-            directions=(form.get("directions") or "").strip()[:2000],
-            intended_environments=environments[:8],
-            brand_colors=colors or None,
-            dimensions=_parse_dimensions(form),
-        )
-        position = 0
-        for title, desc in zip(titles, descs + [""] * len(titles)):
-            if title and title.strip():
-                position += 1
-                imageset_store.add_feature(
-                    db, pid, feature_key=f"f{position}", title=title.strip()[:120],
-                    description=(desc or "").strip()[:300], position=position,
-                )
-
+    # Store the photo and advance to the cutout step.
+    if has_upload:
         rel = imageset_storage.save(pid, "original", "product", data, ext)
         if not rel:
             imageset_store.set_status(db, pid, imageset_store.STATUS_FAILED,
                                       error="Could not store the uploaded photo.")
-            return render_template("app/pdp_image_set.html", **_imageset_intake_context(
-                error="We couldn't store the uploaded photo. Please try again.", form=form)), 500
+            return _rerender("We couldn't store the uploaded photo. Please try again.", 500)
         imageset_store.set_original_image(db, pid, rel)
+    else:
+        # Reuse the prefilled image: just advance the status (path already set).
+        imageset_store.set_status(db, pid, imageset_store.STATUS_CUTOUT_PENDING)
 
-        # Background removal inline (one provider call) → cutout approval gate.
-        try:
-            imageset_generate.run_cutout(db, imageset_store.get_project(db, pid, uid), uid)
-        except (BackgroundRemovalError, imageset_generate.GenerationError) as e:
-            logger.warning("Image-set cutout failed project=%s: %s", pid, e)
-            imageset_store.set_status(db, pid, imageset_store.STATUS_FAILED, error=str(e))
-            return render_template("app/pdp_image_set.html", **_imageset_intake_context(
-                error="We couldn't remove the background from that photo. Try a clearer "
-                      "product shot on a plain background.", form=form)), 502
+    try:
+        imageset_generate.run_cutout(db, imageset_store.get_project(db, pid, uid), uid)
+    except (BackgroundRemovalError, imageset_generate.GenerationError) as e:
+        logger.warning("Image-set cutout failed project=%s: %s", pid, e)
+        imageset_store.set_status(db, pid, imageset_store.STATUS_FAILED, error=str(e))
+        return _rerender(
+            "We couldn't remove the background from that photo. Try a clearer product "
+            "shot on a plain background.", 502)
 
-        logger.info("Image-set project created id=%s user_id=%s", pid, uid)
-        return redirect(url_for("pages.imageset_cutout", pid=pid))
+    logger.info("Image-set project ready for cutout id=%s user_id=%s", pid, uid)
+    return redirect(url_for("pages.imageset_cutout", pid=pid))
 
-    return render_template("app/pdp_image_set.html", **_imageset_intake_context())
+
+@bp.route("/app/pdp-image-set/fetch", methods=["POST"])
+@login_required
+def imageset_fetch():
+    """Start a Walmart prefill: validate the URL, create a draft, enqueue the fetch."""
+    url = pdp.validate_item_url((request.form.get("url") or "").strip())
+    if not url:
+        return render_template("app/pdp_image_set.html", **_imageset_intake_context(
+            error="Enter a valid Walmart product URL (e.g. "
+                  "https://www.walmart.com/ip/...).")), 400
+    db, uid = get_db(), g.user["id"]
+    pid = imageset_store.create_draft_for_url(db, user_id=uid, url=url)
+    logger.info("Image-set prefill queued project=%s user_id=%s", pid, uid)
+    return redirect(url_for("pages.imageset_edit", pid=pid))
+
+
+@bp.route("/app/pdp-image-set/<int:pid>/edit")
+@login_required
+def imageset_edit(pid):
+    """Render the intake form for a draft — a fetching poller, else the prefilled form."""
+    project = _imageset_project_or_404(pid)
+    fetching = project["status"] in (imageset_store.STATUS_FETCHING,
+                                     imageset_store.STATUS_FETCHING_ACTIVE)
+    features = [] if fetching else imageset_store.features_for_project(get_db(), pid)
+    pf = {} if fetching else _imageset_prefill_values(project)
+    # A prefill that failed leaves a note on the draft; surface it (non-blocking).
+    err = project["error"] if (not fetching and project["error"]) else None
+    return render_template("app/pdp_image_set.html", **_imageset_intake_context(
+        project=project, features=features, fetching=fetching, pf=pf,
+        has_image=bool(project["original_path"]), error=err))
+
+
+@bp.route("/app/pdp-image-set/<int:pid>/fetch-status")
+@login_required
+def imageset_fetch_status(pid):
+    """JSON prefill state for the edit-page poller."""
+    project = _imageset_project_or_404(pid)
+    fetching = project["status"] in (imageset_store.STATUS_FETCHING,
+                                     imageset_store.STATUS_FETCHING_ACTIVE)
+    return jsonify({"fetching": fetching})
+
+
+@bp.route("/app/pdp-image-set/<int:pid>/original-image")
+@login_required
+def imageset_original_image(pid):
+    """Serve a draft's product photo (fetched or uploaded) for the form preview."""
+    project = _imageset_project_or_404(pid)
+    return _serve_imageset_file(project["original_path"], download_name=f"product-{pid}.png",
+                                as_attachment=False)
 
 
 @bp.route("/app/pdp-image-set/<int:pid>/cutout")
