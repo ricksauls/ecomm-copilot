@@ -819,6 +819,12 @@ a:focus-visible,
   text-transform: uppercase;
   color: var(--black);
 }
+/* Space each numbered section away from the one above it, so its step badge
+   doesn't cram against the previous section's content. Only between consecutive
+   sections — never above the first one. */
+.form-section + .form-section {
+  margin-top: 34px;
+}
 /* Numbered step badge before each section label. */
 .section-head {
   display: flex;
@@ -2800,6 +2806,23 @@ textarea.text-input { resize: vertical; line-height: 1.5; }
 /* Photo preview when prefilled from a fetched image. */
 .imageset-photo-preview { display: flex; gap: 18px; align-items: flex-start; flex-wrap: wrap; }
 .cutout-frame.small { width: 160px; height: 160px; }
+
+/* Brand-color field: a clickable color swatch beside its hex-code text input. */
+.color-field { display: flex; align-items: stretch; gap: 8px; }
+.color-field .color-code { flex: 1; min-width: 0; }
+.color-swatch {
+  flex: 0 0 auto;
+  width: 40px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-input, 8px);
+  background: none;
+  cursor: pointer;
+}
+/* Trim the native color-input chrome so it reads as a flush swatch. */
+.color-swatch::-webkit-color-swatch-wrapper { padding: 3px; }
+.color-swatch::-webkit-color-swatch { border: none; border-radius: 5px; }
+.color-swatch::-moz-color-swatch { border: none; border-radius: 5px; }
 
 /* Original-photo preview on the intake step: a plain (non-checkerboard) frame.
    Unlike .cutout-frame, this must NOT imply the background has been removed. */

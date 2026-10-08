@@ -105,7 +105,6 @@
             </div>
           {% endif %}
         </div>
-        <button type="button" id="add-feature" class="add-more">+ Add Another Feature</button>
       </div>
 
       <div class="form-section">
@@ -148,16 +147,35 @@
            the color auto-detected from the product photo; the user can override. #}
         <label class="field-sublabel dims-heading">Brand Colors
           <span class="field-optional">(optional — used for the size‑comparison bars; leave blank to auto‑detect)</span></label>
+        {# Each hex field is paired with a live swatch (click it to pick a color);
+           the two stay in sync via imageset_intake.js. The swatch defaults to the
+           slot's fallback color when the field is blank — the field staying blank
+           still means "auto-detect". #}
         <div class="field-grid dims-grid">
           <div class="field"><label class="field-sublabel" for="primary_color">Primary</label>
-            <input type="text" id="primary_color" name="primary_color" class="text-input"
-                   maxlength="7" value="{{ v('primary_color') }}" placeholder="#0B1F3A" /></div>
+            <div class="color-field">
+              <input type="color" class="color-swatch" data-target="primary_color"
+                     value="{{ v('primary_color') or '#0B1F3A' }}" aria-label="Pick primary color" />
+              <input type="text" id="primary_color" name="primary_color" class="text-input color-code"
+                     maxlength="7" value="{{ v('primary_color') }}" placeholder="#0B1F3A" />
+            </div>
+          </div>
           <div class="field"><label class="field-sublabel" for="secondary_color">Secondary</label>
-            <input type="text" id="secondary_color" name="secondary_color" class="text-input"
-                   maxlength="7" value="{{ v('secondary_color') }}" placeholder="#3E5C8A" /></div>
+            <div class="color-field">
+              <input type="color" class="color-swatch" data-target="secondary_color"
+                     value="{{ v('secondary_color') or '#3E5C8A' }}" aria-label="Pick secondary color" />
+              <input type="text" id="secondary_color" name="secondary_color" class="text-input color-code"
+                     maxlength="7" value="{{ v('secondary_color') }}" placeholder="#3E5C8A" />
+            </div>
+          </div>
           <div class="field"><label class="field-sublabel" for="accent_color">Accent</label>
-            <input type="text" id="accent_color" name="accent_color" class="text-input"
-                   maxlength="7" value="{{ v('accent_color') }}" placeholder="#F4B740" /></div>
+            <div class="color-field">
+              <input type="color" class="color-swatch" data-target="accent_color"
+                     value="{{ v('accent_color') or '#F4B740' }}" aria-label="Pick accent color" />
+              <input type="text" id="accent_color" name="accent_color" class="text-input color-code"
+                     maxlength="7" value="{{ v('accent_color') }}" placeholder="#F4B740" />
+            </div>
+          </div>
         </div>
       </div>
 
