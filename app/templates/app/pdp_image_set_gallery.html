@@ -41,13 +41,15 @@
   </div>
   {% else %}
   {% for asset in assets %}
-  <div class="imageset-card" data-asset-id="{{ asset.id }}" data-status="{{ asset.status }}">
+  <div class="imageset-card{{ ' imageset-card-discarded' if not asset.kept else '' }}"
+       data-asset-id="{{ asset.id }}" data-status="{{ asset.status }}">
     <div class="imageset-thumb">
       {% if asset.ready %}
         <a href="{{ url_for('pages.imageset_asset_image', pid=project['id'], aid=asset.id) }}" target="_blank" rel="noopener">
           <img src="{{ url_for('pages.imageset_asset_image', pid=project['id'], aid=asset.id, thumb=1) }}"
                alt="{{ asset.type }}" loading="lazy" />
         </a>
+        {% if not asset.kept %}<span class="imageset-discard-badge">Discarded</span>{% endif %}
       {% elif asset.status == 'failed' %}
         <div class="imageset-state imageset-state-failed" title="{{ asset.error or '' }}">Failed</div>
       {% else %}
@@ -59,9 +61,27 @@
         <span class="imageset-type">{{ asset.type }}</span>
         {% if asset.title %}<span class="imageset-title">{{ asset.title }}</span>{% endif %}
       </div>
-      {% if asset.ready %}
-      <a class="wbtn wbtn-ghost wbtn-sm"
-         href="{{ url_for('pages.imageset_asset_download', pid=project['id'], aid=asset.id) }}">Download</a>
+      {% if asset.ready or asset.status == 'failed' %}
+      <div class="imageset-card-actions">
+        {% if asset.ready %}
+        <a class="wbtn wbtn-ghost wbtn-sm"
+           href="{{ url_for('pages.imageset_asset_download', pid=project['id'], aid=asset.id) }}">Download</a>
+        {% endif %}
+        {# Retry a poor (or failed) result — re-runs just this one image. #}
+        <form method="post" class="imageset-inline-form"
+              action="{{ url_for('pages.imageset_regenerate_asset', pid=project['id'], aid=asset.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+          <button type="submit" class="wbtn wbtn-ghost wbtn-sm">Regenerate</button>
+        </form>
+        {% if asset.ready %}
+        {# Keep/discard curates which images go in the final set + ZIP. #}
+        <form method="post" class="imageset-inline-form"
+              action="{{ url_for('pages.imageset_keep_asset', pid=project['id'], aid=asset.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+          <button type="submit" class="wbtn wbtn-ghost wbtn-sm">{{ 'Keep' if not asset.kept else 'Discard' }}</button>
+        </form>
+        {% endif %}
+      </div>
       {% endif %}
     </div>
   </div>

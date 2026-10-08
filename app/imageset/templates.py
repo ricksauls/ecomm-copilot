@@ -10,9 +10,9 @@ templates land here in a later phase.
 
 import logging
 
-from PIL import Image, ImageChops, ImageDraw
+from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
-from app.imageset import compose
+from app.imageset import compose, iconlib
 from app.imageset.config import CANVAS_SIZE, SAFE_MARGIN
 
 logger = logging.getLogger(__name__)
@@ -111,72 +111,127 @@ def _feature_callout_regions(size: int, margin: int, layout: str):
     return (right_col, left_col) if layout == "product-right" else (left_col, right_col)
 
 
+def _badge_image(r: int, primary: tuple, icon: Image.Image, ss: int = 3) -> Image.Image:
+    """A layered circular icon badge (white/primary rings + centered white glyph).
+
+    Rendered supersampled and downscaled so the circles are smooth. Mirrors the
+    source app's concentric-ring badge (outer white, primary, white, primary center).
+    """
+    d = int(r * 2)
+    tile = Image.new("RGBA", (d * ss, d * ss), (0, 0, 0, 0))
+    td = ImageDraw.Draw(tile)
+    c = d * ss / 2
+    for frac, fill in ((1.0, (255, 255, 255, 255)), (0.93, (*primary, 255)),
+                       (0.86, (255, 255, 255, 255)), (0.79, (*primary, 255))):
+        rr = r * frac * ss
+        td.ellipse([c - rr, c - rr, c + rr, c + rr], fill=fill)
+    tile = tile.resize((d, d), Image.LANCZOS)
+    box = int(r * 0.79 * 1.3)  # glyph fills the center comfortably
+    glyph = icon.resize((box, box), Image.LANCZOS)
+    tile.alpha_composite(glyph, (int(d / 2 - box / 2), int(d / 2 - box / 2)))
+    return tile
+
+
 def create_feature_callout(
     *,
     features: list[dict],
     cutout: Image.Image,
     brand: dict | None = None,
     layout: str = "product-left",
+    backdrop_png: bytes | None = None,
 ) -> bytes:
-    """Programmatic feature-callout: product cutout + headline/divider/benefit rows.
+    """Feature-callout card: product + icon/headline/divider/benefit rows.
 
-    A clean, text-forward marketplace card on a light surface — the product beside
-    a vertically-centered stack of feature rows (bold uppercase headline in the
-    brand primary, a short accent divider, a muted benefit line). All copy is the
-    user's approved feature text drawn with Pillow (Inter), so nothing is AI-
-    invented. ``features`` is ``[{title, description}, …]``.
+    Hybrid, ported from the source app: an optional blurred photographic backdrop
+    (``backdrop_png``) behind the product cutout and a vertically-centered stack of
+    feature rows — each a layered icon badge, a bold uppercase headline (brand
+    primary), a short accent divider, and a muted benefit line. A soft blurred white
+    halo sits behind each row for legibility over the photo. All copy is the user's
+    approved feature text drawn with Pillow (Inter) — nothing AI-invented.
+    ``features`` is ``[{title, description, icon}, …]``.
     """
     size, m = CANVAS_SIZE, SAFE_MARGIN
     brand = brand or DEFAULT_BRAND
     primary = _hex_to_rgb(brand.get("primary", DEFAULT_BRAND["primary"]))
     secondary = _hex_to_rgb(brand.get("secondary", DEFAULT_BRAND["secondary"]))
-    canvas = Image.new("RGB", (size, size), _FEATURE_BG).convert("RGBA")
+
+    if backdrop_png:
+        canvas = compose.cover_scene(compose.load_image(backdrop_png), size).filter(
+            ImageFilter.GaussianBlur(11)).convert("RGBA")
+    else:
+        canvas = Image.new("RGB", (size, size), _FEATURE_BG).convert("RGBA")
 
     (pbx, pby, pbw, pbh), (frx, fry, frw, frh) = _feature_callout_regions(size, m, layout)
     product = compose.fit_cutout(cutout, pbw * 0.92, pbh * 0.92)
     canvas.alpha_composite(product, (round(pbx + (pbw - product.width) / 2),
                                      round(pby + (pbh - product.height) / 2)))
-    draw = ImageDraw.Draw(canvas)
 
-    # Font sizes scale down a touch as the feature count grows so 2–3 rows fit.
     n = max(1, len(features))
-    head_fs = 60 if n <= 2 else 52
+    icon_r = round(min(96, frh / n * 0.30))
+    gap = 40  # badge → text gap
+    text_x = frx + 2 * icon_r + gap
+    text_w = frw - (2 * icon_r + gap)
+    head_fs = 56 if n <= 2 else 50
     ben_fs = 40 if n <= 2 else 36
     head_font, ben_font = compose.font(head_fs, bold=True), compose.font(ben_fs)
-    head_lh, ben_lh = 1.16, 1.3
-    div_gap, div_h, row_gap = 18, 6, round(frh * 0.06)
+    head_lh, ben_lh, div_gap, div_h = 1.16, 1.3, 18, 6
 
-    # Pass 1: measure each row so the whole stack can be vertically centered.
+    # Pass 1 — measure each row (wrapped lines + heights) to center the stack.
     blocks = []
     for feat in features:
-        head_lines = compose.wrap_text((feat.get("title") or "").upper(), head_font, frw, 2)
+        head_lines = compose.wrap_text((feat.get("title") or "").upper(), head_font, text_w, 2)
         benefit = (feat.get("description") or "").strip()
-        ben_lines = compose.wrap_text(benefit, ben_font, frw, 2) if benefit else []
+        ben_lines = compose.wrap_text(benefit, ben_font, text_w, 2) if benefit else []
         head_h = len(head_lines) * head_fs * head_lh
         ben_h = len(ben_lines) * ben_fs * ben_lh
-        total = head_h + ((div_gap + div_h + div_gap + ben_h) if ben_lines else 0)
+        text_h = head_h + ((div_gap + div_h + div_gap + ben_h) if ben_lines else 0)
+        content_h = max(2 * icon_r, text_h)
         widest = max([head_font.getlength(ln) for ln in head_lines]
                      + [ben_font.getlength(ln) for ln in ben_lines] + [1.0])
-        blocks.append((head_lines, ben_lines, head_h, total, widest))
+        blocks.append({"head": head_lines, "ben": ben_lines, "head_h": head_h,
+                       "text_h": text_h, "content_h": content_h, "widest": widest,
+                       "icon": feat.get("icon") or "check"})
 
-    stack_h = sum(b[3] for b in blocks) + row_gap * (n - 1)
-    y = fry + max(0, (frh - stack_h) / 2)
-    for head_lines, ben_lines, head_h, total, widest in blocks:
-        yy = y
-        for line in head_lines:
-            draw.text((frx, yy), line, font=head_font, fill=primary)
+    row_gap = round(min(frh * 0.08, max(24, (frh - sum(b["content_h"] for b in blocks)) / max(1, n))))
+    stack_h = sum(b["content_h"] for b in blocks) + row_gap * (n - 1)
+    y0 = fry + max(0, (frh - stack_h) / 2)
+
+    # Halo pass — soft blurred white rounded rects behind each row (legibility over
+    # a photo). Drawn on their own layer, blurred, then composited under the content.
+    if backdrop_png:
+        halo = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+        hd = ImageDraw.Draw(halo)
+        y = y0
+        for b in blocks:
+            right = text_x + min(text_w, b["widest"]) + 44
+            hd.rounded_rectangle([frx - 44, y - 30, right, y + b["content_h"] + 30],
+                                 radius=90, fill=(255, 255, 255, 150))
+            y += b["content_h"] + row_gap
+        canvas.alpha_composite(halo.filter(ImageFilter.GaussianBlur(26)))
+
+    # Pass 2 — draw badges + text.
+    draw = ImageDraw.Draw(canvas)
+    y = y0
+    for b in blocks:
+        cy = y + b["content_h"] / 2
+        canvas.alpha_composite(_badge_image(icon_r, primary, iconlib.load_icon(b["icon"])),
+                               (round(frx), round(cy - icon_r)))
+        yy = y + max(0, (b["content_h"] - b["text_h"]) / 2)
+        for line in b["head"]:
+            draw.text((text_x, yy), line, font=head_font, fill=primary)
             yy += head_fs * head_lh
-        if ben_lines:
+        if b["ben"]:
             yy += div_gap
-            draw.rounded_rectangle([frx, yy, frx + min(frw, widest), yy + div_h],
+            draw.rounded_rectangle([text_x, yy, text_x + min(text_w, b["widest"]), yy + div_h],
                                    radius=div_h / 2, fill=secondary)
             yy += div_h + div_gap
-            for line in ben_lines:
-                draw.text((frx, yy), line, font=ben_font, fill=_BENEFIT_COLOR)
+            for line in b["ben"]:
+                draw.text((text_x, yy), line, font=ben_font, fill=_BENEFIT_COLOR)
                 yy += ben_fs * ben_lh
-        y += total + row_gap
+        y += b["content_h"] + row_gap
 
-    logger.debug("Built feature-callout: layout=%s features=%d", layout, n)
+    logger.debug("Built feature-callout: layout=%s features=%d backdrop=%s",
+                 layout, n, bool(backdrop_png))
     return compose.export_image(canvas)
 
 

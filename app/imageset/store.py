@@ -43,7 +43,7 @@ _MAX_PREFILL_FEATURES = 6
 # Asset output-path columns an update may set — a hardcoded allowlist so a column
 # name can never come from caller input (defense in depth alongside parameters).
 _ASSET_UPDATABLE = frozenset(
-    {"status", "final_path", "thumb_path", "scene_path", "review_json", "error", "title"}
+    {"status", "final_path", "thumb_path", "scene_path", "review_json", "error", "title", "kept"}
 )
 
 
@@ -561,6 +561,33 @@ def get_asset(conn: sqlite3.Connection, asset_id: int, user_id: int) -> sqlite3.
         "SELECT * FROM imageset_assets WHERE id = ? AND user_id = ?",
         (asset_id, user_id),
     ).fetchone()
+
+
+def set_asset_kept(conn: sqlite3.Connection, asset_id: int, user_id: int, kept: bool) -> None:
+    """Mark one asset kept (in the set) or discarded. IDOR-scoped by user_id."""
+    conn.execute(
+        "UPDATE imageset_assets SET kept = ?, updated_at = datetime('now') "
+        "WHERE id = ? AND user_id = ?",
+        (1 if kept else 0, asset_id, user_id),
+    )
+    conn.commit()
+    logger.info("Image-set asset id=%s kept=%s (user_id=%s)", asset_id, bool(kept), user_id)
+
+
+def reset_asset_for_regeneration(conn: sqlite3.Connection, asset_id: int, user_id: int) -> None:
+    """Clear an asset's outputs and set it back to ``draft`` so it can regenerate.
+
+    IDOR-scoped by user_id. The caller re-enqueues the job and flips the project
+    back to ``generating``; the worker overwrites the (now-cleared) outputs.
+    """
+    conn.execute(
+        "UPDATE imageset_assets SET status = ?, final_path = NULL, thumb_path = NULL, "
+        "scene_path = NULL, review_json = NULL, error = NULL, kept = 1, "
+        "updated_at = datetime('now') WHERE id = ? AND user_id = ?",
+        (STATUS_DRAFT, asset_id, user_id),
+    )
+    conn.commit()
+    logger.info("Image-set asset id=%s reset for regeneration (user_id=%s)", asset_id, user_id)
 
 
 def update_asset(conn: sqlite3.Connection, asset_id: int, **fields) -> None:

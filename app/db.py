@@ -378,6 +378,7 @@ CREATE TABLE IF NOT EXISTS imageset_assets (
     thumb_path           TEXT,           -- thumbnail (rel to MEDIA_DIR)
     scene_path           TEXT,           -- raw AI scene before compositing (rel to MEDIA_DIR)
     review_json          TEXT,           -- automated-review findings (JSON)
+    kept                 INTEGER NOT NULL DEFAULT 1,  -- 1=keep in the set, 0=discarded by the user
     error                TEXT,
     created_at           TEXT    NOT NULL DEFAULT (datetime('now')),
     updated_at           TEXT    NOT NULL DEFAULT (datetime('now'))
@@ -548,6 +549,10 @@ def _migrate(conn: sqlite3.Connection) -> None:
     if imgset_cols and "selected_types" not in imgset_cols:
         conn.execute("ALTER TABLE imageset_projects ADD COLUMN selected_types TEXT")
         logger.info("Migrated imageset_projects: added 'selected_types' column")
+    imgset_asset_cols = {row[1] for row in conn.execute("PRAGMA table_info(imageset_assets)")}
+    if imgset_asset_cols and "kept" not in imgset_asset_cols:
+        conn.execute("ALTER TABLE imageset_assets ADD COLUMN kept INTEGER NOT NULL DEFAULT 1")
+        logger.info("Migrated imageset_assets: added 'kept' column")
 
 
 def ensure_schema(conn: sqlite3.Connection) -> None:

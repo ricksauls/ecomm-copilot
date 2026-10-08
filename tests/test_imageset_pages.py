@@ -151,6 +151,62 @@ def test_asset_image_and_zip_after_generation(client, auth, tmp_path, monkeypatc
     assert zresp.status_code == 200 and zresp.mimetype == "application/zip"
 
 
+def _ready_asset(client, pid, asset_type="SIZE_COMPARISON"):
+    """Approve, plan, and generate one asset to 'ready'; return its id."""
+    client.post(f"/app/pdp-image-set/{pid}/approve")
+    with client.application.app_context():
+        db = get_db()
+        _run_plan(db)
+        project = isstore.get_project(db, pid, 1)
+        a = next(x for x in isstore.assets_for_project(db, pid, 1)
+                 if x["asset_type"] == asset_type)
+        generate.process_asset(db, a, project)
+        return a["id"]
+
+
+def test_regenerate_asset_requeues(client, auth, tmp_path, monkeypatch):
+    monkeypatch.setenv("MEDIA_DIR", str(tmp_path))
+    auth.register()
+    _submit_intake(client)
+    with client.application.app_context():
+        pid = isstore.list_projects(get_db(), 1)[0]["id"]
+    aid = _ready_asset(client, pid)
+    resp = client.post(f"/app/pdp-image-set/{pid}/asset/{aid}/regenerate")
+    assert resp.status_code == 302
+    with client.application.app_context():
+        db = get_db()
+        a = isstore.get_asset(db, aid, 1)
+        assert a["status"] == isstore.STATUS_DRAFT and a["final_path"] is None
+        # A queued job exists again and the project is back to generating.
+        assert isstore.get_project(db, pid, 1)["status"] == isstore.STATUS_GENERATING
+        assert db.execute("SELECT status FROM imageset_jobs WHERE asset_id = ?",
+                          (aid,)).fetchone()["status"] == "queued"
+
+
+def test_keep_toggle_and_zip_excludes_discarded(client, auth, tmp_path, monkeypatch):
+    import io
+    import zipfile
+
+    monkeypatch.setenv("MEDIA_DIR", str(tmp_path))
+    auth.register()
+    _submit_intake(client)
+    with client.application.app_context():
+        pid = isstore.list_projects(get_db(), 1)[0]["id"]
+    aid = _ready_asset(client, pid)
+    # Discard it.
+    client.post(f"/app/pdp-image-set/{pid}/asset/{aid}/keep")
+    with client.application.app_context():
+        assert isstore.get_asset(get_db(), aid, 1)["kept"] == 0
+    # The only ready image is discarded → ZIP has nothing to bundle (404).
+    assert client.get(f"/app/pdp-image-set/{pid}/download.zip").status_code == 404
+    # Keep it again → back in the ZIP.
+    client.post(f"/app/pdp-image-set/{pid}/asset/{aid}/keep")
+    with client.application.app_context():
+        assert isstore.get_asset(get_db(), aid, 1)["kept"] == 1
+    z = client.get(f"/app/pdp-image-set/{pid}/download.zip")
+    assert z.status_code == 200 and zipfile.ZipFile(io.BytesIO(z.data)).namelist()
+
+
 def test_download_names_use_walmart_item_number(client, auth, tmp_path, monkeypatch):
     """Asset + ZIP downloads are named product-<item>-<type>-<n>, foldered in the ZIP."""
     import io

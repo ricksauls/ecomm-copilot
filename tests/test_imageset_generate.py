@@ -109,8 +109,8 @@ def test_size_comparison_uses_ai_scene_with_dimensions(app, tmp_path, monkeypatc
         assert final.size == (CANVAS_SIZE, CANVAS_SIZE)
 
 
-def test_feature_callout_generates_programmatically(app, tmp_path, monkeypatch):
-    """Feature-callout is a programmatic card (no AI scene) → ready 2000² final."""
+def test_feature_callout_generates_with_backdrop(app, tmp_path, monkeypatch):
+    """Feature-callout composites rows over an AI backdrop → ready 2000² final."""
     monkeypatch.setenv("MEDIA_DIR", str(tmp_path))
     with app.app_context():
         db = get_db()
@@ -121,7 +121,7 @@ def test_feature_callout_generates_programmatically(app, tmp_path, monkeypatch):
         generate.process_asset(db, fc, isstore.get_project(db, pid, uid))
         a = isstore.get_asset(db, fc["id"], uid)
         assert a["status"] == "ready"
-        assert a["scene_path"] is None  # programmatic: no AI scene
+        assert a["scene_path"] is not None  # AI backdrop was generated
         assert Image.open(io.BytesIO(storage.load(a["final_path"]))).size == (CANVAS_SIZE, CANVAS_SIZE)
 
 

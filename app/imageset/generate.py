@@ -14,9 +14,10 @@ run can enqueue only the implemented ones (see :func:`enqueue_project_assets`).
 import json
 import logging
 
-from app.imageset import compose, config, reference_objects, storage, templates
+from app.imageset import compose, config, iconlib, reference_objects, storage, templates
 from app.imageset import store as isstore
 from app.imageset.prompts import (
+    build_backdrop_prompt,
     build_lifestyle_prompt,
     build_product_in_use_prompt,
     build_size_comparison_prompt,
@@ -301,23 +302,38 @@ def _features_for_asset(conn, project, asset) -> list[dict]:
         ids = []
     by_key = {r["feature_key"]: r for r in isstore.features_for_project(conn, project["id"])}
     chosen = [by_key[k] for k in ids if k in by_key] or list(by_key.values())[:3]
-    return [{"title": r["title"], "description": r["description"]} for r in chosen]
+    # Each row carries an inferred icon (from the feature's title/type).
+    return [{"title": r["title"], "description": r["description"],
+             "icon": iconlib.infer_icon(r["title"], r["feature_type"])} for r in chosen]
 
 
-def _gen_feature_callout(conn, project, asset, cutout, logo) -> tuple[bytes, None, dict]:
-    """Programmatic feature-callout: product cutout + headline/divider/benefit rows.
+def _gen_feature_callout(conn, project, asset, cutout, logo) -> tuple[bytes, bytes, dict]:
+    """Feature-callout: icon/headline/divider/benefit rows over a blurred AI backdrop.
 
-    Clean, text-forward card drawn entirely from the approved feature copy (no AI,
-    so no invented claims and no per-image cost). Returns (final, None, meta).
+    The copy + icons + layout are all programmatic (approved feature text only, no
+    AI-invented claims); only the out-of-focus photographic backdrop is AI-generated.
+    Returns (final, backdrop, meta).
     """
     features = _features_for_asset(conn, project, asset)
+    envs = _project_environments(project)
+    prompt = build_backdrop_prompt(
+        category=project["category"] or "product",
+        environment=envs[0] if envs else None,
+    )
+    provider = get_image_generation_provider()
+    backdrop = provider.generate_image(
+        prompt=prompt, size=f"{config.AI_SCENE_SIZE}x{config.AI_SCENE_SIZE}", background="opaque",
+        context={"project_id": project["id"], "asset_type": "FEATURE_CALLOUT"},
+    )
     final = templates.create_feature_callout(
         features=features, cutout=cutout,
         brand=resolve_brand_palette(project, cutout),
         layout=asset["layout_style"] or "product-left",
+        backdrop_png=backdrop.png,
     )
-    meta = {"provider": "composition", "model": "feature-callout-v1", "estimated_cost_usd": 0.0}
-    return final, None, meta
+    meta = {"provider": backdrop.provider, "model": backdrop.model,
+            "estimated_cost_usd": backdrop.estimated_cost_usd, "prompt": prompt}
+    return final, backdrop.png, meta
 
 
 _GENERATORS = {
