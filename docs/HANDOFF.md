@@ -1,8 +1,70 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-10-08 (session 13 — built the **PDP Image Set Creation** feature: full vertical slice, Walmart URL prefill, AI feature-callout auto-fill, async planning, and real OpenAI image generation turned on in prod. Session 12 — UI/UX pass: collapsible rail redesign + menu/breadcrumb relabeling; View Scoring History grouped by run; "View copy results" scoped/latest/missing)._
+_Last updated: 2026-10-08 (session 14 — Image Set UX + controls: fixed the misleading
+intake checkerboard, added a cutout-screen **image-type picker** (gates generation + cost),
+a "~30s per image" wait message, and a **product-id (Walmart item number) file-naming
+convention**. Session 13 — built the **PDP Image Set Creation** feature: full vertical slice,
+Walmart URL prefill, AI feature-callout auto-fill, async planning, and real OpenAI image
+generation turned on in prod)._
 
-> ## ⭐ Next session — START HERE (session 13, 2026-10-08)
+> ## ⭐ Next session — START HERE (session 14, 2026-10-08)
+>
+> **Everything below shipped + deployed; `main` at `d566a7b`, CI + Deploy green, 449
+> tests passing, `ruff` clean. The `selected_types` migration is confirmed live on the
+> droplet.** Session 14 was a UX + controls pass on the Image Set flow built in session 13.
+>
+> ### What shipped this session
+> - **Intake checkerboard fix** — the intake photo preview used the `.cutout-frame`
+>   checkerboard, which wrongly implied the background was already removed (the user
+>   flagged this: "I click the button and the next screen shows the exact same thing").
+>   Now a plain `.photo-frame` (new CSS class). Button relabeled **"Remove Background &
+>   Continue" → "Continue to Cutout Review"**; the cutout-review subtitle was reworded so
+>   an already-clean source doesn't read as a failure.
+> - **Image-type picker on the cutout screen** (`pdp_image_set_cutout.html`) — checkboxes
+>   to choose which asset types to generate. **All 5 types shown**; the 2 implemented
+>   (LIFESTYLE, SIZE_COMPARISON) are checked by default, the other 3 tagged "not ready yet"
+>   but still selectable (per the user's call — they'll skip the unbuilt ones while
+>   testing). Selection is persisted in a **new `imageset_projects.selected_types` column**
+>   (JSON array; additive migration in `db.py`), set in `imageset_approve`
+>   (`store.set_selected_types`), and enforced in `generate.enqueue_project_assets`
+>   (`_selected_types` + the `only_implemented` filter) — so a user generates (and pays
+>   for) **only the types they tick**. This is also the cost guard the handoff asked for.
+>   The picker metadata is `generate.asset_type_choices()` (keys kept in sync with
+>   `plan.ASSET_TYPES`, guarded by a test).
+> - **"~30 seconds per image" messaging** on the gallery's planning/generating states
+>   (`pdp_image_set_gallery.html`).
+> - **File-naming convention** — downloads + ZIP now use the **Walmart item number**
+>   (parsed from `source_url` via `pdp.item_number_from_url`; fallback `proj<id>` for
+>   manually-uploaded products) **+ image type**: single asset = `product-<item>-<type>-<n>.png`,
+>   ZIP foldered as `product-<item>/` and named `product-<item>-image-set.zip`. Helpers
+>   `_imageset_product_id` / `_imageset_asset_filename` in `pages.py`.
+>
+> ### ⚠️ Still open (carried forward from session 13 — unchanged)
+> - **The big next piece: the FEATURE-CALLOUT image generator** (headline → separator line
+>   → benefit layout; OFF! Deep Woods reference image was shared in the session-13 chat).
+>   With the type picker now in place, once its generator lands in `generate.py` just add
+>   `"FEATURE_CALLOUT"` to `IMPLEMENTED_TYPES` and it auto-checks in the picker. Then
+>   product-in-use + infographic (same pattern for each).
+> - **Re-enable `IMAGESET_PLAN_PROVIDER=claude`** if it ever gets toggled off during
+>   debugging (it was confirmed on this session). Verify a flag is actually in the droplet
+>   `.env` with `grep -nE '^IMAGESET_' .env`; the `.env` is **manually maintained** (not
+>   written by deploy). If real generation returns "Failed" with a model-not-found error,
+>   set `OPENAI_IMAGE_MODEL` to the account's valid id (likely `gpt-image-1`) + restart.
+> - **No cost-preflight confirm modal** before real image spend — the type picker now
+>   limits *what* generates, but Approve still generates immediately. A confirm modal
+>   (like the image-fix one) is still worth adding before heavy use.
+> - **"View Creative Content Creation History" still isn't wired** to list image-set runs.
+> - Cutouts still use the **mock chroma-key** (fine for white-bg Walmart mains); add a
+>   `remove.bg` key for busy photos (`IMAGESET_BG_PROVIDER=removebg` + `BACKGROUND_REMOVAL_API_KEY`).
+>
+> ### Commits this session (all on main)
+> `d566a7b` Image Set: cutout-screen type picker, clearer intake UX, product-id file naming (HEAD).
+>
+> _(Session 13's "start here" block follows below — still accurate for the Image Set
+> architecture: async worker planning/generation, pluggable mock-by-default providers, the
+> Pillow compositing engine, and the prod `.env` flags.)_
+
+> ## Next session — START HERE (session 13, 2026-10-08)
 >
 > **Everything below shipped + deployed; `main` at `5639e49`, CI+Deploy green, 444
 > tests passing, `ruff` clean.** Session 13 built a whole new feature end-to-end:
