@@ -1,14 +1,79 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-10-08 (session 14 — Image Set UX + controls + a rebuilt, polished
-size-comparison: intake checkerboard fix, a cutout-screen **image-type picker** (gates
-generation + cost), a "~30s per image" wait message, a **product-id (Walmart item number)
-file-naming convention**, an **AI scale-comparison** (reference objects + brand-colored bars,
-auto-detected brand color), then polish — **vertical centering**, **crisp Inter-Bold bar text**,
-**color swatches**, section spacing, removed "+ Add Another Feature". Session 13 — built the
-**PDP Image Set Creation** feature (vertical slice, Walmart prefill, async planning, real OpenAI))._
+_Last updated: 2026-10-08 (session 15 — **all 4 image types now generate**: built the
+FEATURE_CALLOUT (icon badges + blurred AI backdrop + halos, ported from the source app) and
+PRODUCT_IN_USE (AI edit) generators, removed INFOGRAPHIC (7 assets), made the cutout picker
+**per-variation**, added per-image **Regenerate** + **Keep/Discard** gallery controls, and
+strengthened the product-in-use prompt. Session 14 — Image Set UX + a rebuilt AI
+size-comparison. Session 13 — built the PDP Image Set Creation feature.)_
 
-> ## ⭐ Next session — START HERE (session 14, 2026-10-08)
+> ## ⭐ Next session — START HERE (session 15, 2026-10-08)
+>
+> **Everything shipped + deployed; `main` at `45f2676`, CI + Deploy green, 467 tests passing,
+> `ruff` clean.** The `selected_types` and `kept` migrations are additive (auto-apply on
+> web+worker restart); `selected_types` is confirmed live, verify `kept` with the PRAGMA check
+> on `imageset_assets` (same one-liner pattern as before).
+>
+> ### ⭐ Needs a live eyeball first (start here)
+> Three new things shipped that the user had **not yet judged live** when we wrapped:
+> - **Product-in-use** — the first render showed TWO cans (one per hand) and a hard-to-see
+>   product. The prompt was strengthened (`prompts.build_product_in_use_prompt`: exactly ONE
+>   unit, held in one hand, prominent, front label visible, optional spray mist). **Re-generate
+>   and confirm** the duplicate-can issue is gone. If it persists, the next lever is generation
+>   params/model, not the prompt.
+> - **Feature-callout v2** — now matches the user's reference (icon badges + blurred backdrop +
+>   halos). Icons were initially too **bold**; re-rasterized thin (stroke-width 0.6). Confirm the
+>   real OpenAI backdrop reads well behind the halos and the product.
+> - **Regenerate / Keep-Discard** — confirm the gallery controls behave (regenerate re-runs one
+>   image; discard removes it from the ZIP).
+>
+> ### ⚠️ Known follow-up the user flagged
+> - **Icon selection is heuristic** (`iconlib.infer_icon`, ported from the source's title/type
+>   rules). It can mis-pick (e.g. "Active Formula" → `leaf` because "formula" matches before
+>   "drop"; the reference used a droplet). The user wants tighter control — the clean fix is to
+>   have the **feature-generation step assign each feature's `icon`** (the `imageset_features.icon`
+>   column already exists but isn't populated) and have `_features_for_asset` prefer it over
+>   inference. Good next task.
+>
+> ### Still open (carryover — lower priority)
+> - **No cost-preflight confirm modal** before Approve generates — now more relevant since a full
+>   7-image set is almost all AI (~$0.28). The per-variation picker + keep/discard mitigate it.
+> - **"View Creative Content Creation History"** still isn't wired to list image-set runs.
+> - **Size-comparison scale-to-fill** (optional): the source scales items up to fill between the
+>   bars; we only center. Add in `render_size_comparison_bars` if items look small.
+> - Cutouts use the **mock chroma-key** (fine for white-bg Walmart mains); add a `remove.bg` key
+>   for busy photos (`IMAGESET_BG_PROVIDER=removebg` + `BACKGROUND_REMOVAL_API_KEY`).
+> - **Feature-callout icons: follow-up build** is the top-of-list item (assign `icon` at
+>   feature-generation time; see the "Known follow-up" above).
+>
+> ### What shipped this session (all on main)
+> - **FEATURE_CALLOUT generator** (`generate._gen_feature_callout` + `templates.create_feature_callout`):
+>   blurred AI backdrop (`build_backdrop_prompt`) + product cutout + rows of **layered icon badge
+>   → bold uppercase headline (brand primary) → gold divider → benefit**, each over a soft blurred
+>   white halo. Icons: **19 source SVGs pre-rasterized to white PNGs** in `app/imageset/icons/`
+>   (no runtime SVG dep — rasterized once with `resvg_py`), composited via `templates._badge_image`;
+>   `iconlib.infer_icon`/`load_icon`. **Now an AI asset (~$0.04 backdrop).**
+> - **PRODUCT_IN_USE generator** (`generate._gen_product_in_use`): AI image-edit of the ORIGINAL
+>   product photo (`build_product_in_use_prompt`) → cover + optional logo. ~$0.04.
+> - **INFOGRAPHIC removed** (plan `ASSET_TYPES`/`REQUIRED_COMPOSITION`, prompts, validation now
+>   keys off `sum(REQUIRED_COMPOSITION.values())`). Plans are **7 assets**.
+> - **Per-variation picker**: cutout screen lists Lifestyle 1/2, Feature 1/2, Product In Use 1/2,
+>   Size Comparison (keys `"TYPE:VARIATION"`; `asset_type_choices`); enqueue filters per variation
+>   (bare `"TYPE"` still accepted). Messaging now **"~1 minute per image"**.
+> - **Regenerate + Keep/Discard**: new `imageset_assets.kept` column (additive migration);
+>   `store.set_asset_kept` / `reset_asset_for_regeneration`; routes `imageset_regenerate_asset` /
+>   `imageset_keep_asset`; gallery cards show Download/Regenerate/Keep-Discard; discarded images
+>   dim + are excluded from the ZIP (`imageset_download_zip` filters `kept`).
+>
+> ### Commits this session (all on main)
+> `c596dd5` feature-callout + product-in-use generators, per-variation picker, drop infographic ·
+> `45f2676` retry/keep controls, feature-callout v2 (icons + backdrop), PIU prompt fix (HEAD).
+> (Earlier same-day: session-14 work through `8bccd7c` + docs `c92323f`.)
+>
+> _(Session 14's "start here" block follows below — still accurate for the size-comparison,
+> intake UX, Inter fonts, and the general Image Set architecture.)_
+
+> ## Next session — START HERE (session 14, 2026-10-08)
 >
 > **Everything below shipped + deployed; `main` at `8bccd7c`, CI + Deploy green, 462
 > tests passing, `ruff` clean. The `selected_types` migration is confirmed live on the
