@@ -2650,6 +2650,7 @@ textarea.text-input { resize: vertical; line-height: 1.5; }
 .dims-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 .dims-heading { display: block; margin-top: 16px; }
 
+.imageset-features-label { display: block; margin-bottom: 10px; }
 .feature-rows { display: flex; flex-direction: column; gap: 8px; }
 .feature-row { display: flex; align-items: center; gap: 8px; }
 .feature-row .feature-title { flex: 1.3; }

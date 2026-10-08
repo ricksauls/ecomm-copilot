@@ -25,7 +25,7 @@
     <span class="spinner" aria-hidden="true"></span>
     <div>
       <p class="fetching-title">Fetching product details from Walmart…</p>
-      <p class="fetching-hint">This takes up to a minute. The form will fill in automatically when it’s ready.</p>
+      <p class="fetching-hint">This usually takes up to 30 seconds. The form will fill in automatically when it’s ready.</p>
     </div>
   </div>
 {% else %}
@@ -77,7 +77,7 @@
 
       <div class="form-section">
         <div class="section-head"><span class="step">2</span><label class="field-label">Key Features</label></div>
-        <p class="brand-hint">The only facts callout/infographic assets can use — edit or trim these as needed.</p>
+        <label class="field-sublabel imageset-features-label">Potential Feature:Benefit content to use on the Feature Images</label>
         {% set ft = form.getlist('feature_title') if form else [] %}
         {% set fd = form.getlist('feature_desc') if form else [] %}
         <div id="feature-rows" class="feature-rows">
@@ -85,7 +85,7 @@
             {% for t in ft %}
             <div class="feature-row">
               <input type="text" name="feature_title" class="text-input feature-title" maxlength="120" value="{{ t }}" placeholder="Feature" />
-              <input type="text" name="feature_desc" class="text-input feature-desc" maxlength="300" value="{{ fd[loop.index0] if loop.index0 < fd|length else '' }}" placeholder="Short detail (optional)" />
+              <input type="text" name="feature_desc" class="text-input feature-desc" maxlength="120" value="{{ fd[loop.index0] if loop.index0 < fd|length else '' }}" placeholder="Potential Feature Image Short Detail" />
               <button type="button" class="row-remove" aria-label="Remove this feature">&times;</button>
             </div>
             {% endfor %}
@@ -93,14 +93,14 @@
             {% for f in features %}
             <div class="feature-row">
               <input type="text" name="feature_title" class="text-input feature-title" maxlength="120" value="{{ f['title'] }}" placeholder="Feature" />
-              <input type="text" name="feature_desc" class="text-input feature-desc" maxlength="300" value="{{ f['description'] }}" placeholder="Short detail (optional)" />
+              <input type="text" name="feature_desc" class="text-input feature-desc" maxlength="120" value="{{ f['description'] }}" placeholder="Potential Feature Image Short Detail" />
               <button type="button" class="row-remove" aria-label="Remove this feature">&times;</button>
             </div>
             {% endfor %}
           {% else %}
             <div class="feature-row">
               <input type="text" name="feature_title" class="text-input feature-title" maxlength="120" placeholder="Feature (e.g. Made from aged red peppers)" />
-              <input type="text" name="feature_desc" class="text-input feature-desc" maxlength="300" placeholder="Short detail (optional)" />
+              <input type="text" name="feature_desc" class="text-input feature-desc" maxlength="120" placeholder="Potential Feature Image Short Detail" />
               <button type="button" class="row-remove" aria-label="Remove this feature">&times;</button>
             </div>
           {% endif %}

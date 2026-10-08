@@ -30,8 +30,8 @@
     desc.type = "text";
     desc.name = "feature_desc";
     desc.className = "text-input feature-desc";
-    desc.maxLength = 300;
-    desc.placeholder = "Short detail (optional)";
+    desc.maxLength = 120;
+    desc.placeholder = "Potential Feature Image Short Detail";
 
     var remove = document.createElement("button");
     remove.type = "button";

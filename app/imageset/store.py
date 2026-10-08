@@ -378,7 +378,7 @@ def set_features(conn: sqlite3.Connection, project_id: int, items: list[dict]) -
         conn.execute(
             "INSERT INTO imageset_features (project_id, feature_key, title, description, position) "
             "VALUES (?, ?, ?, ?, ?)",
-            (project_id, f"f{count}", title[:120], (item.get("description") or "").strip()[:300], count),
+            (project_id, f"f{count}", title[:120], (item.get("description") or "").strip()[:120], count),
         )
     conn.commit()
     return count
