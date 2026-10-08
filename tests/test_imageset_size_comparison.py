@@ -48,9 +48,24 @@ def test_size_comparison_prompt_contains_scale_contract():
 def test_format_dimensions_line():
     assert format_dimensions_line(
         {"height": 7, "width": 3, "depth": 3, "unit": "in", "weight": "8 oz"}
-    ) == '7" x 3" x 3"  ·  Net 8 oz'
-    assert format_dimensions_line({"height": 18, "width": 8, "unit": "cm"}) == "18 x 8 cm"
+    ) == '7" × 3" × 3"  ·  Net 8 oz'
+    assert format_dimensions_line({"height": 18, "width": 8, "unit": "cm"}) == "18 × 8 cm"
     assert format_dimensions_line({"unit": "in"}) == ""
+
+
+def _glyph_ink(font, ch):
+    m = font.getmask(ch)
+    return sum(bytes(m))
+
+
+def test_bar_font_is_inter_with_real_glyphs():
+    """Bars use bundled Inter (real bold), and "×" is a real glyph (not tofu)."""
+    bold = compose.font(72, bold=True)
+    assert "Inter" in " ".join(bold.getname())
+    # A real "×" differs from the font's .notdef box (the old default font failed this).
+    assert _glyph_ink(bold, "×") not in (0, _glyph_ink(bold, ""))
+    # Bold is heavier than regular at the same size (true bold, not stroke-faked).
+    assert _glyph_ink(bold, "x") > _glyph_ink(compose.font(72), "x")
 
 
 def test_scale_caption_grammar():

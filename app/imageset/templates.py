@@ -84,11 +84,10 @@ def format_dimensions_line(dimensions: dict) -> str:
     hwd = [v for v in hwd if v is not None]
     parts: list[str] = []
     if hwd:
-        # Inches: an inch mark on each number (7" x 3" x 3"); other units: trailing unit.
-        # Separator is a lowercase "x" (not "×"): the bundled Pillow font has no
-        # multiplication-sign glyph, so "×" would render as a tofu box.
-        parts.append(' x '.join(f'{v}"' for v in hwd) if unit == "in"
-                     else f"{' x '.join(hwd)} {unit}")
+        # Inches: an inch mark on each number (7" × 3" × 3"); other units: trailing
+        # unit. The "×" renders correctly now that we use Inter (which has the glyph).
+        parts.append(' × '.join(f'{v}"' for v in hwd) if unit == "in"
+                     else f"{' × '.join(hwd)} {unit}")
     if dimensions.get("weight"):
         parts.append(f"Net {dimensions['weight']}")
     return "  ·  ".join(parts)
@@ -150,18 +149,20 @@ def render_size_comparison_bars(
     canvas = _recenter_vertically(canvas, top_h, by)
     draw = ImageDraw.Draw(canvas)
 
+    # Font sizes follow the source app's proven size-comparison caption (title 76,
+    # facts 72, reference 44 on a 2000px canvas), drawn in real Inter Bold.
     draw.rectangle([0, 0, size, top_h], fill=primary)
     if headline:
         compose.draw_text_centered(draw, (size / 2, top_h / 2), headline,
-                                   size=round(top_h * 0.42), fill=(255, 255, 255), bold=True)
+                                   size=76, fill=(255, 255, 255), bold=True)
 
     draw.rectangle([0, by, size, size], fill=primary)
     if dimensions_line:
         compose.draw_text_centered(draw, (size / 2, by + bottom_h * 0.37), dimensions_line,
-                                   size=round(bottom_h * 0.30), fill=(255, 255, 255), bold=True)
+                                   size=72, fill=(255, 255, 255), bold=True)
     if caption:
         compose.draw_text_centered(draw, (size / 2, by + bottom_h * 0.74), caption,
-                                   size=round(bottom_h * 0.165), fill=(226, 230, 236))
+                                   size=44, fill=(236, 240, 244))
 
     logger.debug("Rendered size-comparison bars: headline=%r dims=%r", headline, dimensions_line)
     return compose.export_image(canvas)

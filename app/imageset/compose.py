@@ -14,14 +14,22 @@ Pillow ``Image`` objects (RGB/RGBA); byte<->image conversion stays at the edges.
 """
 
 import colorsys
+import functools
 import io
 import logging
+import os
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
 
 from app.imageset.config import CANVAS_SIZE, SAFE_MARGIN
 
 logger = logging.getLogger(__name__)
+
+# Bundled Inter (the app's brand font, also what the source app uses for creative
+# text) as TTF so Pillow can rasterize it. Real Regular/Bold faces give crisp,
+# properly-spaced text — no stroke-faked bold, which smeared glyphs together.
+_FONT_DIR = os.path.join(os.path.dirname(__file__), "fonts")
+_FONT_FILES = {False: "Inter-Regular.ttf", True: "Inter-Bold.ttf"}
 
 
 def detect_dominant_color(cutout: "Image.Image") -> str | None:
@@ -81,14 +89,25 @@ def to_png_bytes(img: Image.Image) -> bytes:
     return buf.getvalue()
 
 
-def font(size: int, *, bold: bool = False) -> ImageFont.FreeTypeFont:
-    """Return a scalable default font at ``size`` px.
+@functools.lru_cache(maxsize=128)
+def _load_font(bold: bool, size: int) -> ImageFont.FreeTypeFont:
+    """Load (and cache) the bundled Inter face at ``size``; fall back to default."""
+    path = os.path.join(_FONT_DIR, _FONT_FILES[bold])
+    try:
+        return ImageFont.truetype(path, size)
+    except OSError:
+        logger.warning("Bundled Inter font missing at %s; using Pillow default", path)
+        return ImageFont.load_default(size=size)
 
-    Uses Pillow's bundled DejaVu Sans via ``load_default(size=...)`` so no font
-    file has to be shipped or resolved per-platform. Bold is faked by the caller
-    with a stroke (DejaVu Bold isn't exposed through ``load_default``).
+
+def font(size: int, *, bold: bool = False) -> ImageFont.FreeTypeFont:
+    """Return bundled Inter at ``size`` px — Inter Bold when ``bold``.
+
+    Inter is the app's brand font (and what the source app uses for creative
+    text). Having a real Bold face means callers no longer fake bold with a
+    stroke, which smeared adjacent glyphs together.
     """
-    return ImageFont.load_default(size=size)
+    return _load_font(bold, size)
 
 
 def draw_text_centered(
@@ -101,10 +120,8 @@ def draw_text_centered(
     bold: bool = False,
     anchor: str = "mm",
 ) -> None:
-    """Draw text with the default font, faking bold via a thin stroke."""
-    stroke = max(1, size // 22) if bold else 0
-    draw.text(xy, text, font=font(size), fill=fill, anchor=anchor,
-              stroke_width=stroke, stroke_fill=fill)
+    """Draw text with Inter (real Bold when ``bold`` — no faked stroke)."""
+    draw.text(xy, text, font=font(size, bold=bold), fill=fill, anchor=anchor)
 
 
 def cover_scene(scene: Image.Image, size: int = CANVAS_SIZE) -> Image.Image:
