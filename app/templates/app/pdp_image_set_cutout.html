@@ -1,0 +1,37 @@
+{% extends "app/base.html" %}
+{% block title %}Review Cutout — DISCOtech{% endblock %}
+
+{% block pane_content %}
+<div class="page-header">
+  <div>
+    <h1>Review the product cutout</h1>
+    <p class="subtitle">We removed the background from your photo. Check that the product looks clean
+      and complete, then approve it to generate your image set. This is the last step before any
+      images are generated.</p>
+  </div>
+</div>
+
+<div class="card pdp-card imageset-review">
+  <div class="cutout-preview">
+    {# Checkerboard backing makes any stray background / rough edges obvious. #}
+    <div class="cutout-frame">
+      <img src="{{ url_for('pages.imageset_cutout_image', pid=project['id']) }}"
+           alt="Product cutout preview" class="cutout-img" />
+    </div>
+    <div class="cutout-meta">
+      <p class="cutout-name">{{ project['name'] }}</p>
+      {% if project['brand'] %}<p class="cutout-brand">{{ project['brand'] }}</p>{% endif %}
+      <p class="cutout-hint">If the cutout looks wrong — missing parts, a leftover background,
+        or rough edges — upload a cleaner photo instead.</p>
+    </div>
+  </div>
+
+  <div class="imageset-actions">
+    <form method="post" action="{{ url_for('pages.imageset_approve', pid=project['id']) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+      <button type="submit" class="wbtn wbtn-primary wbtn-lg">Approve &amp; Generate Image Set</button>
+    </form>
+    <a href="{{ url_for('pages.imageset_intake') }}" class="wbtn wbtn-ghost">Start over with a new photo</a>
+  </div>
+</div>
+{% endblock %}

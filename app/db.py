@@ -297,6 +297,110 @@ CREATE TABLE IF NOT EXISTS messages (
     created_at   TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_messages_thread ON messages(thread_id, id);
+
+-- ── PDP Image Set Creation ──────────────────────────────────────────────────
+-- Port of the marketplace-creative-studio pipeline (Next.js/Postgres -> Flask/
+-- SQLite). From one approved product (facts entered by the user + an uploaded
+-- photo) the pipeline produces a set of marketplace creative assets: AI-generated
+-- scenes composited with the real product cutout and programmatic copy. Every top
+-- -level row carries user_id for ownership/IDOR checks; children cascade-delete
+-- with their project. Image bytes live on disk under MEDIA_DIR/imageset/, never in
+-- the DB — rows store only paths + status (same split as the enhanced-image cache).
+
+-- One row per product the user is building an image set for. `status` tracks the
+-- flow: draft -> cutout_pending -> cutout_approved -> planning -> generating ->
+-- ready (plus failed). JSON columns hold the structured facts the planner/
+-- compositor read (features live in their own table for round-robin assignment).
+CREATE TABLE IF NOT EXISTS imageset_projects (
+    id                     INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id                INTEGER NOT NULL REFERENCES users(id),
+    name                   TEXT    NOT NULL,
+    brand                  TEXT    NOT NULL DEFAULT '',
+    category               TEXT    NOT NULL DEFAULT '',
+    description            TEXT    NOT NULL DEFAULT '',
+    target_audience        TEXT    NOT NULL DEFAULT '',
+    directions             TEXT    NOT NULL DEFAULT '',
+    caution                TEXT    NOT NULL DEFAULT '',
+    intended_environments  TEXT,          -- JSON array of strings
+    brand_colors           TEXT,          -- JSON array of hex strings
+    dimensions_json        TEXT,          -- JSON: {width,height,depth,unit,weight}
+    status                 TEXT    NOT NULL DEFAULT 'draft',
+    original_path          TEXT,          -- uploaded product photo (rel to MEDIA_DIR)
+    cutout_path            TEXT,          -- transparent-PNG cutout (rel to MEDIA_DIR)
+    logo_path              TEXT,          -- optional brand logo (rel to MEDIA_DIR)
+    cutout_approved_at     TEXT,          -- set when the human approves the cutout
+    plan_json              TEXT,          -- the validated CreativePlan (JSON)
+    batch_id               TEXT,          -- groups a generation run for history
+    error                  TEXT,
+    created_at             TEXT    NOT NULL DEFAULT (datetime('now')),
+    updated_at             TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_imageset_projects_user ON imageset_projects(user_id, id);
+CREATE INDEX IF NOT EXISTS idx_imageset_projects_status ON imageset_projects(status);
+
+-- Approved product features the planner may reference. `feature_key` is the
+-- stable id the plan assigns against (e.g. 'f1'); the planner can only reference
+-- these, so it can never introduce a feature (hence a factual claim) that isn't
+-- real. Cascade-deletes with the project.
+CREATE TABLE IF NOT EXISTS imageset_features (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id   INTEGER NOT NULL REFERENCES imageset_projects(id) ON DELETE CASCADE,
+    feature_key  TEXT    NOT NULL,   -- stable id referenced by the plan ('f1'…)
+    title        TEXT    NOT NULL,
+    description  TEXT    NOT NULL DEFAULT '',
+    feature_type TEXT    NOT NULL DEFAULT 'benefit',
+    icon         TEXT    NOT NULL DEFAULT '',
+    position     INTEGER NOT NULL DEFAULT 0,
+    UNIQUE(project_id, feature_key)
+);
+CREATE INDEX IF NOT EXISTS idx_imageset_features_project ON imageset_features(project_id);
+
+-- One row per planned/generated asset (8 per set). The DB row tracks status +
+-- output paths; the image bytes are files under MEDIA_DIR/imageset/. Status:
+-- draft -> queued -> generating -> compositing -> reviewing -> ready
+-- (plus needs_attention|failed). Cascade-deletes with the project.
+CREATE TABLE IF NOT EXISTS imageset_assets (
+    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id           INTEGER NOT NULL REFERENCES imageset_projects(id) ON DELETE CASCADE,
+    user_id              INTEGER NOT NULL REFERENCES users(id),
+    asset_type           TEXT    NOT NULL,  -- LIFESTYLE|FEATURE_CALLOUT|PRODUCT_IN_USE|SIZE_COMPARISON|INFOGRAPHIC
+    variation_number     INTEGER NOT NULL DEFAULT 1,
+    title                TEXT    NOT NULL DEFAULT '',
+    layout_style         TEXT    NOT NULL DEFAULT 'product-left',
+    scene_description    TEXT    NOT NULL DEFAULT '',
+    usage_scenario       TEXT    NOT NULL DEFAULT '',
+    assigned_feature_ids TEXT,           -- JSON array of feature_key values
+    generation_instructions TEXT NOT NULL DEFAULT '',
+    status               TEXT    NOT NULL DEFAULT 'draft',
+    final_path           TEXT,           -- composited 2000px PNG (rel to MEDIA_DIR)
+    thumb_path           TEXT,           -- thumbnail (rel to MEDIA_DIR)
+    scene_path           TEXT,           -- raw AI scene before compositing (rel to MEDIA_DIR)
+    review_json          TEXT,           -- automated-review findings (JSON)
+    error                TEXT,
+    created_at           TEXT    NOT NULL DEFAULT (datetime('now')),
+    updated_at           TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_imageset_assets_project ON imageset_assets(project_id, id);
+CREATE INDEX IF NOT EXISTS idx_imageset_assets_user ON imageset_assets(user_id, id);
+
+-- Worker queue for asset generation, mirroring image_jobs (single process, single
+-- phase: queued -> processing -> done|error). One job per asset — UNIQUE(asset_id)
+-- makes re-enqueue idempotent. `priority` lets programmatic (free, fast) assets or
+-- reruns be ordered ahead of AI ones if desired.
+CREATE TABLE IF NOT EXISTS imageset_jobs (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL REFERENCES users(id),
+    project_id  INTEGER NOT NULL REFERENCES imageset_projects(id) ON DELETE CASCADE,
+    asset_id    INTEGER NOT NULL REFERENCES imageset_assets(id) ON DELETE CASCADE,
+    status      TEXT    NOT NULL DEFAULT 'queued',  -- queued|processing|done|error
+    priority    INTEGER NOT NULL DEFAULT 0,          -- higher drains first
+    error       TEXT,
+    created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(asset_id)
+);
+CREATE INDEX IF NOT EXISTS idx_imageset_jobs_claim ON imageset_jobs(status, priority DESC, id);
+CREATE INDEX IF NOT EXISTS idx_imageset_jobs_project ON imageset_jobs(project_id);
 """
 
 

@@ -37,6 +37,9 @@ from app import (  # noqa: E402  (after load_dotenv is intentional)
     ci_config, ci_images, ci_jobs, ci_scraper, copy_jobs, copygen, db,
     image_enhance, image_jobs, jobs, keywords,
 )
+from app.imageset import generate as imageset_generate  # noqa: E402
+from app.imageset import jobs as imageset_jobs  # noqa: E402
+from app.imageset import store as imageset_store  # noqa: E402
 from app.fetch import FetchBlocked, FetchError, fetch_main_image_url, fetch_pdp  # noqa: E402
 from app.scoring import PdpRecord, result_to_dict, score_pdp  # noqa: E402
 
@@ -577,6 +580,80 @@ def drain_image_jobs() -> int:
     return processed
 
 
+def process_imageset_one(conn: sqlite3.Connection, row: sqlite3.Row) -> None:
+    """Process one claimed image-set asset job: generate the asset, mark it done.
+
+    Like the image-fix path these are provider HTTP calls + local compositing — no
+    browser, no Xvfb, no Walmart politeness delay. Loads the asset + project
+    (scoped to the job's user), runs the generation orchestrator, and marks the job
+    done. Any failure marks both the job and the asset failed so the gallery can
+    offer a retry, and never raises (a bad asset must not kill the worker).
+    """
+    row_id = row["id"]
+    uid, pid, aid = row["user_id"], row["project_id"], row["asset_id"]
+    try:
+        asset = imageset_store.get_asset(conn, aid, uid)
+        project = imageset_store.get_project(conn, pid, uid)
+        if asset is None or project is None:
+            # The asset/project was deleted after the job was queued — nothing to do.
+            imageset_jobs.mark_failed(conn, row_id, "The asset or project no longer exists.")
+            return
+        imageset_generate.process_asset(conn, asset, project)
+        imageset_jobs.mark_done(conn, row_id)
+        log.info("Generated image-set asset job id=%s project=%s asset=%s", row_id, pid, aid)
+    except imageset_generate.GenerationError as e:
+        log.warning("Image-set asset job id=%s failed project=%s asset=%s: %s", row_id, pid, aid, e)
+        imageset_jobs.mark_failed(conn, row_id, str(e))
+        imageset_store.update_asset(conn, aid, status="failed", error=str(e)[:500])
+    except Exception as e:  # noqa: BLE001 - a bad asset must not kill the worker
+        log.exception("Unexpected error generating image-set asset job id=%s", row_id)
+        imageset_jobs.mark_failed(conn, row_id, f"Unexpected error: {e}")
+        imageset_store.update_asset(conn, aid, status="failed", error=f"Unexpected error: {e}"[:500])
+
+
+def drain_imageset_jobs() -> int:
+    """Process every queued image-set asset job concurrently; return the count.
+
+    Same single-process thread pool as :func:`drain_image_jobs` (bounded by
+    ``SCORING_CONCURRENCY``), no Walmart-politeness pause — generation is provider
+    HTTP + local Pillow compositing. Runs only when scoring/copy/image-fix are
+    idle, so it never competes with them for the memory budget.
+    """
+    processed = 0
+    counter_lock = threading.Lock()
+
+    def claim_loop(stagger: float) -> None:
+        nonlocal processed
+        conn = connect(ensure=False)
+        try:
+            if stagger:
+                time.sleep(stagger)
+            while True:
+                row = imageset_jobs.claim_next_job(conn)
+                if row is None:
+                    return  # queue drained — this thread is done
+                process_imageset_one(conn, row)
+                with counter_lock:
+                    processed += 1
+        finally:
+            conn.close()
+
+    threads = [
+        threading.Thread(
+            target=claim_loop,
+            args=(random.uniform(*SUBMIT_STAGGER_S) * i,),
+            name=f"imageset-{i}",
+            daemon=True,
+        )
+        for i in range(SCORING_CONCURRENCY)
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    return processed
+
+
 def main() -> None:
     """Claim-and-process loop. Runs until the process is stopped.
 
@@ -597,9 +674,13 @@ def main() -> None:
     reclaimed_copy = copy_jobs.reclaim_orphaned_copy_items(conn)
     reclaimed_runs = ci_jobs.reclaim_orphaned_runs(conn)
     reclaimed_images = image_jobs.reclaim_orphaned_image_jobs(conn)
-    if reclaimed_items or reclaimed_copy or reclaimed_runs or reclaimed_images:
-        log.warning("Startup: reclaimed %d scoring item(s), %d copy item(s), %d CI run(s), %d image job(s)",
-                    reclaimed_items, reclaimed_copy, reclaimed_runs, reclaimed_images)
+    reclaimed_sets = imageset_jobs.reclaim_orphaned_jobs(conn)
+    if reclaimed_items or reclaimed_copy or reclaimed_runs or reclaimed_images or reclaimed_sets:
+        log.warning(
+            "Startup: reclaimed %d scoring item(s), %d copy item(s), %d CI run(s), "
+            "%d image job(s), %d image-set job(s)",
+            reclaimed_items, reclaimed_copy, reclaimed_runs, reclaimed_images, reclaimed_sets,
+        )
     while True:
         # Scoring first and concurrently: drain the whole queue with the thread
         # pool, then fall through to the serial copy / CI work.
@@ -621,6 +702,14 @@ def main() -> None:
         if image_jobs.has_claimable_image_jobs(conn):
             n = drain_image_jobs()
             log.info("Image-fix wave complete — processed %d job(s)", n)
+            continue
+
+        # Image-set asset generation next — also light (provider HTTP + local
+        # compositing, no browser). Drained before the serial CI sweep, only when
+        # the heavier queues are idle so it never competes with them for RAM.
+        if imageset_jobs.has_claimable_jobs(conn):
+            n = drain_imageset_jobs()
+            log.info("Image-set wave complete — processed %d asset(s)", n)
             continue
 
         ci_run = ci_jobs.claim_next_run(conn)

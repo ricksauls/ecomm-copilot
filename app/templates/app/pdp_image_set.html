@@ -1,0 +1,115 @@
+{% extends "app/base.html" %}
+{% block title %}Product Detail Page Image Set Creation — DISCOtech{% endblock %}
+
+{% macro val(field) -%}{{ form.get(field) if form else '' }}{%- endmacro %}
+
+{% block pane_content %}
+<div class="page-header">
+  <div>
+    <h1>Create a Product Detail Page Image Set</h1>
+    <p class="subtitle">Enter your approved product facts and upload one clean product photo. We’ll
+      cut out the product and generate a set of marketplace images — lifestyle scenes and a
+      size‑comparison diagram — grounded in the facts you provide. Nothing is invented.</p>
+  </div>
+</div>
+
+{% if error %}
+<div class="form-error" role="alert">{{ error }}</div>
+{% endif %}
+
+<div class="card pdp-card">
+  <form method="post" action="{{ url_for('pages.imageset_intake') }}" enctype="multipart/form-data"
+        class="pdp-form imageset-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+
+    <div class="form-section">
+      <div class="section-head"><span class="step">1</span><label class="field-label">Product</label></div>
+      <div class="field-grid">
+        <div class="field">
+          <label class="field-sublabel" for="name">Product name</label>
+          <input type="text" id="name" name="name" class="text-input" maxlength="200"
+                 required value="{{ val('name') }}" placeholder="e.g. Original Red Pepper Sauce" />
+        </div>
+        <div class="field">
+          <label class="field-sublabel" for="brand">Brand <span class="field-optional">(optional)</span></label>
+          <input type="text" id="brand" name="brand" class="text-input" maxlength="120"
+                 value="{{ val('brand') }}" placeholder="e.g. Tabasco" />
+        </div>
+        <div class="field">
+          <label class="field-sublabel" for="category">Category</label>
+          <input type="text" id="category" name="category" class="text-input" maxlength="120"
+                 required value="{{ val('category') }}" placeholder="e.g. hot sauce" />
+        </div>
+        <div class="field">
+          <label class="field-sublabel" for="target_audience">Target audience <span class="field-optional">(optional)</span></label>
+          <input type="text" id="target_audience" name="target_audience" class="text-input"
+                 maxlength="500" value="{{ val('target_audience') }}" placeholder="e.g. home cooks" />
+        </div>
+      </div>
+      <div class="field">
+        <label class="field-sublabel" for="description">Description <span class="field-optional">(optional)</span></label>
+        <textarea id="description" name="description" class="text-input" rows="3"
+                  maxlength="2000" placeholder="A short, factual product description.">{{ val('description') }}</textarea>
+      </div>
+      <div class="field">
+        <label class="field-sublabel" for="environments">Where it’s used <span class="field-optional">(optional, comma‑separated)</span></label>
+        <input type="text" id="environments" name="environments" class="text-input"
+               value="{{ val('environments') }}" placeholder="e.g. a backyard patio, a home kitchen" />
+      </div>
+    </div>
+
+    <div class="form-section">
+      <div class="section-head"><span class="step">2</span><label class="field-label">Key features</label></div>
+      <p class="brand-hint">These are the only facts callout/infographic assets can use — nothing else is added.</p>
+      <div id="feature-rows" class="feature-rows">
+        <div class="feature-row">
+          <input type="text" name="feature_title" class="text-input feature-title" maxlength="120"
+                 placeholder="Feature (e.g. Made from aged red peppers)" />
+          <input type="text" name="feature_desc" class="text-input feature-desc" maxlength="300"
+                 placeholder="Short detail (optional)" />
+          <button type="button" class="row-remove" aria-label="Remove this feature">&times;</button>
+        </div>
+      </div>
+      <button type="button" id="add-feature" class="add-more">+ Add Another Feature</button>
+    </div>
+
+    <div class="form-section">
+      <div class="section-head"><span class="step">3</span><label class="field-label">Dimensions <span class="field-optional">(optional — power the size‑comparison)</span></label></div>
+      <div class="field-grid dims-grid">
+        <div class="field"><label class="field-sublabel" for="height">Height</label>
+          <input type="number" step="any" id="height" name="height" class="text-input" value="{{ val('height') }}" /></div>
+        <div class="field"><label class="field-sublabel" for="width">Width</label>
+          <input type="number" step="any" id="width" name="width" class="text-input" value="{{ val('width') }}" /></div>
+        <div class="field"><label class="field-sublabel" for="depth">Depth</label>
+          <input type="number" step="any" id="depth" name="depth" class="text-input" value="{{ val('depth') }}" /></div>
+        <div class="field"><label class="field-sublabel" for="unit">Unit</label>
+          <input type="text" id="unit" name="unit" class="text-input" maxlength="12"
+                 value="{{ val('unit') or 'in' }}" placeholder="in" /></div>
+        <div class="field"><label class="field-sublabel" for="weight">Net contents</label>
+          <input type="text" id="weight" name="weight" class="text-input" maxlength="40"
+                 value="{{ val('weight') }}" placeholder="e.g. 6 oz" /></div>
+      </div>
+    </div>
+
+    <div class="form-section">
+      <div class="section-head"><span class="step">4</span><label class="field-label" for="photo">Product photo</label></div>
+      <label id="photo-drop" class="csv-drop" for="photo">
+        <svg class="csv-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+          <path d="M12 15V4M8 8l4-4 4 4" /><path d="M4 15v3a2 2 0 002 2h12a2 2 0 002-2v-3" />
+        </svg>
+        <span class="csv-drop-text">Drag a photo here, or <span class="link">browse</span></span>
+        <span class="csv-drop-hint">One clean product shot on a plain background · PNG, JPG, or WEBP · up to 5 MB</span>
+        <input type="file" id="photo" name="photo" accept="image/png,image/jpeg,image/webp"
+               class="csv-input-hidden" required />
+      </label>
+      <p id="photo-filename" class="csv-filename" hidden></p>
+    </div>
+
+    <button type="submit" class="wbtn wbtn-primary wbtn-lg">Remove Background &amp; Continue</button>
+  </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ static_url('js/imageset_intake.js') }}"></script>
+{% endblock %}

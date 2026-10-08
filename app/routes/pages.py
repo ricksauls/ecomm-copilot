@@ -44,6 +44,12 @@ from app import (
     users,
 )
 from app.db import get_db
+from app.imageset import generate as imageset_generate
+from app.imageset import jobs as imageset_jobs
+from app.imageset import plan as imageset_plan
+from app.imageset import storage as imageset_storage
+from app.imageset import store as imageset_store
+from app.imageset.providers.background_removal import BackgroundRemovalError
 from app.security import admin_required, login_required
 
 logger = logging.getLogger(__name__)
@@ -1898,6 +1904,319 @@ def admin_system_activity():
         breadcrumb="Admin · System Activity",
         active_nav="admin-system-activity",
     )
+
+
+# --- PDP Image Set Creation -----------------------------------------------
+#
+# From one approved product (facts + a photo) the pipeline produces a set of
+# marketplace creative assets. The web app handles intake, the human cutout
+# approval gate, and the gallery; the background worker does the generation.
+
+# Breadcrumb/nav used by every image-set screen.
+_IMGSET_BREADCRUMB = "Creative Content Studio · Product Detail Page Image Set Creation"
+_IMGSET_NAV = "pdp-image-set"
+# Upload allowlist — product photos only. The 5 MB global MAX_CONTENT_LENGTH caps size.
+_IMGSET_UPLOAD_EXT = {"png": "png", "jpg": "jpg", "jpeg": "jpg", "webp": "png"}
+
+
+def _imageset_project_or_404(pid: int):
+    """Return an image-set project owned by the signed-in user, or 404 (IDOR guard)."""
+    project = imageset_store.get_project(get_db(), pid, g.user["id"])
+    if project is None:
+        abort(404)
+    return project
+
+
+def _parse_dimensions(form) -> dict:
+    """Pull optional numeric dimensions + unit/weight from the intake form.
+
+    Non-numeric dimension inputs are dropped (left None) rather than rejected, so a
+    blank or stray value never blocks the whole submission — the measurement diagram
+    simply omits what wasn't supplied.
+    """
+    dims: dict = {"unit": (form.get("unit") or "in").strip()[:12],
+                  "weight": (form.get("weight") or "").strip()[:40]}
+    for key in ("width", "height", "depth"):
+        raw = (form.get(key) or "").strip()
+        try:
+            dims[key] = float(raw) if raw else None
+        except ValueError:
+            dims[key] = None
+    return dims
+
+
+def _validate_upload(file) -> tuple[bytes | None, str | None, str | None]:
+    """Validate an uploaded product photo. Returns (data, ext, error).
+
+    Treats the upload as untrusted: the extension must be in the allowlist AND the
+    bytes must actually decode as that image (Pillow verify), so a renamed
+    non-image can't be stored. Size is already capped by MAX_CONTENT_LENGTH.
+    """
+    if file is None or not file.filename:
+        return None, None, "Please choose a product photo to upload."
+    ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
+    if ext not in _IMGSET_UPLOAD_EXT:
+        return None, None, "The product photo must be a PNG, JPG, or WEBP image."
+    data = file.read()
+    if not data:
+        return None, None, "The uploaded file was empty."
+    try:
+        import io
+
+        from PIL import Image
+        Image.open(io.BytesIO(data)).verify()  # decode-check; never trust the extension alone
+    except Exception:  # noqa: BLE001 - any decode failure means it isn't a valid image
+        return None, None, "That file could not be read as an image."
+    return data, _IMGSET_UPLOAD_EXT[ext], None
+
+
+def _imageset_intake_context(**extra):
+    """Shared render context for the intake form."""
+    ctx = {"breadcrumb": _IMGSET_BREADCRUMB, "active_nav": _IMGSET_NAV}
+    ctx.update(extra)
+    return ctx
+
+
+@bp.route("/app/pdp-image-set", methods=["GET", "POST"])
+@login_required
+def imageset_intake():
+    """Image-set intake: collect approved product facts + a photo, then cut out.
+
+    A POST validates the facts and the uploaded photo, creates the project, stores
+    the original, and runs background removal inline (one provider call) so the
+    user lands on the cutout-approval gate — the human check before any AI spend.
+    """
+    if request.method == "POST":
+        form = request.form
+        name = (form.get("name") or "").strip()
+        category = (form.get("category") or "").strip()
+        if not name or not category:
+            return render_template("app/pdp_image_set.html", **_imageset_intake_context(
+                error="Product name and category are required.", form=form)), 400
+
+        data, ext, err = _validate_upload(request.files.get("photo"))
+        if err:
+            return render_template("app/pdp_image_set.html", **_imageset_intake_context(
+                error=err, form=form)), 400
+
+        # Approved features (title [+ optional description]); blank rows ignored.
+        titles = form.getlist("feature_title")
+        descs = form.getlist("feature_desc")
+        environments = [e.strip() for e in (form.get("environments") or "").split(",") if e.strip()]
+        colors = [c.strip() for c in (form.get("primary_color"), form.get("secondary_color"),
+                                      form.get("accent_color")) if c and c.strip()]
+
+        db = get_db()
+        uid = g.user["id"]
+        pid = imageset_store.create_project(
+            db, user_id=uid, name=name[:200], brand=(form.get("brand") or "").strip()[:120],
+            category=category[:120], description=(form.get("description") or "").strip()[:2000],
+            target_audience=(form.get("target_audience") or "").strip()[:500],
+            directions=(form.get("directions") or "").strip()[:2000],
+            intended_environments=environments[:8],
+            brand_colors=colors or None,
+            dimensions=_parse_dimensions(form),
+        )
+        position = 0
+        for title, desc in zip(titles, descs + [""] * len(titles)):
+            if title and title.strip():
+                position += 1
+                imageset_store.add_feature(
+                    db, pid, feature_key=f"f{position}", title=title.strip()[:120],
+                    description=(desc or "").strip()[:300], position=position,
+                )
+
+        rel = imageset_storage.save(pid, "original", "product", data, ext)
+        if not rel:
+            imageset_store.set_status(db, pid, imageset_store.STATUS_FAILED,
+                                      error="Could not store the uploaded photo.")
+            return render_template("app/pdp_image_set.html", **_imageset_intake_context(
+                error="We couldn't store the uploaded photo. Please try again.", form=form)), 500
+        imageset_store.set_original_image(db, pid, rel)
+
+        # Background removal inline (one provider call) → cutout approval gate.
+        try:
+            imageset_generate.run_cutout(db, imageset_store.get_project(db, pid, uid), uid)
+        except (BackgroundRemovalError, imageset_generate.GenerationError) as e:
+            logger.warning("Image-set cutout failed project=%s: %s", pid, e)
+            imageset_store.set_status(db, pid, imageset_store.STATUS_FAILED, error=str(e))
+            return render_template("app/pdp_image_set.html", **_imageset_intake_context(
+                error="We couldn't remove the background from that photo. Try a clearer "
+                      "product shot on a plain background.", form=form)), 502
+
+        logger.info("Image-set project created id=%s user_id=%s", pid, uid)
+        return redirect(url_for("pages.imageset_cutout", pid=pid))
+
+    return render_template("app/pdp_image_set.html", **_imageset_intake_context())
+
+
+@bp.route("/app/pdp-image-set/<int:pid>/cutout")
+@login_required
+def imageset_cutout(pid):
+    """Cutout approval gate: show the generated cutout; Approve starts generation."""
+    project = _imageset_project_or_404(pid)
+    return render_template(
+        "app/pdp_image_set_cutout.html", breadcrumb=_IMGSET_BREADCRUMB,
+        active_nav=_IMGSET_NAV, project=project,
+    )
+
+
+@bp.route("/app/pdp-image-set/<int:pid>/approve", methods=["POST"])
+@login_required
+def imageset_approve(pid):
+    """Approve the cutout, plan the set, and enqueue the implemented assets."""
+    project = _imageset_project_or_404(pid)
+    if not project["cutout_path"]:
+        abort(400, description="No cutout to approve yet.")
+    db, uid = get_db(), g.user["id"]
+    imageset_store.approve_cutout(db, pid)
+
+    try:
+        plan = imageset_plan.generate_plan(imageset_store.plan_context(db, project))
+    except imageset_plan.PlanError as e:
+        logger.warning("Image-set plan failed project=%s: %s", pid, e)
+        imageset_store.set_status(db, pid, imageset_store.STATUS_FAILED, error=str(e))
+        abort(502, description="Could not plan the image set. Please try again.")
+
+    imageset_store.save_plan_and_create_assets(db, pid, uid, plan)
+    imageset_generate.enqueue_project_assets(db, imageset_store.get_project(db, pid, uid), uid)
+    logger.info("Image-set approved + enqueued project=%s user_id=%s", pid, uid)
+    return redirect(url_for("pages.imageset_gallery", pid=pid))
+
+
+def _imageset_asset_view(asset, job) -> dict:
+    """Shape one asset + its job into the gallery's display dict."""
+    job_status = job["status"] if job else None
+    # The asset is "working" while its job is queued/processing; "ready" once the
+    # generation wrote its outputs; else failed/pending.
+    status = asset["status"]
+    if status not in ("ready", "failed") and job_status in ("queued", "processing"):
+        status = "generating"
+    return {
+        "id": asset["id"],
+        "type": asset["asset_type"].replace("_", " ").title(),
+        "title": asset["title"],
+        "status": status,
+        "ready": status == "ready" and bool(asset["final_path"]),
+        "error": asset["error"] or (job["error"] if job else None),
+    }
+
+
+def _imageset_run_assets(db, pid: int, uid: int) -> list[dict]:
+    """The assets actually part of this generation run, as display dicts.
+
+    An asset is in the run once it has a job (enqueued) or has already finished
+    (ready/failed). Planned assets for types whose generator isn't built yet exist
+    in the DB (for a later phase) but aren't shown, so the gallery never displays a
+    tile that can never finish.
+    """
+    jobs_map = imageset_jobs.jobs_for_project(db, pid, uid)
+    views = []
+    for asset in imageset_store.assets_for_project(db, pid, uid):
+        if asset["id"] in jobs_map or asset["status"] in ("ready", "failed"):
+            views.append(_imageset_asset_view(asset, jobs_map.get(asset["id"])))
+    return views
+
+
+@bp.route("/app/pdp-image-set/<int:pid>")
+@login_required
+def imageset_gallery(pid):
+    """Generation gallery: per-asset status + downloads; polls while work runs."""
+    project = _imageset_project_or_404(pid)
+    db, uid = get_db(), g.user["id"]
+    assets = _imageset_run_assets(db, pid, uid)
+    pending = any(a["status"] in ("queued", "generating") for a in assets)
+    return render_template(
+        "app/pdp_image_set_gallery.html", breadcrumb=_IMGSET_BREADCRUMB,
+        active_nav=_IMGSET_NAV, project=project, assets=assets, pending=pending,
+        ready_count=sum(1 for a in assets if a["ready"]),
+    )
+
+
+@bp.route("/app/pdp-image-set/<int:pid>/status")
+@login_required
+def imageset_status(pid):
+    """JSON asset statuses for the gallery poller."""
+    _imageset_project_or_404(pid)
+    db, uid = get_db(), g.user["id"]
+    assets = _imageset_run_assets(db, pid, uid)
+    return jsonify({
+        "pending": any(a["status"] in ("queued", "generating") for a in assets),
+        "assets": assets,
+    })
+
+
+def _serve_imageset_file(rel: str | None, *, download_name: str, as_attachment: bool):
+    """Serve a stored image-set artifact by its relative path (containment-checked)."""
+    from flask import send_file
+
+    path = imageset_storage.abs_path(rel)
+    if not path or not os.path.isfile(path):
+        abort(404)
+    return send_file(path, mimetype="image/png", as_attachment=as_attachment,
+                     download_name=download_name, max_age=0)
+
+
+@bp.route("/app/pdp-image-set/<int:pid>/cutout-image")
+@login_required
+def imageset_cutout_image(pid):
+    """Serve a project's cutout PNG (same-origin, so CSP img-src 'self')."""
+    project = _imageset_project_or_404(pid)
+    return _serve_imageset_file(project["cutout_path"], download_name=f"cutout-{pid}.png",
+                                as_attachment=False)
+
+
+@bp.route("/app/pdp-image-set/<int:pid>/asset/<int:aid>/image")
+@login_required
+def imageset_asset_image(pid, aid):
+    """Serve an asset's final (or its thumbnail via ?thumb=1) inline."""
+    _imageset_project_or_404(pid)  # IDOR: must own the project
+    asset = imageset_store.get_asset(get_db(), aid, g.user["id"])
+    if asset is None or asset["project_id"] != pid:
+        abort(404)
+    rel = asset["thumb_path"] if request.args.get("thumb") else asset["final_path"]
+    return _serve_imageset_file(rel, download_name=f"asset-{aid}.png", as_attachment=False)
+
+
+@bp.route("/app/pdp-image-set/<int:pid>/asset/<int:aid>/download")
+@login_required
+def imageset_asset_download(pid, aid):
+    """Serve an asset's final as a file download."""
+    _imageset_project_or_404(pid)
+    asset = imageset_store.get_asset(get_db(), aid, g.user["id"])
+    if asset is None or asset["project_id"] != pid:
+        abort(404)
+    name = (asset["asset_type"] or "asset").lower() + f"-{aid}.png"
+    return _serve_imageset_file(asset["final_path"], download_name=name, as_attachment=True)
+
+
+@bp.route("/app/pdp-image-set/<int:pid>/download.zip")
+@login_required
+def imageset_download_zip(pid):
+    """Bundle every ready asset final into one ZIP (404 if none ready yet)."""
+    import io
+    import zipfile
+
+    from flask import send_file
+
+    project = _imageset_project_or_404(pid)
+    db, uid = get_db(), g.user["id"]
+    buf = io.BytesIO()
+    written = 0
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for asset in imageset_store.assets_for_project(db, pid, uid):
+            path = imageset_storage.abs_path(asset["final_path"])
+            if not path or not os.path.isfile(path):
+                continue
+            arc = f"{asset['asset_type'].lower()}-{asset['variation_number']}-{asset['id']}.png"
+            zf.write(path, arcname=arc)
+            written += 1
+    if not written:
+        abort(404, description="No finished images to download yet.")
+    buf.seek(0)
+    logger.info("Image-set ZIP: %d asset(s) project=%s user_id=%s", written, pid, uid)
+    return send_file(buf, mimetype="application/zip", as_attachment=True,
+                     download_name=f"image-set-{project['name'][:40] or pid}.zip", max_age=0)
 
 
 # ── Contact Us (user side) ───────────────────────────────────────────────────

@@ -65,7 +65,7 @@
     ('history-copy', 'View Copy Content Creation History', url_for('pages.activity_all', kind='copy')),
   ] %}
   {% set creative_items = [
-    ('pdp-image-set', 'Product Detail Page Image Set Creation', '#'),
+    ('pdp-image-set', 'Product Detail Page Image Set Creation', url_for('pages.imageset_intake')),
     ('history-images', 'View Creative Content Creation History', url_for('pages.activity_all', kind='images')),
   ] %}
   {% set reporting_items = [

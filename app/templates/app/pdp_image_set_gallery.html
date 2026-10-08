@@ -1,0 +1,62 @@
+{% extends "app/base.html" %}
+{% block title %}{{ project['name'] }} — Image Set — DISCOtech{% endblock %}
+
+{% block head_extra %}
+  {# No-JS fallback: refresh while assets are still generating. The poller
+     (imageset_gallery.js) takes over and reloads only when a status changes. #}
+  {% if pending %}<noscript><meta http-equiv="refresh" content="6" /></noscript>{% endif %}
+{% endblock %}
+
+{% block pane_content %}
+<div class="page-header">
+  <div>
+    <h1>{{ project['name'] }} — Image Set</h1>
+    <p class="subtitle">
+      {% if pending %}Generating your images… this page updates as each one finishes.
+      {% else %}Your image set is ready. Download individual images or the whole set.{% endif %}
+    </p>
+  </div>
+  {% if ready_count %}
+  <div class="page-header-actions">
+    <a href="{{ url_for('pages.imageset_download_zip', pid=project['id']) }}"
+       class="wbtn wbtn-primary">Download All ({{ ready_count }})</a>
+  </div>
+  {% endif %}
+</div>
+
+<div class="imageset-grid" data-status-url="{{ url_for('pages.imageset_status', pid=project['id']) }}"
+     data-pending="{{ '1' if pending else '0' }}">
+  {% for asset in assets %}
+  <div class="imageset-card" data-asset-id="{{ asset.id }}" data-status="{{ asset.status }}">
+    <div class="imageset-thumb">
+      {% if asset.ready %}
+        <a href="{{ url_for('pages.imageset_asset_image', pid=project['id'], aid=asset.id) }}" target="_blank" rel="noopener">
+          <img src="{{ url_for('pages.imageset_asset_image', pid=project['id'], aid=asset.id, thumb=1) }}"
+               alt="{{ asset.type }}" loading="lazy" />
+        </a>
+      {% elif asset.status == 'failed' %}
+        <div class="imageset-state imageset-state-failed" title="{{ asset.error or '' }}">Failed</div>
+      {% else %}
+        <div class="imageset-state imageset-state-working"><span class="spinner" aria-hidden="true"></span>Generating…</div>
+      {% endif %}
+    </div>
+    <div class="imageset-card-foot">
+      <div class="imageset-card-meta">
+        <span class="imageset-type">{{ asset.type }}</span>
+        {% if asset.title %}<span class="imageset-title">{{ asset.title }}</span>{% endif %}
+      </div>
+      {% if asset.ready %}
+      <a class="wbtn wbtn-ghost wbtn-sm"
+         href="{{ url_for('pages.imageset_asset_download', pid=project['id'], aid=asset.id) }}">Download</a>
+      {% endif %}
+    </div>
+  </div>
+  {% else %}
+  <p class="empty-note">No assets yet.</p>
+  {% endfor %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ static_url('js/imageset_gallery.js') }}"></script>
+{% endblock %}
