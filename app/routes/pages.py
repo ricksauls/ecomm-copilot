@@ -1973,7 +1973,9 @@ def _validate_upload(file) -> tuple[bytes | None, str | None, str | None]:
 def _imageset_intake_context(**extra):
     """Shared render context for the intake form."""
     ctx = {"breadcrumb": _IMGSET_BREADCRUMB, "active_nav": _IMGSET_NAV,
-           "project": None, "features": [], "fetching": False, "has_image": False, "pf": {}}
+           "project": None, "features": [], "fetching": False, "has_image": False, "pf": {},
+           # The URL field autofills with this prefix so the user only types the item id.
+           "url_prefix": pdp.WALMART_IP_PREFIX}
     ctx.update(extra)
     return ctx
 
@@ -2115,10 +2117,11 @@ def imageset_intake():
 def imageset_fetch():
     """Start a Walmart prefill: validate the URL, create a draft, enqueue the fetch."""
     url = pdp.validate_item_url((request.form.get("url") or "").strip())
-    if not url:
+    # Require an item number so a bare prefix (the autofill, untouched) is rejected.
+    if not url or not pdp.item_number_from_url(url):
         return render_template("app/pdp_image_set.html", **_imageset_intake_context(
-            error="Enter a valid Walmart product URL (e.g. "
-                  "https://www.walmart.com/ip/...).")), 400
+            error="Enter a valid Walmart product URL — add the item number to the end "
+                  "(e.g. https://www.walmart.com/ip/10294528).")), 400
     db, uid = get_db(), g.user["id"]
     pid = imageset_store.create_draft_for_url(db, user_id=uid, url=url)
     logger.info("Image-set prefill queued project=%s user_id=%s", pid, uid)

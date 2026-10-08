@@ -151,6 +151,19 @@ def test_fetch_route_rejects_bad_url(client, auth):
     assert client.post("/app/pdp-image-set/fetch", data={"url": "nonsense"}).status_code == 400
 
 
+def test_fetch_route_rejects_bare_prefix(client, auth):
+    # The autofilled prefix with no item number must be rejected, not fetched.
+    auth.register()
+    resp = client.post("/app/pdp-image-set/fetch", data={"url": "https://www.walmart.com/ip/"})
+    assert resp.status_code == 400
+
+
+def test_intake_url_field_autofills_prefix(client, auth):
+    auth.register()
+    resp = client.get("/app/pdp-image-set")
+    assert b'value="https://www.walmart.com/ip/"' in resp.data
+
+
 def test_edit_shows_fetching_then_prefilled(client, auth, tmp_path, monkeypatch):
     monkeypatch.setenv("MEDIA_DIR", str(tmp_path))
     auth.register()

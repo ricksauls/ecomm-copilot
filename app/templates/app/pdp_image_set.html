@@ -34,12 +34,13 @@
   <div class="card pdp-card imageset-url-card">
     <form method="post" action="{{ url_for('pages.imageset_fetch') }}" class="imageset-url-form">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-      <label class="field-label" for="url">Prefill from a product URL <span class="field-optional">(optional)</span></label>
-      <p class="brand-hint">Paste a Walmart product link — we’ll pull the name, brand, description,
-        key features, and the product image, then you fill in the rest.</p>
+      <label class="field-label" for="url">Prefill From A Product URL <span class="field-optional">(optional)</span></label>
+      <p class="brand-hint">Paste a Walmart product link — just add the item number to the end — and
+        we’ll pull the name, brand, description, key features, and the product image, then you fill in the rest.</p>
       <div class="imageset-url-row">
         <input type="url" id="url" name="url" class="text-input"
-               placeholder="https://www.walmart.com/ip/10294528" value="{{ project['source_url'] if project else '' }}" />
+               placeholder="https://www.walmart.com/ip/10294528"
+               value="{{ project['source_url'] if project and project['source_url'] else url_prefix }}" />
         <button type="submit" class="wbtn wbtn-secondary">Fetch details</button>
       </div>
     </form>
@@ -53,11 +54,11 @@
       {% if project %}<input type="hidden" name="project_id" value="{{ project['id'] }}" />{% endif %}
 
       <div class="form-section">
-        <div class="section-head"><span class="step">1</span><label class="field-label">Product details</label></div>
+        <div class="section-head"><span class="step">1</span><label class="field-label">Product Details</label></div>
         <p class="brand-hint">These come from the product URL when you prefill — edit them freely.</p>
         <div class="field-grid">
           <div class="field">
-            <label class="field-sublabel" for="name">Product name</label>
+            <label class="field-sublabel" for="name">Product Name</label>
             <input type="text" id="name" name="name" class="text-input" maxlength="200"
                    required value="{{ v('name') }}" placeholder="e.g. Original Red Pepper Sauce" />
           </div>
@@ -75,7 +76,7 @@
       </div>
 
       <div class="form-section">
-        <div class="section-head"><span class="step">2</span><label class="field-label">Key features</label></div>
+        <div class="section-head"><span class="step">2</span><label class="field-label">Key Features</label></div>
         <p class="brand-hint">The only facts callout/infographic assets can use — edit or trim these as needed.</p>
         {% set ft = form.getlist('feature_title') if form else [] %}
         {% set fd = form.getlist('feature_desc') if form else [] %}
@@ -108,7 +109,7 @@
       </div>
 
       <div class="form-section">
-        <div class="section-head"><span class="step">3</span><label class="field-label">Details to complete</label></div>
+        <div class="section-head"><span class="step">3</span><label class="field-label">Details To Complete</label></div>
         <p class="brand-hint">These aren’t on the product page — add them to sharpen the generated images.</p>
         <div class="field-grid">
           <div class="field">
@@ -117,13 +118,13 @@
                    required value="{{ v('category') }}" placeholder="e.g. hot sauce" />
           </div>
           <div class="field">
-            <label class="field-sublabel" for="target_audience">Target audience <span class="field-optional">(optional)</span></label>
+            <label class="field-sublabel" for="target_audience">Target Audience <span class="field-optional">(optional)</span></label>
             <input type="text" id="target_audience" name="target_audience" class="text-input"
                    maxlength="500" value="{{ v('target_audience') }}" placeholder="e.g. home cooks" />
           </div>
         </div>
         <div class="field">
-          <label class="field-sublabel" for="environments">Where it’s used <span class="field-optional">(optional, comma‑separated)</span></label>
+          <label class="field-sublabel" for="environments">Where It’s Used <span class="field-optional">(optional, comma‑separated)</span></label>
           <input type="text" id="environments" name="environments" class="text-input"
                  value="{{ v('environments') }}" placeholder="e.g. a backyard patio, a home kitchen" />
         </div>
@@ -138,14 +139,14 @@
           <div class="field"><label class="field-sublabel" for="unit">Unit</label>
             <input type="text" id="unit" name="unit" class="text-input" maxlength="12"
                    value="{{ v('unit') or 'in' }}" placeholder="in" /></div>
-          <div class="field"><label class="field-sublabel" for="weight">Net contents</label>
+          <div class="field"><label class="field-sublabel" for="weight">Net Contents</label>
             <input type="text" id="weight" name="weight" class="text-input" maxlength="40"
                    value="{{ v('weight') }}" placeholder="e.g. 6 oz" /></div>
         </div>
       </div>
 
       <div class="form-section">
-        <div class="section-head"><span class="step">4</span><label class="field-label">Product photo</label></div>
+        <div class="section-head"><span class="step">4</span><label class="field-label">Product Photo</label></div>
         {% if has_image %}
           <div class="imageset-photo-preview">
             <div class="cutout-frame small">
