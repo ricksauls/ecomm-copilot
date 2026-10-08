@@ -226,9 +226,8 @@ def _download_product_image(url: str) -> bytes | None:
         return None
 
 
-# Match the store's prefill cap so we don't generate benefits for more features
-# than we keep (see app.imageset.store._MAX_PREFILL_FEATURES).
-_PREFILL_FEATURE_CAP = 6
+# How many feature callouts a prefill produces (3 per feature image × 2 images).
+_PREFILL_CALLOUT_COUNT = 6
 
 
 def run_prefill(conn, project, *, fetch=None, callouts=None) -> None:
@@ -261,17 +260,19 @@ def run_prefill(conn, project, *, fetch=None, callouts=None) -> None:
         description=record.description,
     )
 
-    # Turn each PDP bullet into a callout (headline + benefit); fall back to the raw
-    # bullet as the title when the model is unavailable or leaves a headline blank.
-    bullets = [b for b in (record.bullets or []) if b and b.strip()][:_PREFILL_FEATURE_CAP]
-    suggested = suggest(bullets, product_name=record.title, brand=record.brand) if bullets else []
-    items = []
-    for i, bullet in enumerate(bullets):
-        c = suggested[i] if i < len(suggested) else {}
-        items.append({
-            "title": (c.get("headline") or bullet).strip(),
-            "description": (c.get("benefit") or "").strip(),
-        })
+    # Produce a fixed set of feature callouts (headline + benefit) from the bullets,
+    # topping up from the description so we reach the target even when there are
+    # fewer bullets. Fall back to the raw bullets as titles if the model is down.
+    bullets = [b for b in (record.bullets or []) if b and b.strip()][:12]
+    suggested = (
+        suggest(bullets, count=_PREFILL_CALLOUT_COUNT, description=record.description,
+                product_name=record.title, brand=record.brand)
+        if (bullets or (record.description or "").strip()) else []
+    )
+    items = [{"title": c["headline"], "description": c["benefit"]}
+             for c in suggested if c.get("headline") or c.get("benefit")]
+    if not items:  # model unavailable → raw bullets as titles, no benefit
+        items = [{"title": b, "description": ""} for b in bullets[:_PREFILL_CALLOUT_COUNT]]
     isstore.set_features(conn, project["id"], items)
 
     data = _download_product_image(record.main_image_url)

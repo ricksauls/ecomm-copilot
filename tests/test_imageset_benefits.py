@@ -51,7 +51,7 @@ def test_happy_path_returns_headline_and_benefit():
         {"headline": "Long Lasting Protection", "benefit": "Repels mosquitoes for up to 8 hours"},
         {"headline": "Gentle Formula", "benefit": "Soft on hands, tough on grease"},
     ])
-    out = bmod.suggest_callouts(["Repels mosquitoes 8 hrs", "Gentle on hands"], client=client)
+    out = bmod.suggest_callouts(["Repels mosquitoes 8 hrs", "Gentle on hands"], count=2, client=client)
     assert out[0] == {"headline": "Long Lasting Protection",
                       "benefit": "Repels mosquitoes for up to 8 hours"}
     assert out[1]["headline"] == "Gentle Formula"
@@ -59,16 +59,23 @@ def test_happy_path_returns_headline_and_benefit():
     assert client.messages.calls[0]["output_config"]["format"]["type"] == "json_schema"
 
 
+def test_default_count_is_six():
+    # A single returned callout is padded out to the default target of 6.
+    out = bmod.suggest_callouts(["A"], client=_client([{"headline": "One", "benefit": "a"}]))
+    assert len(out) == bmod.DEFAULT_CALLOUT_COUNT == 6
+    assert out[0]["headline"] == "One" and out[1] == {"headline": "", "benefit": ""}
+
+
 def test_overlong_parts_truncated_to_caps():
-    out = bmod.suggest_callouts(["Feature"], client=_client([
+    out = bmod.suggest_callouts(["Feature"], count=1, client=_client([
         {"headline": "H" * 200, "benefit": "B" * 300},
     ]))
     assert len(out[0]["headline"]) == bmod.MAX_HEADLINE_CHARS
     assert len(out[0]["benefit"]) == bmod.MAX_BENEFIT_CHARS
 
 
-def test_fewer_callouts_than_features_pads_blank():
-    out = bmod.suggest_callouts(["A", "B", "C"], client=_client([
+def test_shortfall_padded_to_count():
+    out = bmod.suggest_callouts(["A", "B", "C"], count=3, client=_client([
         {"headline": "Only One", "benefit": "just one"},
     ]))
     assert out[0]["headline"] == "Only One"
@@ -76,8 +83,8 @@ def test_fewer_callouts_than_features_pads_blank():
     assert out[2] == {"headline": "", "benefit": ""}
 
 
-def test_more_callouts_than_features_truncated():
-    out = bmod.suggest_callouts(["A"], client=_client([
+def test_more_callouts_than_count_truncated():
+    out = bmod.suggest_callouts(["A"], count=1, client=_client([
         {"headline": "One", "benefit": "a"}, {"headline": "Two", "benefit": "b"},
     ]))
     assert len(out) == 1 and out[0]["headline"] == "One"
@@ -85,9 +92,9 @@ def test_more_callouts_than_features_truncated():
 
 def test_refusal_returns_empty():
     client = _FakeClient(_FakeResp("{}", stop_reason="refusal"))
-    assert bmod.suggest_callouts(["A"], client=client) == []
+    assert bmod.suggest_callouts(["A"], count=1, client=client) == []
 
 
 def test_bad_json_returns_empty():
     client = _FakeClient(_FakeResp("not json"))
-    assert bmod.suggest_callouts(["A"], client=client) == []
+    assert bmod.suggest_callouts(["A"], count=1, client=client) == []
