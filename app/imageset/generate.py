@@ -14,7 +14,7 @@ run can enqueue only the implemented ones (see :func:`enqueue_project_assets`).
 import json
 import logging
 
-from app.imageset import compose, config, iconlib, reference_objects, storage, templates
+from app.imageset import compose, config, iconlib, plan, reference_objects, storage, templates
 from app.imageset import store as isstore
 from app.imageset.prompts import (
     build_backdrop_prompt,
@@ -325,10 +325,15 @@ def _gen_feature_callout(conn, project, asset, cutout, logo) -> tuple[bytes, byt
         prompt=prompt, size=f"{config.AI_SCENE_SIZE}x{config.AI_SCENE_SIZE}", background="opaque",
         context={"project_id": project["id"], "asset_type": "FEATURE_CALLOUT"},
     )
+    # Coerce the layout at render time too, so even an asset planned before the
+    # side-only rule (its row may still hold "product-center") regenerates in the
+    # correct side-by-side format without needing a DB migration.
+    layout = plan._resolve_layout(
+        "FEATURE_CALLOUT", asset["layout_style"], asset["variation_number"])
     final = templates.create_feature_callout(
         features=features, cutout=cutout,
         brand=resolve_brand_palette(project, cutout),
-        layout=asset["layout_style"] or "product-left",
+        layout=layout,
         backdrop_png=backdrop.png,
     )
     meta = {"provider": backdrop.provider, "model": backdrop.model,

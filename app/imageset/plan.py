@@ -31,6 +31,13 @@ _MAX_TOKENS = 8000
 ASSET_TYPES = ("LIFESTYLE", "FEATURE_CALLOUT", "PRODUCT_IN_USE", "SIZE_COMPARISON")
 LAYOUT_STYLES = ("product-left", "product-center", "product-right")
 
+# A feature callout is a product shown beside a column of icon → headline → divider
+# → benefit rows, so it only reads correctly in a side-by-side layout. The centered
+# layout stacks the product above the rows and squeezes them into a bottom band,
+# which looks wrong for this asset type — so reserve "product-center" for the
+# LIFESTYLE / SIZE_COMPARISON scenes and keep feature callouts on a side layout.
+_SIDE_ONLY_ASSET_TYPES = frozenset({"FEATURE_CALLOUT"})
+
 # The exact package composition every plan must contain (7 assets total).
 REQUIRED_COMPOSITION = {
     "LIFESTYLE": 2,
@@ -153,6 +160,9 @@ def build_creative_plan_prompt(ctx: PlanProductContext) -> str:
         "- The two PRODUCT_IN_USE concepts must be meaningfully different usage scenarios.\n"
         "- FEATURE_CALLOUT items must set assignedFeatureIds to 2-3 approved feature ids; the "
         "two callouts should not unnecessarily repeat features.\n"
+        "- FEATURE_CALLOUT layoutStyle MUST be \"product-left\" or \"product-right\" (the product "
+        "sits beside the column of feature rows); NEVER \"product-center\" for a callout. Give the "
+        "two callouts opposite sides so they mirror each other.\n"
         "- Each asset has ONE primary communication objective. Keep copy brief for mobile.\n"
         "- assignedFeatureIds MUST be chosen only from the ids listed below.\n\n"
         "Product:\n"
@@ -173,28 +183,41 @@ def build_creative_plan_prompt(ctx: PlanProductContext) -> str:
     )
 
 
+def _resolve_layout(asset_type: str, raw_layout, variation: int) -> str:
+    """Return a valid, renderable ``layout_style`` for this asset.
+
+    An unrecognized value falls back to the package default (``product-left``).
+    For asset types that can't use the centered layout (see
+    ``_SIDE_ONLY_ASSET_TYPES``), a ``product-center`` choice is redirected to a
+    side layout, alternating by variation so the two feature callouts mirror each
+    other (variation 1 → product on the right, variation 2 → product on the left).
+    """
+    layout = raw_layout if raw_layout in LAYOUT_STYLES else "product-left"
+    if layout == "product-center" and asset_type in _SIDE_ONLY_ASSET_TYPES:
+        layout = "product-left" if variation == 2 else "product-right"
+    return layout
+
+
 def _parse_item(raw: dict, valid_ids: set[str]) -> PlanItem:
     """Parse and bound one plan item, dropping any hallucinated feature ids."""
     asset_type = raw.get("assetType")
     if asset_type not in ASSET_TYPES:
         raise PlanError(f"Plan item has invalid assetType {asset_type!r}")
-    layout = raw.get("layoutStyle")
-    if layout not in LAYOUT_STYLES:
-        layout = "product-left"
-    # Keep only approved ids so the model can never introduce a non-existent fact.
-    ids = [i for i in (raw.get("assignedFeatureIds") or []) if isinstance(i, str) and i in valid_ids]
     try:
         variation = int(raw.get("variationNumber", 1))
     except (TypeError, ValueError):
         variation = 1
+    variation = max(1, min(2, variation))
+    # Keep only approved ids so the model can never introduce a non-existent fact.
+    ids = [i for i in (raw.get("assignedFeatureIds") or []) if isinstance(i, str) and i in valid_ids]
     return PlanItem(
         asset_type=asset_type,
-        variation_number=max(1, min(2, variation)),
+        variation_number=variation,
         title=(raw.get("title") or "").strip()[:_MAX_TITLE],
         scene_description=(raw.get("sceneDescription") or "").strip()[:_MAX_SCENE],
         usage_scenario=(raw.get("usageScenario") or "").strip()[:_MAX_USAGE],
         assigned_feature_ids=ids[:_MAX_FEATURE_IDS],
-        layout_style=layout,
+        layout_style=_resolve_layout(asset_type, raw.get("layoutStyle"), variation),
         generation_instructions=(raw.get("generationInstructions") or "").strip()[:_MAX_INSTRUCTIONS],
     )
 
@@ -293,8 +316,10 @@ def mock_plan(ctx: PlanProductContext) -> CreativePlan:
         PlanItem("LIFESTYLE", 2, f"{ctx.name} in {envs[-1] if len(envs) > 1 else envs[0]}",
                  scene_description=f"{ctx.name} shown in {envs[-1] if len(envs) > 1 else envs[0]}.",
                  layout_style="product-left"),
-        PlanItem("FEATURE_CALLOUT", 1, f"Why {ctx.brand} {ctx.name}", assigned_feature_ids=pick(0, 3)),
-        PlanItem("FEATURE_CALLOUT", 2, f"{ctx.name} highlights", assigned_feature_ids=pick(3, 3)),
+        PlanItem("FEATURE_CALLOUT", 1, f"Why {ctx.brand} {ctx.name}",
+                 assigned_feature_ids=pick(0, 3), layout_style="product-right"),
+        PlanItem("FEATURE_CALLOUT", 2, f"{ctx.name} highlights",
+                 assigned_feature_ids=pick(3, 3), layout_style="product-left"),
         PlanItem("PRODUCT_IN_USE", 1, f"Using {ctx.name}",
                  usage_scenario=f"A person using {ctx.name} in {envs[0]}."),
         PlanItem("PRODUCT_IN_USE", 2, f"{ctx.name} at work",

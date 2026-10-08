@@ -42,6 +42,60 @@ def test_mock_plan_handles_no_features():
     assert all(i.assigned_feature_ids == [] for i in plan.items)
 
 
+def test_mock_plan_feature_callouts_use_mirrored_side_layouts():
+    # A feature callout only reads correctly beside its rows, never centered; the
+    # two mock callouts should mirror each other (one right, one left).
+    plan = planmod.mock_plan(_ctx())
+    callouts = sorted((i for i in plan.items if i.asset_type == "FEATURE_CALLOUT"),
+                      key=lambda i: i.variation_number)
+    assert [c.layout_style for c in callouts] == ["product-right", "product-left"]
+
+
+# --- layout coercion --------------------------------------------------------
+
+def test_feature_callout_center_layout_is_redirected_to_a_side():
+    # The planner may propose "product-center" for a callout; it must be redirected
+    # to a side layout, alternating by variation so the pair mirrors.
+    assert planmod._resolve_layout("FEATURE_CALLOUT", "product-center", 1) == "product-right"
+    assert planmod._resolve_layout("FEATURE_CALLOUT", "product-center", 2) == "product-left"
+
+
+def test_feature_callout_explicit_side_layout_is_respected():
+    # An explicit side choice from the planner is kept as-is.
+    assert planmod._resolve_layout("FEATURE_CALLOUT", "product-left", 1) == "product-left"
+    assert planmod._resolve_layout("FEATURE_CALLOUT", "product-right", 2) == "product-right"
+
+
+def test_center_layout_allowed_for_non_callout_types():
+    # LIFESTYLE / SIZE_COMPARISON scenes may legitimately center the product.
+    assert planmod._resolve_layout("LIFESTYLE", "product-center", 1) == "product-center"
+    assert planmod._resolve_layout("SIZE_COMPARISON", "product-center", 1) == "product-center"
+
+
+def test_unknown_layout_falls_back_to_default():
+    assert planmod._resolve_layout("LIFESTYLE", "sideways", 1) == "product-left"
+    assert planmod._resolve_layout("FEATURE_CALLOUT", None, 1) == "product-left"
+
+
+def test_parsed_callout_never_centers():
+    # End-to-end through the parser: a centered callout item comes out on a side.
+    items = [
+        {"assetType": "LIFESTYLE", "variationNumber": 1, "title": "a"},
+        {"assetType": "LIFESTYLE", "variationNumber": 2, "title": "b"},
+        {"assetType": "FEATURE_CALLOUT", "variationNumber": 1, "title": "c",
+         "layoutStyle": "product-center"},
+        {"assetType": "FEATURE_CALLOUT", "variationNumber": 2, "title": "d",
+         "layoutStyle": "product-center"},
+        {"assetType": "PRODUCT_IN_USE", "variationNumber": 1, "title": "e"},
+        {"assetType": "PRODUCT_IN_USE", "variationNumber": 2, "title": "f"},
+        {"assetType": "SIZE_COMPARISON", "variationNumber": 1, "title": "g"},
+    ]
+    plan = planmod._validate_and_parse({"items": items}, set())
+    callouts = {i.variation_number: i.layout_style
+                for i in plan.items if i.asset_type == "FEATURE_CALLOUT"}
+    assert callouts == {1: "product-right", 2: "product-left"}
+
+
 # --- validation -------------------------------------------------------------
 
 def test_validation_requires_exact_item_count():
