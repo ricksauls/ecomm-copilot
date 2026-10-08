@@ -3,16 +3,17 @@
 _Last updated: 2026-10-08 (session 15 — **all 4 image types now generate**: built the
 FEATURE_CALLOUT (icon badges + blurred AI backdrop + halos, ported from the source app) and
 PRODUCT_IN_USE (AI edit) generators, removed INFOGRAPHIC (7 assets), made the cutout picker
-**per-variation**, added per-image **Regenerate** + **Keep/Discard** gallery controls, and
-strengthened the product-in-use prompt. Session 14 — Image Set UX + a rebuilt AI
-size-comparison. Session 13 — built the PDP Image Set Creation feature.)_
+**per-variation**, added **batch select → Regenerate / Discard / Keep** in the gallery (fixed a
+stuck-spinner on worker-restart-orphaned jobs), and strengthened the product-in-use prompt.
+Session 14 — Image Set UX + a rebuilt AI size-comparison. Session 13 — built PDP Image Set.)_
 
 > ## ⭐ Next session — START HERE (session 15, 2026-10-08)
 >
-> **Everything shipped + deployed; `main` at `45f2676`, CI + Deploy green, 467 tests passing,
+> **Everything shipped + deployed; `main` at `9dd0b24`, CI + Deploy green, 469 tests passing,
 > `ruff` clean.** The `selected_types` and `kept` migrations are additive (auto-apply on
-> web+worker restart); `selected_types` is confirmed live, verify `kept` with the PRAGMA check
-> on `imageset_assets` (same one-liner pattern as before).
+> web+worker restart); `selected_types` confirmed live. `kept` almost certainly applied (the
+> worker was restarted this session), but **verify once** with the PRAGMA check on
+> `imageset_assets` (same one-liner pattern as before).
 >
 > ### ⭐ Needs a live eyeball first (start here)
 > Three new things shipped that the user had **not yet judged live** when we wrapped:
@@ -24,8 +25,10 @@ size-comparison. Session 13 — built the PDP Image Set Creation feature.)_
 > - **Feature-callout v2** — now matches the user's reference (icon badges + blurred backdrop +
 >   halos). Icons were initially too **bold**; re-rasterized thin (stroke-width 0.6). Confirm the
 >   real OpenAI backdrop reads well behind the halos and the product.
-> - **Regenerate / Keep-Discard** — confirm the gallery controls behave (regenerate re-runs one
->   image; discard removes it from the ZIP).
+> - **Batch select → Regenerate / Discard / Keep** — confirm the gallery controls behave: tick
+>   the "Select" checkboxes, then the header buttons act on the set (regenerate re-runs them;
+>   discard removes them from the ZIP; keep re-includes). The stuck-"Generating…" spinner from
+>   worker-restart-orphaned jobs is fixed — such assets now show **Failed** with a Retry.
 >
 > ### ⚠️ Known follow-up the user flagged
 > - **Icon selection is heuristic** (`iconlib.infer_icon`, ported from the source's title/type
@@ -60,14 +63,23 @@ size-comparison. Session 13 — built the PDP Image Set Creation feature.)_
 > - **Per-variation picker**: cutout screen lists Lifestyle 1/2, Feature 1/2, Product In Use 1/2,
 >   Size Comparison (keys `"TYPE:VARIATION"`; `asset_type_choices`); enqueue filters per variation
 >   (bare `"TYPE"` still accepted). Messaging now **"~1 minute per image"**.
-> - **Regenerate + Keep/Discard**: new `imageset_assets.kept` column (additive migration);
->   `store.set_asset_kept` / `reset_asset_for_regeneration`; routes `imageset_regenerate_asset` /
->   `imageset_keep_asset`; gallery cards show Download/Regenerate/Keep-Discard; discarded images
->   dim + are excluded from the ZIP (`imageset_download_zip` filters `kept`).
+> - **Regenerate + Keep/Discard (curation)**: new `imageset_assets.kept` column (additive
+>   migration); `store.set_asset_kept` / `reset_asset_for_regeneration`; discarded images dim +
+>   are excluded from the ZIP (`imageset_download_zip` filters `kept`). The gallery uses a
+>   **batch model**: each finished/failed card has a "Select" checkbox bound (`form=`) to one
+>   header form; header buttons **Regenerate / Discard / Keep selected** act on the ticked set via
+>   `formaction` (+ `keep=0/1`), JS shows the count (`imageset_gallery.js`). Routes
+>   `imageset_regenerate_batch` / `imageset_keep_batch`; single-asset `imageset_regenerate_asset` /
+>   `imageset_keep_asset` routes remain (API + tests).
+> - **Stuck-spinner fix**: a worker restart mid-generation (e.g. this session's `kept`-migration
+>   restart) left assets showing "Generating…" forever. `jobs.reclaim_orphaned_jobs` now also marks
+>   the orphaned **assets** `failed` (not just the jobs), and the gallery view treats a job in
+>   `error` as a failed card — so such assets surface a Retry instead of a spinner.
 >
 > ### Commits this session (all on main)
 > `c596dd5` feature-callout + product-in-use generators, per-variation picker, drop infographic ·
-> `45f2676` retry/keep controls, feature-callout v2 (icons + backdrop), PIU prompt fix (HEAD).
+> `45f2676` retry/keep controls, feature-callout v2 (icons + backdrop), PIU prompt fix ·
+> `9dd0b24` batch select (regenerate/discard/keep) + stuck-spinner fix (HEAD). (plus docs commits.)
 > (Earlier same-day: session-14 work through `8bccd7c` + docs `c92323f`.)
 >
 > _(Session 14's "start here" block follows below — still accurate for the size-comparison,
