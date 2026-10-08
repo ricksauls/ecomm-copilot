@@ -1,9 +1,12 @@
-"""Suggest short Feature:Benefit lines from a product's key features.
+"""Suggest short Feature:Benefit callouts from a product's key features.
 
-Expands each approved key feature into one concise, shopper-facing benefit line
-(<= 120 characters) to prefill the "Potential Feature Image Short Detail" field.
-Uses the app's existing Anthropic/Claude integration (the same pattern as
-:mod:`app.copygen`) and runs on the worker during URL prefill.
+Turns each approved key feature into a punchy marketing callout — a feature
+paired with its benefit, e.g. "Perfectly balanced, heat and flavor" — to prefill
+the "Potential Feature Image Short Detail" field. These appear on a feature image
+(up to three per image), so they are kept to a few words (soft target
+:data:`TARGET_BENEFIT_CHARS`, hard cap :data:`MAX_BENEFIT_CHARS`). Uses the app's
+existing Anthropic/Claude integration (the same pattern as :mod:`app.copygen`) and
+runs on the worker during URL prefill.
 
 Best-effort by design: it is **inert without ``ANTHROPIC_API_KEY``** and any
 failure returns no suggestions, so a benefit hiccup never fails the prefill — the
@@ -18,15 +21,19 @@ import os
 
 logger = logging.getLogger(__name__)
 
-# The "Short detail" field caps at 120 chars (form + store); keep suggestions within it.
+# The "Short detail" field caps at 120 chars (form + store) — the hard safety limit.
 MAX_BENEFIT_CHARS = 120
+# The benefit line sits beneath a feature headline on an image shared by three
+# callouts, so it stays brief. This is the soft target; MAX is the hard cap.
+TARGET_BENEFIT_CHARS = 55
 DEFAULT_MODEL = "claude-opus-5"
 _MAX_TOKENS = 1200
 
 _SYSTEM_PROMPT = (
-    "You write concise e-commerce feature benefits. You output only valid JSON. "
-    "Base each benefit ONLY on the feature given — never invent specifications, "
-    "certifications, ingredients, dimensions, or claims."
+    "You write the short benefit line that sits beneath a product feature headline on a "
+    "marketing feature image. You output only valid JSON. Base each line ONLY on the "
+    "feature given — never invent specifications, durations, certifications, ingredients, "
+    "dimensions, or claims."
 )
 
 # Structured-output contract: one benefit string per input feature, in order.
@@ -62,15 +69,26 @@ def _get_client():
 def _build_prompt(features: list[str], *, product_name: str, brand: str, category: str) -> str:
     numbered = "\n".join(f"{i + 1}. {f}" for i, f in enumerate(features))
     return (
-        "Write ONE short shopper-facing benefit line for each product feature below.\n"
-        f"Each benefit must be at most {MAX_BENEFIT_CHARS} characters, lead with the "
-        "shopper benefit (not the spec), and carry no surrounding quotes.\n"
-        "Return JSON { \"benefits\": [...] } with exactly one entry per feature, in the "
-        "same order.\n\n"
+        "Each feature below is the HEADLINE of one callout on a product feature image "
+        "(three callouts share an image). On each callout the feature headline sits above a "
+        "separator line, and beneath it goes a short benefit line. Write that benefit line "
+        "for each feature.\n\n"
+        "Style (how it should read — do NOT copy these words or their specifics):\n"
+        "  'Long Lasting Protection'  ->  'Repels mosquitoes for up to 8 hours'\n"
+        "  'EvenSpray Technology'     ->  'Delivers an even, consistent spray'\n"
+        "  'Outdoor-Ready Formula'    ->  'Great for camping, hiking and fishing'\n\n"
+        "Rules:\n"
+        f"- Keep it brief: one short phrase or sentence (aim ~{TARGET_BENEFIT_CHARS} "
+        f"characters, never exceed {MAX_BENEFIT_CHARS}) so three fit on one image.\n"
+        "- State the shopper benefit the feature provides — don't just repeat the headline.\n"
+        "- No surrounding quotes.\n"
+        "- Base it ONLY on the given feature and product; never invent durations, diseases, "
+        "certifications, percentages, or other specifics not present in the feature.\n"
+        "Return JSON { \"benefits\": [...] } with exactly one entry per feature, in order.\n\n"
         f"Product: {product_name or '(unnamed)'}"
         f"{' by ' + brand if brand else ''}"
         f"{' (' + category + ')' if category else ''}\n\n"
-        f"Features:\n{numbered}"
+        f"Features (headlines):\n{numbered}"
     )
 
 
