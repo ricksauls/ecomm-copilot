@@ -21,9 +21,12 @@ from dataclasses import dataclass, field
 logger = logging.getLogger(__name__)
 
 # Default Claude model for planning; overridable so a cheaper model can be used
-# for the (small, structured) planning call without a code change.
+# for the planning call without a code change.
 DEFAULT_MODEL = "claude-opus-5"
-_MAX_TOKENS = 2000
+# The plan is 8 assets each with scene/usage/instruction text, so the JSON is
+# large; with medium effort (thinking tokens) a small budget truncates the output
+# mid-string and the JSON won't parse. Keep this generous.
+_MAX_TOKENS = 8000
 
 ASSET_TYPES = ("LIFESTYLE", "FEATURE_CALLOUT", "PRODUCT_IN_USE", "SIZE_COMPARISON", "INFOGRAPHIC")
 LAYOUT_STYLES = ("product-left", "product-center", "product-right")
@@ -313,8 +316,15 @@ def generate_plan(ctx: PlanProductContext, *, model: str | None = None, client=N
     """Produce the creative plan via the configured provider.
 
     Uses Claude when ``IMAGESET_PLAN_PROVIDER=claude``; otherwise the deterministic
-    mock. ``client``/``model`` are injectable for testing the Claude path.
+    mock. A Claude failure (API error, truncated/invalid JSON, bad composition)
+    falls back to the built-in plan rather than failing the whole run, so Approve
+    never hard-fails on a planning hiccup. ``client``/``model`` are injectable for
+    testing the Claude path.
     """
     if plan_provider() == "claude":
-        return _claude_plan(ctx, model=model, client=client)
+        try:
+            return _claude_plan(ctx, model=model, client=client)
+        except PlanError as e:
+            logger.warning("Claude plan failed (%s); falling back to the built-in plan", e)
+            return mock_plan(ctx)
     return mock_plan(ctx)

@@ -154,15 +154,21 @@ def test_claude_plan_parses_and_filters(monkeypatch):
     assert client.messages.calls[0]["output_config"]["format"]["type"] == "json_schema"
 
 
-def test_claude_plan_refusal_raises(monkeypatch):
-    monkeypatch.setenv("IMAGESET_PLAN_PROVIDER", "claude")
+def test_claude_plan_refusal_raises():
     client = _FakeClient(_FakeResp("{}", stop_reason="refusal"))
     with pytest.raises(planmod.PlanError):
-        planmod.generate_plan(_ctx(), client=client)
+        planmod._claude_plan(_ctx(), client=client)
 
 
-def test_claude_plan_bad_json_raises(monkeypatch):
-    monkeypatch.setenv("IMAGESET_PLAN_PROVIDER", "claude")
+def test_claude_plan_bad_json_raises():
     client = _FakeClient(_FakeResp("not json"))
     with pytest.raises(planmod.PlanError):
-        planmod.generate_plan(_ctx(), client=client)
+        planmod._claude_plan(_ctx(), client=client)
+
+
+def test_generate_plan_falls_back_to_mock_on_failure(monkeypatch):
+    # A Claude failure (here: unparseable JSON) must not break Approve — fall back
+    # to the deterministic 8-asset plan instead of raising.
+    monkeypatch.setenv("IMAGESET_PLAN_PROVIDER", "claude")
+    plan = planmod.generate_plan(_ctx(), client=_FakeClient(_FakeResp("not json")))
+    assert len(plan.items) == 8
