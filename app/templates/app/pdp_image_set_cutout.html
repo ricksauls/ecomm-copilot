@@ -5,8 +5,9 @@
 <div class="page-header">
   <div>
     <h1>Review the product cutout</h1>
-    <p class="subtitle">We removed the background from your photo. Check that the product looks clean
-      and complete, then approve it to generate your image set. This is the last step before any
+    <p class="subtitle">We prepared your product cutout. If your photo already had a clean background,
+      it may look the same as before — that’s expected. Check that the product looks clean and
+      complete, then approve it to generate your image set. This is the last step before any
       images are generated.</p>
   </div>
 </div>
@@ -26,12 +27,32 @@
     </div>
   </div>
 
-  <div class="imageset-actions">
-    <form method="post" action="{{ url_for('pages.imageset_approve', pid=project['id']) }}">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+  <form method="post" action="{{ url_for('pages.imageset_approve', pid=project['id']) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+
+    <fieldset class="type-picker">
+      <legend class="type-picker-legend">Which images do you want created?</legend>
+      <p class="type-picker-hint">Pick the image types to generate — you only pay for what you
+        select. Types marked “not ready yet” are coming soon; selecting one generates nothing for
+        now.</p>
+      <div class="type-picker-grid">
+        {% for c in type_choices %}
+        <label class="type-option{{ ' type-option-soon' if not c.ready else '' }}">
+          <input type="checkbox" name="types" value="{{ c.key }}" {{ 'checked' if c.ready else '' }} />
+          <span class="type-option-body">
+            <span class="type-option-name">{{ c.label }}{% if not c.ready %}
+              <span class="type-soon-tag">not ready yet</span>{% endif %}</span>
+            <span class="type-option-desc">{{ c.description }}</span>
+          </span>
+        </label>
+        {% endfor %}
+      </div>
+    </fieldset>
+
+    <div class="imageset-actions">
       <button type="submit" class="wbtn wbtn-primary wbtn-lg">Approve &amp; Generate Image Set</button>
-    </form>
-    <a href="{{ url_for('pages.imageset_intake') }}" class="wbtn wbtn-ghost">Start over with a new photo</a>
-  </div>
+      <a href="{{ url_for('pages.imageset_intake') }}" class="wbtn wbtn-ghost">Start over with a new photo</a>
+    </div>
+  </form>
 </div>
 {% endblock %}

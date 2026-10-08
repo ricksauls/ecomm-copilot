@@ -151,6 +151,77 @@ def test_asset_image_and_zip_after_generation(client, auth, tmp_path, monkeypatc
     assert zresp.status_code == 200 and zresp.mimetype == "application/zip"
 
 
+def test_download_names_use_walmart_item_number(client, auth, tmp_path, monkeypatch):
+    """Asset + ZIP downloads are named product-<item>-<type>-<n>, foldered in the ZIP."""
+    import io
+    import zipfile
+
+    monkeypatch.setenv("MEDIA_DIR", str(tmp_path))
+    auth.register()
+    _submit_intake(client)
+    with client.application.app_context():
+        db = get_db()
+        pid = isstore.list_projects(db, 1)[0]["id"]
+        # Give the project a Walmart source URL so the item number drives the name.
+        db.execute("UPDATE imageset_projects SET source_url = ? WHERE id = ?",
+                   ("https://www.walmart.com/ip/off-deep-woods/10294528", pid))
+        db.commit()
+    client.post(f"/app/pdp-image-set/{pid}/approve")
+    with client.application.app_context():
+        db = get_db()
+        _run_plan(db)
+        project = isstore.get_project(db, pid, 1)
+        sc = next(a for a in isstore.assets_for_project(db, pid, 1)
+                  if a["asset_type"] == "SIZE_COMPARISON")
+        generate.process_asset(db, sc, project)
+        aid = sc["id"]
+    dl = client.get(f"/app/pdp-image-set/{pid}/asset/{aid}/download")
+    assert dl.status_code == 200
+    assert "product-10294528-size_comparison-1.png" in dl.headers["Content-Disposition"]
+    zresp = client.get(f"/app/pdp-image-set/{pid}/download.zip")
+    assert "product-10294528-image-set.zip" in zresp.headers["Content-Disposition"]
+    names = zipfile.ZipFile(io.BytesIO(zresp.data)).namelist()
+    assert all(n.startswith("product-10294528/") for n in names)
+
+
+def test_download_name_falls_back_to_project_id(client, auth, tmp_path, monkeypatch):
+    """A manually-uploaded product (no Walmart URL) falls back to proj<id> naming."""
+    monkeypatch.setenv("MEDIA_DIR", str(tmp_path))
+    auth.register()
+    _submit_intake(client)
+    with client.application.app_context():
+        db = get_db()
+        pid = isstore.list_projects(db, 1)[0]["id"]
+    client.post(f"/app/pdp-image-set/{pid}/approve")
+    with client.application.app_context():
+        db = get_db()
+        _run_plan(db)
+        project = isstore.get_project(db, pid, 1)
+        sc = next(a for a in isstore.assets_for_project(db, pid, 1)
+                  if a["asset_type"] == "SIZE_COMPARISON")
+        generate.process_asset(db, sc, project)
+        aid = sc["id"]
+    dl = client.get(f"/app/pdp-image-set/{pid}/asset/{aid}/download")
+    assert f"product-proj{pid}-size_comparison-1.png" in dl.headers["Content-Disposition"]
+
+
+def test_approve_stores_selected_types(client, auth, tmp_path, monkeypatch):
+    """Ticked types are persisted and gate which assets get queued."""
+    monkeypatch.setenv("MEDIA_DIR", str(tmp_path))
+    auth.register()
+    _submit_intake(client)
+    with client.application.app_context():
+        db = get_db()
+        pid = isstore.list_projects(db, 1)[0]["id"]
+    client.post(f"/app/pdp-image-set/{pid}/approve", data={"types": ["SIZE_COMPARISON"]})
+    with client.application.app_context():
+        db = get_db()
+        _run_plan(db)
+        # Only the one selected+implemented type was queued.
+        assert db.execute("SELECT COUNT(*) FROM imageset_jobs WHERE project_id = ?",
+                          (pid,)).fetchone()[0] == 1
+
+
 def test_idor_other_user_cannot_access(client, auth, tmp_path, monkeypatch):
     monkeypatch.setenv("MEDIA_DIR", str(tmp_path))
     auth.register()  # user 1

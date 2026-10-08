@@ -26,6 +26,30 @@ logger = logging.getLogger(__name__)
 # others get their generators in a later phase.
 IMPLEMENTED_TYPES = frozenset({"LIFESTYLE", "SIZE_COMPARISON"})
 
+# The type picker shown on the cutout-review screen. Order drives the checkbox
+# list; keys must stay in sync with ``plan.ASSET_TYPES`` (guarded by a test).
+# ``ready`` mirrors IMPLEMENTED_TYPES — unready types still render (so the user
+# sees the roadmap and can test selection), but generate nothing until built.
+_ASSET_TYPE_META = (
+    ("LIFESTYLE", "Lifestyle", "Your product staged in a real-world scene."),
+    ("FEATURE_CALLOUT", "Feature Callout", "Headline + benefit lines pointing at the product."),
+    ("PRODUCT_IN_USE", "Product in Use", "The product shown being used in context."),
+    ("SIZE_COMPARISON", "Size Comparison", "Dimensions shown against a familiar reference."),
+    ("INFOGRAPHIC", "Infographic", "Key facts and benefits laid out as a graphic."),
+)
+
+
+def asset_type_choices() -> list[dict]:
+    """The cutout-review type picker, as display dicts (key/label/description/ready).
+
+    ``ready`` types are checked by default in the template; the rest are offered
+    but unchecked, since selecting one generates nothing until its generator ships.
+    """
+    return [
+        {"key": key, "label": label, "description": desc, "ready": key in IMPLEMENTED_TYPES}
+        for key, label, desc in _ASSET_TYPE_META
+    ]
+
 # Lifestyle placement baseline (product ~62% tall, low ground line, soft
 # directional cast shadow + shallow depth of field). Tunable per asset later.
 LIFESTYLE_DEFAULTS = {
@@ -285,18 +309,40 @@ def run_prefill(conn, project, *, fetch=None, callouts=None) -> None:
                 sum(1 for c in suggested if c.get("benefit")), bool(data))
 
 
+def _selected_types(project) -> frozenset[str] | None:
+    """The asset types the user chose on the cutout screen, or None for 'all'.
+
+    Stored as a JSON array in ``selected_types``; NULL/absent/malformed means the
+    user made no explicit choice, so we fall back to all implemented types.
+    """
+    raw = project["selected_types"] if "selected_types" in project.keys() else None
+    if not raw:
+        return None
+    try:
+        picked = json.loads(raw)
+    except (ValueError, TypeError):
+        logger.warning("Ignoring malformed selected_types for project=%s", project["id"])
+        return None
+    return frozenset(str(t) for t in picked) if isinstance(picked, list) and picked else None
+
+
 def enqueue_project_assets(conn, project, user_id: int, *, only_implemented: bool = True) -> list[int]:
     """Queue generation jobs for a project's assets; return the job ids.
 
     With ``only_implemented`` (the default for the slice), only asset types with a
-    generator are queued, so unbuilt types don't show as failures. Moves the
-    project to ``generating``.
+    generator are queued, so unbuilt types don't show as failures. When the user
+    picked a subset on the cutout screen (``selected_types``), only those types are
+    queued — so they pay to generate only what they asked for. Moves the project to
+    ``generating``.
     """
     from app.imageset import jobs as isjobs
 
+    chosen = _selected_types(project)
     job_ids: list[int] = []
     for asset in isstore.assets_for_project(conn, project["id"], user_id):
         if only_implemented and asset["asset_type"] not in IMPLEMENTED_TYPES:
+            continue
+        if chosen is not None and asset["asset_type"] not in chosen:
             continue
         jid = isjobs.enqueue_asset_job(
             conn, user_id=user_id, project_id=project["id"], asset_id=asset["id"]
@@ -304,5 +350,6 @@ def enqueue_project_assets(conn, project, user_id: int, *, only_implemented: boo
         if jid is not None:
             job_ids.append(jid)
     isstore.set_status(conn, project["id"], isstore.STATUS_GENERATING)
-    logger.info("Enqueued %d asset job(s) for project=%s", len(job_ids), project["id"])
+    logger.info("Enqueued %d asset job(s) for project=%s (selected_types=%s)",
+                len(job_ids), project["id"], sorted(chosen) if chosen else "all")
     return job_ids

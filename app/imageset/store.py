@@ -390,6 +390,24 @@ def approve_cutout(conn: sqlite3.Connection, project_id: int) -> None:
     logger.info("Cutout approved for image-set project id=%s", project_id)
 
 
+def set_selected_types(conn: sqlite3.Connection, project_id: int, types: list[str]) -> None:
+    """Persist the asset types the user chose on the cutout screen.
+
+    Stored as a JSON array; only known plan types are kept (defense against a
+    tampered form). An empty list is stored as NULL, which generation reads as
+    "all implemented types" — the prior default — so the flow never dead-ends.
+    """
+    valid = [t for t in types if t in planmod.ASSET_TYPES]
+    payload = json.dumps(valid) if valid else None
+    conn.execute(
+        "UPDATE imageset_projects SET selected_types = ?, updated_at = datetime('now') "
+        "WHERE id = ?",
+        (payload, project_id),
+    )
+    conn.commit()
+    logger.info("Image-set project id=%s selected_types=%s", project_id, valid or "all")
+
+
 def set_logo(conn: sqlite3.Connection, project_id: int, path: str) -> None:
     """Record an optional brand logo for compositing."""
     conn.execute(

@@ -149,7 +149,10 @@
         <div class="section-head"><span class="step">4</span><label class="field-label">Product Photo</label></div>
         {% if has_image %}
           <div class="imageset-photo-preview">
-            <div class="cutout-frame small">
+            {# Plain (non-checkerboard) frame: this is the ORIGINAL photo, not a
+               cutout. A checkerboard here would wrongly imply the background is
+               already removed. The checkerboard lives on the cutout-review step. #}
+            <div class="photo-frame small">
               <img src="{{ url_for('pages.imageset_original_image', pid=project['id']) }}" alt="Product photo" class="cutout-img" />
             </div>
             <div>
@@ -174,7 +177,7 @@
         {% endif %}
       </div>
 
-      <button type="submit" class="wbtn wbtn-primary wbtn-lg">Remove Background &amp; Continue</button>
+      <button type="submit" class="wbtn wbtn-primary wbtn-lg">Continue to Cutout Review</button>
     </form>
   </div>
 {% endif %}

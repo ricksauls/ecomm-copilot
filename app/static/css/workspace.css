@@ -2687,6 +2687,46 @@ textarea.text-input { resize: vertical; line-height: 1.5; }
 .cutout-hint { font-size: 12.5px; color: var(--mid-gray); margin-top: 14px; max-width: 42ch; }
 .imageset-actions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 
+/* Cutout-review type picker: choose which asset types to generate. */
+.type-picker { border: 0; margin: 4px 0 20px; padding: 0; }
+.type-picker-legend { font-size: 15px; font-weight: 700; padding: 0; }
+.type-picker-hint { font-size: 12.5px; color: var(--mid-gray); margin: 4px 0 14px; max-width: 60ch; }
+.type-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 10px;
+}
+.type-option {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background-color: var(--surface);
+  cursor: pointer;
+}
+.type-option:hover { border-color: var(--mid-gray); }
+.type-option input { margin-top: 2px; flex-shrink: 0; }
+.type-option-body { display: flex; flex-direction: column; gap: 2px; }
+.type-option-name { font-size: 13.5px; font-weight: 600; }
+.type-option-desc { font-size: 12px; color: var(--mid-gray); }
+/* "Coming soon" types: still selectable, but visibly de-emphasized. */
+.type-option-soon { background-color: var(--faint-gray); }
+.type-soon-tag {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--mid-gray);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 1px 7px;
+  vertical-align: middle;
+}
+
 .wbtn-sm { font-size: 11.5px; padding: 6px 12px; }
 
 /* Asset gallery grid. */
@@ -2760,6 +2800,20 @@ textarea.text-input { resize: vertical; line-height: 1.5; }
 /* Photo preview when prefilled from a fetched image. */
 .imageset-photo-preview { display: flex; gap: 18px; align-items: flex-start; flex-wrap: wrap; }
 .cutout-frame.small { width: 160px; height: 160px; }
+
+/* Original-photo preview on the intake step: a plain (non-checkerboard) frame.
+   Unlike .cutout-frame, this must NOT imply the background has been removed. */
+.photo-frame {
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background-color: var(--surface);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.photo-frame.small { width: 160px; height: 160px; }
 .csv-drop.compact { padding: 14px; margin-top: 10px; }
 
 /* Spinner for a generating asset. */

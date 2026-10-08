@@ -332,6 +332,7 @@ CREATE TABLE IF NOT EXISTS imageset_projects (
     plan_json              TEXT,          -- the validated CreativePlan (JSON)
     batch_id               TEXT,          -- groups a generation run for history
     source_url             TEXT,          -- Walmart PDP URL when prefilled from a product
+    selected_types         TEXT,          -- JSON array of asset types the user chose to generate (NULL = all implemented)
     error                  TEXT,
     created_at             TEXT    NOT NULL DEFAULT (datetime('now')),
     updated_at             TEXT    NOT NULL DEFAULT (datetime('now'))
@@ -544,6 +545,9 @@ def _migrate(conn: sqlite3.Connection) -> None:
     if imgset_cols and "source_url" not in imgset_cols:
         conn.execute("ALTER TABLE imageset_projects ADD COLUMN source_url TEXT")
         logger.info("Migrated imageset_projects: added 'source_url' column")
+    if imgset_cols and "selected_types" not in imgset_cols:
+        conn.execute("ALTER TABLE imageset_projects ADD COLUMN selected_types TEXT")
+        logger.info("Migrated imageset_projects: added 'selected_types' column")
 
 
 def ensure_schema(conn: sqlite3.Connection) -> None:

@@ -145,6 +145,30 @@ def test_enqueue_only_implemented_filters(app, tmp_path, monkeypatch):
         assert isstore.get_project(db, pid, uid)["status"] == isstore.STATUS_GENERATING
 
 
+def test_enqueue_respects_selected_types(app, tmp_path, monkeypatch):
+    """Only the user-selected (and implemented) types are queued."""
+    monkeypatch.setenv("MEDIA_DIR", str(tmp_path))
+    with app.app_context():
+        db = get_db()
+        uid = create_local_user("sel@example.com", "password123")
+        pid = _project_with_cutout(db, uid)
+        _plan_and_assets(db, uid, pid)
+        # User ticks only SIZE_COMPARISON (plus an unbuilt type that generates nothing).
+        isstore.set_selected_types(db, pid, ["SIZE_COMPARISON", "INFOGRAPHIC"])
+        job_ids = generate.enqueue_project_assets(db, isstore.get_project(db, pid, uid), uid)
+        # Only the 1 SIZE_COMPARISON is both selected and implemented.
+        assert len(job_ids) == 1
+
+
+def test_asset_type_choices_match_plan_types(app):
+    """The cutout picker's keys stay in sync with the planner's asset types."""
+    choices = generate.asset_type_choices()
+    assert [c["key"] for c in choices] == list(planmod.ASSET_TYPES)
+    # Only the implemented types are checked-by-default.
+    ready = {c["key"] for c in choices if c["ready"]}
+    assert ready == set(generate.IMPLEMENTED_TYPES)
+
+
 # --- worker integration -----------------------------------------------------
 
 def test_worker_processes_asset_job(app, tmp_path, monkeypatch):

@@ -2170,6 +2170,7 @@ def imageset_cutout(pid):
     return render_template(
         "app/pdp_image_set_cutout.html", breadcrumb=_IMGSET_BREADCRUMB,
         active_nav=_IMGSET_NAV, project=project,
+        type_choices=imageset_generate.asset_type_choices(),
     )
 
 
@@ -2185,9 +2186,15 @@ def imageset_approve(pid):
     if not project["cutout_path"]:
         abort(400, description="No cutout to approve yet.")
     db = get_db()
+    # The user ticks which image types to generate on the cutout screen; store the
+    # selection so generation builds (and the user pays for) only those. An empty
+    # selection is stored as "all implemented" so the flow can't dead-end.
+    selected = request.form.getlist("types")
+    imageset_store.set_selected_types(db, pid, selected)
     imageset_store.approve_cutout(db, pid)
     imageset_store.queue_plan(db, pid)  # worker plans, creates assets, enqueues them
-    logger.info("Image-set approved + queued for planning project=%s user_id=%s", pid, g.user["id"])
+    logger.info("Image-set approved + queued for planning project=%s user_id=%s types=%s",
+                pid, g.user["id"], selected or "all")
     return redirect(url_for("pages.imageset_gallery", pid=pid))
 
 
@@ -2292,15 +2299,33 @@ def imageset_asset_image(pid, aid):
     return _serve_imageset_file(rel, download_name=f"asset-{aid}.png", as_attachment=False)
 
 
+def _imageset_product_id(project) -> str:
+    """The product identifier used in downloaded filenames and folders.
+
+    Prefers the Walmart item number (parsed from the product's source URL) so the
+    download ties back to the live listing; falls back to the internal project id
+    (``proj<pid>``) for manually-uploaded products that have no Walmart URL.
+    """
+    url = project["source_url"] if "source_url" in project.keys() else None
+    item = pdp.item_number_from_url(url) if url else None
+    return item or f"proj{project['id']}"
+
+
+def _imageset_asset_filename(product_id: str, asset) -> str:
+    """Stem a single asset's download as ``product-<id>-<type>-<variation>``."""
+    atype = (asset["asset_type"] or "asset").lower()
+    return f"product-{product_id}-{atype}-{asset['variation_number']}.png"
+
+
 @bp.route("/app/pdp-image-set/<int:pid>/asset/<int:aid>/download")
 @login_required
 def imageset_asset_download(pid, aid):
     """Serve an asset's final as a file download."""
-    _imageset_project_or_404(pid)
+    project = _imageset_project_or_404(pid)
     asset = imageset_store.get_asset(get_db(), aid, g.user["id"])
     if asset is None or asset["project_id"] != pid:
         abort(404)
-    name = (asset["asset_type"] or "asset").lower() + f"-{aid}.png"
+    name = _imageset_asset_filename(_imageset_product_id(project), asset)
     return _serve_imageset_file(asset["final_path"], download_name=name, as_attachment=True)
 
 
@@ -2315,6 +2340,8 @@ def imageset_download_zip(pid):
 
     project = _imageset_project_or_404(pid)
     db, uid = get_db(), g.user["id"]
+    product_id = _imageset_product_id(project)
+    folder = f"product-{product_id}"  # ZIP root folder, named for the product
     buf = io.BytesIO()
     written = 0
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -2322,15 +2349,16 @@ def imageset_download_zip(pid):
             path = imageset_storage.abs_path(asset["final_path"])
             if not path or not os.path.isfile(path):
                 continue
-            arc = f"{asset['asset_type'].lower()}-{asset['variation_number']}-{asset['id']}.png"
+            arc = f"{folder}/{_imageset_asset_filename(product_id, asset)}"
             zf.write(path, arcname=arc)
             written += 1
     if not written:
         abort(404, description="No finished images to download yet.")
     buf.seek(0)
-    logger.info("Image-set ZIP: %d asset(s) project=%s user_id=%s", written, pid, uid)
+    logger.info("Image-set ZIP: %d asset(s) project=%s product_id=%s user_id=%s",
+                written, pid, product_id, uid)
     return send_file(buf, mimetype="application/zip", as_attachment=True,
-                     download_name=f"image-set-{project['name'][:40] or pid}.zip", max_age=0)
+                     download_name=f"product-{product_id}-image-set.zip", max_age=0)
 
 
 # ── Contact Us (user side) ───────────────────────────────────────────────────
