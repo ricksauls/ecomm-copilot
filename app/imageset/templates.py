@@ -10,7 +10,7 @@ templates land here in a later phase.
 
 import logging
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageChops, ImageDraw
 
 from app.imageset import compose
 from app.imageset.config import CANVAS_SIZE, SAFE_MARGIN
@@ -94,6 +94,33 @@ def format_dimensions_line(dimensions: dict) -> str:
     return "  ·  ".join(parts)
 
 
+def _recenter_vertically(canvas: Image.Image, band_top: int, band_bottom: int,
+                         *, bg=(255, 255, 255), threshold: int = 14) -> Image.Image:
+    """Shift the image's content so it's vertically centered in [band_top, band_bottom].
+
+    The size-comparison scene is items on a pure-white field, and the image model
+    tends to place them high; this centers them in the whitespace band between the
+    bars. Finds the content's vertical extent (non-white beyond ``threshold``,
+    ignoring faint shadow/anti-alias noise) and translates the whole scene so that
+    extent's midpoint lands on the band's midpoint. Vacated area is filled with
+    ``bg``. A no-op when there's no content or it already fits centered.
+    """
+    diff = ImageChops.difference(canvas.convert("RGB"), Image.new("RGB", canvas.size, bg))
+    mask = diff.convert("L").point(lambda p: 255 if p > threshold else 0)
+    bbox = mask.getbbox()
+    if not bbox:
+        return canvas
+    content_mid = (bbox[1] + bbox[3]) / 2
+    shift = round((band_top + band_bottom) / 2 - content_mid)
+    if shift == 0:
+        return canvas
+    shifted = Image.new("RGB", canvas.size, bg)
+    shifted.paste(canvas, (0, shift))
+    logger.debug("Re-centered size-comparison content by %dpx (band %d–%d)",
+                 shift, band_top, band_bottom)
+    return shifted
+
+
 def render_size_comparison_bars(
     scene_png: bytes,
     *,
@@ -114,16 +141,20 @@ def render_size_comparison_bars(
     brand = brand or DEFAULT_BRAND
     primary = _hex_to_rgb(brand.get("primary", DEFAULT_BRAND["primary"]))
     canvas = compose.cover_scene(compose.load_image(scene_png), size)  # 2000² RGB
-    draw = ImageDraw.Draw(canvas)
 
     top_h = round(size * 0.085)
+    bottom_h = round(size * 0.145)
+    by = size - bottom_h
+    # Center the items in the whitespace between the bars before drawing the bars
+    # (the model tends to place them high, leaving uneven space top vs. bottom).
+    canvas = _recenter_vertically(canvas, top_h, by)
+    draw = ImageDraw.Draw(canvas)
+
     draw.rectangle([0, 0, size, top_h], fill=primary)
     if headline:
         compose.draw_text_centered(draw, (size / 2, top_h / 2), headline,
                                    size=round(top_h * 0.42), fill=(255, 255, 255), bold=True)
 
-    bottom_h = round(size * 0.145)
-    by = size - bottom_h
     draw.rectangle([0, by, size, size], fill=primary)
     if dimensions_line:
         compose.draw_text_centered(draw, (size / 2, by + bottom_h * 0.37), dimensions_line,

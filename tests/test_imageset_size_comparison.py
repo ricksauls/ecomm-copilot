@@ -8,12 +8,13 @@ no-dimensions diagram fallback) is exercised in test_imageset_generate.py.
 
 import io
 
-from PIL import Image
+from PIL import Image, ImageChops, ImageDraw
 
 from app.imageset import compose, reference_objects
+from app.imageset.config import CANVAS_SIZE
 from app.imageset.generate import _scale_caption
 from app.imageset.prompts import build_size_comparison_prompt
-from app.imageset.templates import format_dimensions_line
+from app.imageset.templates import _recenter_vertically, format_dimensions_line
 
 
 def test_reference_objects_pick_closest_by_size():
@@ -81,3 +82,38 @@ def test_detect_dominant_color_survives_png_roundtrip():
     img = Image.new("RGBA", (20, 20), (20, 120, 200, 255))
     loaded = Image.open(io.BytesIO(compose.to_png_bytes(img)))
     assert compose.detect_dominant_color(loaded) is not None
+
+
+def _content_mid(img):
+    bbox = ImageChops.difference(
+        img, Image.new("RGB", img.size, (255, 255, 255))).getbbox()
+    return (bbox[1] + bbox[3]) / 2 if bbox else None
+
+
+def test_recenter_vertically_centers_content_in_band():
+    # Content sitting high on a white field is moved to the band's vertical center.
+    size = CANVAS_SIZE
+    img = Image.new("RGB", (size, size), (255, 255, 255))
+    ImageDraw.Draw(img).rectangle([800, 200, 1200, 600], fill=(10, 10, 10))
+    band_top, band_bottom = round(size * 0.085), size - round(size * 0.145)
+    out = _recenter_vertically(img, band_top, band_bottom)
+    assert abs(_content_mid(out) - (band_top + band_bottom) / 2) <= 2
+
+
+def test_recenter_vertically_noop_on_blank():
+    size = CANVAS_SIZE
+    blank = Image.new("RGB", (size, size), (255, 255, 255))
+    out = _recenter_vertically(blank, 170, 1710)
+    assert ImageChops.difference(out, blank).getbbox() is None  # unchanged, still blank
+
+
+def test_recenter_vertically_ignores_faint_noise():
+    # A faint near-white speck (below threshold) must not anchor the content box.
+    size = CANVAS_SIZE
+    img = Image.new("RGB", (size, size), (255, 255, 255))
+    ImageDraw.Draw(img).rectangle([900, 300, 1100, 500], fill=(0, 0, 0))     # real content
+    ImageDraw.Draw(img).point([(10, size - 10)], fill=(252, 252, 252))        # faint speck
+    band_top, band_bottom = 170, size - 290
+    out = _recenter_vertically(img, band_top, band_bottom)
+    # Centered on the real block (mid 400 → band center), not dragged toward the speck.
+    assert abs(_content_mid(out) - (band_top + band_bottom) / 2) <= 3
