@@ -1,6 +1,79 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-10-07 (session 12 — UI/UX pass: collapsible icon/tree-line rail redesign + menu/breadcrumb relabeling; View Scoring History grouped by run; "View copy results" scoped/latest/missing; assorted cleanups. Session 11 — batch copy rewrites; cost modal generalized; signup honeypot; "Re-export"→"Re-create" data fix)._
+_Last updated: 2026-10-08 (session 13 — built the **PDP Image Set Creation** feature: full vertical slice, Walmart URL prefill, AI feature-callout auto-fill, async planning, and real OpenAI image generation turned on in prod. Session 12 — UI/UX pass: collapsible rail redesign + menu/breadcrumb relabeling; View Scoring History grouped by run; "View copy results" scoped/latest/missing)._
+
+> ## ⭐ Next session — START HERE (session 13, 2026-10-08)
+>
+> **Everything below shipped + deployed; `main` at `5639e49`, CI+Deploy green, 444
+> tests passing, `ruff` clean.** Session 13 built a whole new feature end-to-end:
+> **PDP Image Set Creation** (the nav placeholder is now live), ported from the
+> `marketplace-creative-studio` Next.js app into native Python/Flask.
+>
+> ### What the feature does
+> From one product (facts + a photo) it generates a set of marketplace creative
+> assets. Flow: **intake → background removal → cutout-approval gate → (worker)
+> plan → (worker) generate → gallery → ZIP**. All of it is in **`app/imageset/`**
+> (a package) + routes in `app/routes/pages.py` (search `pdp-image-set`) +
+> templates `app/templates/app/pdp_image_set*.html` + JS `app/static/js/imageset_*.js`
+> + 4 SQLite tables in `app/db.py` (`imageset_projects/features/assets/jobs`).
+>
+> ### Key architecture (mirrors scoring/copy)
+> - **Everything slow runs on the worker** (`worker.py`): the Walmart **fetch**
+>   (headed Chrome), the **plan** (Claude), and **asset generation** (OpenAI +
+>   Pillow compositing) — all async via status/job queues with orphan-reclaim on
+>   startup. The web request never makes a slow call (learned the hard way: a
+>   synchronous Claude plan timed out gunicorn → 500; now it's `plan_queued` →
+>   worker). Generation runs **3-at-a-time** (same `SCORING_CONCURRENCY` pool as copy).
+> - **Providers are pluggable + mock-by-default** (`app/imageset/providers/`,
+>   `app/imageset/benefits.py`, `app/imageset/plan.py`): image gen (OpenAI
+>   gpt-image), background removal (remove.bg), plan + feature-callout text (Claude).
+>   Inert without keys/flags, so tests run offline.
+> - **The compositing engine** (`app/imageset/compose.py`) is a Pillow port of the
+>   source Sharp engine (scene-adaptive shadows, depth-of-field, logo, thumbnails);
+>   programmatic templates in `app/imageset/templates.py` (size-comparison done).
+>
+> ### What's LIVE in prod (droplet `.env` flags set this session)
+> - `OPENAI_API_KEY` set; `IMAGESET_IMAGE_PROVIDER=openai` → **real lifestyle image
+>   generation is ON**. `ANTHROPIC_API_KEY` set → **benefit auto-fill + Copy Content
+>   live**. The user was mid-testing `IMAGESET_PLAN_PROVIDER=claude` (rich scenes) —
+>   **re-enable it** (it was toggled during debugging): append
+>   `IMAGESET_PLAN_PROVIDER=claude` to `/home/deploy/apps/ecomm-copilot/.env` +
+>   `sudo systemctl restart ecomm-copilot ecomm-copilot-worker`. Verify a flag is
+>   actually in `.env` with `grep -nE '^IMAGESET_' .env` (a flag silently missing
+>   cost us an hour this session). The `.env` is **manually maintained** on the
+>   droplet (not written by deploy).
+> - **Prefill** fetches real Walmart data and auto-generates **6 feature callouts**
+>   (tight headline → benefit line each, grounded, ≤120 chars), topping up from the
+>   product description when there are <6 bullets.
+>
+> ### ⚠️ Known caveats / likely next-ups
+> - **`OPENAI_IMAGE_MODEL` defaults to `gpt-image-2`** — if real generation returns
+>   "Failed" with a model-not-found error, set `OPENAI_IMAGE_MODEL` to the account's
+>   valid id (likely `gpt-image-1`) in `.env` + restart. **Not yet confirmed working
+>   end-to-end with the Claude plan on** — that's the user's next test.
+> - **No cost-preflight gate** before real image spend: Approve generates
+>   immediately (~2 lifestyle images/set ≈ $0.08). Add a confirm modal (like the
+>   image-fix one) before heavy use.
+> - **Only 2 of ~6 asset generators built**: LIFESTYLE (AI) + SIZE_COMPARISON
+>   (programmatic). `enqueue_project_assets(only_implemented=True)` filters the rest.
+>   **The big next piece the user wants: the FEATURE-CALLOUT image generator** —
+>   render the headline → separator line → benefit layout (they shared an OFF! Deep
+>   Woods reference image; it's in the chat). Then product-in-use + infographic.
+> - Cutouts use the **mock chroma-key** (fine for white-bg Walmart mains); add a
+>   `remove.bg` key (`IMAGESET_BG_PROVIDER=removebg` + `BACKGROUND_REMOVAL_API_KEY`)
+>   for busy photos.
+> - "View Creative Content Creation History" still isn't wired to list image-set runs.
+> - Local-only dev seed left in the dev `app.db` (test user `demo-imageset@test.local`,
+>   a couple of projects) — harmless, never deployed.
+>
+> ### Commits this session (all on main)
+> `934cc8c` slice · `691954b` URL prefill · `18f2933` field reorder · `e78f66d` /ip/
+> prefix + Title-Case labels · `95d75cc` 120-char detail + label + benefit auto-fill ·
+> `492089e` headline+benefit callouts · `ff3c4f0` fixed 6 callouts · `a15ccbb` plan
+> token/ fallback fix · `5639e49` async planning (HEAD).
+>
+> _(Session 12's "start here" block follows below — still accurate for the rail,
+> nav labels, scoring/copy/CI features.)_
 
 > **⚠️ The blocks immediately below are chronological session-12 notes; some
 > describe intermediate states that were later changed in the same session (menu
