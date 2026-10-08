@@ -172,11 +172,22 @@ def reclaim_orphaned_jobs(conn: sqlite3.Connection) -> int:
     Marking it ``error`` lets the user retry rather than see a stuck spinner.
     Relies on one worker process (like the other queues).
     """
+    # Capture the orphaned assets before flipping the jobs so we can fail them too.
+    orphan_asset_ids = [r[0] for r in conn.execute(
+        "SELECT asset_id FROM imageset_jobs WHERE status = ?", (_PROCESSING,))]
     updated = conn.execute(
         "UPDATE imageset_jobs SET status = 'error', error = ?, "
         "updated_at = datetime('now') WHERE status = ?",
         (_ORPHAN_MESSAGE, _PROCESSING),
     )
+    # Sync the asset to 'failed' so the gallery shows a failed card (with a Retry),
+    # not a stuck "Generating…" spinner. Without this the asset stays 'generating'.
+    for asset_id in orphan_asset_ids:
+        conn.execute(
+            "UPDATE imageset_assets SET status = 'failed', error = ?, "
+            "updated_at = datetime('now') WHERE id = ? AND status NOT IN ('ready', 'failed')",
+            (_ORPHAN_MESSAGE[:200], asset_id),
+        )
     conn.commit()
     if updated.rowcount:
         logger.warning("Reclaimed %d orphaned image-set job(s) on startup", updated.rowcount)

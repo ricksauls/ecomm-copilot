@@ -183,6 +183,65 @@ def test_regenerate_asset_requeues(client, auth, tmp_path, monkeypatch):
                           (aid,)).fetchone()["status"] == "queued"
 
 
+def test_regenerate_batch_requeues_selected(client, auth, tmp_path, monkeypatch):
+    monkeypatch.setenv("MEDIA_DIR", str(tmp_path))
+    auth.register()
+    _submit_intake(client)
+    with client.application.app_context():
+        pid = isstore.list_projects(get_db(), 1)[0]["id"]
+    client.post(f"/app/pdp-image-set/{pid}/approve")
+    with client.application.app_context():
+        db = get_db()
+        _run_plan(db)
+        project = isstore.get_project(db, pid, 1)
+        ids = []
+        for t in ("SIZE_COMPARISON", "LIFESTYLE"):
+            a = next(x for x in isstore.assets_for_project(db, pid, 1) if x["asset_type"] == t)
+            generate.process_asset(db, a, project)
+            ids.append(a["id"])
+    aid1, aid2 = ids
+    resp = client.post(f"/app/pdp-image-set/{pid}/regenerate",
+                       data={"asset_ids": [str(aid1), str(aid2)]})
+    assert resp.status_code == 302
+    with client.application.app_context():
+        db = get_db()
+        for aid in (aid1, aid2):
+            assert isstore.get_asset(db, aid, 1)["status"] == isstore.STATUS_DRAFT
+            assert db.execute("SELECT status FROM imageset_jobs WHERE asset_id = ?",
+                              (aid,)).fetchone()["status"] == "queued"
+        assert isstore.get_project(db, pid, 1)["status"] == isstore.STATUS_GENERATING
+
+
+def test_batch_discard_and_keep(client, auth, tmp_path, monkeypatch):
+    monkeypatch.setenv("MEDIA_DIR", str(tmp_path))
+    auth.register()
+    _submit_intake(client)
+    with client.application.app_context():
+        pid = isstore.list_projects(get_db(), 1)[0]["id"]
+    client.post(f"/app/pdp-image-set/{pid}/approve")
+    with client.application.app_context():
+        db = get_db()
+        _run_plan(db)
+        project = isstore.get_project(db, pid, 1)
+        ids = []
+        for t in ("SIZE_COMPARISON", "LIFESTYLE"):
+            a = next(x for x in isstore.assets_for_project(db, pid, 1) if x["asset_type"] == t)
+            generate.process_asset(db, a, project)
+            ids.append(a["id"])
+    # Discard both at once.
+    client.post(f"/app/pdp-image-set/{pid}/keep",
+                data={"keep": "0", "asset_ids": [str(i) for i in ids]})
+    with client.application.app_context():
+        db = get_db()
+        assert all(isstore.get_asset(db, i, 1)["kept"] == 0 for i in ids)
+    # Keep both again.
+    client.post(f"/app/pdp-image-set/{pid}/keep",
+                data={"keep": "1", "asset_ids": [str(i) for i in ids]})
+    with client.application.app_context():
+        db = get_db()
+        assert all(isstore.get_asset(db, i, 1)["kept"] == 1 for i in ids)
+
+
 def test_keep_toggle_and_zip_excludes_discarded(client, auth, tmp_path, monkeypatch):
     import io
     import zipfile

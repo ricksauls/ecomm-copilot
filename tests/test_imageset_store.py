@@ -172,9 +172,12 @@ def test_reclaim_orphaned_jobs(app):
         uid = create_local_user("m@example.com", "password123")
         pid, aid = _asset(db, uid)
         jid = isjobs.enqueue_asset_job(db, user_id=uid, project_id=pid, asset_id=aid)
+        store.update_asset(db, aid, status="generating")  # mid-generation when orphaned
         isjobs.claim_next_job(db)  # -> processing
         assert isjobs.reclaim_orphaned_jobs(db) == 1
         assert isjobs.get_job(db, jid, uid)["status"] == "error"
+        # The asset is also synced to failed so the gallery shows a Retry, not a spinner.
+        assert store.get_asset(db, aid, uid)["status"] == "failed"
 
 
 def test_cancel_queued_for_project(app):

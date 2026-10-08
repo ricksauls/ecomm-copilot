@@ -20,10 +20,32 @@
       {% else %}Your image set is ready. Download individual images or the whole set.{% endif %}
     </p>
   </div>
-  {% if ready_count %}
+  {% if ready_count or can_regen %}
   <div class="page-header-actions">
+    {% if can_regen %}
+    {# Tick the images to act on, then apply a batch action. Buttons share one form
+       (the per-card checkboxes bind to it via form="imgset-select-form"); each button's
+       formaction routes the selection to regenerate / discard / keep. #}
+    <form id="imgset-select-form" method="post" class="imageset-batch-actions"
+          action="{{ url_for('pages.imageset_regenerate_batch', pid=project['id']) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+      <button type="submit" class="wbtn wbtn-ghost imgset-batch-btn" disabled
+              formaction="{{ url_for('pages.imageset_regenerate_batch', pid=project['id']) }}">
+        Regenerate selected</button>
+      <button type="submit" class="wbtn wbtn-ghost imgset-batch-btn" disabled
+              name="keep" value="0"
+              formaction="{{ url_for('pages.imageset_keep_batch', pid=project['id']) }}">
+        Discard selected</button>
+      <button type="submit" class="wbtn wbtn-ghost imgset-batch-btn" disabled
+              name="keep" value="1"
+              formaction="{{ url_for('pages.imageset_keep_batch', pid=project['id']) }}">
+        Keep selected</button>
+    </form>
+    {% endif %}
+    {% if ready_count %}
     <a href="{{ url_for('pages.imageset_download_zip', pid=project['id']) }}"
        class="wbtn wbtn-primary">Download All ({{ ready_count }})</a>
+    {% endif %}
   </div>
   {% endif %}
 </div>
@@ -67,20 +89,11 @@
         <a class="wbtn wbtn-ghost wbtn-sm"
            href="{{ url_for('pages.imageset_asset_download', pid=project['id'], aid=asset.id) }}">Download</a>
         {% endif %}
-        {# Retry a poor (or failed) result — re-runs just this one image. #}
-        <form method="post" class="imageset-inline-form"
-              action="{{ url_for('pages.imageset_regenerate_asset', pid=project['id'], aid=asset.id) }}">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-          <button type="submit" class="wbtn wbtn-ghost wbtn-sm">Regenerate</button>
-        </form>
-        {% if asset.ready %}
-        {# Keep/discard curates which images go in the final set + ZIP. #}
-        <form method="post" class="imageset-inline-form"
-              action="{{ url_for('pages.imageset_keep_asset', pid=project['id'], aid=asset.id) }}">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-          <button type="submit" class="wbtn wbtn-ghost wbtn-sm">{{ 'Keep' if not asset.kept else 'Discard' }}</button>
-        </form>
-        {% endif %}
+        {# Tick to include this image in a batch action (Regenerate / Discard / Keep). #}
+        <label class="imageset-regen-check">
+          <input type="checkbox" name="asset_ids" value="{{ asset.id }}" form="imgset-select-form" />
+          Select
+        </label>
       </div>
       {% endif %}
     </div>

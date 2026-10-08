@@ -2243,9 +2243,13 @@ def _imageset_asset_view(asset, job) -> dict:
     """Shape one asset + its job into the gallery's display dict."""
     job_status = job["status"] if job else None
     # The asset is "working" while its job is queued/processing; "ready" once the
-    # generation wrote its outputs; else failed/pending.
+    # generation wrote its outputs; else failed/pending. A job that errored (e.g. an
+    # orphan reclaimed after a worker restart) shows as failed even if the asset row
+    # still says "generating", so the user gets a Retry instead of a stuck spinner.
     status = asset["status"]
-    if status not in ("ready", "failed") and job_status in ("queued", "processing"):
+    if status != "ready" and job_status == "error":
+        status = "failed"
+    elif status not in ("ready", "failed") and job_status in ("queued", "processing"):
         status = "generating"
     kept = bool(asset["kept"]) if "kept" in asset.keys() else True
     return {
@@ -2294,6 +2298,8 @@ def imageset_gallery(pid):
         planning=planning,
         # "Download All" bundles the kept, finished images.
         ready_count=sum(1 for a in assets if a["ready"] and a["kept"]),
+        # Any finished/failed image can be ticked for a batch regenerate.
+        can_regen=any(a["ready"] or a["status"] == "failed" for a in assets),
     )
 
 
@@ -2310,6 +2316,49 @@ def imageset_regenerate_asset(pid, aid):
     imageset_jobs.enqueue_asset_job(db, user_id=uid, project_id=pid, asset_id=aid)
     imageset_store.set_status(db, pid, imageset_store.STATUS_GENERATING)
     logger.info("Image-set regenerate asset=%s project=%s user_id=%s", aid, pid, uid)
+    return redirect(url_for("pages.imageset_gallery", pid=pid))
+
+
+@bp.route("/app/pdp-image-set/<int:pid>/regenerate", methods=["POST"])
+@login_required
+def imageset_regenerate_batch(pid):
+    """Re-run generation for several ticked assets at once."""
+    _imageset_project_or_404(pid)
+    db, uid = get_db(), g.user["id"]
+    count = 0
+    for raw in request.form.getlist("asset_ids"):
+        if not raw.isdigit():
+            continue
+        asset = imageset_store.get_asset(db, int(raw), uid)
+        if asset is None or asset["project_id"] != pid:
+            continue
+        imageset_store.reset_asset_for_regeneration(db, asset["id"], uid)
+        imageset_jobs.enqueue_asset_job(db, user_id=uid, project_id=pid, asset_id=asset["id"])
+        count += 1
+    if count:
+        imageset_store.set_status(db, pid, imageset_store.STATUS_GENERATING)
+    logger.info("Image-set batch regenerate %d asset(s) project=%s user_id=%s", count, pid, uid)
+    return redirect(url_for("pages.imageset_gallery", pid=pid))
+
+
+@bp.route("/app/pdp-image-set/<int:pid>/keep", methods=["POST"])
+@login_required
+def imageset_keep_batch(pid):
+    """Keep or discard several ticked assets at once (``keep`` = 1 keep, 0 discard)."""
+    _imageset_project_or_404(pid)
+    db, uid = get_db(), g.user["id"]
+    keep = request.form.get("keep") == "1"
+    count = 0
+    for raw in request.form.getlist("asset_ids"):
+        if not raw.isdigit():
+            continue
+        asset = imageset_store.get_asset(db, int(raw), uid)
+        if asset is None or asset["project_id"] != pid:
+            continue
+        imageset_store.set_asset_kept(db, asset["id"], uid, keep)
+        count += 1
+    logger.info("Image-set batch %s %d asset(s) project=%s user_id=%s",
+                "keep" if keep else "discard", count, pid, uid)
     return redirect(url_for("pages.imageset_gallery", pid=pid))
 
 
