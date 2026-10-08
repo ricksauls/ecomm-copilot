@@ -39,6 +39,7 @@ from app import (  # noqa: E402  (after load_dotenv is intentional)
 )
 from app.imageset import generate as imageset_generate  # noqa: E402
 from app.imageset import jobs as imageset_jobs  # noqa: E402
+from app.imageset import plan as imageset_plan  # noqa: E402
 from app.imageset import store as imageset_store  # noqa: E402
 from app.fetch import FetchBlocked, FetchError, fetch_main_image_url, fetch_pdp  # noqa: E402
 from app.scoring import PdpRecord, result_to_dict, score_pdp  # noqa: E402
@@ -680,6 +681,28 @@ def process_imageset_fetch_one(conn: sqlite3.Connection, project: sqlite3.Row) -
         imageset_store.fail_fetch(conn, pid, f"Unexpected error: {e}")
 
 
+def process_imageset_plan_one(conn: sqlite3.Connection, project: sqlite3.Row) -> None:
+    """Build one claimed project's creative plan, create its assets, and enqueue them.
+
+    Planning is a slow Claude call, so it runs here on the worker rather than in the
+    web request (which would time out). ``generate_plan`` falls back to the built-in
+    plan if Claude fails, so this rarely errors; any unexpected failure marks the
+    project failed so the user can re-approve. Never raises.
+    """
+    pid, uid = project["id"], project["user_id"]
+    try:
+        plan = imageset_plan.generate_plan(imageset_store.plan_context(conn, project))
+        imageset_store.save_plan_and_create_assets(conn, pid, uid, plan)
+        imageset_generate.enqueue_project_assets(
+            conn, imageset_store.get_project(conn, pid, uid), uid)
+        log.info("Planned image-set project=%s and enqueued its assets", pid)
+    except Exception as e:  # noqa: BLE001 - a bad plan must not kill the worker
+        log.exception("Unexpected error planning image-set project=%s", pid)
+        imageset_store.set_status(
+            conn, pid, imageset_store.STATUS_FAILED,
+            error=f"Could not plan the image set: {e}"[:500])
+
+
 def main() -> None:
     """Claim-and-process loop. Runs until the process is stopped.
 
@@ -702,13 +725,14 @@ def main() -> None:
     reclaimed_images = image_jobs.reclaim_orphaned_image_jobs(conn)
     reclaimed_sets = imageset_jobs.reclaim_orphaned_jobs(conn)
     reclaimed_fetches = imageset_store.reclaim_orphaned_fetches(conn)
+    reclaimed_plans = imageset_store.reclaim_orphaned_plans(conn)
     if (reclaimed_items or reclaimed_copy or reclaimed_runs or reclaimed_images
-            or reclaimed_sets or reclaimed_fetches):
+            or reclaimed_sets or reclaimed_fetches or reclaimed_plans):
         log.warning(
             "Startup: reclaimed %d scoring item(s), %d copy item(s), %d CI run(s), "
-            "%d image job(s), %d image-set job(s), %d image-set prefill(s)",
+            "%d image job(s), %d image-set job(s), %d image-set prefill(s), %d plan(s)",
             reclaimed_items, reclaimed_copy, reclaimed_runs, reclaimed_images,
-            reclaimed_sets, reclaimed_fetches,
+            reclaimed_sets, reclaimed_fetches, reclaimed_plans,
         )
     while True:
         # Scoring first and concurrently: drain the whole queue with the thread
@@ -732,6 +756,15 @@ def main() -> None:
             fetch_project = imageset_store.claim_next_fetch(conn)
             if fetch_project is not None:
                 process_imageset_fetch_one(conn, fetch_project)
+                continue
+
+        # Image-set planning next — a slow Claude call moved off the web request.
+        # One project per loop; it creates the assets and enqueues them, which the
+        # image-set generation drain below then processes concurrently.
+        if imageset_store.has_claimable_plan(conn):
+            plan_project = imageset_store.claim_next_plan(conn)
+            if plan_project is not None:
+                process_imageset_plan_one(conn, plan_project)
                 continue
 
         # Image fixes next — the lightest work (provider HTTP calls, no browser),

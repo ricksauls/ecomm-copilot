@@ -188,3 +188,21 @@ def test_cancel_queued_for_project(app):
         isjobs.claim_next_job(db)  # one goes processing (not cancellable)
         cancelled = isjobs.cancel_queued_for_project(db, pid, uid)
         assert cancelled == 7  # 8 queued, 1 claimed → 7 removed
+
+
+# --- plan queue (async planning) --------------------------------------------
+
+def test_plan_queue_claim_and_reclaim(app):
+    with app.app_context():
+        db = get_db()
+        uid = create_local_user("plan@example.com", "password123")
+        pid = _project(db, uid)
+        store.queue_plan(db, pid)
+        assert store.get_project(db, pid, uid)["status"] == store.STATUS_PLAN_QUEUED
+        assert store.has_claimable_plan(db) is True
+        claimed = store.claim_next_plan(db)
+        assert claimed["id"] == pid and claimed["status"] == store.STATUS_PLAN_ACTIVE
+        assert store.claim_next_plan(db) is None  # conditional claim — not re-grabbed
+        # An orphaned (mid-plan) project is failed on reclaim so the user can re-approve.
+        assert store.reclaim_orphaned_plans(db) == 1
+        assert store.get_project(db, pid, uid)["status"] == store.STATUS_FAILED

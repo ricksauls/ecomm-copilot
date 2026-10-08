@@ -33,6 +33,15 @@ def _submit_intake(client, **over):
                        content_type="multipart/form-data")
 
 
+def _run_plan(db):
+    """Simulate the worker's plan step: claim the queued project, plan + enqueue it."""
+    import worker
+
+    project = isstore.claim_next_plan(db)
+    assert project is not None
+    worker.process_imageset_plan_one(db, project)
+
+
 def test_intake_requires_login(client):
     # Unauthenticated → redirected to sign in (login_required).
     resp = client.get("/app/pdp-image-set")
@@ -92,6 +101,9 @@ def test_approve_enqueues_and_redirects_to_gallery(client, auth, tmp_path, monke
     assert resp.status_code == 302 and resp.headers["Location"].endswith(f"/pdp-image-set/{pid}")
     with client.application.app_context():
         db = get_db()
+        # Approve only queues planning (the worker plans) — no assets/jobs yet.
+        assert isstore.get_project(db, pid, 1)["status"] == isstore.STATUS_PLAN_QUEUED
+        _run_plan(db)
         project = isstore.get_project(db, pid, 1)
         assert project["status"] == isstore.STATUS_GENERATING
         # 3 implemented assets (2 lifestyle + 1 size-comparison) were queued.
@@ -105,11 +117,16 @@ def test_gallery_and_status(client, auth, tmp_path, monkeypatch):
     with client.application.app_context():
         pid = isstore.list_projects(get_db(), 1)[0]["id"]
     client.post(f"/app/pdp-image-set/{pid}/approve")
+    # Right after approve the project is planning (no assets yet) — gallery still 200.
     gallery = client.get(f"/app/pdp-image-set/{pid}")
-    assert gallery.status_code == 200
-    status = client.get(f"/app/pdp-image-set/{pid}/status")
-    body = status.get_json()
-    assert "pending" in body and isinstance(body["assets"], list) and body["assets"]
+    assert gallery.status_code == 200 and b"Planning your image set" in gallery.data
+    planning_status = client.get(f"/app/pdp-image-set/{pid}/status").get_json()
+    assert planning_status["planning"] is True and planning_status["pending"] is True
+    # After the worker plans, assets appear in the status feed.
+    with client.application.app_context():
+        _run_plan(get_db())
+    body = client.get(f"/app/pdp-image-set/{pid}/status").get_json()
+    assert body["planning"] is False and isinstance(body["assets"], list) and body["assets"]
 
 
 def test_asset_image_and_zip_after_generation(client, auth, tmp_path, monkeypatch):
@@ -122,6 +139,7 @@ def test_asset_image_and_zip_after_generation(client, auth, tmp_path, monkeypatc
     client.post(f"/app/pdp-image-set/{pid}/approve")
     with client.application.app_context():
         db = get_db()
+        _run_plan(db)  # worker plans + creates the assets
         project = isstore.get_project(db, pid, 1)
         sc = next(a for a in isstore.assets_for_project(db, pid, 1)
                   if a["asset_type"] == "SIZE_COMPARISON")

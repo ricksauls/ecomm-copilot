@@ -46,7 +46,6 @@ from app import (
 from app.db import get_db
 from app.imageset import generate as imageset_generate
 from app.imageset import jobs as imageset_jobs
-from app.imageset import plan as imageset_plan
 from app.imageset import storage as imageset_storage
 from app.imageset import store as imageset_store
 from app.imageset.providers.background_removal import BackgroundRemovalError
@@ -2177,23 +2176,18 @@ def imageset_cutout(pid):
 @bp.route("/app/pdp-image-set/<int:pid>/approve", methods=["POST"])
 @login_required
 def imageset_approve(pid):
-    """Approve the cutout, plan the set, and enqueue the implemented assets."""
+    """Approve the cutout and queue the set for background planning + generation.
+
+    Planning (a slow Claude call) and generation both run on the worker, so this
+    request returns immediately and the gallery polls — no web-request timeout.
+    """
     project = _imageset_project_or_404(pid)
     if not project["cutout_path"]:
         abort(400, description="No cutout to approve yet.")
-    db, uid = get_db(), g.user["id"]
+    db = get_db()
     imageset_store.approve_cutout(db, pid)
-
-    try:
-        plan = imageset_plan.generate_plan(imageset_store.plan_context(db, project))
-    except imageset_plan.PlanError as e:
-        logger.warning("Image-set plan failed project=%s: %s", pid, e)
-        imageset_store.set_status(db, pid, imageset_store.STATUS_FAILED, error=str(e))
-        abort(502, description="Could not plan the image set. Please try again.")
-
-    imageset_store.save_plan_and_create_assets(db, pid, uid, plan)
-    imageset_generate.enqueue_project_assets(db, imageset_store.get_project(db, pid, uid), uid)
-    logger.info("Image-set approved + enqueued project=%s user_id=%s", pid, uid)
+    imageset_store.queue_plan(db, pid)  # worker plans, creates assets, enqueues them
+    logger.info("Image-set approved + queued for planning project=%s user_id=%s", pid, g.user["id"])
     return redirect(url_for("pages.imageset_gallery", pid=pid))
 
 
@@ -2231,6 +2225,10 @@ def _imageset_run_assets(db, pid: int, uid: int) -> list[dict]:
     return views
 
 
+# Project statuses that mean "the worker is still building the plan" (no assets yet).
+_IMGSET_PLANNING = {imageset_store.STATUS_PLAN_QUEUED, imageset_store.STATUS_PLAN_ACTIVE}
+
+
 @bp.route("/app/pdp-image-set/<int:pid>")
 @login_required
 def imageset_gallery(pid):
@@ -2238,11 +2236,12 @@ def imageset_gallery(pid):
     project = _imageset_project_or_404(pid)
     db, uid = get_db(), g.user["id"]
     assets = _imageset_run_assets(db, pid, uid)
-    pending = any(a["status"] in ("queued", "generating") for a in assets)
+    planning = project["status"] in _IMGSET_PLANNING
+    pending = planning or any(a["status"] in ("queued", "generating") for a in assets)
     return render_template(
         "app/pdp_image_set_gallery.html", breadcrumb=_IMGSET_BREADCRUMB,
         active_nav=_IMGSET_NAV, project=project, assets=assets, pending=pending,
-        ready_count=sum(1 for a in assets if a["ready"]),
+        planning=planning, ready_count=sum(1 for a in assets if a["ready"]),
     )
 
 
@@ -2250,11 +2249,13 @@ def imageset_gallery(pid):
 @login_required
 def imageset_status(pid):
     """JSON asset statuses for the gallery poller."""
-    _imageset_project_or_404(pid)
+    project = _imageset_project_or_404(pid)
     db, uid = get_db(), g.user["id"]
     assets = _imageset_run_assets(db, pid, uid)
+    planning = project["status"] in _IMGSET_PLANNING
     return jsonify({
-        "pending": any(a["status"] in ("queued", "generating") for a in assets),
+        "pending": planning or any(a["status"] in ("queued", "generating") for a in assets),
+        "planning": planning,
         "assets": assets,
     })
 

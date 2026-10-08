@@ -27,6 +27,11 @@ STATUS_FETCHING_ACTIVE = "fetching_active"
 STATUS_DRAFT = "draft"
 STATUS_CUTOUT_PENDING = "cutout_pending"
 STATUS_CUTOUT_APPROVED = "cutout_approved"
+# ``plan_queued`` → the worker should build the creative plan; ``plan_active`` → a
+# worker holds it mid-plan (a one-shot, per-project claim lock). Planning runs on
+# the worker (a slow Claude call) so it never blocks/times-out a web request.
+STATUS_PLAN_QUEUED = "plan_queued"
+STATUS_PLAN_ACTIVE = "plan_active"
 STATUS_PLANNING = "planning"
 STATUS_GENERATING = "generating"
 STATUS_READY = "ready"
@@ -299,6 +304,69 @@ def reclaim_orphaned_fetches(conn: sqlite3.Connection) -> int:
     conn.commit()
     if updated.rowcount:
         logger.warning("Reclaimed %d orphaned image-set prefill(s) on startup", updated.rowcount)
+    return updated.rowcount
+
+
+# --- Creative-plan queue (async planning on the worker) ---------------------
+
+def queue_plan(conn: sqlite3.Connection, project_id: int) -> None:
+    """Mark an approved project for background planning (status ``plan_queued``)."""
+    conn.execute(
+        "UPDATE imageset_projects SET status = ?, error = NULL, "
+        "updated_at = datetime('now') WHERE id = ?",
+        (STATUS_PLAN_QUEUED, project_id),
+    )
+    conn.commit()
+
+
+def has_claimable_plan(conn: sqlite3.Connection) -> bool:
+    """True if any project is waiting to be planned (status ``plan_queued``)."""
+    return conn.execute(
+        "SELECT 1 FROM imageset_projects WHERE status = ? LIMIT 1", (STATUS_PLAN_QUEUED,)
+    ).fetchone() is not None
+
+
+def claim_next_plan(conn: sqlite3.Connection) -> sqlite3.Row | None:
+    """Atomically claim the oldest project awaiting planning (-> plan_active), or None.
+
+    Conditional UPDATE so a restart/second worker can't double-plan; the project
+    row is the one-shot queue (a project is planned once per approval).
+    """
+    while True:
+        candidate = conn.execute(
+            "SELECT id FROM imageset_projects WHERE status = ? ORDER BY id LIMIT 1",
+            (STATUS_PLAN_QUEUED,),
+        ).fetchone()
+        if candidate is None:
+            return None
+        updated = conn.execute(
+            "UPDATE imageset_projects SET status = ?, updated_at = datetime('now') "
+            "WHERE id = ? AND status = ?",
+            (STATUS_PLAN_ACTIVE, candidate["id"], STATUS_PLAN_QUEUED),
+        )
+        conn.commit()
+        if updated.rowcount == 1:
+            return conn.execute(
+                "SELECT * FROM imageset_projects WHERE id = ?", (candidate["id"],)
+            ).fetchone()
+        # Lost the race; try the next queued project.
+
+
+def reclaim_orphaned_plans(conn: sqlite3.Connection) -> int:
+    """Fail any project stuck ``plan_active`` — on worker startup.
+
+    A project still mid-plan at startup was orphaned by a restart; mark it failed so
+    the user can re-approve rather than wait forever. Relies on one worker process.
+    """
+    updated = conn.execute(
+        "UPDATE imageset_projects SET status = ?, "
+        "error = 'Planning was interrupted — please approve again to retry.', "
+        "updated_at = datetime('now') WHERE status = ?",
+        (STATUS_FAILED, STATUS_PLAN_ACTIVE),
+    )
+    conn.commit()
+    if updated.rowcount:
+        logger.warning("Reclaimed %d orphaned image-set plan(s) on startup", updated.rowcount)
     return updated.rowcount
 
 

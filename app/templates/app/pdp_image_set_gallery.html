@@ -12,7 +12,8 @@
   <div>
     <h1>{{ project['name'] }} — Image Set</h1>
     <p class="subtitle">
-      {% if pending %}Generating your images… this page updates as each one finishes.
+      {% if planning %}Designing your image set… generation starts automatically.
+      {% elif pending %}Generating your images… this page updates as each one finishes.
       {% else %}Your image set is ready. Download individual images or the whole set.{% endif %}
     </p>
   </div>
@@ -26,6 +27,15 @@
 
 <div class="imageset-grid" data-status-url="{{ url_for('pages.imageset_status', pid=project['id']) }}"
      data-pending="{{ '1' if pending else '0' }}">
+  {% if planning and not assets %}
+  <div class="imageset-planning">
+    <span class="spinner" aria-hidden="true"></span>
+    <div>
+      <p class="fetching-title">Planning your image set…</p>
+      <p class="fetching-hint">We’re designing the scenes. Images start generating next — this page updates automatically.</p>
+    </div>
+  </div>
+  {% else %}
   {% for asset in assets %}
   <div class="imageset-card" data-asset-id="{{ asset.id }}" data-status="{{ asset.status }}">
     <div class="imageset-thumb">
@@ -54,6 +64,7 @@
   {% else %}
   <p class="empty-note">No assets yet.</p>
   {% endfor %}
+  {% endif %}
 </div>
 {% endblock %}
 
