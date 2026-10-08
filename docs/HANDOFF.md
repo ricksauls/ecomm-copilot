@@ -1,28 +1,28 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-10-08 (session 14 — Image Set UX + controls + a rebuilt size-comparison:
-fixed the misleading intake checkerboard, added a cutout-screen **image-type picker** (gates
+_Last updated: 2026-10-08 (session 14 — Image Set UX + controls + a rebuilt, polished
+size-comparison: intake checkerboard fix, a cutout-screen **image-type picker** (gates
 generation + cost), a "~30s per image" wait message, a **product-id (Walmart item number)
-file-naming convention**, and replaced the programmatic size-comparison with an **AI
-scale-comparison** (reference objects + brand-colored bars, auto-detected brand color).
-Session 13 — built the **PDP Image Set Creation** feature: full vertical slice, Walmart URL
-prefill, AI feature-callout auto-fill, async planning, and real OpenAI image generation in prod)._
+file-naming convention**, an **AI scale-comparison** (reference objects + brand-colored bars,
+auto-detected brand color), then polish — **vertical centering**, **crisp Inter-Bold bar text**,
+**color swatches**, section spacing, removed "+ Add Another Feature". Session 13 — built the
+**PDP Image Set Creation** feature (vertical slice, Walmart prefill, async planning, real OpenAI))._
 
 > ## ⭐ Next session — START HERE (session 14, 2026-10-08)
 >
-> **Everything below shipped + deployed; `main` at `b0297a6`, CI + Deploy green, 458
+> **Everything below shipped + deployed; `main` at `8bccd7c`, CI + Deploy green, 462
 > tests passing, `ruff` clean. The `selected_types` migration is confirmed live on the
 > droplet.** Session 14 was a UX + controls pass on the Image Set flow built in session 13,
-> plus a rebuild of the size-comparison asset.
+> plus a rebuild + polish of the size-comparison asset.
 >
-> ### ⭐ Needs a live eyeball first (session 15, start here)
-> The **AI size-comparison shipped but hasn't been judged against the user's reference yet**
-> — the offline mock can't render the real reference objects. First task: generate a
-> size-comparison for the OFF! product in prod and compare to the reference (TV remote +
-> paperback book, green bars). Most likely tuning spots: **relative-scale accuracy** (whether
-> OpenAI sizes the remote/book believably — the source app flagged this needs human review),
-> **bar proportions/fonts** in `templates.render_size_comparison_bars` (first-pass sizes), and
-> the **auto-detected bar color**. Reference image is in this session's chat.
+> ### ⭐ Where things stand on the size-comparison (session 15, start here)
+> The AI size-comparison was **judged live against the user's OFF! reference and looks good** —
+> real product + TV remote + "The Alchemist" paperback at believable scale, green auto-detected
+> bars, crisp Inter-Bold text, items centered in the whitespace. **One optional follow-up the
+> user is weighing:** the source app also **scales the items up to fill most of the space
+> between the bars** (not just centers them). We only center. If items look small on a given
+> render, add scale-to-fill in `templates.render_size_comparison_bars` (compute content bbox →
+> scale the band region up so content ≈ fills it, then center). Otherwise the asset is done.
 >
 > ### What shipped this session
 > - **AI scale-comparison (SIZE_COMPARISON rebuilt to match the source app).** Was a
@@ -36,15 +36,29 @@ prefill, AI feature-callout auto-fill, async planning, and real OpenAI image gen
 >   **a product with no dimensions falls back to the old programmatic diagram**
 >   (`_gen_size_comparison_diagram`) — no AI spend, no bad scale anchor. ⚠️ **This moved
 >   SIZE_COMPARISON from free → ~$0.04/AI image** (gated by the type picker).
+>   - **Vertical centering:** the model places items high, leaving uneven whitespace.
+>     `templates._recenter_vertically` finds the content's vertical extent on the white field
+>     (thresholded to ignore faint shadow/anti-alias) and shifts the scene so it centers in the
+>     band between the bars. No-ops if the background isn't clean white.
+>   - **Crisp bar text (Inter):** text was drawn with Pillow's default font + **stroke-faked
+>     bold**, which smeared glyphs together and looked blurry. Now **real Inter is bundled as
+>     TTF** in `app/imageset/fonts/` (the app's own brand font, same as the source app;
+>     converted from the `static/fonts` woff2). `compose.font(size, bold=)` loads real
+>     Regular/Bold faces (cached, falls back to `load_default` if missing); `draw_text_centered`
+>     uses true bold, no stroke. Bar sizes match the source (title 76 / facts 72 / caption 44).
+>     **"×" is restored** in the dimensions line (Inter has the glyph — the old default font did
+>     not, which is why it had been swapped to "x"). A glyph-ink test guards against regressing.
 >   - **Brand colors (auto-detect + user override):** `compose.detect_dominant_color` samples
 >     the product's dominant hue (ignores transparent/greyscale/near-white);
 >     `generate.resolve_brand_palette` = user colors win → else detected → else default. Intake
->     form gained **Primary/Secondary/Accent** fields (`pdp_image_set.html`), primary pre-filled
->     with the detected color (`_detect_project_brand_color` in `pages.py`). Invalid hex dropped
->     server-side; blank = auto-detect.
->   - **Gotcha banked:** the bundled Pillow font (`compose.font` → `load_default`) has **no "×"
->     glyph** — it renders as a tofu box. The dimensions line uses `"x"` instead. Any future
->     bar/label copy must stick to basic Latin + `·`/`"`; verify new glyphs with a quick ink test.
+>     form gained **Primary/Secondary/Accent** fields (`pdp_image_set.html`), each with a **live
+>     color swatch** (native color input, two-way synced via `imageset_intake.js`) next to its
+>     hex code; primary pre-filled with the detected color (`_detect_project_brand_color` in
+>     `pages.py`). Invalid hex dropped server-side; blank = auto-detect.
+> - **Intake polish** — **section spacing** (`.form-section + .form-section { margin-top:34px }`)
+>   so numbered step badges don't cram against the previous section; **removed the "+ Add Another
+>   Feature" button** (features are generated, not hand-authored — the per-row "×" remove still
+>   works). These touch `pdp_image_set.html`, `workspace.css`, `imageset_intake.js`.
 > - **Intake checkerboard fix** — the intake photo preview used the `.cutout-frame`
 >   checkerboard, which wrongly implied the background was already removed (the user
 >   flagged this: "I click the button and the next screen shows the exact same thing").
@@ -89,9 +103,11 @@ prefill, AI feature-callout auto-fill, async planning, and real OpenAI image gen
 >   `remove.bg` key for busy photos (`IMAGESET_BG_PROVIDER=removebg` + `BACKGROUND_REMOVAL_API_KEY`).
 >
 > ### Commits this session (all on main)
-> `d566a7b` cutout-screen type picker, clearer intake UX, product-id file naming ·
-> `dd8c058` docs: session-14 handoff · `b0297a6` AI scale-comparison with reference objects +
-> brand-colored bars (HEAD).
+> `d566a7b` type picker + intake UX + product-id naming · `b0297a6` AI scale-comparison
+> (reference objects + brand bars) · `6f0c8f8` color swatches + section spacing + drop
+> "Add Another Feature" · `3552829` size-comparison vertical centering · `8bccd7c` crisp
+> Inter-Bold bar text (fixes blur/run-together) + restore "×" (HEAD). (plus `dd8c058`/this
+> commit = docs).
 >
 > _(Session 13's "start here" block follows below — still accurate for the Image Set
 > architecture: async worker planning/generation, pluggable mock-by-default providers, the
