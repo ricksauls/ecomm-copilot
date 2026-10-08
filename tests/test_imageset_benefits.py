@@ -1,4 +1,4 @@
-"""Tests for AI benefit suggestion (Feature:Benefit lines for the feature images)."""
+"""Tests for AI callout suggestion (feature headline + benefit for feature images)."""
 
 import json
 
@@ -32,49 +32,62 @@ class _FakeClient:
         self.messages = _FakeMessages(resp)
 
 
-def _client(benefits):
-    return _FakeClient(_FakeResp(json.dumps({"benefits": benefits})))
+def _client(callouts):
+    return _FakeClient(_FakeResp(json.dumps({"callouts": callouts})))
 
 
 def test_inert_without_key(monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    assert bmod.suggest_benefits(["Cuts grease", "Gentle"]) == []
+    assert bmod.suggest_callouts(["Cuts grease", "Gentle"]) == []
 
 
 def test_empty_features_returns_empty():
-    assert bmod.suggest_benefits([]) == []
-    assert bmod.suggest_benefits(["", "  "]) == []
+    assert bmod.suggest_callouts([]) == []
+    assert bmod.suggest_callouts(["", "  "]) == []
 
 
-def test_happy_path_aligns_and_caps():
-    client = _client(["Cuts grease fast for quick cleanup", "Gentle on hands"])
-    out = bmod.suggest_benefits(["Cuts grease", "Gentle on hands"], client=client)
-    assert out == ["Cuts grease fast for quick cleanup", "Gentle on hands"]
+def test_happy_path_returns_headline_and_benefit():
+    client = _client([
+        {"headline": "Long Lasting Protection", "benefit": "Repels mosquitoes for up to 8 hours"},
+        {"headline": "Gentle Formula", "benefit": "Soft on hands, tough on grease"},
+    ])
+    out = bmod.suggest_callouts(["Repels mosquitoes 8 hrs", "Gentle on hands"], client=client)
+    assert out[0] == {"headline": "Long Lasting Protection",
+                      "benefit": "Repels mosquitoes for up to 8 hours"}
+    assert out[1]["headline"] == "Gentle Formula"
     # Structured-output contract was requested.
     assert client.messages.calls[0]["output_config"]["format"]["type"] == "json_schema"
 
 
-def test_overlong_benefit_truncated_to_120():
-    long = "x" * 300
-    out = bmod.suggest_benefits(["Feature"], client=_client([long]))
-    assert len(out) == 1 and len(out[0]) == bmod.MAX_BENEFIT_CHARS
+def test_overlong_parts_truncated_to_caps():
+    out = bmod.suggest_callouts(["Feature"], client=_client([
+        {"headline": "H" * 200, "benefit": "B" * 300},
+    ]))
+    assert len(out[0]["headline"]) == bmod.MAX_HEADLINE_CHARS
+    assert len(out[0]["benefit"]) == bmod.MAX_BENEFIT_CHARS
 
 
-def test_fewer_benefits_than_features_pads_blank():
-    out = bmod.suggest_benefits(["A", "B", "C"], client=_client(["only one"]))
-    assert out == ["only one", "", ""]
+def test_fewer_callouts_than_features_pads_blank():
+    out = bmod.suggest_callouts(["A", "B", "C"], client=_client([
+        {"headline": "Only One", "benefit": "just one"},
+    ]))
+    assert out[0]["headline"] == "Only One"
+    assert out[1] == {"headline": "", "benefit": ""}
+    assert out[2] == {"headline": "", "benefit": ""}
 
 
-def test_more_benefits_than_features_truncated():
-    out = bmod.suggest_benefits(["A"], client=_client(["one", "two", "three"]))
-    assert out == ["one"]
+def test_more_callouts_than_features_truncated():
+    out = bmod.suggest_callouts(["A"], client=_client([
+        {"headline": "One", "benefit": "a"}, {"headline": "Two", "benefit": "b"},
+    ]))
+    assert len(out) == 1 and out[0]["headline"] == "One"
 
 
 def test_refusal_returns_empty():
     client = _FakeClient(_FakeResp("{}", stop_reason="refusal"))
-    assert bmod.suggest_benefits(["A"], client=client) == []
+    assert bmod.suggest_callouts(["A"], client=client) == []
 
 
 def test_bad_json_returns_empty():
     client = _FakeClient(_FakeResp("not json"))
-    assert bmod.suggest_benefits(["A"], client=client) == []
+    assert bmod.suggest_callouts(["A"], client=client) == []

@@ -78,13 +78,15 @@ def test_run_prefill_fills_fields(app, monkeypatch):
         monkeypatch.setattr(generate, "_download_product_image", lambda url: None)
         generate.run_prefill(
             db, isstore.get_project(db, pid, uid), fetch=lambda url, item: _record(),
-            benefits=lambda titles, **kw: [f"Benefit {n}" for n in range(len(titles))],
+            callouts=lambda titles, **kw: [
+                {"headline": f"H{n}", "benefit": f"Benefit {n}"} for n in range(len(titles))],
         )
         p = isstore.get_project(db, pid, uid)
         assert p["name"] == "Red Pepper Sauce" and p["brand"] == "Demo Co"
         feats = isstore.features_for_project(db, pid)
         assert len(feats) == 3
-        # Benefit lines were auto-filled into the feature descriptions.
+        # The AI headline became the title and the benefit became the detail.
+        assert feats[0]["title"] == "H0"
         assert feats[0]["description"] == "Benefit 0"
 
 
@@ -96,7 +98,7 @@ def test_run_prefill_stores_image_without_advancing(app, tmp_path, monkeypatch):
         pid = isstore.create_draft_for_url(db, user_id=uid, url="https://www.walmart.com/ip/123")
         isstore.claim_next_fetch(db)  # fetching_active (worker holds it)
         monkeypatch.setattr(generate, "_download_product_image", lambda url: _png())
-        generate.run_prefill(db, isstore.get_project(db, pid, uid), fetch=lambda url, item: _record(), benefits=lambda titles, **kw: [])
+        generate.run_prefill(db, isstore.get_project(db, pid, uid), fetch=lambda url, item: _record(), callouts=lambda titles, **kw: [])
         p = isstore.get_project(db, pid, uid)
         assert p["original_path"]  # fetched image stored
         assert p["status"] == isstore.STATUS_FETCHING_ACTIVE  # run_prefill leaves status to the caller
@@ -184,7 +186,7 @@ def test_edit_shows_fetching_then_prefilled(client, auth, tmp_path, monkeypatch)
     with client.application.app_context():
         db = get_db()
         monkeypatch.setattr(generate, "_download_product_image", lambda url: None)
-        generate.run_prefill(db, isstore.get_project(db, pid, 1), fetch=lambda url, item: _record(), benefits=lambda titles, **kw: [])
+        generate.run_prefill(db, isstore.get_project(db, pid, 1), fetch=lambda url, item: _record(), callouts=lambda titles, **kw: [])
         isstore.finish_fetch(db, pid)
     page = client.get(f"/app/pdp-image-set/{pid}/edit")
     assert b"Red Pepper Sauce" in page.data  # prefilled into the form
@@ -199,7 +201,7 @@ def test_submit_from_prefilled_draft_reuses_image(client, auth, tmp_path, monkey
         db = get_db()
         pid = isstore.list_projects(db, 1)[0]["id"]
         monkeypatch.setattr(generate, "_download_product_image", lambda url: _png())
-        generate.run_prefill(db, isstore.get_project(db, pid, 1), fetch=lambda url, item: _record(), benefits=lambda titles, **kw: [])
+        generate.run_prefill(db, isstore.get_project(db, pid, 1), fetch=lambda url, item: _record(), callouts=lambda titles, **kw: [])
         isstore.finish_fetch(db, pid)
     # Submit with project_id and NO upload → reuse the fetched image, run the cutout.
     resp = client.post("/app/pdp-image-set", data={

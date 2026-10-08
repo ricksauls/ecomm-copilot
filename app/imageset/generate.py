@@ -231,16 +231,17 @@ def _download_product_image(url: str) -> bytes | None:
 _PREFILL_FEATURE_CAP = 6
 
 
-def run_prefill(conn, project, *, fetch=None, benefits=None) -> None:
+def run_prefill(conn, project, *, fetch=None, callouts=None) -> None:
     """Fetch a Walmart PDP and prefill the draft project. Raises on fetch failure.
 
-    Fills name/brand/description, seeds features from the PDP bullets with an
-    AI-suggested ≤120-char benefit line for each (best-effort; blank when the model
-    is unavailable), and stores the main image as the (replaceable) product photo
+    Fills name/brand/description; turns each PDP bullet into a feature callout — a
+    tight AI-generated headline (the feature title) plus its benefit line (the
+    "Short detail"); and stores the main image as the (replaceable) product photo
     without advancing the status, so the user reviews the prefilled form next.
-    ``fetch``/``benefits`` are injectable for tests; in production they are
-    :func:`app.fetch.fetch_pdp` (headed-Chrome, worker-only) and
-    :func:`app.imageset.benefits.suggest_benefits`. The caller marks the fetch
+    When the callout model is unavailable the raw bullet becomes the title with no
+    benefit (best-effort). ``fetch``/``callouts`` are injectable for tests; in
+    production they are :func:`app.fetch.fetch_pdp` (headed-Chrome, worker-only)
+    and :func:`app.imageset.benefits.suggest_callouts`. The caller marks the fetch
     finished/failed.
     """
     from app import pdp as pdp_mod
@@ -252,7 +253,7 @@ def run_prefill(conn, project, *, fetch=None, benefits=None) -> None:
     if fetch is None:
         from app.fetch import fetch_pdp
         fetch = fetch_pdp
-    suggest = benefits or benefits_mod.suggest_benefits
+    suggest = callouts or benefits_mod.suggest_callouts
 
     record = fetch(url, pdp_mod.item_number_from_url(url))
     isstore.apply_fetched_record(
@@ -260,11 +261,17 @@ def run_prefill(conn, project, *, fetch=None, benefits=None) -> None:
         description=record.description,
     )
 
-    # Seed features from the PDP bullets, each with an AI-suggested benefit line.
-    titles = [b for b in (record.bullets or []) if b and b.strip()][:_PREFILL_FEATURE_CAP]
-    suggested = suggest(titles, product_name=record.title, brand=record.brand) if titles else []
-    items = [{"title": t, "description": suggested[i] if i < len(suggested) else ""}
-             for i, t in enumerate(titles)]
+    # Turn each PDP bullet into a callout (headline + benefit); fall back to the raw
+    # bullet as the title when the model is unavailable or leaves a headline blank.
+    bullets = [b for b in (record.bullets or []) if b and b.strip()][:_PREFILL_FEATURE_CAP]
+    suggested = suggest(bullets, product_name=record.title, brand=record.brand) if bullets else []
+    items = []
+    for i, bullet in enumerate(bullets):
+        c = suggested[i] if i < len(suggested) else {}
+        items.append({
+            "title": (c.get("headline") or bullet).strip(),
+            "description": (c.get("benefit") or "").strip(),
+        })
     isstore.set_features(conn, project["id"], items)
 
     data = _download_product_image(record.main_image_url)
@@ -272,9 +279,9 @@ def run_prefill(conn, project, *, fetch=None, benefits=None) -> None:
         rel = storage.save(project["id"], "original", "product", data)
         if rel:
             isstore.set_original_path(conn, project["id"], rel)
-    logger.info("Prefilled project=%s from %s (features=%d, benefits=%d, image=%s)",
-                project["id"], (url or "")[:60], len(titles),
-                sum(1 for b in suggested if b), bool(data))
+    logger.info("Prefilled project=%s from %s (features=%d, callouts=%d, image=%s)",
+                project["id"], (url or "")[:60], len(bullets),
+                sum(1 for c in suggested if c.get("benefit")), bool(data))
 
 
 def enqueue_project_assets(conn, project, user_id: int, *, only_implemented: bool = True) -> list[int]:
