@@ -53,7 +53,8 @@
       {% if project %}<input type="hidden" name="project_id" value="{{ project['id'] }}" />{% endif %}
 
       <div class="form-section">
-        <div class="section-head"><span class="step">1</span><label class="field-label">Product</label></div>
+        <div class="section-head"><span class="step">1</span><label class="field-label">Product details</label></div>
+        <p class="brand-hint">These come from the product URL when you prefill — edit them freely.</p>
         <div class="field-grid">
           <div class="field">
             <label class="field-sublabel" for="name">Product name</label>
@@ -65,26 +66,11 @@
             <input type="text" id="brand" name="brand" class="text-input" maxlength="120"
                    value="{{ v('brand') }}" placeholder="e.g. Tabasco" />
           </div>
-          <div class="field">
-            <label class="field-sublabel" for="category">Category</label>
-            <input type="text" id="category" name="category" class="text-input" maxlength="120"
-                   required value="{{ v('category') }}" placeholder="e.g. hot sauce" />
-          </div>
-          <div class="field">
-            <label class="field-sublabel" for="target_audience">Target audience <span class="field-optional">(optional)</span></label>
-            <input type="text" id="target_audience" name="target_audience" class="text-input"
-                   maxlength="500" value="{{ v('target_audience') }}" placeholder="e.g. home cooks" />
-          </div>
         </div>
         <div class="field">
           <label class="field-sublabel" for="description">Description <span class="field-optional">(optional)</span></label>
           <textarea id="description" name="description" class="text-input" rows="3"
                     maxlength="2000" placeholder="A short, factual product description.">{{ v('description') }}</textarea>
-        </div>
-        <div class="field">
-          <label class="field-sublabel" for="environments">Where it’s used <span class="field-optional">(optional, comma‑separated)</span></label>
-          <input type="text" id="environments" name="environments" class="text-input"
-                 value="{{ v('environments') }}" placeholder="e.g. a backyard patio, a home kitchen" />
         </div>
       </div>
 
@@ -122,7 +108,26 @@
       </div>
 
       <div class="form-section">
-        <div class="section-head"><span class="step">3</span><label class="field-label">Dimensions <span class="field-optional">(optional — power the size‑comparison)</span></label></div>
+        <div class="section-head"><span class="step">3</span><label class="field-label">Details to complete</label></div>
+        <p class="brand-hint">These aren’t on the product page — add them to sharpen the generated images.</p>
+        <div class="field-grid">
+          <div class="field">
+            <label class="field-sublabel" for="category">Category</label>
+            <input type="text" id="category" name="category" class="text-input" maxlength="120"
+                   required value="{{ v('category') }}" placeholder="e.g. hot sauce" />
+          </div>
+          <div class="field">
+            <label class="field-sublabel" for="target_audience">Target audience <span class="field-optional">(optional)</span></label>
+            <input type="text" id="target_audience" name="target_audience" class="text-input"
+                   maxlength="500" value="{{ v('target_audience') }}" placeholder="e.g. home cooks" />
+          </div>
+        </div>
+        <div class="field">
+          <label class="field-sublabel" for="environments">Where it’s used <span class="field-optional">(optional, comma‑separated)</span></label>
+          <input type="text" id="environments" name="environments" class="text-input"
+                 value="{{ v('environments') }}" placeholder="e.g. a backyard patio, a home kitchen" />
+        </div>
+        <label class="field-sublabel dims-heading">Dimensions <span class="field-optional">(optional — power the size‑comparison)</span></label>
         <div class="field-grid dims-grid">
           <div class="field"><label class="field-sublabel" for="height">Height</label>
             <input type="number" step="any" id="height" name="height" class="text-input" value="{{ v('height') }}" /></div>
