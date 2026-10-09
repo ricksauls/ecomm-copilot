@@ -198,13 +198,17 @@ def create_feature_callout(
 
     # Halo pass — soft blurred white rounded rects behind each row (legibility over
     # a photo). Drawn on their own layer, blurred, then composited under the content.
+    # The halo extends past the row's content by these pads; because the blur fades
+    # the edges, a generous pad keeps the solid core comfortably under all the text.
+    halo_pad_x, halo_pad_y = 72, 48
     if backdrop_png:
         halo = Image.new("RGBA", (size, size), (0, 0, 0, 0))
         hd = ImageDraw.Draw(halo)
         y = y0
         for b in blocks:
-            right = text_x + min(text_w, b["widest"]) + 44
-            hd.rounded_rectangle([frx - 44, y - 30, right, y + b["content_h"] + 30],
+            right = text_x + min(text_w, b["widest"]) + halo_pad_x
+            hd.rounded_rectangle([frx - halo_pad_x, y - halo_pad_y,
+                                  right, y + b["content_h"] + halo_pad_y],
                                  radius=90, fill=(255, 255, 255, 150))
             y += b["content_h"] + row_gap
         canvas.alpha_composite(halo.filter(ImageFilter.GaussianBlur(26)))
