@@ -1944,18 +1944,18 @@ def _parse_dimensions(form) -> dict:
     return dims
 
 
-def _validate_upload(file) -> tuple[bytes | None, str | None, str | None]:
-    """Validate an uploaded product photo. Returns (data, ext, error).
+def _validate_upload(file, label: str = "product photo") -> tuple[bytes | None, str | None, str | None]:
+    """Validate an uploaded image (``label`` names it in errors). Returns (data, ext, error).
 
     Treats the upload as untrusted: the extension must be in the allowlist AND the
     bytes must actually decode as that image (Pillow verify), so a renamed
     non-image can't be stored. Size is already capped by MAX_CONTENT_LENGTH.
     """
     if file is None or not file.filename:
-        return None, None, "Please choose a product photo to upload."
+        return None, None, f"Please choose a {label} to upload."
     ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
     if ext not in _IMGSET_UPLOAD_EXT:
-        return None, None, "The product photo must be a PNG, JPG, or WEBP image."
+        return None, None, f"The {label} must be a PNG, JPG, or WEBP image."
     data = file.read()
     if not data:
         return None, None, "The uploaded file was empty."
@@ -1972,7 +1972,8 @@ def _validate_upload(file) -> tuple[bytes | None, str | None, str | None]:
 def _imageset_intake_context(**extra):
     """Shared render context for the intake form."""
     ctx = {"breadcrumb": _IMGSET_BREADCRUMB, "active_nav": _IMGSET_NAV,
-           "project": None, "features": [], "fetching": False, "has_image": False, "pf": {},
+           "project": None, "features": [], "fetching": False, "has_image": False,
+           "has_logo": False, "pf": {},
            # The URL field autofills with this prefix so the user only types the item id.
            "url_prefix": pdp.WALMART_IP_PREFIX}
     ctx.update(extra)
@@ -2103,7 +2104,8 @@ def imageset_intake():
         feats = imageset_store.features_for_project(db, proj["id"]) if proj else []
         return render_template("app/pdp_image_set.html", **_imageset_intake_context(
             error=message, form=form, project=proj, features=feats,
-            has_image=bool(proj and proj["original_path"]))), code
+            has_image=bool(proj and proj["original_path"]),
+            has_logo=bool(proj and proj["logo_path"]))), code
 
     if not fields["name"] or not fields["category"]:
         return _rerender("Product name and category are required.", 400)
@@ -2119,6 +2121,16 @@ def imageset_intake():
     elif not (project and project["original_path"]):
         return _rerender("Please upload a product photo (or prefill from a product URL).", 400)
 
+    # Optional brand logo (composited top-left on Lifestyle images). Validate up
+    # front so a bad file never creates a half-built project; stored below once the
+    # pid is known. Absent = keep whatever the draft already had.
+    logo_upload = request.files.get("logo")
+    logo_data = logo_ext = None
+    if logo_upload and logo_upload.filename:
+        logo_data, logo_ext, logo_err = _validate_upload(logo_upload, label="brand logo")
+        if logo_err:
+            return _rerender(logo_err, 400)
+
     # Persist the facts (create new, or update the draft) + features.
     if project is None:
         pid = imageset_store.create_project(db, user_id=uid, **fields)
@@ -2126,6 +2138,16 @@ def imageset_intake():
         pid = project["id"]
         imageset_store.update_project_fields(db, pid, **fields)
     imageset_store.set_features(db, pid, _intake_feature_items(form))
+
+    # Store the optional brand logo. A storage failure is non-fatal: the set still
+    # generates, just without the logo (logged for follow-up) rather than blocking.
+    if logo_data:
+        logo_rel = imageset_storage.save(pid, "logo", "logo", logo_data, logo_ext)
+        if logo_rel:
+            imageset_store.set_logo(db, pid, logo_rel)
+            logger.info("Image-set brand logo stored project=%s user_id=%s", pid, uid)
+        else:
+            logger.warning("Could not store brand logo for project=%s user_id=%s", pid, uid)
 
     # Store the photo and advance to the cutout step.
     if has_upload:
@@ -2181,7 +2203,7 @@ def imageset_edit(pid):
     err = project["error"] if (not fetching and project["error"]) else None
     return render_template("app/pdp_image_set.html", **_imageset_intake_context(
         project=project, features=features, fetching=fetching, pf=pf,
-        has_image=bool(project["original_path"]), error=err))
+        has_image=bool(project["original_path"]), has_logo=bool(project["logo_path"]), error=err))
 
 
 @bp.route("/app/pdp-image-set/<int:pid>/fetch-status")

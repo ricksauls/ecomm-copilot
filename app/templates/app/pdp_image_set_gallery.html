@@ -57,12 +57,11 @@
     <div class="imageset-card-foot">
       <div class="imageset-card-meta">
         <span class="imageset-type">{{ asset.type }}</span>
-        {% if asset.title %}<span class="imageset-title">{{ asset.title }}</span>{% endif %}
       </div>
       {% if asset.ready or asset.status == 'failed' %}
       <div class="imageset-card-actions">
         {% if asset.ready %}
-        <a class="wbtn wbtn-ghost wbtn-sm"
+        <a class="wbtn wbtn-secondary wbtn-sm"
            href="{{ url_for('pages.imageset_asset_download', pid=project['id'], aid=asset.id) }}">Download</a>
         {% endif %}
         {# Re-run generation for just this image — works for a poor result or a
@@ -71,7 +70,7 @@
         <form method="post" class="imageset-inline-form"
               action="{{ url_for('pages.imageset_regenerate_asset', pid=project['id'], aid=asset.id) }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-          <button type="submit" class="wbtn wbtn-ghost wbtn-sm">Regenerate</button>
+          <button type="submit" class="wbtn wbtn-secondary wbtn-sm">Regenerate</button>
         </form>
       </div>
       {% endif %}

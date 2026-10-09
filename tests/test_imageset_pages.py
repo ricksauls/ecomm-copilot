@@ -78,6 +78,52 @@ def test_intake_post_rejects_non_image(client, auth, tmp_path, monkeypatch):
     assert resp.status_code == 400
 
 
+def test_intake_stores_optional_brand_logo(client, auth, tmp_path, monkeypatch):
+    monkeypatch.setenv("MEDIA_DIR", str(tmp_path))
+    auth.register()
+    resp = _submit_intake(client, logo=(io.BytesIO(_png()), "logo.png"))
+    assert resp.status_code == 302
+    with client.application.app_context():
+        project = isstore.list_projects(get_db(), 1)[0]
+        assert project["logo_path"]  # the uploaded logo was stored on the project
+
+
+def test_intake_rejects_non_image_logo(client, auth, tmp_path, monkeypatch):
+    monkeypatch.setenv("MEDIA_DIR", str(tmp_path))
+    auth.register()
+    resp = _submit_intake(client, logo=(io.BytesIO(b"not an image"), "logo.png"))
+    assert resp.status_code == 400
+
+
+def test_logo_applies_to_lifestyle_only(client, auth, tmp_path, monkeypatch):
+    # The brand logo is composited onto LIFESTYLE but withheld from the other
+    # generators (per product decision), so composite_logo fires for lifestyle only.
+    monkeypatch.setenv("MEDIA_DIR", str(tmp_path))
+    auth.register()
+    _submit_intake(client, logo=(io.BytesIO(_png()), "logo.png"))
+    with client.application.app_context():
+        db = get_db()
+        pid = isstore.list_projects(db, 1)[0]["id"]
+        client.post(f"/app/pdp-image-set/{pid}/approve")
+        _run_plan(db)
+        project = isstore.get_project(db, pid, 1)
+        assert project["logo_path"]
+
+        corners = []
+        real_composite = generate.compose.composite_logo
+
+        def _spy(base, logo, *a, **kw):
+            corners.append(kw.get("corner") or (a[0] if a else None))
+            return real_composite(base, logo, *a, **kw)
+
+        monkeypatch.setattr(generate.compose, "composite_logo", _spy)
+        for t in ("PRODUCT_IN_USE", "LIFESTYLE"):
+            a = next(x for x in isstore.assets_for_project(db, pid, 1) if x["asset_type"] == t)
+            generate.process_asset(db, a, project)
+        # Exactly one logo composite, and it's the lifestyle top-left.
+        assert corners == ["top-left"]
+
+
 def test_cutout_page_and_image_serve(client, auth, tmp_path, monkeypatch):
     monkeypatch.setenv("MEDIA_DIR", str(tmp_path))
     auth.register()
@@ -194,6 +240,10 @@ def test_gallery_shows_per_card_regenerate_not_batch(client, auth, tmp_path, mon
     # Each finished card posts to its own regenerate route via a per-card button.
     assert f"/asset/{aid}/regenerate".encode() in html
     assert b"Regenerate" in html
+    # Download + Regenerate render as buttons (secondary), not ghost/text links.
+    assert b"wbtn wbtn-secondary wbtn-sm" in html
+    # The per-image description/title is no longer shown on the card.
+    assert b"imageset-title" not in html
     # The old batch/select model is gone.
     assert b"imgset-select-form" not in html
     assert b"Regenerate selected" not in html and b"Keep selected" not in html

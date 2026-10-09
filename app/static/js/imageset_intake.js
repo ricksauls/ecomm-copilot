@@ -59,17 +59,22 @@
     });
   });
 
-  // --- Photo filename readout ----------------------------------------------
-  var photo = document.getElementById("photo");
-  var filename = document.getElementById("photo-filename");
-  if (photo && filename) {
-    photo.addEventListener("change", function () {
-      if (photo.files && photo.files.length) {
-        filename.textContent = photo.files[0].name;
-        filename.hidden = false;
+  // --- Filename readout for the file drop zones (product photo + brand logo) ---
+  function wireFilename(inputId, labelId) {
+    var input = document.getElementById(inputId);
+    var label = document.getElementById(labelId);
+    if (!input || !label) {
+      return;
+    }
+    input.addEventListener("change", function () {
+      if (input.files && input.files.length) {
+        label.textContent = input.files[0].name;
+        label.hidden = false;
       } else {
-        filename.hidden = true;
+        label.hidden = true;
       }
     });
   }
+  wireFilename("photo", "photo-filename");
+  wireFilename("logo", "logo-filename");
 })();

@@ -367,8 +367,13 @@ def process_asset(conn, asset, project) -> None:
     if not cutout_bytes:
         raise GenerationError("The approved product cutout is missing")
     cutout = compose.load_image(cutout_bytes)
-    logo_bytes = storage.load(project["logo_path"])
-    logo = compose.load_image(logo_bytes) if logo_bytes else None
+    # The brand logo is applied to LIFESTYLE only (top-left). Other generators can
+    # composite a logo too (e.g. product-in-use, top-right), but per product
+    # decision we don't feed it to them — so they render logo-free.
+    logo = None
+    if asset_type == "LIFESTYLE":
+        logo_bytes = storage.load(project["logo_path"])
+        logo = compose.load_image(logo_bytes) if logo_bytes else None
 
     logger.info("Generating asset id=%s type=%s project=%s", asset_id, asset_type, project["id"])
     final_bytes, scene_bytes, meta = generator(conn, project, asset, cutout, logo)
