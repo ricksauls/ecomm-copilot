@@ -192,7 +192,11 @@ def _gen_size_comparison(conn, project, asset, cutout, logo) -> tuple[bytes, byt
     dims = _dimensions(project)
     unit = dims.get("unit") or "in"
     height = dims.get("height")
-    phrases, names = reference_objects.reference_phrases(height, unit, count=2) if height else ([], [])
+    # Anchor the reference-object choice on the product's LONGEST dimension (what a
+    # shopper sizes it by) so a flat, wide product (e.g. a 16" keyboard) compares to
+    # similarly-sized items (a ruler), not to tiny ones chosen by its thickness.
+    anchor = reference_objects.longest_dimension(dims)
+    phrases, names = reference_objects.reference_phrases(anchor, unit, count=2) if anchor else ([], [])
     # Fall back to the measurement diagram when there's no scale anchor OR the
     # product is too large for everyday objects (e.g. furniture) — a couch beside a
     # ruler is meaningless, so show its real measurements instead.

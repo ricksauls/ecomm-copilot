@@ -40,6 +40,21 @@ def test_to_inches_covers_feet_and_metric():
     assert reference_objects.to_inches(10, "whatever") == 10.0  # unknown unit → inches
 
 
+def test_longest_dimension_anchors_on_widest_axis():
+    # A flat, wide keyboard: anchor on its 16" width, not its 0.13" thickness.
+    dims = {"width": 16, "height": 0.13, "depth": 6.3, "unit": "in"}
+    assert reference_objects.longest_dimension(dims) == 16
+    _, names = reference_objects.reference_phrases(
+        reference_objects.longest_dimension(dims), "in", count=2)
+    # Closest everyday objects to 16" are the ruler + wine bottle, not a golf ball.
+    assert "12-inch ruler" in names and "golf ball" not in names
+
+
+def test_longest_dimension_none_without_dims():
+    assert reference_objects.longest_dimension({"unit": "in"}) is None
+    assert reference_objects.longest_dimension({"width": 0, "unit": "in"}) is None
+
+
 def test_is_comparable_size_gates_large_products():
     # Small / tabletop products compare well against everyday objects.
     assert reference_objects.is_comparable_size({"height": 7.8, "unit": "in"})

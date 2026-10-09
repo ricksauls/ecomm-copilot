@@ -54,21 +54,31 @@ def to_inches(value: float, unit: str) -> float:
     return value * _INCHES_PER_UNIT.get((unit or "in").lower(), 1.0)
 
 
+def longest_dimension(dims: dict) -> float | None:
+    """The product's largest width/height/depth value in its own unit, or None.
+
+    This is the dimension a shopper actually sizes the product by — a keyboard's
+    16-in width, not its 0.13-in thickness — so it anchors the reference-object
+    choice. Anchoring on height alone compares a flat, wide product to something
+    far too small (a golf ball) instead of a similarly-sized item (a ruler).
+    """
+    values = [dims.get(k) for k in ("width", "height", "depth")]
+    nums = [float(v) for v in values if isinstance(v, (int, float)) and v > 0]
+    return max(nums) if nums else None
+
+
 def is_comparable_size(dims: dict) -> bool:
     """Whether a product is small enough for an everyday-object size comparison.
 
-    True only when the product's longest real dimension (width/height/depth) is
-    positive and at most ``MAX_COMPARISON_INCHES``. A larger item (e.g. furniture)
-    or one with no usable dimensions returns False, so the size-comparison asset
-    falls back to the measurement diagram rather than comparing it to a ruler.
+    True only when the product's longest real dimension is positive and at most
+    ``MAX_COMPARISON_INCHES``. A larger item (e.g. furniture) or one with no usable
+    dimensions returns False, so the size-comparison asset falls back to the
+    measurement diagram rather than comparing it to a ruler.
     """
-    unit = dims.get("unit") or "in"
-    longest = 0.0
-    for key in ("width", "height", "depth"):
-        value = dims.get(key)
-        if isinstance(value, (int, float)) and value > 0:
-            longest = max(longest, to_inches(float(value), unit))
-    return 0 < longest <= MAX_COMPARISON_INCHES
+    longest = longest_dimension(dims)
+    if longest is None:
+        return False
+    return to_inches(longest, dims.get("unit") or "in") <= MAX_COMPARISON_INCHES
 
 
 def select_reference_objects(product_value: float, unit: str, count: int = 2) -> list[dict]:

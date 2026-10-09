@@ -39,6 +39,16 @@ def test_content_aspect_ratio_blank_is_one():
     assert compose.content_aspect_ratio(Image.new("RGBA", (300, 300), (0, 0, 0, 0))) == 1.0
 
 
+def test_center_callout_gives_features_the_larger_band():
+    # A wide product's callout keeps a short product band so the feature rows get
+    # the bulk of the height (no cramming).
+    from app.imageset.config import SAFE_MARGIN
+    from app.imageset.templates import _feature_callout_regions
+    (_, _, _, prod_h), (_, _, _, feat_h) = _feature_callout_regions(
+        CANVAS_SIZE, SAFE_MARGIN, "product-center")
+    assert feat_h > prod_h
+
+
 def test_detect_light_side_bright_right():
     # Brighter on the right half of the top → shadow should fall to the "left".
     scene = Image.new("RGB", (400, 400), (40, 40, 40))

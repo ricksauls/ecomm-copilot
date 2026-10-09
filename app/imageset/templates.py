@@ -105,8 +105,11 @@ _BACKDROP_BLUR = 6
 def _feature_callout_regions(size: int, margin: int, layout: str):
     """Return (product_rect, feature_rect) as (x, y, w, h) for a callout layout."""
     if layout == "product-center":
-        prod = (margin, margin, size - 2 * margin, round(size * 0.44))
-        fy = round(size * 0.50)
+        # A wide product needs little vertical room, so keep its band short and give
+        # the rest of the canvas to the feature rows — otherwise the callouts get
+        # crammed into a shallow bottom strip.
+        prod = (margin, margin, size - 2 * margin, round(size * 0.34))
+        fy = round(size * 0.40)
         return prod, (margin, fy, size - 2 * margin, size - margin - fy)
     col_w = (size - 3 * margin) // 2
     left_col = (margin, margin, col_w, size - 2 * margin)
