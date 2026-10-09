@@ -5,13 +5,17 @@ composited onto AI-generated scenes. Per the product principle, the default
 provider must NOT be generative AI — it is a dedicated matting service so the
 real product is preserved faithfully.
 
-- **remove.bg** is the real provider, called over HTTPS with ``requests``.
+- **remove.bg** and **PhotoRoom** are the real providers, called over HTTPS with
+  ``requests``. PhotoRoom isolates the main product and so drops reflections and
+  cast shadows that a chroma key keeps — the fix for glossy studio shots.
 - A deterministic **mock** does a corner-sampled chroma key + border flood fill
   (studio shots on white become clean cutouts) so the pipeline runs offline with
-  no key. It is not a general matting model — busy backgrounds need remove.bg.
+  no key. It is not a general matting model — busy backgrounds or reflections need
+  a real provider.
 
-The provider is selected by ``IMAGESET_BG_PROVIDER`` (default mock). The remove.bg
-key is read from the environment and never logged (security-standards).
+The provider is selected by ``IMAGESET_BG_PROVIDER`` (default mock); both real
+providers share ``BACKGROUND_REMOVAL_API_KEY``, read from the environment and never
+logged (security-standards).
 """
 
 import logging
@@ -21,6 +25,7 @@ from app.imageset import config
 logger = logging.getLogger(__name__)
 
 _REMOVEBG_URL = "https://api.remove.bg/v1.0/removebg"
+_PHOTOROOM_URL = "https://sdk.photoroom.com/v1/segment"
 _REQUEST_TIMEOUT_S = 60
 
 # Mock chroma-key thresholds: a channel value above which a pixel reads as
@@ -74,7 +79,7 @@ class RemoveBgProvider:
     def remove_background(self, *, data: bytes, content_type: str = "image/png") -> CutoutResult:
         import requests  # local import keeps module import cheap / dependency-light
 
-        key = config.removebg_api_key()
+        key = config.background_removal_api_key()
         if not key:
             raise BackgroundRemovalNotConfigured(
                 "BACKGROUND_REMOVAL_API_KEY is not set; cannot remove backgrounds. "
@@ -103,6 +108,50 @@ class RemoveBgProvider:
         png = _trim_to_opaque(resp.content)
         logger.info("remove.bg ok: credits_charged=%s", provider_ref)
         return CutoutResult(png=png, provider=self.name, provider_ref=provider_ref)
+
+
+class PhotoRoomProvider:
+    """Cutout via the PhotoRoom Remove Background API (``/v1/segment``).
+
+    PhotoRoom segments the main product, so reflections and cast shadows a chroma
+    key would keep are dropped — the fix for glossy studio shots. A sandbox key
+    (``sandbox_…``) is passed through unchanged and returns watermarked test output.
+    The key is read from the environment and never logged (security-standards).
+    """
+
+    name = "photoroom"
+
+    def remove_background(self, *, data: bytes, content_type: str = "image/png") -> CutoutResult:
+        import requests  # local import keeps module import cheap / dependency-light
+
+        key = config.background_removal_api_key()
+        if not key:
+            raise BackgroundRemovalNotConfigured(
+                "BACKGROUND_REMOVAL_API_KEY is not set; cannot remove backgrounds. "
+                "Set it in the worker's environment (.env on the droplet)."
+            )
+        files = {"image_file": ("product", data, content_type)}
+        form = {"format": "png"}  # transparent-PNG cutout
+        logger.info("PhotoRoom cutout: %d bytes in", len(data))
+        try:
+            resp = requests.post(
+                _PHOTOROOM_URL,
+                data=form,
+                files=files,
+                headers={"x-api-key": key},  # key never logged
+                timeout=_REQUEST_TIMEOUT_S,
+            )
+        except requests.RequestException as e:
+            raise BackgroundRemovalError(f"Background removal request failed: {e}") from e
+        if resp.status_code != 200:
+            # The body can carry account details — log only the status and surface a
+            # safe generic message (security-standards).
+            logger.error("PhotoRoom failed: status=%d", resp.status_code)
+            raise BackgroundRemovalError(f"Background removal failed (status {resp.status_code})")
+
+        png = _trim_to_opaque(resp.content)
+        logger.info("PhotoRoom ok: %d bytes out", len(png))
+        return CutoutResult(png=png, provider=self.name, provider_ref=None)
 
 
 class MockBackgroundRemovalProvider:
@@ -173,16 +222,19 @@ class MockBackgroundRemovalProvider:
 def is_configured() -> bool:
     """True when the selected background-removal provider is ready to run.
 
-    The mock is always ready; remove.bg needs its key. Lets callers surface a
-    clear "not configured" state before enqueuing work.
+    The mock is always ready; remove.bg and PhotoRoom need their key. Lets callers
+    surface a clear "not configured" state before enqueuing work.
     """
-    if config.background_provider() == "removebg":
-        return bool(config.removebg_api_key())
+    if config.background_provider() in ("removebg", "photoroom"):
+        return bool(config.background_removal_api_key())
     return True
 
 
 def get_background_removal_provider():
-    """Return the configured background-removal provider (remove.bg or the mock)."""
-    if config.background_provider() == "removebg":
+    """Return the configured provider (remove.bg, PhotoRoom, or the offline mock)."""
+    provider = config.background_provider()
+    if provider == "removebg":
         return RemoveBgProvider()
+    if provider == "photoroom":
+        return PhotoRoomProvider()
     return MockBackgroundRemovalProvider()

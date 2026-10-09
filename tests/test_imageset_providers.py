@@ -220,3 +220,56 @@ def test_removebg_provider_error_is_generic(monkeypatch):
         bg.RemoveBgProvider().remove_background(data=_png_bytes())
     # The raw body (which can carry account details) must not leak into the message.
     assert "account suspended" not in str(exc.value)
+
+
+# --- PhotoRoom (fake requests) ----------------------------------------------
+
+def test_provider_selection_photoroom(monkeypatch):
+    monkeypatch.setenv("IMAGESET_BG_PROVIDER", "photoroom")
+    assert isinstance(bg.get_background_removal_provider(), bg.PhotoRoomProvider)
+
+
+def test_photoroom_request_shape_and_trim(monkeypatch):
+    monkeypatch.setenv("IMAGESET_BG_PROVIDER", "photoroom")
+    # A sandbox key is passed through unchanged (PhotoRoom enables sandbox by prefix).
+    monkeypatch.setenv("BACKGROUND_REMOVAL_API_KEY", "sandbox_pr-secret")
+    captured = {}
+
+    # PhotoRoom returns a transparent PNG; include a transparent margin to prove trim.
+    canvas = Image.new("RGBA", (50, 50), (0, 0, 0, 0))
+    canvas.paste((0, 180, 220, 255), (15, 15, 35, 35))
+    pr_buf = io.BytesIO()
+    canvas.save(pr_buf, format="PNG")
+
+    def fake_post(url, data=None, files=None, headers=None, timeout=None, **kw):
+        captured.update(url=url, apikey=headers.get("x-api-key"),
+                        fmt=(data or {}).get("format"), has_file="image_file" in (files or {}))
+        return _FakeResp(200, content=pr_buf.getvalue())
+
+    monkeypatch.setattr("requests.post", fake_post)
+    res = bg.PhotoRoomProvider().remove_background(data=_png_bytes(), content_type="image/png")
+    assert captured["url"] == "https://sdk.photoroom.com/v1/segment"
+    assert captured["apikey"] == "sandbox_pr-secret"  # key (incl. sandbox prefix) sent as-is
+    assert captured["fmt"] == "png" and captured["has_file"]
+    assert res.provider == "photoroom"
+    out = Image.open(io.BytesIO(res.png)).convert("RGBA")
+    assert out.size == (20, 20)  # trimmed to the opaque square
+
+
+def test_photoroom_missing_key_raises(monkeypatch):
+    import pytest
+
+    monkeypatch.setenv("IMAGESET_BG_PROVIDER", "photoroom")
+    monkeypatch.delenv("BACKGROUND_REMOVAL_API_KEY", raising=False)
+    with pytest.raises(bg.BackgroundRemovalNotConfigured):
+        bg.PhotoRoomProvider().remove_background(data=_png_bytes())
+
+
+def test_photoroom_provider_error_is_generic(monkeypatch):
+    import pytest
+
+    monkeypatch.setenv("BACKGROUND_REMOVAL_API_KEY", "pr-secret")
+    monkeypatch.setattr("requests.post", lambda *a, **k: _FakeResp(402, text="quota exceeded: acct=99"))
+    with pytest.raises(bg.BackgroundRemovalError) as exc:
+        bg.PhotoRoomProvider().remove_background(data=_png_bytes())
+    assert "quota exceeded" not in str(exc.value)  # no account details leak

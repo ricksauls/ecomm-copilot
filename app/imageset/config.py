@@ -11,8 +11,9 @@ Env:
     IMAGESET_IMAGE_PROVIDER      "mock" (default) | "openai" — AI scene generation
     OPENAI_API_KEY               OpenAI key; empty leaves the OpenAI provider inert
     OPENAI_IMAGE_MODEL           image model (default "gpt-image-2")
-    IMAGESET_BG_PROVIDER         "mock" (default) | "removebg" — product cutout
-    BACKGROUND_REMOVAL_API_KEY   remove.bg key; empty leaves that provider inert
+    IMAGESET_BG_PROVIDER         "mock" (default) | "removebg" | "photoroom" — cutout
+    BACKGROUND_REMOVAL_API_KEY   remove.bg / PhotoRoom key (PhotoRoom sandbox keys are
+                                 prefixed "sandbox_"); empty leaves the provider inert
     IMAGESET_PRICE_PER_IMAGE     USD per AI image for the cost estimate (default
                                  0.04, OpenAI's approx gpt-image price); set empty
                                  to show counts only (no dollar figure)
@@ -44,7 +45,7 @@ def image_provider() -> str:
 
 
 def background_provider() -> str:
-    """Configured background-removal provider ("mock" or "removebg")."""
+    """Configured background-removal provider ("mock", "removebg", or "photoroom")."""
     return (os.environ.get("IMAGESET_BG_PROVIDER") or "mock").strip().lower()
 
 
@@ -58,9 +59,19 @@ def openai_image_model() -> str:
     return (os.environ.get("OPENAI_IMAGE_MODEL") or "gpt-image-2").strip() or "gpt-image-2"
 
 
-def removebg_api_key() -> str:
-    """remove.bg API key from the environment (never logged)."""
+def background_removal_api_key() -> str:
+    """Background-removal API key (remove.bg or PhotoRoom) from the env (never logged).
+
+    Both services share one key env var; ``IMAGESET_BG_PROVIDER`` selects which one
+    it's for. A PhotoRoom sandbox key (``sandbox_…``) works as-is — it's passed
+    straight through to PhotoRoom, which returns watermarked test output.
+    """
     return (os.environ.get("BACKGROUND_REMOVAL_API_KEY") or "").strip()
+
+
+def removebg_api_key() -> str:
+    """Deprecated alias for :func:`background_removal_api_key`."""
+    return background_removal_api_key()
 
 
 def price_per_image() -> float | None:
