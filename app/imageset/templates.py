@@ -96,6 +96,10 @@ def format_dimensions_line(dimensions: dict) -> str:
 # Muted neutral for the benefit line — a tier below the headline, still legible.
 _BENEFIT_COLOR = (65, 72, 79)
 _FEATURE_BG = (245, 247, 250)  # clean light surface
+# Gaussian radius for the photographic backdrop: enough to read as out-of-focus
+# without washing the scene out, so the product/text still win the eye. Lower =
+# sharper scene, higher = dreamier.
+_BACKDROP_BLUR = 6
 
 
 def _feature_callout_regions(size: int, margin: int, layout: str):
@@ -157,7 +161,7 @@ def create_feature_callout(
 
     if backdrop_png:
         canvas = compose.cover_scene(compose.load_image(backdrop_png), size).filter(
-            ImageFilter.GaussianBlur(11)).convert("RGBA")
+            ImageFilter.GaussianBlur(_BACKDROP_BLUR)).convert("RGBA")
     else:
         canvas = Image.new("RGB", (size, size), _FEATURE_BG).convert("RGBA")
 
