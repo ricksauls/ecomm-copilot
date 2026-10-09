@@ -177,15 +177,20 @@ class OpenAIImageProvider:
         image: bytes,
         content_type: str = "image/png",
         size: str | None = None,
+        background: str = "opaque",
         context: dict | None = None,
     ) -> ImageGenerationResult:
-        """Transform the supplied ``image`` per ``prompt`` (product-in-use)."""
+        """Transform the supplied ``image`` per ``prompt`` (product-in-use, straighten)."""
         import requests
 
         size = _coerce_openai_size(size)
         # The edit endpoint is multipart (image file + form fields), not JSON.
         files = {"image": ("product.png", image, content_type)}
         form = {"model": self.model, "prompt": prompt, "size": size, "n": "1"}
+        # Only send background when a transparent cutout is wanted (the straighten
+        # step); the default opaque path is left untouched for existing callers.
+        if background == "transparent":
+            form["background"] = "transparent"
         logger.info("OpenAI image.edit model=%s size=%s %s", self.model, size, context or {})
         try:
             resp = requests.post(
@@ -320,6 +325,7 @@ class MockImageGenerationProvider:
         image: bytes,
         content_type: str = "image/png",
         size: str | None = None,
+        background: str = "opaque",
         context: dict | None = None,
     ) -> ImageGenerationResult:
         from io import BytesIO
@@ -327,14 +333,27 @@ class MockImageGenerationProvider:
         from PIL import Image
 
         width, height = _size_to_dims(size or _DEFAULT_SIZE)
+        product = Image.open(BytesIO(image)).convert("RGBA")
+        buf = BytesIO()
+        if background == "transparent":
+            # Simulate a transparent product edit (e.g. straighten): center the
+            # supplied product on a transparent canvas, preserving it as-is.
+            canvas = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+            p = product.copy()
+            p.thumbnail((round(width * 0.9), round(height * 0.9)), Image.LANCZOS)
+            canvas.alpha_composite(p, (round((width - p.width) / 2), round((height - p.height) / 2)))
+            canvas.save(buf, format="PNG")
+            logger.debug("mock image.edit (transparent) size=%dx%d", width, height)
+            return ImageGenerationResult(
+                png=buf.getvalue(), provider=self.name, model=self.model,
+                width=width, height=height, provider_ref="mock", estimated_cost_usd=0.0,
+            )
         scene = Image.open(BytesIO(self._scene(prompt, width, height))).convert("RGBA")
         # Place the supplied product over the scene to simulate an edit result.
-        product = Image.open(BytesIO(image)).convert("RGBA")
         product.thumbnail((round(width * 0.5), round(height * 0.6)), Image.LANCZOS)
         scene.alpha_composite(
             product, (round((width - product.width) / 2), height - product.height)
         )
-        buf = BytesIO()
         scene.convert("RGB").save(buf, format="PNG")
         logger.debug("mock image.edit size=%dx%d", width, height)
         return ImageGenerationResult(

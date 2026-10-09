@@ -125,6 +125,47 @@ def test_feature_callout_generates_with_backdrop(app, tmp_path, monkeypatch):
         assert Image.open(io.BytesIO(storage.load(a["final_path"]))).size == (CANVAS_SIZE, CANVAS_SIZE)
 
 
+def test_straighten_cutout_returns_trimmed_product(app, tmp_path, monkeypatch):
+    monkeypatch.setenv("MEDIA_DIR", str(tmp_path))
+    with app.app_context():
+        db = get_db()
+        uid = create_local_user("st@example.com", "password123")
+        pid = _project_with_cutout(db, uid)
+        project = isstore.get_project(db, pid, uid)
+        cut = Image.new("RGBA", (300, 200), (0, 0, 0, 0))
+        ImageDraw.Draw(cut).rectangle([20, 20, 279, 179], fill=(10, 10, 10, 255))
+        out, cost = generate._straighten_cutout(project, cut)
+        assert out.width > 20 and out.height > 20  # mock returns a transparent product
+        assert cost == 0.0  # mock is free
+
+
+def test_straighten_failsafe_returns_original(app, tmp_path, monkeypatch):
+    monkeypatch.setenv("MEDIA_DIR", str(tmp_path))
+    with app.app_context():
+        db = get_db()
+        uid = create_local_user("sf@example.com", "password123")
+        pid = _project_with_cutout(db, uid)
+        project = isstore.get_project(db, pid, uid)
+        cut = Image.new("RGBA", (120, 90), (0, 0, 0, 0))
+        ImageDraw.Draw(cut).rectangle([10, 10, 110, 80], fill=(0, 0, 0, 255))
+
+        class _Boom:
+            def edit_image(self, **kw):
+                raise RuntimeError("provider down")
+
+        monkeypatch.setattr(generate, "get_image_generation_provider", lambda: _Boom())
+        out, cost = generate._straighten_cutout(project, cut)
+        assert out is cut and cost == 0.0  # fail-safe: raw cutout, no cost
+
+
+def test_straighten_flag_defaults_on_and_can_disable(monkeypatch):
+    from app.imageset import config
+    monkeypatch.delenv("IMAGESET_STRAIGHTEN_PRODUCT", raising=False)
+    assert config.straighten_feature_product() is True
+    monkeypatch.setenv("IMAGESET_STRAIGHTEN_PRODUCT", "0")
+    assert config.straighten_feature_product() is False
+
+
 def test_display_aspect_prefers_dimensions_over_cutout():
     import json
     # Near-square cutout (an angled keyboard shot) but wide REAL dimensions.

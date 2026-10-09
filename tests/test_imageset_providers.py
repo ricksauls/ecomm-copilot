@@ -256,6 +256,32 @@ def test_photoroom_request_shape_and_trim(monkeypatch):
     assert out.size == (20, 20)  # trimmed to the opaque square
 
 
+def test_mock_edit_transparent_returns_product_on_transparency():
+    # The straighten step asks for a transparent cutout; the mock returns the product
+    # centered on transparency (not a filled scene).
+    res = ig.MockImageGenerationProvider().edit_image(
+        prompt="straighten", image=_png_bytes((40, 40)), background="transparent")
+    out = Image.open(io.BytesIO(res.png)).convert("RGBA")
+    assert out.getchannel("A").getbbox() is not None  # has opaque product content
+    assert out.getpixel((0, 0))[3] == 0  # corner is transparent
+
+
+def test_openai_edit_sends_transparent_background(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-secret")
+    captured = {}
+
+    def fake_post(url, data=None, files=None, headers=None, timeout=None, **kw):
+        captured.update(bg=(data or {}).get("background"))
+        return _FakeResp(200, json_data={"data": [{"b64_json": _b64_png()}]})
+
+    monkeypatch.setattr("requests.post", fake_post)
+    ig.OpenAIImageProvider().edit_image(prompt="x", image=_png_bytes(), background="transparent")
+    assert captured["bg"] == "transparent"
+    # The default (opaque) path omits the field, leaving existing callers untouched.
+    ig.OpenAIImageProvider().edit_image(prompt="x", image=_png_bytes())
+    assert captured["bg"] is None
+
+
 def test_photoroom_missing_key_raises(monkeypatch):
     import pytest
 

@@ -140,6 +140,30 @@ def build_backdrop_prompt(
     )
 
 
+def build_straighten_prompt(*, product_name: str) -> str:
+    """Prompt for ``edit_image`` to re-render the product straight-on (de-angled).
+
+    Used by the feature callout so a product shot in 3D perspective faces the camera
+    flat, matching the size-comparison presentation. The model must preserve the real
+    product exactly — ONLY its orientation changes — and output it on transparency so
+    the result composites like any other cutout.
+    """
+    return (
+        "Re-render the supplied product as a clean, straight-on studio product shot: "
+        "facing the camera directly and level, with NO 3D angle, tilt, rotation, or "
+        "perspective. Center it, upright, filling most of the frame.\n\n"
+        f"Product: {product_name}\n\n"
+        "Output the product ONLY, on a fully TRANSPARENT background — no scene, no "
+        "surface, no shadow, no reflection.\n\n"
+        "Preserve exactly — do NOT add, remove, restyle, recolor, or invent anything:\n"
+        "- the product's shape, proportions, materials, and finish\n"
+        "- every key, button, port, label, logo, and piece of text\n"
+        "- the exact colors.\n\n"
+        "Show the SAME single product; only its orientation becomes straight-on. Do not "
+        "add any other object, a competing brand, or new text."
+    )
+
+
 def build_size_comparison_prompt(
     *,
     product_name: str,

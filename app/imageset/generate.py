@@ -21,6 +21,7 @@ from app.imageset.prompts import (
     build_lifestyle_prompt,
     build_product_in_use_prompt,
     build_size_comparison_prompt,
+    build_straighten_prompt,
 )
 from app.imageset.providers.background_removal import get_background_removal_provider
 from app.imageset.providers.image_generation import get_image_generation_provider
@@ -314,6 +315,36 @@ def _features_for_asset(conn, project, asset) -> list[dict]:
              "icon": iconlib.infer_icon(r["title"], r["feature_type"])} for r in chosen]
 
 
+def _straighten_cutout(project, cutout):
+    """Return a de-angled, straight-on transparent product cutout + its AI cost.
+
+    AI-edits the approved cutout into a front-facing view
+    (:func:`build_straighten_prompt`) so a product shot at a 3D angle reads flat in
+    the feature callout, matching the size-comparison look. Best-effort: on any
+    failure, or a result that didn't isolate a product, returns the original cutout
+    with zero cost so the callout always generates. Returns ``(cutout, cost_usd)``.
+    """
+    name = project["name"] or project["category"] or "the product"
+    provider = get_image_generation_provider()
+    try:
+        res = provider.edit_image(
+            prompt=build_straighten_prompt(product_name=name),
+            image=compose.to_png_bytes(cutout),
+            size=f"{config.AI_SCENE_SIZE}x{config.AI_SCENE_SIZE}",
+            background="transparent",
+            context={"project_id": project["id"], "asset_type": "FEATURE_CALLOUT", "op": "straighten"},
+        )
+        straightened = compose.trim_to_content(compose.load_image(res.png))
+        if straightened.width > 20 and straightened.height > 20:
+            logger.info("Straightened product project=%s size=%s", project["id"], straightened.size)
+            return straightened, res.estimated_cost_usd or 0.0
+        logger.warning("Straighten returned an empty product project=%s; using raw cutout",
+                       project["id"])
+    except Exception as e:  # noqa: BLE001 - straightening must never sink the asset
+        logger.warning("Product straighten failed project=%s: %s", project["id"], e)
+    return cutout, 0.0
+
+
 def _display_aspect(project, cutout) -> float:
     """Width/height ratio used to pick the callout layout (wide → product-on-top band).
 
@@ -338,6 +369,12 @@ def _gen_feature_callout(conn, project, asset, cutout, logo) -> tuple[bytes, byt
     Returns (final, backdrop, meta).
     """
     features = _features_for_asset(conn, project, asset)
+    # Optionally AI-straighten the product (de-angle) so it faces forward in the
+    # callout, like the size comparison. Falls back to the raw cutout on failure.
+    product = cutout
+    straighten_cost = 0.0
+    if config.straighten_feature_product():
+        product, straighten_cost = _straighten_cutout(project, cutout)
     envs = _project_environments(project)
     prompt = build_backdrop_prompt(
         category=project["category"] or "product",
@@ -351,19 +388,19 @@ def _gen_feature_callout(conn, project, asset, cutout, logo) -> tuple[bytes, byt
     # Pick the layout from the product's shape at render time: a wide product gets
     # the product-on-top centered band, a tall/square one the side-by-side column.
     # (Also coerces an asset planned before this rule — no DB migration needed.)
-    aspect = _display_aspect(project, cutout)
+    aspect = _display_aspect(project, product)
     layout = plan._resolve_layout(
         "FEATURE_CALLOUT", asset["layout_style"], asset["variation_number"], aspect=aspect)
     logger.info("Feature-callout layout project=%s asset=%s aspect=%.2f -> %s",
                 project["id"], asset["id"], aspect, layout)
     final = templates.create_feature_callout(
-        features=features, cutout=cutout,
-        brand=resolve_brand_palette(project, cutout),
+        features=features, cutout=product,
+        brand=resolve_brand_palette(project, product),
         layout=layout,
         backdrop_png=backdrop.png,
     )
     meta = {"provider": backdrop.provider, "model": backdrop.model,
-            "estimated_cost_usd": backdrop.estimated_cost_usd, "prompt": prompt}
+            "estimated_cost_usd": backdrop.estimated_cost_usd + straighten_cost, "prompt": prompt}
     return final, backdrop.png, meta
 
 

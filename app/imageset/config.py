@@ -17,6 +17,9 @@ Env:
     IMAGESET_PRICE_PER_IMAGE     USD per AI image for the cost estimate (default
                                  0.04, OpenAI's approx gpt-image price); set empty
                                  to show counts only (no dollar figure)
+    IMAGESET_STRAIGHTEN_PRODUCT  "1" (default) AI-renders a straight-on, de-angled
+                                 product for feature callouts; "0" composites the
+                                 raw cutout as-is (no extra AI call, pixel-faithful)
 """
 
 import logging
@@ -47,6 +50,17 @@ def image_provider() -> str:
 def background_provider() -> str:
     """Configured background-removal provider ("mock", "removebg", or "photoroom")."""
     return (os.environ.get("IMAGESET_BG_PROVIDER") or "mock").strip().lower()
+
+
+def straighten_feature_product() -> bool:
+    """Whether to AI-straighten (de-angle) the product for feature callouts.
+
+    Default on so a product shot at a 3D angle faces forward in the callout (like the
+    size comparison). Set IMAGESET_STRAIGHTEN_PRODUCT=0 to composite the raw cutout
+    as-is — no extra AI call, and the product stays pixel-faithful.
+    """
+    raw = (os.environ.get("IMAGESET_STRAIGHTEN_PRODUCT") or "1").strip().lower()
+    return raw not in ("0", "false", "no", "off", "")
 
 
 def openai_api_key() -> str:
