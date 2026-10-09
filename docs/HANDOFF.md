@@ -1,13 +1,109 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-10-08 (session 15 — **all 4 image types now generate**: built the
-FEATURE_CALLOUT (icon badges + blurred AI backdrop + halos, ported from the source app) and
-PRODUCT_IN_USE (AI edit) generators, removed INFOGRAPHIC (7 assets), made the cutout picker
-**per-variation**, added **batch select → Regenerate / Discard / Keep** in the gallery (fixed a
-stuck-spinner on worker-restart-orphaned jobs), and strengthened the product-in-use prompt.
-Session 14 — Image Set UX + a rebuilt AI size-comparison. Session 13 — built PDP Image Set.)_
+_Last updated: 2026-10-08 (session 16 — image-set polish: **feature-callouts always render
+side-by-side** (never centered; the two mirror), **larger text halos**, **backdrop blur 11→6**;
+gallery switched to a **per-card Regenerate** button with **Discard/Keep removed**; and a **brand
+logo on Lifestyle images** (top-left, intake upload, Lifestyle-only). No migrations. Session 15 —
+all 4 image types generate (feature-callout + product-in-use built, infographic dropped). Session
+14 — Image Set UX + AI size-comparison. Session 13 — built PDP Image Set.)_
 
-> ## ⭐ Next session — START HERE (session 15, 2026-10-08)
+> ## ⭐ Next session — START HERE (session 16, 2026-10-08)
+>
+> **Everything shipped + deployed; `main` at `4f58567`, CI + Deploy green, 477 tests passing,
+> `ruff` clean.** Session 16 was a polish pass on the image-set feature: feature-callout rendering
+> fixes, a gallery UX change (per-card Regenerate, Discard/Keep removed), and a brand logo on
+> Lifestyle images. **No migrations** — `logo_path` and `kept` columns already existed (`kept` is
+> now inert).
+>
+> ### ⭐ Needs a live eyeball (judge on REAL renders — the offline previews used stand-in art/scenes
+> that exaggerate detail)
+> - **Brand logo on Lifestyle** — upload a logo on intake (step 5), generate, confirm the **top-left**
+>   placement + size reads well. If it's too big/small, tune the size fraction in
+>   `compose.composite_logo` (`max_width_fraction` / `max_height_fraction`). Transparent PNG is
+>   recommended; a JPG with a white bg will show a white box.
+> - **Feature-callout fixes on real AI backdrops:** (a) **side-by-side layout** (never centered; the
+>   two callouts mirror — v1 product-right, v2 product-left), (b) **larger text halos** cover all the
+>   text, (c) **backdrop blur = 6** (sharper than before) looks right on a real photo.
+> - **Gallery buttons** — Download + Regenerate now render as **bordered buttons** (`wbtn-secondary`).
+>   If a different style was wanted (e.g. Regenerate filled/primary), it's a one-class swap.
+>
+> ### What shipped this session (all on main)
+> - **Feature-callout layout: always side-by-side** (`plan._resolve_layout` + `_SIDE_ONLY_ASSET_TYPES`).
+>   A FEATURE_CALLOUT can no longer be `product-center` (that stacked the product over the rows — the
+>   format the user rejected). Center is redirected to a side layout, alternating by variation (v1
+>   right / v2 left). Enforced at plan time (Claude path + mock plan) **and** at render time in
+>   `_gen_feature_callout` (so an asset planned before the rule regenerates correctly — no migration).
+>   Planner prompt updated to say callouts must be a side layout.
+> - **Feature-callout text halos enlarged** (`templates.create_feature_callout`): the soft white
+>   legibility clouds behind each row went 44x/30y → **72x/48y** padding (`halo_pad_x` / `halo_pad_y`).
+> - **Feature-callout backdrop blur reduced** 11 → **6** (`templates._BACKDROP_BLUR`).
+> - **Gallery: per-card Regenerate; Discard/Keep removed.** Each finished/failed card has its own
+>   **Regenerate button** (posts to the existing `imageset_regenerate_asset`); several images can
+>   regenerate at once — independent jobs drained **up to 3 at a time** (`SCORING_CONCURRENCY`, and
+>   only while scoring/copy/image-fix are idle). Removed the batch-select bar, the "Select" checkbox,
+>   the batch JS, and the routes `imageset_regenerate_batch` / `imageset_keep_batch` /
+>   `imageset_keep_asset` + `store.set_asset_kept`. The ZIP now bundles **every** finished image (no
+>   kept filter). `imageset_assets.kept` is left in place but **inert** (removing a SQLite column =
+>   table rebuild, skipped).
+> - **Brand logo on Lifestyle (top-left only).** Optional logo upload on intake (step 5, `name="logo"`),
+>   validated via `_validate_upload(label=…)`, stored via `store.set_logo`. `process_asset` feeds the
+>   logo **only to LIFESTYLE** — product-in-use (which can composite top-right) is intentionally not
+>   fed it. The compositing (`_gen_lifestyle` → `compose.composite_logo(corner="top-left")`) already
+>   existed but was never fed (nothing set `logo_path`). **Auto-source from the Walmart fetch is NOT
+>   available** — the fetch gets the brand *name*, not a logo image — so upload is the source + override
+>   for now.
+> - **Gallery card: removed the per-image title/description** (e.g. "Forest Trail Camp Setup"); the
+>   type label stays. Download + Regenerate restyled ghost → **secondary bordered buttons** (dead
+>   `.imageset-title` CSS removed).
+>
+> ### Still open (carryover — unchanged unless noted)
+> - **Feature-icon assignment build** (top carryover from session 15): assign each feature's `icon` at
+>   feature-generation time (the `imageset_features.icon` column exists, unpopulated) and have
+>   `_features_for_asset` prefer it over the `iconlib.infer_icon` heuristic (which mis-picks, e.g.
+>   "Active Formula" → leaf).
+> - **Product-in-use duplicate-can check** — re-generate, confirm the "two cans" issue is gone (prompt
+>   strengthened session 15, not yet judged live).
+> - **No cost-preflight confirm modal** before Approve generates (~$0.28 for a full set).
+> - **"View Creative Content Creation History"** still not wired to list image-set runs.
+> - Size-comparison **scale-to-fill** (optional); cutouts use the **mock chroma-key** (add remove.bg
+>   for busy photos).
+> - **NEW — brand-logo auto-source** (optional): a brand-name→logo lookup (Brandfetch/Clearbit-style)
+>   to pre-fill the logo field; upload stays the override.
+> - **NEW — product-type / shape-adaptive image recipes** (bigger next direction; design notes below).
+>
+> ### Next-up design direction — product-type / shape-adaptive recipes (discussed, NOT built)
+> The pipeline assumes a **tall** product and a **fixed** composition (`plan.REQUIRED_COMPOSITION` =
+> 2 lifestyle / 2 feature / 2 product-in-use / 1 size-comparison). It won't generalize to other
+> shapes/sizes. Plan to adapt on two auto-detectable axes:
+> - **Shape (aspect ratio, from the cutout bbox):** tall → today's side-column callout; square → L /
+>   split; **wide → product as a horizontal hero + a feature "band"** (badge-on-top "chips" in a strip
+>   above/below). Fewer features fit per wide image, so number of feature images =
+>   `ceil(total_features / capacity)`, capacity keyed off shape — this is what makes "add more feature
+>   images" fall out naturally.
+> - **Size class (category lookup + dimensions, manual override in intake):** gates the scale asset —
+>   everyday-object **size-comparison only for small/tabletop**; for large/oversized (couch, swingset)
+>   swap to a **dimensioned diagram** (`_gen_size_comparison_diagram` already exists) or an in-room
+>   lifestyle; no object comparison.
+>
+> The **wide "band" callout template** is the main new build: new branch in
+> `_feature_callout_regions` + a horizontal chip layouter; reuses `_badge_image`, `fit_cutout`,
+> `font`/`wrap_text`, the halo, and centered text. (Centered feature text was built + previewed this
+> session then **reverted** — it belongs to the band template, not the tall layout.) Then replace the
+> fixed `REQUIRED_COMPOSITION` with a per-product **profile** (small CPG / wide electronics / large
+> furniture / oversized) that sets asset mix + counts. **Phasing:** P1 (cheap) auto-detect aspect →
+> pick callout layout + gate size-comparison; P2 profile + variable composition; P3 wide/square
+> templates + intake UI to add/remove feature images.
+>
+> ### Commits this session (all on main)
+> `99372a5` feature-callouts always side-by-side (never centered) · `5f87bfe` enlarge callout text
+> halos (44/30→72/48) · `d615c2c` reduce callout backdrop blur 11→6 · `3402619` gallery per-card
+> Regenerate + remove Discard/Keep · `4f58567` brand logo on Lifestyle (top-left) + gallery card
+> tweaks (HEAD). (plus this docs commit.)
+>
+> _(Session 15's "start here" block follows below — still accurate for the image-set architecture,
+> the 4 generators, the per-variation picker, and the prod `.env` flags.)_
+
+> ## Next session — START HERE (session 15, 2026-10-08)
 >
 > **Everything shipped + deployed; `main` at `9dd0b24`, CI + Deploy green, 469 tests passing,
 > `ruff` clean.** The `selected_types` and `kept` migrations are additive (auto-apply on
