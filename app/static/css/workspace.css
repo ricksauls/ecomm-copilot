@@ -2784,39 +2784,10 @@ textarea.text-input { resize: vertical; line-height: 1.5; }
 }
 .empty-note { color: var(--mid-gray); }
 
-/* Per-image actions (download / regenerate / keep-discard) + discarded state. */
+/* Per-image actions (download / regenerate). */
 .imageset-card-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .imageset-inline-form { display: inline; margin: 0; }
-/* Header batch actions (Regenerate / Discard / Keep selected). */
-.imageset-batch-actions { display: inline-flex; gap: 8px; margin: 0; flex-wrap: wrap; }
-.imgset-batch-btn:disabled { opacity: 0.5; cursor: default; }
-/* Per-card "tick to select" control (batched via the header buttons). */
-.imageset-regen-check {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 11.5px;
-  color: var(--mid-gray);
-  cursor: pointer;
-  user-select: none;
-}
-.imageset-regen-check input { cursor: pointer; }
 .imageset-thumb { position: relative; }
-.imageset-discard-badge {
-  position: absolute;
-  top: 8px;
-  left: 8px;
-  font-size: 10.5px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  color: #fff;
-  background: rgba(17, 24, 39, 0.78);
-  border-radius: 999px;
-  padding: 2px 9px;
-}
-/* A discarded image stays visible but clearly de-emphasized (and not in the ZIP). */
-.imageset-card-discarded .imageset-thumb img { opacity: 0.45; filter: grayscale(0.4); }
 
 /* URL prefill box + fetching state. */
 .imageset-url-card { margin-bottom: 18px; }

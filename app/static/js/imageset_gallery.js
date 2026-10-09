@@ -59,38 +59,3 @@
 
   window.setTimeout(poll, POLL_MS);
 })();
-
-// Batch actions (Regenerate / Discard / Keep selected): enable the buttons only
-// when ≥1 image is ticked and show the count. Runs regardless of polling state.
-// CSP-safe (external file).
-(function () {
-  "use strict";
-
-  var buttons = document.querySelectorAll(".imgset-batch-btn");
-  var boxes = document.querySelectorAll('input[name="asset_ids"][form="imgset-select-form"]');
-  if (!buttons.length || !boxes.length) {
-    return;
-  }
-  // Remember each button's base label so we can append/remove the "(N)".
-  buttons.forEach(function (b) {
-    b.setAttribute("data-label", b.textContent.trim());
-  });
-
-  function sync() {
-    var n = 0;
-    boxes.forEach(function (b) {
-      if (b.checked) {
-        n += 1;
-      }
-    });
-    buttons.forEach(function (b) {
-      b.disabled = n === 0;
-      b.textContent = n ? b.getAttribute("data-label") + " (" + n + ")" : b.getAttribute("data-label");
-    });
-  }
-
-  boxes.forEach(function (b) {
-    b.addEventListener("change", sync);
-  });
-  sync();
-})();

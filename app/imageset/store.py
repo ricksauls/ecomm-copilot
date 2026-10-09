@@ -563,17 +563,6 @@ def get_asset(conn: sqlite3.Connection, asset_id: int, user_id: int) -> sqlite3.
     ).fetchone()
 
 
-def set_asset_kept(conn: sqlite3.Connection, asset_id: int, user_id: int, kept: bool) -> None:
-    """Mark one asset kept (in the set) or discarded. IDOR-scoped by user_id."""
-    conn.execute(
-        "UPDATE imageset_assets SET kept = ?, updated_at = datetime('now') "
-        "WHERE id = ? AND user_id = ?",
-        (1 if kept else 0, asset_id, user_id),
-    )
-    conn.commit()
-    logger.info("Image-set asset id=%s kept=%s (user_id=%s)", asset_id, bool(kept), user_id)
-
-
 def reset_asset_for_regeneration(conn: sqlite3.Connection, asset_id: int, user_id: int) -> None:
     """Clear an asset's outputs and set it back to ``draft`` so it can regenerate.
 

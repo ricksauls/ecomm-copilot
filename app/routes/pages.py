@@ -2251,14 +2251,12 @@ def _imageset_asset_view(asset, job) -> dict:
         status = "failed"
     elif status not in ("ready", "failed") and job_status in ("queued", "processing"):
         status = "generating"
-    kept = bool(asset["kept"]) if "kept" in asset.keys() else True
     return {
         "id": asset["id"],
         "type": asset["asset_type"].replace("_", " ").title(),
         "title": asset["title"],
         "status": status,
         "ready": status == "ready" and bool(asset["final_path"]),
-        "kept": kept,
         "error": asset["error"] or (job["error"] if job else None),
     }
 
@@ -2296,10 +2294,8 @@ def imageset_gallery(pid):
         "app/pdp_image_set_gallery.html", breadcrumb=_IMGSET_BREADCRUMB,
         active_nav=_IMGSET_NAV, project=project, assets=assets, pending=pending,
         planning=planning,
-        # "Download All" bundles the kept, finished images.
-        ready_count=sum(1 for a in assets if a["ready"] and a["kept"]),
-        # Any finished/failed image can be ticked for a batch regenerate.
-        can_regen=any(a["ready"] or a["status"] == "failed" for a in assets),
+        # "Download All" bundles every finished image.
+        ready_count=sum(1 for a in assets if a["ready"]),
     )
 
 
@@ -2316,62 +2312,6 @@ def imageset_regenerate_asset(pid, aid):
     imageset_jobs.enqueue_asset_job(db, user_id=uid, project_id=pid, asset_id=aid)
     imageset_store.set_status(db, pid, imageset_store.STATUS_GENERATING)
     logger.info("Image-set regenerate asset=%s project=%s user_id=%s", aid, pid, uid)
-    return redirect(url_for("pages.imageset_gallery", pid=pid))
-
-
-@bp.route("/app/pdp-image-set/<int:pid>/regenerate", methods=["POST"])
-@login_required
-def imageset_regenerate_batch(pid):
-    """Re-run generation for several ticked assets at once."""
-    _imageset_project_or_404(pid)
-    db, uid = get_db(), g.user["id"]
-    count = 0
-    for raw in request.form.getlist("asset_ids"):
-        if not raw.isdigit():
-            continue
-        asset = imageset_store.get_asset(db, int(raw), uid)
-        if asset is None or asset["project_id"] != pid:
-            continue
-        imageset_store.reset_asset_for_regeneration(db, asset["id"], uid)
-        imageset_jobs.enqueue_asset_job(db, user_id=uid, project_id=pid, asset_id=asset["id"])
-        count += 1
-    if count:
-        imageset_store.set_status(db, pid, imageset_store.STATUS_GENERATING)
-    logger.info("Image-set batch regenerate %d asset(s) project=%s user_id=%s", count, pid, uid)
-    return redirect(url_for("pages.imageset_gallery", pid=pid))
-
-
-@bp.route("/app/pdp-image-set/<int:pid>/keep", methods=["POST"])
-@login_required
-def imageset_keep_batch(pid):
-    """Keep or discard several ticked assets at once (``keep`` = 1 keep, 0 discard)."""
-    _imageset_project_or_404(pid)
-    db, uid = get_db(), g.user["id"]
-    keep = request.form.get("keep") == "1"
-    count = 0
-    for raw in request.form.getlist("asset_ids"):
-        if not raw.isdigit():
-            continue
-        asset = imageset_store.get_asset(db, int(raw), uid)
-        if asset is None or asset["project_id"] != pid:
-            continue
-        imageset_store.set_asset_kept(db, asset["id"], uid, keep)
-        count += 1
-    logger.info("Image-set batch %s %d asset(s) project=%s user_id=%s",
-                "keep" if keep else "discard", count, pid, uid)
-    return redirect(url_for("pages.imageset_gallery", pid=pid))
-
-
-@bp.route("/app/pdp-image-set/<int:pid>/asset/<int:aid>/keep", methods=["POST"])
-@login_required
-def imageset_keep_asset(pid, aid):
-    """Toggle whether a finished asset is kept in the set (discard a poor one)."""
-    _imageset_project_or_404(pid)
-    db, uid = get_db(), g.user["id"]
-    asset = imageset_store.get_asset(db, aid, uid)
-    if asset is None or asset["project_id"] != pid:
-        abort(404)
-    imageset_store.set_asset_kept(db, aid, uid, not bool(asset["kept"]))
     return redirect(url_for("pages.imageset_gallery", pid=pid))
 
 
@@ -2469,8 +2409,6 @@ def imageset_download_zip(pid):
     written = 0
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for asset in imageset_store.assets_for_project(db, pid, uid):
-            if "kept" in asset.keys() and not asset["kept"]:
-                continue  # discarded images aren't bundled
             path = imageset_storage.abs_path(asset["final_path"])
             if not path or not os.path.isfile(path):
                 continue
