@@ -176,7 +176,6 @@ def create_feature_callout(
     n = max(1, len(features))
     icon_r = round(min(96, frh / n * 0.30))
     gap = 40  # badge → text gap
-    text_x = frx + 2 * icon_r + gap
     text_w = frw - (2 * icon_r + gap)
     head_fs = 56 if n <= 2 else 50
     ben_fs = 40 if n <= 2 else 36
@@ -199,15 +198,31 @@ def create_feature_callout(
                        "text_h": text_h, "content_h": content_h, "widest": widest,
                        "icon": feat.get("icon") or "check"})
 
-    row_gap = round(min(frh * 0.08, max(24, (frh - sum(b["content_h"] for b in blocks)) / max(1, n))))
+    # The halo behind each row extends past its content by these pads; because the
+    # blur fades the edges, a generous pad keeps the solid core under all the text.
+    halo_pad_x, halo_pad_y = 72, 48
+
+    # Centered band (wide product): center the whole feature block horizontally so it
+    # doesn't hug the left edge. Side (column) layouts keep their column's left edge.
+    if layout == "product-center" and blocks:
+        block_w = 2 * icon_r + gap + max(b["widest"] for b in blocks)
+        frx += max(0, (frw - block_w) / 2)
+    text_x = frx + 2 * icon_r + gap
+
+    # Row spacing must clear BOTH neighbouring halos' padding plus a visible gap, or
+    # the blurred halos merge into one blob (what reads as "crammed, touching"). The
+    # gap distributes the leftover space up to a cap but never drops below that
+    # halo-clearance floor. Without a backdrop there are no halos, so a smaller floor
+    # is fine. The side layout's wide region keeps its previous ~frh*0.08 spacing.
+    min_gap = (2 * halo_pad_y + 34) if backdrop_png else 40
+    cap = max(frh * 0.08, min_gap)
+    leftover = frh - sum(b["content_h"] for b in blocks)
+    row_gap = round(min(cap, max(min_gap, leftover / max(1, n)))) if n > 1 else 0
     stack_h = sum(b["content_h"] for b in blocks) + row_gap * (n - 1)
     y0 = fry + max(0, (frh - stack_h) / 2)
 
     # Halo pass — soft blurred white rounded rects behind each row (legibility over
     # a photo). Drawn on their own layer, blurred, then composited under the content.
-    # The halo extends past the row's content by these pads; because the blur fades
-    # the edges, a generous pad keeps the solid core comfortably under all the text.
-    halo_pad_x, halo_pad_y = 72, 48
     if backdrop_png:
         halo = Image.new("RGBA", (size, size), (0, 0, 0, 0))
         hd = ImageDraw.Draw(halo)
