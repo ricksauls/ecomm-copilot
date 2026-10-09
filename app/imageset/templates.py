@@ -105,12 +105,13 @@ _BACKDROP_BLUR = 6
 def _feature_callout_regions(size: int, margin: int, layout: str):
     """Return (product_rect, feature_rect) as (x, y, w, h) for a callout layout."""
     if layout == "product-center":
-        # A wide product needs little vertical room, so keep its band short and give
-        # the rest of the canvas to the feature rows — otherwise the callouts get
-        # crammed into a shallow bottom strip. The gap between the product band and
-        # the first row also keeps a product's reflection/shadow off the top callout.
-        prod = (margin, margin, size - 2 * margin, round(size * 0.32))
-        fy = round(size * 0.42)
+        # Give the product a tall-enough top band that an angled, only-moderately-wide
+        # shot (e.g. a keyboard) still renders large — a too-short band leaves it small
+        # with big empty side margins. The rest goes to the feature rows, which still
+        # have room for three well-spaced callouts. The gap between the product band
+        # and the first row keeps any residual reflection/shadow off the top callout.
+        prod = (margin, margin, size - 2 * margin, round(size * 0.42))
+        fy = round(size * 0.50)
         return prod, (margin, fy, size - 2 * margin, size - margin - fy)
     col_w = (size - 3 * margin) // 2
     left_col = (margin, margin, col_w, size - 2 * margin)
