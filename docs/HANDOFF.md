@@ -1,13 +1,116 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-10-08 (session 16 — image-set polish: **feature-callouts always render
-side-by-side** (never centered; the two mirror), **larger text halos**, **backdrop blur 11→6**;
-gallery switched to a **per-card Regenerate** button with **Discard/Keep removed**; and a **brand
-logo on Lifestyle images** (top-left, intake upload, Lifestyle-only). No migrations. Session 15 —
-all 4 image types generate (feature-callout + product-in-use built, infographic dropped). Session
-14 — Image Set UX + AI size-comparison. Session 13 — built PDP Image Set.)_
+_Last updated: 2026-10-08 (session 17 — **shape-adaptive image set** (Phase 1) + a full
+wide-product polish round from live testing: wide products get a **product-on-top band** layout
+(picked from real dimensions), size-comparison **gated by size class** + anchored on the longest
+dimension, **PhotoRoom** background removal (reflection/glare fix), **alpha-trim** so the product
+fills its box, and an **AI "straighten"** that de-angles the product for feature callouts; gpt-image
+quality set to **medium**. Droplet now on gpt-image-1 + PhotoRoom. Session 16 — callout layout/halos/
+blur, per-card Regenerate, Lifestyle logo. Session 15 — all 4 image types generate. Session 13 —
+built PDP Image Set.)_
 
-> ## ⭐ Next session — START HERE (session 16, 2026-10-08)
+> ## ⭐ Next session — START HERE (session 17, 2026-10-08)
+>
+> **Everything shipped + deployed; `main` at `cc54fc6`, CI + Deploy green, 500 tests passing,
+> `ruff` clean. No migrations this session.** Session 17 landed **Phase 1** of the shape-adaptive
+> image set (from the product-type design direction) plus a long, live-tested polish round on the
+> **wide-product (keyboard)** path, **PhotoRoom** background removal, an **AI product straighten**,
+> and the **medium** gpt-image quality setting.
+>
+> ### ⚠️ Live droplet `.env` changes this session (manually maintained — verify before debugging)
+> The user set these on the droplet `.env` (`/home/deploy/apps/ecomm-copilot`, hand-maintained, not
+> written by deploy); confirm with `grep -nE '^IMAGESET_|^OPENAI_IMAGE|^BACKGROUND_REMOVAL' .env`:
+> - **`IMAGESET_BG_PROVIDER=photoroom`** + **`BACKGROUND_REMOVAL_API_KEY=<PhotoRoom key>`** — PhotoRoom
+>   cutouts (reflection/glare removed). A `sandbox_`-prefixed key = free watermarked test calls.
+> - **`OPENAI_IMAGE_MODEL=gpt-image-1`** (was gpt-image-2) — needed for the straighten's
+>   `background=transparent`, and now generates ALL AI images. gpt-image-1 may require **OpenAI org
+>   verification**; a 403/"must be verified" in the worker log = account verification, not the key
+>   (keys aren't model-specific). An `.env` change needs **both** services restarted.
+> - **`IMAGESET_IMAGE_QUALITY`** is NOT set → defaults to **medium** (the user's choice). Set it to
+>   low/high/auto to change.
+>
+> ### ⭐ Needs a live eyeball (judge on REAL renders)
+> - **AI straighten** (`IMAGESET_STRAIGHTEN_PRODUCT`, default **on**): feature-callout products are
+>   re-rendered front-facing/de-angled via `edit_image(background=transparent)`. It **re-renders the
+>   product**, so confirm it preserves details (key legends, proportions, colors) and doesn't distort.
+>   If a product comes out wrong: tighten `prompts.build_straighten_prompt`, or set
+>   `IMAGESET_STRAIGHTEN_PRODUCT=0` for the pixel-faithful raw cutout. Worker log shows
+>   `Straightened product … size=…` on success or a warning on fallback.
+> - **Wide-product sizing**: the keyboard now fills ~75-80% width in the band. Check other wide/
+>   angled products land well; the product band height is `0.42` in `_feature_callout_regions`
+>   (one-line tune). The `Feature-callout layout … aspect=… -> …` log shows the decision.
+> - **Medium quality** across all AI images — confirm it reads well (vs the old gpt-image-2 "auto").
+>
+> ### What shipped this session (all on main)
+> **Phase 1 — shape-adaptive (`8075535`):**
+> - **Feature-callout layout from product shape**: wide → **product-center band** (product on top,
+>   rows below), tall/square → side column. `plan._resolve_layout(aspect=…)` + `_WIDE_ASPECT=1.25`.
+>   Aspect is from **real dimensions** (`generate._display_aspect`: width/height), NOT the cutout
+>   bbox — an angled shot's tight bbox is near-square and under-reports wideness (`8b36972`).
+> - **Size-comparison gated by size class**: `reference_objects.is_comparable_size` routes products
+>   whose longest dimension > `MAX_COMPARISON_INCHES` (30 in) to the measurement diagram (a couch
+>   isn't compared to a ruler); `_INCHES_PER_UNIT` gained ft/feet/meter (a "7 ft" was read as 7 in).
+> - Size-comparison now anchors reference objects on the **longest** dimension, not height
+>   (`reference_objects.longest_dimension`) — a 16" keyboard compares to a ruler, not a golf ball
+>   (`d2a04c0`).
+>
+> **Wide-callout polish (live-tested on the keyboard):**
+> - Row halos get a **halo-clearance floor** so they don't merge into one blob, and the block is
+>   **horizontally centered** in the band (`94e8b75`). Halo opacity **150→200** + a gap between the
+>   product band and the first row so a reflection doesn't bleed into the top callout (`9d2004f`).
+> - Product band enlarged (**0.32→0.42**) so a wide product renders large, not tiny (`02b5784`).
+> - **Alpha-trim fix** (the big one for "product too small"): `_trim_to_opaque` + new
+>   `compose.trim_to_content` bound on the **alpha channel**, not a plain RGBA `getbbox()` — PhotoRoom
+>   returns the subject at full image size with a transparent-but-RGB border that `getbbox()` kept,
+>   so the padded cutout got shrunk. `process_asset` trims at render time (fixes existing cutouts on
+>   regenerate). Band product fills its box tightly (fill `0.99`) (`a223a32`).
+>
+> **PhotoRoom provider (`379170d`):** `PhotoRoomProvider` (POST `sdk.photoroom.com/v1/segment`,
+> `x-api-key`, `image_file` + `format=png`), selected by `IMAGESET_BG_PROVIDER=photoroom`, reuses
+> `BACKGROUND_REMOVAL_API_KEY`. `config.removebg_api_key` → generalized `background_removal_api_key`
+> (old name kept as alias).
+>
+> **AI straighten (`e244c62`):** `generate._straighten_cutout` AI-edits the cutout to a front-facing
+> transparent product (`prompts.build_straighten_prompt`), trims, composites. `edit_image` gained a
+> `background` param (OpenAI sends it only when transparent; mock returns the product on
+> transparency). **Fail-safe** → raw cutout on any error. Feature-callout only (NOT lifestyle). Adds
+> ~$0.04/feature image. Gated by `IMAGESET_STRAIGHTEN_PRODUCT` (default on).
+>
+> **Quality (`cc54fc6`):** every generate/edit sends `quality` from `config.image_quality()`
+> (`IMAGESET_IMAGE_QUALITY`, default **medium**; was unset → gpt-image "auto").
+>
+> ### Tunable knobs added this session
+> `plan._WIDE_ASPECT` (1.25) · `reference_objects.MAX_COMPARISON_INCHES` (30) · product band `0.42`
+> + fill `0.99` + `min_gap`/halo opacity in `templates` · `IMAGESET_STRAIGHTEN_PRODUCT` ·
+> `IMAGESET_IMAGE_QUALITY`.
+>
+> ### Still open (carryover + new)
+> - **2 callouts per image for wide products (capacity / P3)** — the user's own idea for when 3
+>   callouts + a big product don't both fit. Not needed for the keyboard (3 fit after the fixes), but
+>   it's the right lever for products with long 2-line benefits. Doing it well means distributing
+>   features across the 2 callout variations so none are dropped (plan-level). Part of the
+>   product-type design direction below.
+> - **Feature-icon assignment build** (top carryover from session 15): populate `imageset_features.icon`
+>   at feature-generation time; `_features_for_asset` prefer it over `iconlib.infer_icon`.
+> - **Product-in-use duplicate-can check**; **no cost-preflight modal** (now ~$0.08+/feature image
+>   with straighten); **"View Creative Content Creation History"** not wired to image-set runs.
+> - **Lifestyle straighten** (optional) — deliberately left off (a straightened product grounded on a
+>   scene with a shadow can look off); easy to extend if wanted.
+> - **Product-type / shape-adaptive recipes — P2/P3** (design notes still in the session-16 block
+>   below): per-product profile replacing the fixed `REQUIRED_COMPOSITION`; the wide "band" template
+>   with horizontal chips (centered feature text was built + reverted — it belongs there).
+>
+> ### Commits this session (all on main)
+> `8075535` Phase 1 (shape layout + size-class gate) · `d2a04c0` wide cram fix + longest-dim anchor ·
+> `94e8b75` halo separation + center band · `9d2004f` top-row readable over reflection · `379170d`
+> PhotoRoom provider · `8b36972` layout from dimensions not cutout · `02b5784` taller product band ·
+> `a223a32` alpha-trim (product fills box) · `e244c62` AI straighten · `cc54fc6` medium quality (HEAD).
+> (plus this docs commit.)
+>
+> _(Session 16's "start here" block follows below — still accurate for the per-card Regenerate gallery,
+> the Lifestyle logo, and the product-type design direction notes.)_
+
+> ## Next session — START HERE (session 16, 2026-10-08)
 >
 > **Everything shipped + deployed; `main` at `4f58567`, CI + Deploy green, 477 tests passing,
 > `ruff` clean.** Session 16 was a polish pass on the image-set feature: feature-callout rendering
