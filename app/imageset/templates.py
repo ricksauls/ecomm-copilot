@@ -107,9 +107,10 @@ def _feature_callout_regions(size: int, margin: int, layout: str):
     if layout == "product-center":
         # A wide product needs little vertical room, so keep its band short and give
         # the rest of the canvas to the feature rows — otherwise the callouts get
-        # crammed into a shallow bottom strip.
-        prod = (margin, margin, size - 2 * margin, round(size * 0.34))
-        fy = round(size * 0.40)
+        # crammed into a shallow bottom strip. The gap between the product band and
+        # the first row also keeps a product's reflection/shadow off the top callout.
+        prod = (margin, margin, size - 2 * margin, round(size * 0.32))
+        fy = round(size * 0.42)
         return prod, (margin, fy, size - 2 * margin, size - margin - fy)
     col_w = (size - 3 * margin) // 2
     left_col = (margin, margin, col_w, size - 2 * margin)
@@ -231,7 +232,7 @@ def create_feature_callout(
             right = text_x + min(text_w, b["widest"]) + halo_pad_x
             hd.rounded_rectangle([frx - halo_pad_x, y - halo_pad_y,
                                   right, y + b["content_h"] + halo_pad_y],
-                                 radius=90, fill=(255, 255, 255, 150))
+                                 radius=90, fill=(255, 255, 255, 200))
             y += b["content_h"] + row_gap
         canvas.alpha_composite(halo.filter(ImageFilter.GaussianBlur(26)))
 
