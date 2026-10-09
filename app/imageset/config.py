@@ -11,6 +11,8 @@ Env:
     IMAGESET_IMAGE_PROVIDER      "mock" (default) | "openai" — AI scene generation
     OPENAI_API_KEY               OpenAI key; empty leaves the OpenAI provider inert
     OPENAI_IMAGE_MODEL           image model (default "gpt-image-2")
+    IMAGESET_IMAGE_QUALITY       gpt-image quality: auto|low|medium|high
+                                 (default "medium"); higher = crisper but pricier
     IMAGESET_BG_PROVIDER         "mock" (default) | "removebg" | "photoroom" — cutout
     BACKGROUND_REMOVAL_API_KEY   remove.bg / PhotoRoom key (PhotoRoom sandbox keys are
                                  prefixed "sandbox_"); empty leaves the provider inert
@@ -71,6 +73,24 @@ def openai_api_key() -> str:
 def openai_image_model() -> str:
     """Configured OpenAI image model (env override, else gpt-image-2)."""
     return (os.environ.get("OPENAI_IMAGE_MODEL") or "gpt-image-2").strip() or "gpt-image-2"
+
+
+# Valid gpt-image quality tiers; anything else falls back to the default.
+_IMAGE_QUALITIES = {"auto", "low", "medium", "high"}
+
+
+def image_quality() -> str:
+    """Configured gpt-image quality tier (``IMAGESET_IMAGE_QUALITY``, default medium).
+
+    Higher tiers render crisper images but cost materially more per image; an
+    unrecognized value falls back to ``medium`` (logged) so a typo never sends an
+    invalid request.
+    """
+    raw = (os.environ.get("IMAGESET_IMAGE_QUALITY") or "medium").strip().lower()
+    if raw not in _IMAGE_QUALITIES:
+        logger.warning("Invalid IMAGESET_IMAGE_QUALITY=%r; falling back to medium", raw)
+        return "medium"
+    return raw
 
 
 def background_removal_api_key() -> str:

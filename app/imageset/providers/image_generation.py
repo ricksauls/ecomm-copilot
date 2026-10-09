@@ -98,6 +98,7 @@ class OpenAIImageProvider:
 
     def __init__(self) -> None:
         self.model = config.openai_image_model()
+        self.quality = config.image_quality()
 
     def _headers(self) -> dict:
         key = config.openai_api_key()
@@ -140,9 +141,11 @@ class OpenAIImageProvider:
             "prompt": prompt,
             "size": size,
             "background": background,
+            "quality": self.quality,
             "n": 1,
         }
-        logger.info("OpenAI image.generate model=%s size=%s %s", self.model, size, context or {})
+        logger.info("OpenAI image.generate model=%s size=%s quality=%s %s",
+                    self.model, size, self.quality, context or {})
         try:
             resp = requests.post(
                 _GENERATE_URL, json=payload, headers=self._headers(), timeout=_REQUEST_TIMEOUT_S
@@ -186,7 +189,8 @@ class OpenAIImageProvider:
         size = _coerce_openai_size(size)
         # The edit endpoint is multipart (image file + form fields), not JSON.
         files = {"image": ("product.png", image, content_type)}
-        form = {"model": self.model, "prompt": prompt, "size": size, "n": "1"}
+        form = {"model": self.model, "prompt": prompt, "size": size,
+                "quality": self.quality, "n": "1"}
         # Only send background when a transparent cutout is wanted (the straighten
         # step); the default opaque path is left untouched for existing callers.
         if background == "transparent":
