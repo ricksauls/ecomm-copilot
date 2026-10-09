@@ -66,6 +66,21 @@ def test_feature_callout_explicit_side_layout_is_respected():
     assert planmod._resolve_layout("FEATURE_CALLOUT", "product-right", 2) == "product-right"
 
 
+def test_wide_product_callout_uses_centered_band():
+    # A wide product (aspect ≥ 1.25) gets product-on-top regardless of the stored
+    # side layout, because there's no room for a tall side column.
+    assert planmod._resolve_layout("FEATURE_CALLOUT", "product-left", 1, aspect=1.6) == "product-center"
+    assert planmod._resolve_layout("FEATURE_CALLOUT", "product-right", 2, aspect=1.6) == "product-center"
+
+
+def test_tall_or_square_product_callout_uses_side():
+    # A tall/square product keeps the side layout (and a center suggestion is
+    # redirected to a side, mirrored by variation).
+    assert planmod._resolve_layout("FEATURE_CALLOUT", "product-left", 1, aspect=0.7) == "product-left"
+    assert planmod._resolve_layout("FEATURE_CALLOUT", "product-center", 1, aspect=1.0) == "product-right"
+    assert planmod._resolve_layout("FEATURE_CALLOUT", "product-center", 2, aspect=1.0) == "product-left"
+
+
 def test_center_layout_allowed_for_non_callout_types():
     # LIFESTYLE / SIZE_COMPARISON scenes may legitimately center the product.
     assert planmod._resolve_layout("LIFESTYLE", "product-center", 1) == "product-center"

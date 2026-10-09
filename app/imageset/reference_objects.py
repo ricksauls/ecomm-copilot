@@ -29,17 +29,46 @@ REFERENCE_OBJECTS: list[dict] = [
     {"name": "12-inch ruler", "inches": 12.0},
 ]
 
-# Conversion to inches for comparison against the reference library.
-_INCHES_PER_UNIT = {"in": 1.0, "cm": 1 / 2.54, "mm": 1 / 25.4}
+# Conversion to inches for comparison against the reference library. Covers the
+# unit spellings the intake form accepts; an unknown unit is treated as inches.
+_INCHES_PER_UNIT = {
+    "in": 1.0, "inch": 1.0, "inches": 1.0, '"': 1.0,
+    "ft": 12.0, "foot": 12.0, "feet": 12.0, "'": 12.0,
+    "cm": 1 / 2.54, "mm": 1 / 25.4,
+    "m": 100 / 2.54, "meter": 100 / 2.54, "meters": 100 / 2.54,
+}
 
 # An object within ~2% of the product's size reads as "the same thing," which
 # defeats the reference, so it is skipped (log-ratio threshold, matches source).
 _NEAR_IDENTICAL = math.log(1.02)
 
+# The reference library tops out around 12 in, so a product whose longest real
+# dimension exceeds this would dwarf every everyday object and the comparison
+# reads as nonsense (a couch beside a ruler). Such products use the measurement
+# diagram instead. Tunable.
+MAX_COMPARISON_INCHES = 30.0
+
 
 def to_inches(value: float, unit: str) -> float:
     """Convert a measurement to inches; unknown units are treated as inches."""
     return value * _INCHES_PER_UNIT.get((unit or "in").lower(), 1.0)
+
+
+def is_comparable_size(dims: dict) -> bool:
+    """Whether a product is small enough for an everyday-object size comparison.
+
+    True only when the product's longest real dimension (width/height/depth) is
+    positive and at most ``MAX_COMPARISON_INCHES``. A larger item (e.g. furniture)
+    or one with no usable dimensions returns False, so the size-comparison asset
+    falls back to the measurement diagram rather than comparing it to a ruler.
+    """
+    unit = dims.get("unit") or "in"
+    longest = 0.0
+    for key in ("width", "height", "depth"):
+        value = dims.get(key)
+        if isinstance(value, (int, float)) and value > 0:
+            longest = max(longest, to_inches(float(value), unit))
+    return 0 < longest <= MAX_COMPARISON_INCHES
 
 
 def select_reference_objects(product_value: float, unit: str, count: int = 2) -> list[dict]:

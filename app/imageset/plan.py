@@ -32,11 +32,14 @@ ASSET_TYPES = ("LIFESTYLE", "FEATURE_CALLOUT", "PRODUCT_IN_USE", "SIZE_COMPARISO
 LAYOUT_STYLES = ("product-left", "product-center", "product-right")
 
 # A feature callout is a product shown beside a column of icon → headline → divider
-# → benefit rows, so it only reads correctly in a side-by-side layout. The centered
-# layout stacks the product above the rows and squeezes them into a bottom band,
-# which looks wrong for this asset type — so reserve "product-center" for the
-# LIFESTYLE / SIZE_COMPARISON scenes and keep feature callouts on a side layout.
+# → benefit rows. For a TALL or roughly-square product that reads best in a
+# side-by-side layout; the centered layout (product on top, rows below) looks wrong
+# there. But a WIDE product has no room for a tall side column, so it reads best
+# with the product on top and the rows below — exactly the centered layout. So
+# feature callouts stay side-by-side unless the product is wide.
 _SIDE_ONLY_ASSET_TYPES = frozenset({"FEATURE_CALLOUT"})
+# width / height of the product cutout at or above which it counts as "wide".
+_WIDE_ASPECT = 1.25
 
 # The exact package composition every plan must contain (7 assets total).
 REQUIRED_COMPOSITION = {
@@ -183,18 +186,24 @@ def build_creative_plan_prompt(ctx: PlanProductContext) -> str:
     )
 
 
-def _resolve_layout(asset_type: str, raw_layout, variation: int) -> str:
+def _resolve_layout(asset_type: str, raw_layout, variation: int, aspect: float | None = None) -> str:
     """Return a valid, renderable ``layout_style`` for this asset.
 
     An unrecognized value falls back to the package default (``product-left``).
-    For asset types that can't use the centered layout (see
-    ``_SIDE_ONLY_ASSET_TYPES``), a ``product-center`` choice is redirected to a
-    side layout, alternating by variation so the two feature callouts mirror each
-    other (variation 1 → product on the right, variation 2 → product on the left).
+    For a feature callout (see ``_SIDE_ONLY_ASSET_TYPES``) the product shape wins
+    over any planner-suggested layout: a **wide** product (``aspect`` ≥
+    ``_WIDE_ASPECT``) uses ``product-center`` (product on top, rows below), while a
+    tall/square product uses a side layout — redirecting a ``product-center``
+    suggestion to a side, alternating by variation so the two callouts mirror
+    (variation 1 → product right, variation 2 → product left). ``aspect`` is
+    optional (unknown at plan time) — the render step passes it.
     """
     layout = raw_layout if raw_layout in LAYOUT_STYLES else "product-left"
-    if layout == "product-center" and asset_type in _SIDE_ONLY_ASSET_TYPES:
-        layout = "product-left" if variation == 2 else "product-right"
+    if asset_type in _SIDE_ONLY_ASSET_TYPES:
+        if aspect is not None and aspect >= _WIDE_ASPECT:
+            return "product-center"
+        if layout == "product-center":
+            layout = "product-left" if variation == 2 else "product-right"
     return layout
 
 

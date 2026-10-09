@@ -19,6 +19,26 @@ def _cutout():
     return img
 
 
+def _block(w, h):
+    # A filled block of exactly w×h content on a larger transparent canvas, so the
+    # measured aspect comes from the content bbox, not the canvas size.
+    img = Image.new("RGBA", (w + 100, h + 100), (0, 0, 0, 0))
+    ImageDraw.Draw(img).rectangle([50, 50, 50 + w - 1, 50 + h - 1], fill=(10, 120, 60, 255))
+    return img
+
+
+def test_content_aspect_ratio_uses_content_bbox():
+    # Measured from the non-transparent content, ignoring transparent padding.
+    assert compose.content_aspect_ratio(_block(400, 100)) > 1.25   # wide
+    assert compose.content_aspect_ratio(_block(100, 400)) < 0.8    # tall
+    assert abs(compose.content_aspect_ratio(_block(300, 300)) - 1.0) < 0.05  # square
+
+
+def test_content_aspect_ratio_blank_is_one():
+    # Fully transparent → falls back to the full image size (square here), never 0-div.
+    assert compose.content_aspect_ratio(Image.new("RGBA", (300, 300), (0, 0, 0, 0))) == 1.0
+
+
 def test_detect_light_side_bright_right():
     # Brighter on the right half of the top → shadow should fall to the "left".
     scene = Image.new("RGB", (400, 400), (40, 40, 40))

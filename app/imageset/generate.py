@@ -193,9 +193,12 @@ def _gen_size_comparison(conn, project, asset, cutout, logo) -> tuple[bytes, byt
     unit = dims.get("unit") or "in"
     height = dims.get("height")
     phrases, names = reference_objects.reference_phrases(height, unit, count=2) if height else ([], [])
-    if not phrases:
-        # No scale anchor (or no distinct reference) → the measurement diagram.
-        logger.info("Size-comparison: no scale anchor for project=%s, using diagram", project["id"])
+    # Fall back to the measurement diagram when there's no scale anchor OR the
+    # product is too large for everyday objects (e.g. furniture) — a couch beside a
+    # ruler is meaningless, so show its real measurements instead.
+    if not phrases or not reference_objects.is_comparable_size(dims):
+        reason = "no scale anchor" if not phrases else "too large for everyday objects"
+        logger.info("Size-comparison: %s for project=%s, using diagram", reason, project["id"])
         return _gen_size_comparison_diagram(project, asset, cutout)
 
     prompt = build_size_comparison_prompt(
@@ -325,11 +328,12 @@ def _gen_feature_callout(conn, project, asset, cutout, logo) -> tuple[bytes, byt
         prompt=prompt, size=f"{config.AI_SCENE_SIZE}x{config.AI_SCENE_SIZE}", background="opaque",
         context={"project_id": project["id"], "asset_type": "FEATURE_CALLOUT"},
     )
-    # Coerce the layout at render time too, so even an asset planned before the
-    # side-only rule (its row may still hold "product-center") regenerates in the
-    # correct side-by-side format without needing a DB migration.
+    # Pick the layout from the product's shape at render time: a wide product gets
+    # the product-on-top centered band, a tall/square one the side-by-side column.
+    # (Also coerces an asset planned before this rule — no DB migration needed.)
+    aspect = compose.content_aspect_ratio(cutout)
     layout = plan._resolve_layout(
-        "FEATURE_CALLOUT", asset["layout_style"], asset["variation_number"])
+        "FEATURE_CALLOUT", asset["layout_style"], asset["variation_number"], aspect=aspect)
     final = templates.create_feature_callout(
         features=features, cutout=cutout,
         brand=resolve_brand_palette(project, cutout),

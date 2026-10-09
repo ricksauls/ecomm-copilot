@@ -164,6 +164,30 @@ def test_size_comparison_falls_back_to_diagram_without_dimensions(app, tmp_path,
         assert Image.open(io.BytesIO(storage.load(a["final_path"]))).size == (CANVAS_SIZE, CANVAS_SIZE)
 
 
+def test_size_comparison_large_product_uses_diagram(app, tmp_path, monkeypatch):
+    """A furniture-scale product (too big for everyday objects) → measurement diagram."""
+    monkeypatch.setenv("MEDIA_DIR", str(tmp_path))
+    with app.app_context():
+        db = get_db()
+        uid = create_local_user("big@example.com", "password123")
+        # A couch: has a height anchor, but far larger than the reference library.
+        pid = isstore.create_project(
+            db, user_id=uid, name="Sofa", category="furniture",
+            dimensions={"width": 84, "height": 36, "depth": 38, "unit": "in"})
+        for i in range(1, 6):
+            isstore.add_feature(db, pid, feature_key=f"f{i}", title=f"Feature {i}", position=i)
+        rel = storage.save(pid, "original", "product", _product_png())
+        isstore.set_original_image(db, pid, rel)
+        generate.run_cutout(db, isstore.get_project(db, pid, uid), uid)
+        isstore.approve_cutout(db, pid)
+        sc = _asset_of(_plan_and_assets(db, uid, pid), "SIZE_COMPARISON")
+
+        generate.process_asset(db, sc, isstore.get_project(db, pid, uid))
+        a = isstore.get_asset(db, sc["id"], uid)
+        assert a["status"] == "ready"
+        assert a["scene_path"] is None  # diagram (no AI object comparison for furniture)
+
+
 def test_asset_type_without_generator_raises(app, tmp_path, monkeypatch):
     # Every plan type now has a generator; simulate a missing one (future type).
     monkeypatch.setenv("MEDIA_DIR", str(tmp_path))

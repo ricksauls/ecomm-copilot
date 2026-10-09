@@ -169,6 +169,23 @@ def fit_cutout(cutout: Image.Image, box_w: float, box_h: float) -> Image.Image:
     return img.resize((max(1, round(w * scale)), max(1, round(h * scale))), Image.LANCZOS)
 
 
+def content_aspect_ratio(cutout: Image.Image) -> float:
+    """Return the width/height ratio of a cutout's visible content (alpha bbox).
+
+    Measures the non-transparent bounding box so transparent padding around the
+    product doesn't skew the shape. ~1.0 is square, >1 is wider than tall, <1 is
+    taller than wide. Falls back to the full image size when there's no alpha
+    channel or no visible content (so it never divides by zero).
+    """
+    img = cutout.convert("RGBA")
+    bbox = img.getchannel("A").getbbox()  # tight box around non-transparent pixels
+    if bbox:
+        w, h = bbox[2] - bbox[0], bbox[3] - bbox[1]
+    else:
+        w, h = img.size
+    return (w / h) if h else 1.0
+
+
 def _grey_samples(scene: Image.Image, w: int = 64, h: int = 64) -> list[int]:
     """Downscale to a tiny greyscale and return its pixel values (row-major)."""
     small = cover_scene(scene, max(w, h)).resize((w, h), Image.LANCZOS).convert("L")

@@ -34,6 +34,24 @@ def test_reference_objects_handle_metric_and_missing():
     assert reference_objects.select_reference_objects(0, "in") == []
 
 
+def test_to_inches_covers_feet_and_metric():
+    assert reference_objects.to_inches(7, "ft") == 84.0  # a 7-ft couch, not 7 in
+    assert abs(reference_objects.to_inches(1, "m") - reference_objects.to_inches(100, "cm")) < 1e-6
+    assert reference_objects.to_inches(10, "whatever") == 10.0  # unknown unit → inches
+
+
+def test_is_comparable_size_gates_large_products():
+    # Small / tabletop products compare well against everyday objects.
+    assert reference_objects.is_comparable_size({"height": 7.8, "unit": "in"})
+    assert reference_objects.is_comparable_size({"width": 20, "unit": "cm"})
+    # Furniture-scale items are too large — longest dimension past the cap.
+    assert not reference_objects.is_comparable_size({"width": 84, "height": 36, "unit": "in"})
+    assert not reference_objects.is_comparable_size({"height": 7, "unit": "ft"})  # 84 in
+    # No usable dimensions → not comparable (diagram fallback).
+    assert not reference_objects.is_comparable_size({"unit": "in"})
+    assert not reference_objects.is_comparable_size({"width": 0, "unit": "in"})
+
+
 def test_size_comparison_prompt_contains_scale_contract():
     prompt = build_size_comparison_prompt(
         product_name="OFF! Deep Woods", product_height="7 in", product_width="3 in",
