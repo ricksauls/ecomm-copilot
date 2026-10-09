@@ -125,6 +125,18 @@ def test_feature_callout_generates_with_backdrop(app, tmp_path, monkeypatch):
         assert Image.open(io.BytesIO(storage.load(a["final_path"]))).size == (CANVAS_SIZE, CANVAS_SIZE)
 
 
+def test_display_aspect_prefers_dimensions_over_cutout():
+    import json
+    # Near-square cutout (an angled keyboard shot) but wide REAL dimensions.
+    cut = Image.new("RGBA", (420, 400), (0, 0, 0, 0))
+    ImageDraw.Draw(cut).rectangle([10, 10, 409, 389], fill=(20, 20, 20, 255))
+    wide = {"dimensions_json": json.dumps({"width": 16, "height": 0.13, "unit": "in"})}
+    # Dimensions win: a 16" x 0.13" product reads wide despite the ~square cutout.
+    assert generate._display_aspect(wide, cut) > 1.25
+    # No usable dimensions → fall back to the (near-square) cutout bounding box.
+    assert generate._display_aspect({"dimensions_json": None}, cut) < 1.25
+
+
 def test_product_in_use_generates_via_ai(app, tmp_path, monkeypatch):
     """Product-in-use edits the product photo → ready 2000² final with an AI scene."""
     monkeypatch.setenv("MEDIA_DIR", str(tmp_path))

@@ -314,6 +314,22 @@ def _features_for_asset(conn, project, asset) -> list[dict]:
              "icon": iconlib.infer_icon(r["title"], r["feature_type"])} for r in chosen]
 
 
+def _display_aspect(project, cutout) -> float:
+    """Width/height ratio used to pick the callout layout (wide → product-on-top band).
+
+    Prefers the product's real width/height dimensions when both are present: a
+    product photographed at a 3D angle (e.g. a keyboard) has a tight cutout whose
+    bounding box looks nearly square and under-reports how wide the product is, so
+    the entered dimensions are the reliable shape signal. Falls back to the cutout's
+    content bounding box when there are no usable dimensions.
+    """
+    dims = _dimensions(project)
+    width, height = dims.get("width"), dims.get("height")
+    if isinstance(width, (int, float)) and isinstance(height, (int, float)) and width > 0 and height > 0:
+        return width / height
+    return compose.content_aspect_ratio(cutout)
+
+
 def _gen_feature_callout(conn, project, asset, cutout, logo) -> tuple[bytes, bytes, dict]:
     """Feature-callout: icon/headline/divider/benefit rows over a blurred AI backdrop.
 
@@ -335,9 +351,11 @@ def _gen_feature_callout(conn, project, asset, cutout, logo) -> tuple[bytes, byt
     # Pick the layout from the product's shape at render time: a wide product gets
     # the product-on-top centered band, a tall/square one the side-by-side column.
     # (Also coerces an asset planned before this rule — no DB migration needed.)
-    aspect = compose.content_aspect_ratio(cutout)
+    aspect = _display_aspect(project, cutout)
     layout = plan._resolve_layout(
         "FEATURE_CALLOUT", asset["layout_style"], asset["variation_number"], aspect=aspect)
+    logger.info("Feature-callout layout project=%s asset=%s aspect=%.2f -> %s",
+                project["id"], asset["id"], aspect, layout)
     final = templates.create_feature_callout(
         features=features, cutout=cutout,
         brand=resolve_brand_palette(project, cutout),
