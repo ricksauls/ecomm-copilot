@@ -56,14 +56,18 @@ def _trim_to_opaque(png_bytes: bytes) -> bytes:
     """Crop a transparent PNG to the bounding box of its opaque pixels.
 
     Both providers return a cutout surrounded by transparency; trimming yields a
-    tight product image the compositor can place and scale predictably.
+    tight product image the compositor can place and scale predictably. We bound on
+    the ALPHA channel, not a plain RGBA ``getbbox()``: a provider (e.g. PhotoRoom)
+    may return the subject at the original image size with a transparent background
+    whose pixels still carry RGB, which ``getbbox()`` would not trim — leaving a big
+    border that makes the product tiny once scaled to fit its box.
     """
     from io import BytesIO
 
     from PIL import Image
 
     img = Image.open(BytesIO(png_bytes)).convert("RGBA")
-    bbox = img.getbbox()  # bounds of non-zero (here, non-transparent) regions
+    bbox = img.getchannel("A").getbbox()  # bounds of non-transparent (alpha>0) pixels
     if bbox:
         img = img.crop(bbox)
     buf = BytesIO()

@@ -39,6 +39,15 @@ def test_content_aspect_ratio_blank_is_one():
     assert compose.content_aspect_ratio(Image.new("RGBA", (300, 300), (0, 0, 0, 0))) == 1.0
 
 
+def test_trim_to_content_crops_rgb_colored_transparency():
+    # A transparent background that still carries RGB (what defeats a plain getbbox
+    # and leaves PhotoRoom cutouts padded) must still be trimmed to the alpha content.
+    img = Image.new("RGBA", (400, 400), (200, 200, 200, 0))  # alpha 0 but RGB set
+    ImageDraw.Draw(img).rectangle([120, 90, 259, 209], fill=(10, 10, 10, 255))
+    out = compose.trim_to_content(img)
+    assert out.size == (140, 120)  # tight to the opaque block, border dropped
+
+
 def test_center_callout_gives_features_the_larger_band():
     # A wide product's callout keeps a short product band so the feature rows get
     # the bulk of the height (no cramming).

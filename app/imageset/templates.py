@@ -171,7 +171,10 @@ def create_feature_callout(
         canvas = Image.new("RGB", (size, size), _FEATURE_BG).convert("RGBA")
 
     (pbx, pby, pbw, pbh), (frx, fry, frw, frh) = _feature_callout_regions(size, m, layout)
-    product = compose.fit_cutout(cutout, pbw * 0.92, pbh * 0.92)
+    # The product-on-top band wants the product to dominate, so fill its box tightly;
+    # the side column leaves a little more breathing room.
+    fill = 0.99 if layout == "product-center" else 0.92
+    product = compose.fit_cutout(cutout, pbw * fill, pbh * fill)
     canvas.alpha_composite(product, (round(pbx + (pbw - product.width) / 2),
                                      round(pby + (pbh - product.height) / 2)))
 

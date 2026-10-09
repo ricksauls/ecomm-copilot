@@ -392,7 +392,10 @@ def process_asset(conn, asset, project) -> None:
     cutout_bytes = storage.load(project["cutout_path"])
     if not cutout_bytes:
         raise GenerationError("The approved product cutout is missing")
-    cutout = compose.load_image(cutout_bytes)
+    # Tighten the cutout to its visible content so the product fills its box rather
+    # than being shrunk by any transparent border a provider left around it.
+    cutout = compose.trim_to_content(compose.load_image(cutout_bytes))
+    logger.info("Asset cutout project=%s asset=%s content_size=%s", project["id"], asset_id, cutout.size)
     # The brand logo is applied to LIFESTYLE only (top-left). Other generators can
     # composite a logo too (e.g. product-in-use, top-right), but per product
     # decision we don't feed it to them — so they render logo-free.

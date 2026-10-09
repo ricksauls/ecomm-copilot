@@ -169,6 +169,21 @@ def fit_cutout(cutout: Image.Image, box_w: float, box_h: float) -> Image.Image:
     return img.resize((max(1, round(w * scale)), max(1, round(h * scale))), Image.LANCZOS)
 
 
+def trim_to_content(cutout: Image.Image) -> Image.Image:
+    """Crop a cutout to its visible content (alpha bbox); no-op when fully transparent.
+
+    A matting provider may return the subject on a transparent background at the
+    original image size (a wide transparent border), and transparent pixels can
+    still carry RGB — so a plain ``getbbox()`` won't trim them. Cropping to the
+    alpha channel's bbox yields a tight product that ``fit_cutout`` can scale to
+    fill its box instead of shrinking a mostly-empty image. Applied at render time
+    so a cutout stored before this fix is tightened on regeneration (no re-cutout).
+    """
+    rgba = cutout.convert("RGBA")
+    bbox = rgba.getchannel("A").getbbox()
+    return rgba.crop(bbox) if bbox else rgba
+
+
 def content_aspect_ratio(cutout: Image.Image) -> float:
     """Return the width/height ratio of a cutout's visible content (alpha bbox).
 
