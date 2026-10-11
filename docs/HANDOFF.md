@@ -1,8 +1,11 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-10-11 (session 19 — built **Import Product Images** (Creative Content
-Studio): acquire product images from other sites by URL/CSV, native max-res + upscale-if-needed,
-with per-image selection. Session 18 — wired the **View Creative Content Creation History**
+_Last updated: 2026-10-11 (session 20 — reworked **Acquire Product Images From An Existing
+Site** (renamed from "Import Product Images"): **Amazon product pages now supported** via the
+**already-live Oxylabs** residential proxy (acquire-only), and a **no-pre-download gallery** that
+hotlinks thumbnails + fetches full-res only on Download (no upscaling in v1). Session 19 — built
+Import Product Images (acquire by URL/CSV, per-image selection). Session 18 — wired the **View
+Creative Content Creation History**
 screen (image-set runs) + added a **search box to every History screen** (brand / product /
 item/SKU, incl. hidden fields). Session 17 — **shape-adaptive image set** (Phase 1) + a full
 wide-product polish round from live testing: wide products get a **product-on-top band** layout
@@ -12,6 +15,63 @@ fills its box, and an **AI "straighten"** that de-angles the product for feature
 quality set to **medium**. Droplet now on gpt-image-1 + PhotoRoom. Session 16 — callout layout/halos/
 blur, per-card Regenerate, Lifestyle logo. Session 15 — all 4 image types generate. Session 13 —
 built PDP Image Set.)_
+
+> ## ⭐ Next session — START HERE (session 20, 2026-10-11)
+>
+> **Shipped + pushed: `main` at `fd62639` (code) + a docs commit; CI → auto-deploy.**
+> 554 tests, `ruff` clean. **One new DB migration: `import_assets.thumb_url`** (additive;
+> auto-ALTER on web+worker restart). **No new `.env`** — the Oxylabs proxy env is already
+> on the droplet (see below).
+>
+> ### ⭐ Needs a live eyeball on the droplet (the one thing I could NOT verify)
+> **Amazon product-page extraction is unverified live.** I can't reach the proxy or a real
+> Amazon page from the dev sandbox, so `app/imgimport/amazon.py`'s parser is written to
+> Amazon's known HTML (`colorImages` `"hiRes"` → `"large"` → largest `data-a-dynamic-image`)
+> and unit-tested with fixtures, but a real render may need selector tuning. **Test with an
+> Amazon _product-page_ URL** (`https://www.amazon.com/dp/<ASIN>` or `/gp/product/<ASIN>`) on
+> the live site. If no images come back: capture the rendered HTML on the droplet and adjust
+> the regexes in `extract_amazon_images`. A residential IP can still draw a CAPTCHA
+> intermittently → surfaces as a clean "Amazon blocked the request" item error (expected;
+> retry). Do NOT build CAPTCHA-solving.
+>
+> ### What shipped this session — reworked "Acquire Product Images From An Existing Site"
+> (Renamed from "Import Product Images" and moved to the top of Creative Content Studio;
+> internal route/table/module names unchanged — still `/app/import-images`, `import_*`,
+> `app/imgimport/`.)
+>
+> **Acquire-only residential proxy — Oxylabs was ALREADY live.** The droplet `.env` already
+> has `WALMART_PROXY_SERVER=http://pr.oxylabs.io:7777` (+ user/pass), used by `ci_scraper`.
+> The reader is now shared: **`app/proxy.py` `proxy_from_env()`** (ci_scraper delegates).
+> `fetch._load_pdp_data` gained `use_proxy`; new **`fetch.render_page_html`** for non-Walmart
+> pages. Import routes its Walmart + Amazon **page fetches** through the proxy
+> (`use_proxy=True`); **scoring / image-set stay direct**, and **image-CDN downloads stay
+> direct** — so the per-GB proxy cost is scoped to acquisition page loads only. A
+> bot-detection block now surfaces as a clean message (not a raw "Unexpected error").
+>
+> **Amazon product pages now supported** (`app/imgimport/amazon.py`): `fetch_amazon_images`
+> renders the PDP via the proxy; `extract_amazon_images(html)` is a pure, unit-tested parser.
+>
+> **No-pre-download model (v1):** acquire only **resolves image URLs** (full-res + thumb) and
+> stores URLs — **no bytes, no files**. The gallery **hotlinks the thumbnail URLs** (new
+> `thumb_url` column; a **per-page CSP** relaxes `img-src` to `https:` on the gallery only —
+> `pages._IMPORT_GALLERY_CSP`, and `__init__` now `setdefault`s the global CSP so a view can
+> scope its own). Full-res is fetched **on demand at Download** (per-image + selected ZIP) via
+> `sources.download_image` (SSRF-safe). **No upscaling in v1** (deferred). Deleted the unused
+> `imgimport/storage.py`.
+>
+> ### Knobs / notes
+> `sources.MAX_IMAGES_PER_ITEM` (15) · `amazon._THUMB_TOKEN` (`._AC_SX300_`) · the ZIP fetches
+> selected full-res **synchronously** in the web request — fine for small selections, but a
+> very large multi-image ZIP could approach the gunicorn timeout (move to a worker job if it
+> becomes a problem). Upscaling (Claid, `image_enhance`) is wired in the app but no longer used
+> by Import — re-add at download-time as the next enhancement if wanted.
+>
+> ### Commits this session
+> `fd62639` rework (rename + acquire-only proxy + Amazon + no-pre-download) · + this docs
+> commit. **Pushed to `main`.**
+>
+> _(Session 19's block follows — note it describes the superseded download-everything Phase 1;
+> this session replaced that acquire/gallery/download internals.)_
 
 > ## ⭐ Next session — START HERE (session 19, 2026-10-11)
 >
