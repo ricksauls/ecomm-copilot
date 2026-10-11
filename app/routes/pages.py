@@ -49,6 +49,9 @@ from app.imageset import jobs as imageset_jobs
 from app.imageset import storage as imageset_storage
 from app.imageset import store as imageset_store
 from app.imageset.providers.background_removal import BackgroundRemovalError
+from app.imgimport import sources as import_sources
+from app.imgimport import storage as import_storage
+from app.imgimport import store as import_store
 from app.security import admin_required, login_required
 
 logger = logging.getLogger(__name__)
@@ -2507,6 +2510,247 @@ def imageset_download_zip(pid):
                 written, pid, product_id, uid)
     return send_file(buf, mimetype="application/zip", as_attachment=True,
                      download_name=f"product-{product_id}-image-set.zip", max_age=0)
+
+
+# ── Import Product Images (Creative Content Studio) ──────────────────────────
+
+_IMPORT_NAV = "import-images"
+_IMPORT_BREADCRUMB = "Creative Content Studio · Import Product Images"
+
+
+def _collect_import_urls(text: str, csv_file) -> tuple[list[str], list[str]]:
+    """Merge, validate, and de-duplicate import URLs from the textarea + CSV.
+
+    Permissive (unlike the Walmart-only scoring intake): any ``http(s)`` URL is
+    accepted — a product page or a direct image URL; the worker classifies each.
+    Returns ``(accepted, rejected)``; ``rejected`` holds non-empty entries that
+    weren't valid URLs, for user feedback. Order-preserving, de-duplicated, capped
+    at :data:`pdp.MAX_ITEMS`.
+    """
+    from urllib.parse import urlparse
+
+    accepted: list[str] = []
+    rejected: list[str] = []
+    seen: set[str] = set()
+
+    def _add(candidate: str) -> None:
+        url = (candidate or "").strip()
+        if not url:
+            return
+        if len(url) > pdp.MAX_URL_LEN:
+            rejected.append(url[:80] + "…")
+            return
+        try:
+            parsed = urlparse(url)
+        except ValueError:
+            rejected.append(url)
+            return
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            rejected.append(url)
+            return
+        if url in seen:
+            return
+        seen.add(url)
+        if len(accepted) < pdp.MAX_ITEMS:
+            accepted.append(url)
+
+    for line in (text or "").splitlines():
+        _add(line)
+    if csv_file is not None and getattr(csv_file, "filename", ""):
+        for value in pdp.urls_from_csv(csv_file):
+            _add(value)
+    return accepted, rejected
+
+
+@bp.route("/app/import-images", methods=["GET", "POST"])
+@login_required
+def import_images_intake():
+    """Intake for Import Product Images: paste product/image URLs or upload a CSV.
+
+    A POST validates the URLs, creates a run with one queued item per URL (the
+    worker classifies + acquires each), and redirects to the gallery, which polls
+    for progress. The web request never downloads or scrapes.
+    """
+    if request.method == "POST":
+        text = request.form.get("urls", "")
+        accepted, rejected = _collect_import_urls(text, request.files.get("csv"))
+        if not accepted:
+            return (
+                render_template(
+                    "app/import_images.html", breadcrumb=_IMPORT_BREADCRUMB,
+                    active_nav=_IMPORT_NAV, max_items=pdp.MAX_ITEMS,
+                    error="No valid product or image URLs were provided.",
+                    urls_value=text, rejected=rejected,
+                ),
+                400,
+            )
+        db, uid = get_db(), g.user["id"]
+        run_id = import_store.create_run(db, uid)
+        for url in accepted:
+            import_store.add_item(
+                db, run_id=run_id, user_id=uid, source_url=url,
+                source_type=import_sources.classify(url))
+        logger.info("Import run=%s created with %d item(s), %d rejected, user_id=%s",
+                    run_id, len(accepted), len(rejected), uid)
+        return redirect(url_for("pages.import_images_run", run_id=run_id))
+
+    logger.info("Serving Import Product Images intake")
+    return render_template(
+        "app/import_images.html", breadcrumb=_IMPORT_BREADCRUMB,
+        active_nav=_IMPORT_NAV, max_items=pdp.MAX_ITEMS,
+    )
+
+
+def _import_asset_filename(asset) -> str:
+    """Download filename for one acquired image: ``imported-<run>-<asset>.<ext>``."""
+    ext = (asset["ext"] or "jpg").lower()
+    return f"imported-{asset['run_id']}-{asset['id']}.{ext}"
+
+
+def _import_gallery_view(db, run_id: int, uid: int) -> list[dict]:
+    """Shape a run's items (each with its acquired assets) for the gallery template."""
+    assets_by_item: dict[int, list[dict]] = {}
+    for a in import_store.assets_for_run(db, run_id, uid):
+        assets_by_item.setdefault(a["item_id"], []).append({
+            "id": a["id"],
+            "status": a["status"],
+            "ready": a["status"] == import_store.STATUS_READY,
+            "error": a["error"],
+            "width": a["width"],
+            "height": a["height"],
+            "upscaled": bool(a["upscaled"]),
+            "image_url": url_for("pages.import_asset_image", run_id=run_id, aid=a["id"]),
+            "download_url": url_for("pages.import_asset_download", run_id=run_id, aid=a["id"]),
+        })
+    items = []
+    for it in import_store.items_for_run(db, run_id, uid):
+        items.append({
+            "id": it["id"],
+            "source_url": it["source_url"],
+            "source_type": it["source_type"],
+            "label": it["label"],
+            "status": it["status"],
+            "error": it["error"],
+            "assets": assets_by_item.get(it["id"], []),
+        })
+    return items
+
+
+def _import_run_or_404(run_id: int):
+    run = import_store.get_run(get_db(), run_id, g.user["id"])
+    if run is None:
+        abort(404)
+    return run
+
+
+@bp.route("/app/import-images/<int:run_id>")
+@login_required
+def import_images_run(run_id):
+    """Gallery for one import run: per-item status + acquired images; polls while busy."""
+    run = _import_run_or_404(run_id)
+    db, uid = get_db(), g.user["id"]
+    items = _import_gallery_view(db, run_id, uid)
+    ready_count = sum(1 for it in items for a in it["assets"] if a["ready"])
+    pending = run["status"] == import_store.STATUS_PROCESSING
+    return render_template(
+        "app/import_images_gallery.html", breadcrumb=_IMPORT_BREADCRUMB,
+        active_nav=_IMPORT_NAV, run=run, items=items, pending=pending,
+        ready_count=ready_count,
+    )
+
+
+@bp.route("/app/import-images/<int:run_id>/status")
+@login_required
+def import_images_status(run_id):
+    """JSON run/item status for the gallery poller."""
+    run = _import_run_or_404(run_id)
+    db, uid = get_db(), g.user["id"]
+    return jsonify({
+        "pending": run["status"] == import_store.STATUS_PROCESSING,
+        "status": run["status"],
+        "items": _import_gallery_view(db, run_id, uid),
+    })
+
+
+def _serve_import_file(asset, *, as_attachment: bool):
+    """Serve a stored import asset by its row (containment-checked path)."""
+    from flask import send_file
+
+    path = import_storage.abs_path(asset["stored_path"])
+    if not path or not os.path.isfile(path):
+        abort(404)
+    ext = (asset["ext"] or "jpg").lower()
+    mime = {"jpg": "image/jpeg", "png": "image/png", "webp": "image/webp",
+            "gif": "image/gif"}.get(ext, "application/octet-stream")
+    name = _import_asset_filename(asset)
+    return send_file(path, mimetype=mime, as_attachment=as_attachment,
+                     download_name=name, max_age=0)
+
+
+@bp.route("/app/import-images/<int:run_id>/asset/<int:aid>/image")
+@login_required
+def import_asset_image(run_id, aid):
+    """Serve an acquired image inline (same-origin, CSP img-src 'self')."""
+    _import_run_or_404(run_id)  # IDOR: must own the run
+    asset = import_store.get_asset(get_db(), aid, g.user["id"])
+    if asset is None or asset["run_id"] != run_id:
+        abort(404)
+    return _serve_import_file(asset, as_attachment=False)
+
+
+@bp.route("/app/import-images/<int:run_id>/asset/<int:aid>/download")
+@login_required
+def import_asset_download(run_id, aid):
+    """Download one acquired image."""
+    _import_run_or_404(run_id)
+    asset = import_store.get_asset(get_db(), aid, g.user["id"])
+    if asset is None or asset["run_id"] != run_id:
+        abort(404)
+    return _serve_import_file(asset, as_attachment=True)
+
+
+@bp.route("/app/import-images/<int:run_id>/download.zip")
+@login_required
+def import_download_zip(run_id):
+    """Bundle a run's acquired (ready) images into one ZIP.
+
+    The gallery submits a GET form, so the checked images arrive as ``ids`` query
+    params; a hidden ``scope=selected`` marks that a selection was made (so zero
+    checked boxes reads as "nothing selected", not "download everything"). A bare
+    hit with no ``scope`` (a bookmarked URL) still bundles every ready image.
+    """
+    import io
+    import zipfile
+
+    from flask import send_file
+
+    _import_run_or_404(run_id)
+    db, uid = get_db(), g.user["id"]
+    assets = import_store.ready_assets_for_run(db, run_id, uid)
+
+    if request.args.get("scope") == "selected":
+        # Intersect the ready assets with the ticked ids (ints only; unknown/foreign
+        # ids simply don't match — the list is already IDOR-scoped to this user).
+        wanted = {i for i in request.args.getlist("ids", type=int)}
+        assets = [a for a in assets if a["id"] in wanted]
+        if not assets:
+            abort(404, description="No images selected.")
+
+    buf = io.BytesIO()
+    written = 0
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for asset in assets:
+            path = import_storage.abs_path(asset["stored_path"])
+            if not path or not os.path.isfile(path):
+                continue
+            zf.write(path, arcname=f"imported-images-{run_id}/{_import_asset_filename(asset)}")
+            written += 1
+    if not written:
+        abort(404, description="No images have been acquired yet.")
+    buf.seek(0)
+    logger.info("Import ZIP: %d image(s) run=%s user_id=%s", written, run_id, uid)
+    return send_file(buf, mimetype="application/zip", as_attachment=True,
+                     download_name=f"imported-images-{run_id}.zip", max_age=0)
 
 
 # ── Contact Us (user side) ───────────────────────────────────────────────────

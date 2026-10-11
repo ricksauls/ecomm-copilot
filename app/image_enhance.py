@@ -151,6 +151,12 @@ def _target_px() -> int:
         return _DEFAULT_TARGET_PX
 
 
+def target_px() -> int:
+    """Public longest-edge upscale target (px). Other features (Import Product
+    Images) read it to decide whether an acquired image is below spec."""
+    return _target_px()
+
+
 def _claid_operations(operation: str) -> dict:
     """Build Claid's ``operations`` object for ``operation``.
 

@@ -2877,3 +2877,138 @@ textarea.text-input { resize: vertical; line-height: 1.5; }
 }
 @keyframes imageset-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
+
+/* --- Import Product Images --------------------------------------------------
+   Intake uses the shared .pdp-card / .form-section / .csv-drop styles; these
+   cover the field hint and the per-item results gallery (one card per submitted
+   URL, each holding a row of acquired image thumbnails). */
+.field-hint {
+  font-size: 12px;
+  color: var(--cool-gray);
+  margin: 7px 0 0;
+}
+.import-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.import-item {
+  padding: 16px 18px;
+}
+.import-item-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.import-item-titles {
+  min-width: 0;  /* let the long URL truncate instead of widening the row */
+}
+.import-item-label {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--black);
+}
+.import-item-url {
+  display: block;
+  font-size: 12px;
+  color: var(--cool-gray);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 540px;
+}
+.import-state {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.import-state-working { color: var(--mid-gray); }
+.import-state-failed { color: var(--signal-red); }
+.import-state-done { color: var(--signal-green); }
+.import-item-error {
+  margin: 10px 0 0;
+  font-size: 12.5px;
+  color: var(--signal-red);
+}
+.import-thumbs {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+.import-thumb {
+  position: relative;  /* anchors the selection checkbox overlay */
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+  background: var(--canvas);
+}
+/* Selection checkbox, overlaid top-left of each image. A translucent chip keeps it
+   legible over any thumbnail; a selected image also gets an accent ring. */
+.import-check {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  z-index: 1;
+  display: inline-flex;
+  padding: 3px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-chip);
+  cursor: pointer;
+}
+.import-check input {
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+.import-thumb:has(.import-check input:checked) {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.import-sel-count { font-variant-numeric: tabular-nums; }
+.import-thumb img {
+  display: block;
+  width: 100%;
+  height: 150px;
+  object-fit: contain;
+  background: var(--surface);
+}
+.import-thumb-failed,
+.import-thumb-working {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 150px;
+  font-size: 12px;
+  color: var(--cool-gray);
+}
+.import-thumb-failed { color: var(--signal-red); }
+.import-thumb-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+}
+.import-dims {
+  font-size: 11.5px;
+  color: var(--mid-gray);
+}
+.import-badge {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-chip);
+}

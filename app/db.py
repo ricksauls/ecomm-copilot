@@ -404,6 +404,54 @@ CREATE TABLE IF NOT EXISTS imageset_jobs (
 );
 CREATE INDEX IF NOT EXISTS idx_imageset_jobs_claim ON imageset_jobs(status, priority DESC, id);
 CREATE INDEX IF NOT EXISTS idx_imageset_jobs_project ON imageset_jobs(project_id);
+
+-- Import Product Images (Creative Content Studio): acquire product images that
+-- already exist on other sites (Walmart PDPs, direct/Amazon image URLs) by URL or
+-- CSV. A *run* groups one submission; an *item* is one submitted URL; an *asset* is
+-- one acquired (and optionally upscaled) image. The item's own status doubles as
+-- the worker queue (queued -> processing -> done|error), like the image-set
+-- fetch/plan steps — no separate jobs table.
+CREATE TABLE IF NOT EXISTS import_runs (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL REFERENCES users(id),
+    status      TEXT    NOT NULL DEFAULT 'processing',  -- processing|ready|failed
+    created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_import_runs_user ON import_runs(user_id, id);
+
+CREATE TABLE IF NOT EXISTS import_items (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id      INTEGER NOT NULL REFERENCES import_runs(id) ON DELETE CASCADE,
+    user_id     INTEGER NOT NULL REFERENCES users(id),
+    source_url  TEXT    NOT NULL,
+    source_type TEXT    NOT NULL DEFAULT 'unknown',  -- walmart|image|amazon_pdp|unknown
+    label       TEXT,                                 -- product title when known (Walmart)
+    status      TEXT    NOT NULL DEFAULT 'queued',    -- queued|processing|done|error
+    error       TEXT,
+    created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_import_items_claim ON import_items(status, id);
+CREATE INDEX IF NOT EXISTS idx_import_items_run ON import_items(run_id, id);
+
+CREATE TABLE IF NOT EXISTS import_assets (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_id          INTEGER NOT NULL REFERENCES import_items(id) ON DELETE CASCADE,
+    run_id           INTEGER NOT NULL REFERENCES import_runs(id) ON DELETE CASCADE,
+    user_id          INTEGER NOT NULL REFERENCES users(id),
+    source_image_url TEXT    NOT NULL,
+    stored_path      TEXT,                              -- rel to MEDIA_DIR; NULL until written
+    ext              TEXT    NOT NULL DEFAULT 'jpg',
+    width            INTEGER,
+    height           INTEGER,
+    upscaled         INTEGER NOT NULL DEFAULT 0,         -- 1 if Claid super-resolved
+    status           TEXT    NOT NULL DEFAULT 'ready',   -- ready|failed
+    error            TEXT,
+    created_at       TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_import_assets_run ON import_assets(run_id, id);
+CREATE INDEX IF NOT EXISTS idx_import_assets_item ON import_assets(item_id);
 """
 
 

@@ -1,0 +1,102 @@
+{% extends "app/base.html" %}
+{% block title %}Imported Images — DISCOtech{% endblock %}
+
+{% block head_extra %}
+  {# No-JS fallback: refresh while images are still being acquired. The poller
+     (import_gallery.js) takes over and reloads only when something changes. #}
+  {% if pending %}<noscript><meta http-equiv="refresh" content="6" /></noscript>{% endif %}
+{% endblock %}
+
+{% block pane_content %}
+<div class="page-header">
+  <div>
+    <h1>Imported Images</h1>
+    <p class="subtitle">
+      {% if pending %}Acquiring your images… this page updates as each URL finishes. You can
+        leave and come back.
+      {% elif ready_count %}Your images are ready. Tick the ones you want and download them as a set,
+        or grab any image on its own.
+      {% else %}No images could be acquired from the URLs you submitted — see the notes below.{% endif %}
+    </p>
+  </div>
+  <div class="page-header-actions">
+    {% if ready_count %}
+    {# Toggles every checkbox; the label flips in import_gallery.js. All images start
+       selected, so it begins as "Clear". #}
+    <button type="button" id="import-select-toggle" class="wbtn wbtn-secondary"
+            data-select-label="Select all" data-clear-label="Clear">Clear</button>
+    {# Submits the selection form (below) as a GET, so only the ticked images'
+       ids reach the ZIP route. Works without JS. #}
+    <button type="submit" form="import-select" class="wbtn wbtn-primary">
+      Download Selected (<span class="import-sel-count">{{ ready_count }}</span>)</button>
+    {% endif %}
+    <a href="{{ url_for('pages.import_images_intake') }}" class="wbtn wbtn-secondary">Import more</a>
+  </div>
+</div>
+
+<form id="import-select" method="get"
+      action="{{ url_for('pages.import_download_zip', run_id=run['id']) }}">
+  {# Marks that a selection was submitted, so zero ticked boxes means "none"
+     (404) rather than "all" — a bare /download.zip with no scope still gets all. #}
+  <input type="hidden" name="scope" value="selected" />
+  <div class="import-grid"
+       data-status-url="{{ url_for('pages.import_images_status', run_id=run['id']) }}"
+       data-pending="{{ '1' if pending else '0' }}"
+       data-ready-count="{{ ready_count }}">
+    {% for item in items %}
+    <div class="import-item card" data-item-id="{{ item.id }}" data-status="{{ item.status }}">
+      <div class="import-item-head">
+        <div class="import-item-titles">
+          <span class="import-item-label">{{ item.label or 'Product' }}</span>
+          <a class="import-item-url" href="{{ item.source_url }}" target="_blank" rel="noopener noreferrer">{{ item.source_url }}</a>
+        </div>
+        {% if item.status == 'queued' or item.status == 'processing' %}
+          <span class="import-state import-state-working"><span class="spinner" aria-hidden="true"></span>Acquiring…</span>
+        {% elif item.status == 'error' %}
+          <span class="import-state import-state-failed" title="{{ item.error or '' }}">Couldn’t import</span>
+        {% else %}
+          <span class="import-state import-state-done">{{ item.assets | selectattr('ready') | list | length }} image(s)</span>
+        {% endif %}
+      </div>
+
+      {% if item.status == 'error' %}
+        <p class="import-item-error">{{ item.error }}</p>
+      {% elif item.assets %}
+        <div class="import-thumbs">
+          {% for asset in item.assets %}
+          <div class="import-thumb">
+            {% if asset.ready %}
+            <label class="import-check" title="Include in download">
+              <input type="checkbox" name="ids" value="{{ asset.id }}" checked />
+            </label>
+            <a href="{{ asset.image_url }}" target="_blank" rel="noopener">
+              <img src="{{ asset.image_url }}" alt="" loading="lazy" />
+            </a>
+            <div class="import-thumb-foot">
+              <span class="import-dims">
+                {{ asset.width }}×{{ asset.height }}{% if asset.upscaled %} <span class="import-badge">upscaled</span>{% endif %}
+              </span>
+              <a class="wbtn wbtn-secondary wbtn-sm" href="{{ asset.download_url }}">Download</a>
+            </div>
+            {% elif asset.status == 'failed' %}
+            <div class="import-thumb-failed" title="{{ asset.error or '' }}">Image failed</div>
+            {% else %}
+            <div class="import-thumb-working"><span class="spinner" aria-hidden="true"></span></div>
+            {% endif %}
+          </div>
+          {% endfor %}
+        </div>
+      {% elif item.status not in ('queued', 'processing') %}
+        <p class="import-item-error">No images found.</p>
+      {% endif %}
+    </div>
+    {% else %}
+    <p class="empty-note">This import has no items.</p>
+    {% endfor %}
+  </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ static_url('js/import_gallery.js') }}"></script>
+{% endblock %}

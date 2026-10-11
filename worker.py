@@ -41,6 +41,8 @@ from app.imageset import generate as imageset_generate  # noqa: E402
 from app.imageset import jobs as imageset_jobs  # noqa: E402
 from app.imageset import plan as imageset_plan  # noqa: E402
 from app.imageset import store as imageset_store  # noqa: E402
+from app.imgimport import acquire as import_acquire  # noqa: E402
+from app.imgimport import store as import_store  # noqa: E402
 from app.fetch import FetchBlocked, FetchError, fetch_main_image_url, fetch_pdp  # noqa: E402
 from app.scoring import PdpRecord, result_to_dict, score_pdp  # noqa: E402
 
@@ -703,6 +705,17 @@ def process_imageset_plan_one(conn: sqlite3.Connection, project: sqlite3.Row) ->
             error=f"Could not plan the image set: {e}"[:500])
 
 
+def process_import_one(conn: sqlite3.Connection, item: sqlite3.Row) -> None:
+    """Acquire one claimed Import Product Images item (resolve → download → upscale).
+
+    A Walmart source does a headed-Chrome scrape (browser work, like scoring); a
+    direct/Amazon image URL is a plain HTTP download + optional Claid upscale.
+    :func:`import_acquire.process_item` never raises and settles the item + run
+    status itself, so the worker just delegates.
+    """
+    import_acquire.process_item(conn, item)
+
+
 def main() -> None:
     """Claim-and-process loop. Runs until the process is stopped.
 
@@ -726,13 +739,15 @@ def main() -> None:
     reclaimed_sets = imageset_jobs.reclaim_orphaned_jobs(conn)
     reclaimed_fetches = imageset_store.reclaim_orphaned_fetches(conn)
     reclaimed_plans = imageset_store.reclaim_orphaned_plans(conn)
+    reclaimed_imports = import_store.reclaim_orphaned_items(conn)
     if (reclaimed_items or reclaimed_copy or reclaimed_runs or reclaimed_images
-            or reclaimed_sets or reclaimed_fetches or reclaimed_plans):
+            or reclaimed_sets or reclaimed_fetches or reclaimed_plans or reclaimed_imports):
         log.warning(
             "Startup: reclaimed %d scoring item(s), %d copy item(s), %d CI run(s), "
-            "%d image job(s), %d image-set job(s), %d image-set prefill(s), %d plan(s)",
+            "%d image job(s), %d image-set job(s), %d image-set prefill(s), %d plan(s), "
+            "%d import item(s)",
             reclaimed_items, reclaimed_copy, reclaimed_runs, reclaimed_images,
-            reclaimed_sets, reclaimed_fetches, reclaimed_plans,
+            reclaimed_sets, reclaimed_fetches, reclaimed_plans, reclaimed_imports,
         )
     while True:
         # Scoring first and concurrently: drain the whole queue with the thread
@@ -765,6 +780,15 @@ def main() -> None:
             plan_project = imageset_store.claim_next_plan(conn)
             if plan_project is not None:
                 process_imageset_plan_one(conn, plan_project)
+                continue
+
+        # Import Product Images next — grouped with the browser work above because a
+        # Walmart source scrapes the page (a direct image URL is just an HTTP
+        # download). One item per loop so multiple submissions are naturally paced.
+        if import_store.has_claimable_item(conn):
+            import_item = import_store.claim_next_item(conn)
+            if import_item is not None:
+                process_import_one(conn, import_item)
                 continue
 
         # Image fixes next — the lightest work (provider HTTP calls, no browser),

@@ -449,3 +449,19 @@ def fetch_main_image_url(url: str, item_id: str | None = None, *,
     data = _load_pdp_data(url, timeout_ms)
     urls = _image_urls(data.get("product") or {})
     return urls[0] if urls else None
+
+
+def fetch_all_image_urls(url: str, *, timeout_ms: int = 35000) -> tuple[str, list[str]]:
+    """Return ``(product_title, [all gallery image URLs])`` for a Walmart PDP.
+
+    A lean cousin of :func:`fetch_pdp` for the Import Product Images feature: it
+    needs the product's whole image gallery (not just the main image) plus a title
+    to label the run, but none of the scoring parse. Same browser/bot-detection
+    path (headed, background-only). Title is empty and the list may be empty when
+    the page yields no data; the caller treats an empty list as "no images found".
+    """
+    logger.info("Fetching all image URLs url=%s", url)
+    data = _load_pdp_data(url, timeout_ms)
+    product = data.get("product") or {}
+    title = (product.get("name") or "").strip()
+    return title, _image_urls(product)

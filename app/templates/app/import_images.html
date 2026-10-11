@@ -1,0 +1,88 @@
+{% extends "app/base.html" %}
+{% block title %}Import Product Images — DISCOtech{% endblock %}
+
+{% block pane_content %}
+<div class="page-header">
+  <div>
+    <h1>Import Product Images</h1>
+    <p class="subtitle">Pull product images that already live on another site. Paste product
+      or image URLs, or upload a CSV — we fetch each at its highest resolution and upscale any
+      that fall short.</p>
+  </div>
+</div>
+
+{% if error %}
+<div class="form-error" role="alert">{{ error }}</div>
+{% endif %}
+{% if rejected %}
+<div class="form-error" role="alert">
+  Skipped {{ rejected | length }} entr{{ 'y' if rejected | length == 1 else 'ies' }} that weren’t valid URLs:
+  {{ rejected[:5] | join(', ') }}{{ '…' if rejected | length > 5 }}
+</div>
+{% endif %}
+
+<div class="card pdp-card">
+  <form method="post" action="{{ url_for('pages.import_images_intake') }}"
+        enctype="multipart/form-data" class="pdp-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+
+    <div class="form-section">
+      <div class="section-head">
+        <span class="step">1</span>
+        <label class="field-label" for="urls">Paste product or image URLs</label>
+      </div>
+      <textarea id="urls" name="urls" class="text-input" rows="6"
+                placeholder="One URL per line, e.g.&#10;https://www.walmart.com/ip/10294528&#10;https://m.media-amazon.com/images/I/71abc...._AC_SL1500_.jpg">{{ urls_value or '' }}</textarea>
+      <p class="field-hint">Walmart product pages and direct image URLs (including Amazon
+        image links) are supported, up to {{ max_items }}. Amazon <em>product-page</em> links
+        aren’t supported yet — paste the image URL directly (right-click the product image →
+        Copy image address).</p>
+    </div>
+
+    <div class="form-divider"><span>or</span></div>
+
+    <div class="form-section">
+      <div class="section-head">
+        <span class="step">2</span>
+        <label class="field-label" for="csv">Upload a CSV</label>
+      </div>
+      <label id="csv-drop" class="csv-drop" for="csv">
+        <svg class="csv-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="1.5" aria-hidden="true">
+          <path d="M12 15V4M8 8l4-4 4 4" />
+          <path d="M4 15v3a2 2 0 002 2h12a2 2 0 002-2v-3" />
+        </svg>
+        <span class="csv-drop-text">Drag a CSV here, or <span class="link">browse</span></span>
+        <span class="csv-drop-hint">URLs — one per row or in any column · up to {{ max_items }}</span>
+        <input type="file" id="csv" name="csv" accept=".csv,text/csv" class="csv-input-hidden" />
+      </label>
+      <p id="csv-filename" class="csv-filename" hidden></p>
+    </div>
+
+    <button type="submit" class="wbtn wbtn-primary wbtn-lg">Import Images</button>
+  </form>
+</div>
+
+<div class="card card-pad score-band">
+  <div class="label">How it works</div>
+  <div class="score-dims">
+    {% set steps = [
+      ('Acquire', 'We read each URL and collect the product’s images at their original resolution.'),
+      ('Upscale if needed', 'Images below the 2000px target are AI-upscaled; the rest are kept as-is.'),
+      ('Download', 'Grab images individually or download the whole set as a ZIP.'),
+    ] %}
+    {% for name, desc in steps %}
+    <div class="dim">
+      <div class="dim-name">{{ name }}</div>
+      <div class="dim-desc">{{ desc }}</div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{# Reuses the shared intake enhancement for the CSV drop zone (drag-and-drop +
+   filename readout); the URL-row cloning is inert here — this page uses a textarea. #}
+<script src="{{ static_url('js/intake.js') }}"></script>
+{% endblock %}
