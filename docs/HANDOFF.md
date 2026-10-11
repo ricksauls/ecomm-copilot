@@ -1,9 +1,12 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-10-11 (session 20 — reworked **Acquire Product Images From An Existing
-Site** (renamed from "Import Product Images"): **Amazon product pages now supported** via the
-**already-live Oxylabs** residential proxy (acquire-only), and a **no-pre-download gallery** that
-hotlinks thumbnails + fetches full-res only on Download (no upscaling in v1). Session 19 — built
+_Last updated: 2026-10-11 (session 21 — **Acquire Product Images**: Amazon verified working
+live; added **product-based download filenames** (title slug + ASIN/Walmart item #, ZIP foldered
+per product) and **upscale-on-download** (resize to the 2000px target when below spec, via Claid).
+Session 20 — reworked **Acquire Product Images From An Existing Site** (renamed from "Import
+Product Images"): **Amazon product pages now supported** via the **already-live Oxylabs**
+residential proxy (acquire-only), and a **no-pre-download gallery** that hotlinks thumbnails +
+fetches full-res only on Download. Session 19 — built
 Import Product Images (acquire by URL/CSV, per-image selection). Session 18 — wired the **View
 Creative Content Creation History**
 screen (image-set runs) + added a **search box to every History screen** (brand / product /
@@ -15,6 +18,45 @@ fills its box, and an **AI "straighten"** that de-angles the product for feature
 quality set to **medium**. Droplet now on gpt-image-1 + PhotoRoom. Session 16 — callout layout/halos/
 blur, per-card Regenerate, Lifestyle logo. Session 15 — all 4 image types generate. Session 13 —
 built PDP Image Set.)_
+
+> ## ⭐ Next session — START HERE (session 21, 2026-10-11)
+>
+> **Shipped + pushed: `main` at `d57cfbf` (code) + this docs commit; CI → auto-deploy.**
+> 558 tests, `ruff` clean. **No migration, no new `.env`.**
+>
+> **✅ Amazon verified working live** this session: the user acquired images from a real
+> Amazon product-page URL (`https://www.amazon.com/dp/B07NV281TK`) — thumbnails filled the
+> gallery, selection + download worked. So the extractor's selectors are good against at least
+> one real PDP; keep an eye out for product pages whose layout differs (fallback chain is
+> `colorImages` `"hiRes"` → `"large"` → largest `data-a-dynamic-image`).
+>
+> ### What shipped this session (on top of session 20's rework)
+> - **Product-based download filenames** (`app/routes/pages.py`): per image
+>   `<title-slug>-<product-id>-<n>.<ext>` — product-id is the Amazon ASIN (`_import_product_id`
+>   parses `/dp/<ASIN>`) or the Walmart item number; `image-<n>` fallback. The **ZIP** foldered
+>   per product (`<product>/…-<n>.<ext>`, numbered per product via `store.get_item` +
+>   `store.asset_index_in_item`); the ZIP file named for the product when it's all one, else
+>   `acquired-images-<N>-products.zip`.
+> - **Upscale-on-download** (`pages._maybe_upscale`): after fetching the full-res file, if its
+>   longest edge < `image_enhance.target_px()` (2000) and Claid is configured, it's upscaled
+>   (Claid, ~$0.04/img); else served native. Best-effort (falls back to native on failure).
+>   Applies to single downloads + the ZIP. (v1 had deferred upscaling; this re-adds it at the
+>   point we first know the real size — the gallery still hotlinks thumbnails, no pre-download.)
+>
+> ### Watch / next-ups
+> - **ZIP of many small images** now fetches + upscales each **synchronously** in the web
+>   request — fine for typical selections, but a large one could be slow / approach the gunicorn
+>   timeout and run up Claid spend. Move the ZIP to a worker job if it gets heavy.
+> - Optional: a cost-preflight/among-options hint before a big upscaling download; a
+>   "View Creative Content Creation History"-style history for acquire runs (not built).
+>
+> ### Commits this session
+> `d57cfbf` product-based download names + upscale-on-download · + this docs commit. (Earlier
+> today: session 20 `fd62639` the acquire-only-proxy/Amazon/no-pre-download rework.)
+> **Pushed to `main`.**
+>
+> _(Session 20's block follows — the acquire-only proxy, Amazon support, and no-pre-download
+> model it describes are all still current.)_
 
 > ## ⭐ Next session — START HERE (session 20, 2026-10-11)
 >
