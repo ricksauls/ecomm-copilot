@@ -219,3 +219,24 @@ def get_asset(conn: sqlite3.Connection, asset_id: int, user_id: int) -> sqlite3.
     return conn.execute(
         "SELECT * FROM import_assets WHERE id = ? AND user_id = ?", (asset_id, user_id)
     ).fetchone()
+
+
+def get_item(conn: sqlite3.Connection, item_id: int, user_id: int) -> sqlite3.Row | None:
+    """Return one item owned by ``user_id`` (IDOR guard), or None.
+
+    Backs download filenames, which key off the item's source URL + label.
+    """
+    return conn.execute(
+        "SELECT * FROM import_items WHERE id = ? AND user_id = ?", (item_id, user_id)
+    ).fetchone()
+
+
+def asset_index_in_item(conn: sqlite3.Connection, item_id: int, asset_id: int) -> int:
+    """1-based position of an asset among its item's assets (by id order).
+
+    Used to number a product's downloaded files (``…-1.jpg``, ``…-2.jpg``).
+    """
+    return int(conn.execute(
+        "SELECT COUNT(*) FROM import_assets WHERE item_id = ? AND id <= ?",
+        (item_id, asset_id),
+    ).fetchone()[0])

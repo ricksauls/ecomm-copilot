@@ -2612,9 +2612,55 @@ _IMPORT_GALLERY_CSP = (
 )
 
 
-def _import_asset_filename(run_id: int, aid: int, ext: str) -> str:
-    """Download filename for one acquired image: ``imported-<run>-<asset>.<ext>``."""
-    return f"imported-{run_id}-{aid}.{ext}"
+def _import_product_id(item) -> str | None:
+    """A product identifier for download filenames: Amazon ASIN or Walmart item #."""
+    url = item["source_url"] or ""
+    stype = item["source_type"]
+    if stype == "amazon_pdp":
+        m = re.search(r"/(?:dp|gp/product|gp/aw/d)/([A-Z0-9]{10})", url, re.IGNORECASE)
+        return m.group(1).upper() if m else None
+    if stype == "walmart":
+        return pdp.item_number_from_url(url)
+    return None
+
+
+def _import_slug(text: str | None) -> str:
+    """A filename-safe lowercase slug of a product title (bounded length)."""
+    slug = re.sub(r"[^a-z0-9]+", "-", (text or "").lower()).strip("-")
+    return slug[:40].strip("-")
+
+
+def _import_download_stem(item, index: int) -> str:
+    """Per-image download stem: ``<title-slug>-<product-id>-<n>`` (empties dropped)."""
+    parts = [p for p in (_import_slug(item["label"] if item else None),
+                         _import_product_id(item) if item else None) if p]
+    base = "-".join(parts) if parts else "image"
+    return f"{base}-{index}"
+
+
+def _import_zip_folder(item) -> str:
+    """ZIP subfolder for a product: title slug, else product id, else ``item-<id>``."""
+    return (_import_slug(item["label"]) or _import_product_id(item)
+            or f"item-{item['id']}")
+
+
+def _maybe_upscale(data: bytes, ext: str, width, height, full_url: str) -> tuple[bytes, str]:
+    """Upscale an image to the target longest edge when it's below spec.
+
+    Checked at download time (the first point we know the real size): if the native
+    image's longest edge is under ``image_enhance.target_px()`` (the 2000px zoom
+    spec) and Claid is configured, return the super-resolved bytes; otherwise the
+    native bytes unchanged. Best-effort — a provider failure falls back to native.
+    """
+    target = image_enhance.target_px()
+    if width and height and max(width, height) < target and image_enhance.is_configured():
+        try:
+            up = image_enhance.enhance(full_url, operation="upscale")
+            logger.info("Import: upscaled %s (%dx%d < %d)", full_url, width, height, target)
+            return up, image_enhance.output_ext()
+        except image_enhance.EnhanceError as e:
+            logger.warning("Import: upscale skipped for %s (%s)", full_url, e)
+    return data, ext
 
 
 def _import_gallery_view(db, run_id: int, uid: int) -> list[dict]:
@@ -2704,18 +2750,22 @@ def _send_image_bytes(data: bytes, *, ext: str, download_name: str):
 @bp.route("/app/import-images/<int:run_id>/asset/<int:aid>/download")
 @login_required
 def import_asset_download(run_id, aid):
-    """Fetch one image's full-resolution file on demand and return it as a download."""
+    """Fetch one image's full-resolution file on demand, upscale if below spec, download."""
     _import_run_or_404(run_id)
-    asset = import_store.get_asset(get_db(), aid, g.user["id"])
+    db, uid = get_db(), g.user["id"]
+    asset = import_store.get_asset(db, aid, uid)
     if asset is None or asset["run_id"] != run_id:
         abort(404)
     try:
-        data, ext, _w, _h = import_sources.download_image(asset["source_image_url"])
+        data, ext, w, h = import_sources.download_image(asset["source_image_url"])
     except import_sources.SourceError as e:
         logger.warning("Import download failed run=%s asset=%s: %s", run_id, aid, e)
         abort(502, description=str(e))
-    return _send_image_bytes(data, ext=ext,
-                             download_name=_import_asset_filename(run_id, aid, ext))
+    data, ext = _maybe_upscale(data, ext, w, h, asset["source_image_url"])
+    item = import_store.get_item(db, asset["item_id"], uid)
+    index = import_store.asset_index_in_item(db, asset["item_id"], aid)
+    name = f"{_import_download_stem(item, index)}.{ext}"
+    return _send_image_bytes(data, ext=ext, download_name=name)
 
 
 @bp.route("/app/import-images/<int:run_id>/download.zip")
@@ -2745,24 +2795,36 @@ def import_download_zip(run_id):
         if not assets:
             abort(404, description="No images selected.")
 
+    items = {it["id"]: it for it in import_store.items_for_run(db, run_id, uid)}
+    counters: dict[int, int] = {}
     buf = io.BytesIO()
     written = 0
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for asset in assets:
+        for asset in assets:  # ordered by item then id, so per-product numbering is stable
             try:
-                data, ext, _w, _h = import_sources.download_image(asset["source_image_url"])
+                data, ext, w, h = import_sources.download_image(asset["source_image_url"])
             except import_sources.SourceError as e:
                 logger.warning("Import ZIP: skipped asset=%s (%s)", asset["id"], e)
                 continue
-            arc = f"imported-images-{run_id}/{_import_asset_filename(run_id, asset['id'], ext)}"
+            data, ext = _maybe_upscale(data, ext, w, h, asset["source_image_url"])
+            item = items.get(asset["item_id"])
+            counters[asset["item_id"]] = counters.get(asset["item_id"], 0) + 1
+            # Group each product's images in their own folder, numbered per product.
+            arc = f"{_import_zip_folder(item)}/{_import_download_stem(item, counters[asset['item_id']])}.{ext}"
             zf.writestr(arc, data)
             written += 1
     if not written:
         abort(404, description="Couldn't download any of the selected images.")
     buf.seek(0)
+    # Name the ZIP for the product when it's all one product, else a run-scoped name.
+    bundled_items = {a["item_id"] for a in assets}
+    if len(bundled_items) == 1:
+        zip_name = f"{_import_zip_folder(items.get(next(iter(bundled_items))))}-images.zip"
+    else:
+        zip_name = f"acquired-images-{len(bundled_items)}-products.zip"
     logger.info("Import ZIP: %d image(s) run=%s user_id=%s", written, run_id, uid)
     return send_file(buf, mimetype="application/zip", as_attachment=True,
-                     download_name=f"imported-images-{run_id}.zip", max_age=0)
+                     download_name=zip_name, max_age=0)
 
 
 # ── Contact Us (user side) ───────────────────────────────────────────────────

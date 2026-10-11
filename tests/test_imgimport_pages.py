@@ -116,6 +116,65 @@ def test_zip_respects_selection(client, auth, app, monkeypatch):
         assert len(zf.namelist()) == 3
 
 
+def test_product_id_and_slug_helpers():
+    from app.routes import pages
+    assert pages._import_product_id(
+        {"source_url": "https://www.amazon.com/dp/B07NV281TK", "source_type": "amazon_pdp"}
+    ) == "B07NV281TK"
+    assert pages._import_product_id(
+        {"source_url": "https://www.walmart.com/ip/10294528", "source_type": "walmart"}
+    ) == "10294528"
+    assert pages._import_product_id(
+        {"source_url": "https://cdn/x.jpg", "source_type": "image"}) is None
+    assert pages._import_slug("OFF! Deep Woods — Spray") == "off-deep-woods-spray"
+    assert pages._import_download_stem(
+        {"label": "OFF! Deep Woods", "source_url": "https://www.amazon.com/dp/B07NV281TK",
+         "source_type": "amazon_pdp"}, 2) == "off-deep-woods-B07NV281TK-2"
+
+
+def test_download_filename_uses_product_name(client, auth, app, monkeypatch):
+    auth.register(email="imp-name@example.com")
+    run_id, aids, uid = _seed_ready_run(app, "imp-name@example.com",
+                                        ["https://m.media-amazon.com/images/I/71abc.jpg"])
+    monkeypatch.setattr("app.imgimport.sources.download_image", lambda u: _fake_download(u))
+    dl = client.get(f"/app/import-images/{run_id}/asset/{aids[0]}/download")
+    # Item label is "Thing" (from _seed_ready_run) → filename starts with its slug.
+    assert "thing-1.jpg" in dl.headers.get("Content-Disposition", "")
+
+
+def test_download_upscales_when_below_target(client, auth, app, monkeypatch):
+    auth.register(email="imp-up@example.com")
+    run_id, aids, uid = _seed_ready_run(app, "imp-up@example.com",
+                                        ["https://m.media-amazon.com/images/I/71abc.jpg"])
+    # Native image is small → below the 2000px target → should upscale via Claid.
+    monkeypatch.setattr("app.imgimport.sources.download_image",
+                        lambda u: (b"SMALL", "jpg", 800, 600))
+    monkeypatch.setattr("app.image_enhance.is_configured", lambda: True)
+    monkeypatch.setattr("app.image_enhance.target_px", lambda: 2000)
+    monkeypatch.setattr("app.image_enhance.output_ext", lambda: "png")
+    monkeypatch.setattr("app.image_enhance.enhance",
+                        lambda url, operation="upscale": b"UPSCALED")
+    dl = client.get(f"/app/import-images/{run_id}/asset/{aids[0]}/download")
+    assert dl.status_code == 200 and dl.data == b"UPSCALED" and dl.mimetype == "image/png"
+
+
+def test_download_skips_upscale_when_large(client, auth, app, monkeypatch):
+    auth.register(email="imp-noup@example.com")
+    run_id, aids, uid = _seed_ready_run(app, "imp-noup@example.com",
+                                        ["https://m.media-amazon.com/images/I/71abc.jpg"])
+    # Already at/above target → serve native, never call Claid.
+    monkeypatch.setattr("app.imgimport.sources.download_image",
+                        lambda u: (b"BIG", "jpg", 2400, 2400))
+    monkeypatch.setattr("app.image_enhance.is_configured", lambda: True)
+    monkeypatch.setattr("app.image_enhance.target_px", lambda: 2000)
+
+    def _boom(*a, **k):
+        raise AssertionError("enhance must not be called for a large image")
+    monkeypatch.setattr("app.image_enhance.enhance", _boom)
+    dl = client.get(f"/app/import-images/{run_id}/asset/{aids[0]}/download")
+    assert dl.status_code == 200 and dl.data == b"BIG"
+
+
 def test_status_json(client, auth, app):
     auth.register(email="imp-status@example.com")
     run_id, aids, uid = _seed_ready_run(app, "imp-status@example.com",
