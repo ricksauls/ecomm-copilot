@@ -1,5 +1,5 @@
 {% extends "app/base.html" %}
-{% block title %}Imported Images — DISCOtech{% endblock %}
+{% block title %}Acquired Images — DISCOtech{% endblock %}
 
 {% block head_extra %}
   {# No-JS fallback: refresh while images are still being acquired. The poller
@@ -10,7 +10,7 @@
 {% block pane_content %}
 <div class="page-header">
   <div>
-    <h1>Imported Images</h1>
+    <h1>Acquired Images</h1>
     <p class="subtitle">
       {% if pending %}Acquiring your images… this page updates as each URL finishes. You can
         leave and come back.
@@ -30,7 +30,7 @@
     <button type="submit" form="import-select" class="wbtn wbtn-primary">
       Download Selected (<span class="import-sel-count">{{ ready_count }}</span>)</button>
     {% endif %}
-    <a href="{{ url_for('pages.import_images_intake') }}" class="wbtn wbtn-secondary">Import more</a>
+    <a href="{{ url_for('pages.import_images_intake') }}" class="wbtn wbtn-secondary">Acquire more</a>
   </div>
 </div>
 
@@ -69,19 +69,19 @@
             <label class="import-check" title="Include in download">
               <input type="checkbox" name="ids" value="{{ asset.id }}" checked />
             </label>
-            <a href="{{ asset.image_url }}" target="_blank" rel="noopener">
-              <img src="{{ asset.image_url }}" alt="" loading="lazy" />
+            {# Gallery hotlinks the lighter thumbnail; the link opens the full-res
+               source image. Full-res bytes are only fetched on Download. #}
+            <a href="{{ asset.full_url }}" target="_blank" rel="noopener noreferrer">
+              <img src="{{ asset.thumb_url }}" alt="" loading="lazy" referrerpolicy="no-referrer" />
             </a>
             <div class="import-thumb-foot">
               <span class="import-dims">
-                {{ asset.width }}×{{ asset.height }}{% if asset.upscaled %} <span class="import-badge">upscaled</span>{% endif %}
+                {% if asset.width and asset.height %}{{ asset.width }}×{{ asset.height }}{% endif %}
               </span>
               <a class="wbtn wbtn-secondary wbtn-sm" href="{{ asset.download_url }}">Download</a>
             </div>
-            {% elif asset.status == 'failed' %}
-            <div class="import-thumb-failed" title="{{ asset.error or '' }}">Image failed</div>
             {% else %}
-            <div class="import-thumb-working"><span class="spinner" aria-hidden="true"></span></div>
+            <div class="import-thumb-failed" title="{{ asset.error or '' }}">Image failed</div>
             {% endif %}
           </div>
           {% endfor %}

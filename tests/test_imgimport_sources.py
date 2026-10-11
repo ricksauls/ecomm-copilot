@@ -130,28 +130,76 @@ def test_download_image_rejects_non_image(monkeypatch):
 
 # --- resolve ----------------------------------------------------------------
 
-def test_resolve_amazon_pdp_not_supported():
-    with pytest.raises(sources.SourceNotSupported):
-        sources.resolve_image_urls("https://www.amazon.com/dp/B07XYZ", sources.AMAZON_PDP)
-
-
 def test_resolve_image_applies_native_res():
-    label, urls = sources.resolve_image_urls(
+    # A direct Amazon image URL: full = native max-res; thumb = the given URL.
+    label, refs = sources.resolve_images(
         "https://m.media-amazon.com/images/I/71abc._AC_SL1500_.jpg", sources.IMAGE)
-    assert label is None
-    assert urls == ["https://m.media-amazon.com/images/I/71abc.jpg"]
+    assert label is None and len(refs) == 1
+    assert refs[0]["full"] == "https://m.media-amazon.com/images/I/71abc.jpg"
+    assert refs[0]["thumb"] == "https://m.media-amazon.com/images/I/71abc._AC_SL1500_.jpg"
 
 
-def test_resolve_walmart_uses_fetch(monkeypatch):
-    monkeypatch.setattr(
-        "app.fetch.fetch_all_image_urls",
-        lambda url, **k: ("Tabasco Sauce", ["https://i5.walmartimages.com/a.jpg",
-                                            "https://i5.walmartimages.com/b.jpg"]))
-    label, urls = sources.resolve_image_urls("https://www.walmart.com/ip/10294528", sources.WALMART)
-    assert label == "Tabasco Sauce" and len(urls) == 2
+def test_resolve_walmart_uses_fetch_with_proxy(monkeypatch):
+    seen = {}
+
+    def fake(url, **k):
+        seen.update(k)
+        return ("Tabasco Sauce", ["https://i5.walmartimages.com/a.jpg",
+                                  "https://i5.walmartimages.com/b.jpg"])
+    monkeypatch.setattr("app.fetch.fetch_all_image_urls", fake)
+    label, refs = sources.resolve_images("https://www.walmart.com/ip/10294528", sources.WALMART)
+    assert label == "Tabasco Sauce" and len(refs) == 2
+    assert seen.get("use_proxy") is True  # Import routes Walmart through the proxy
+    assert all(r["full"].startswith("https://i5.walmartimages.com/") for r in refs)
+    assert "odnHeight" in refs[0]["thumb"]  # a lighter gallery rendition
 
 
 def test_resolve_walmart_empty_raises(monkeypatch):
     monkeypatch.setattr("app.fetch.fetch_all_image_urls", lambda url, **k: ("", []))
     with pytest.raises(sources.SourceError):
-        sources.resolve_image_urls("https://www.walmart.com/ip/10294528", sources.WALMART)
+        sources.resolve_images("https://www.walmart.com/ip/10294528", sources.WALMART)
+
+
+def test_resolve_walmart_bot_block_becomes_clean_sourceerror(monkeypatch):
+    # A bot-detection block from the scraper must surface as a friendly SourceError
+    # (not a raw "Unexpected error"), pointing at the direct-image-URL workaround.
+    from app import fetch
+
+    def blocked(url, **k):
+        raise fetch.FetchBlocked("Bot detection blocked the request")
+    monkeypatch.setattr("app.fetch.fetch_all_image_urls", blocked)
+    with pytest.raises(sources.SourceError) as exc:
+        sources.resolve_images("https://www.walmart.com/ip/10294528", sources.WALMART)
+    msg = str(exc.value).lower()
+    assert "blocked" in msg and "image url" in msg
+
+
+def test_resolve_walmart_fetch_error_becomes_sourceerror(monkeypatch):
+    from app import fetch
+
+    def failing(url, **k):
+        raise fetch.FetchError("page read failed")
+    monkeypatch.setattr("app.fetch.fetch_all_image_urls", failing)
+    with pytest.raises(sources.SourceError):
+        sources.resolve_images("https://www.walmart.com/ip/10294528", sources.WALMART)
+
+
+def test_resolve_amazon_pdp_uses_extractor(monkeypatch):
+    refs = [{"full": "https://m.media-amazon.com/images/I/71x.jpg",
+             "thumb": "https://m.media-amazon.com/images/I/71x._AC_SX300_.jpg",
+             "width": None, "height": None}]
+    monkeypatch.setattr("app.imgimport.amazon.fetch_amazon_images",
+                        lambda url, **k: ("Deep Woods", refs))
+    label, got = sources.resolve_images("https://www.amazon.com/dp/B07XYZ", sources.AMAZON_PDP)
+    assert label == "Deep Woods" and got == refs
+
+
+def test_resolve_amazon_pdp_block_becomes_clean_sourceerror(monkeypatch):
+    from app import fetch
+
+    def blocked(url, **k):
+        raise fetch.FetchBlocked("blocked")
+    monkeypatch.setattr("app.imgimport.amazon.fetch_amazon_images", blocked)
+    with pytest.raises(sources.SourceError) as exc:
+        sources.resolve_images("https://www.amazon.com/dp/B07XYZ", sources.AMAZON_PDP)
+    assert "amazon" in str(exc.value).lower()

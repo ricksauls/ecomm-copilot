@@ -16,6 +16,7 @@ import html
 import logging
 import re
 
+from app import proxy as webproxy
 from app.scoring import PdpRecord
 
 logger = logging.getLogger(__name__)
@@ -352,7 +353,7 @@ def parse_product(product: dict, *, url: str = "", item_id: str | None = None,
     )
 
 
-def _load_pdp_data(url: str, timeout_ms: int) -> dict:
+def _load_pdp_data(url: str, timeout_ms: int, *, use_proxy: bool = False) -> dict:
     """Drive a real browser to a Walmart PDP and return ``initialData.data``.
 
     Centralizes the anti-bot browser setup and ``__NEXT_DATA__`` extraction shared
@@ -360,6 +361,11 @@ def _load_pdp_data(url: str, timeout_ms: int) -> dict:
     (image discovery only). Raises :class:`FetchBlocked` on bot detection and
     :class:`FetchError` on any other failure. Slow (seconds) and headed — must run
     in a background job, never inline in a request.
+
+    ``use_proxy`` routes the browser through the residential proxy
+    (:func:`app.proxy.proxy_from_env`) when one is configured — opt-in because it's
+    metered per-GB. Scoring/CI-image-cache leave it off (they work direct); Import
+    Product Images turns it on so Walmart's bot detection sees a residential IP.
     """
     try:
         from playwright.sync_api import sync_playwright
@@ -371,12 +377,14 @@ def _load_pdp_data(url: str, timeout_ms: int) -> dict:
 
     import json
 
+    proxy = webproxy.proxy_from_env() if use_proxy else None
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch(
                 channel="chrome",
                 headless=False,
                 args=["--disable-blink-features=AutomationControlled"],
+                **({"proxy": proxy} if proxy else {}),
             )
             try:
                 context = browser.new_context(
@@ -399,6 +407,53 @@ def _load_pdp_data(url: str, timeout_ms: int) -> dict:
                     raise FetchError("__NEXT_DATA__ not found on the page")
 
                 return json.loads(nd_raw)["props"]["pageProps"]["initialData"]["data"]
+            finally:
+                browser.close()
+    except FetchError:
+        raise
+    except Exception as e:
+        raise FetchError(f"Failed to fetch {url}: {e}") from e
+
+
+def render_page_html(url: str, *, timeout_ms: int = 35000, use_proxy: bool = False) -> str:
+    """Drive a real browser to ``url`` and return its rendered HTML (``content()``).
+
+    For non-Walmart pages (e.g. Amazon) that parse their own DOM rather than
+    ``__NEXT_DATA__``. Same anti-bot browser setup + block detection as
+    :func:`_load_pdp_data` (kept parallel rather than shared to avoid refactoring the
+    working Walmart path). ``use_proxy`` routes through the residential proxy when
+    configured. Raises :class:`FetchBlocked` / :class:`FetchError`. Headed + slow —
+    background jobs only.
+    """
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError as e:  # pragma: no cover - depends on optional install
+        raise FetchError("Playwright is not installed.") from e
+
+    proxy = webproxy.proxy_from_env() if use_proxy else None
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(
+                channel="chrome",
+                headless=False,
+                args=["--disable-blink-features=AutomationControlled"],
+                **({"proxy": proxy} if proxy else {}),
+            )
+            try:
+                context = browser.new_context(
+                    viewport={"width": 1440, "height": 900},
+                    locale="en-US",
+                    timezone_id="America/Chicago",
+                )
+                page = context.new_page()
+                page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+                page.wait_for_timeout(3500)
+
+                body = (page.inner_text("body") or "").lower()
+                if any(marker in body for marker in _BLOCK_MARKERS):
+                    raise FetchBlocked(f"Bot detection blocked the request for {url}")
+
+                return page.content()
             finally:
                 browser.close()
     except FetchError:
@@ -451,17 +506,19 @@ def fetch_main_image_url(url: str, item_id: str | None = None, *,
     return urls[0] if urls else None
 
 
-def fetch_all_image_urls(url: str, *, timeout_ms: int = 35000) -> tuple[str, list[str]]:
+def fetch_all_image_urls(url: str, *, timeout_ms: int = 35000,
+                         use_proxy: bool = False) -> tuple[str, list[str]]:
     """Return ``(product_title, [all gallery image URLs])`` for a Walmart PDP.
 
     A lean cousin of :func:`fetch_pdp` for the Import Product Images feature: it
     needs the product's whole image gallery (not just the main image) plus a title
     to label the run, but none of the scoring parse. Same browser/bot-detection
-    path (headed, background-only). Title is empty and the list may be empty when
-    the page yields no data; the caller treats an empty list as "no images found".
+    path (headed, background-only). ``use_proxy`` routes through the residential
+    proxy (Import turns this on). Title is empty and the list may be empty when the
+    page yields no data; the caller treats an empty list as "no images found".
     """
-    logger.info("Fetching all image URLs url=%s", url)
-    data = _load_pdp_data(url, timeout_ms)
+    logger.info("Fetching all image URLs url=%s proxy=%s", url, use_proxy)
+    data = _load_pdp_data(url, timeout_ms, use_proxy=use_proxy)
     product = data.get("product") or {}
     title = (product.get("name") or "").strip()
     return title, _image_urls(product)

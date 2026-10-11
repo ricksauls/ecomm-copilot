@@ -178,40 +178,23 @@ def reclaim_orphaned_items(conn: sqlite3.Connection) -> int:
 
 # --- assets -----------------------------------------------------------------
 
-def create_asset(conn: sqlite3.Connection, *, item_id: int, run_id: int,
-                 user_id: int, source_image_url: str) -> int:
-    """Create a pending asset row (status ``processing``) and return its id.
+def add_ready_asset(conn: sqlite3.Connection, *, item_id: int, run_id: int, user_id: int,
+                    full_url: str, thumb_url: str | None,
+                    width: int | None = None, height: int | None = None) -> int:
+    """Record one resolved image (status ``ready``) and return its id.
 
-    Inserted before the file is written so the row id can name the stored file;
-    :func:`finalize_asset` or :func:`fail_asset` then resolves it.
+    No bytes are downloaded at acquire time (the no-pre-download model): the gallery
+    hotlinks ``thumb_url`` and the full-resolution ``full_url`` is fetched only when
+    the user downloads. ``source_image_url`` stores the full-res URL.
     """
     cur = conn.execute(
-        "INSERT INTO import_assets (item_id, run_id, user_id, source_image_url, status) "
-        "VALUES (?, ?, ?, ?, ?)",
-        (item_id, run_id, user_id, source_image_url, STATUS_PROCESSING),
+        "INSERT INTO import_assets "
+        "(item_id, run_id, user_id, source_image_url, thumb_url, width, height, status) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (item_id, run_id, user_id, full_url, thumb_url, width, height, STATUS_READY),
     )
     conn.commit()
     return int(cur.lastrowid)
-
-
-def finalize_asset(conn: sqlite3.Connection, asset_id: int, *, stored_path: str,
-                   ext: str, width: int, height: int, upscaled: bool) -> None:
-    """Mark an asset ``ready`` with its stored file + dimensions."""
-    conn.execute(
-        "UPDATE import_assets SET stored_path = ?, ext = ?, width = ?, height = ?, "
-        "upscaled = ?, status = ?, error = NULL WHERE id = ?",
-        (stored_path, ext, width, height, 1 if upscaled else 0, STATUS_READY, asset_id),
-    )
-    conn.commit()
-
-
-def fail_asset(conn: sqlite3.Connection, asset_id: int, error: str) -> None:
-    """Mark an asset ``failed`` with a short, secret-free reason."""
-    conn.execute(
-        "UPDATE import_assets SET status = ?, error = ? WHERE id = ?",
-        (STATUS_FAILED, error[:500], asset_id),
-    )
-    conn.commit()
 
 
 def assets_for_run(conn: sqlite3.Connection, run_id: int, user_id: int) -> list[sqlite3.Row]:

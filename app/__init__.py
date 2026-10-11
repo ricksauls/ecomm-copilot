@@ -43,12 +43,16 @@ def _register_security_headers(app: Flask) -> None:
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "same-origin"
-        response.headers["Content-Security-Policy"] = (
+        # setdefault, not overwrite: a view may set a scoped CSP of its own (e.g. the
+        # Import gallery loosens img-src to hotlink product images). Everything else
+        # gets this strict default.
+        response.headers.setdefault(
+            "Content-Security-Policy",
             "default-src 'self'; "
             "img-src 'self' data:; "
             "style-src 'self' 'unsafe-inline'; "
             "font-src 'self'; "
-            "script-src 'self'"
+            "script-src 'self'",
         )
         return response
 

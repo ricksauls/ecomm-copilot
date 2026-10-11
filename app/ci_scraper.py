@@ -19,10 +19,10 @@ wm-dot-com-competitive-intelligence ``daily.py`` scraper.
 """
 
 import logging
-import os
 import random
 from datetime import date
 
+from app import proxy as webproxy
 from app.fetch import _BLOCK_MARKERS, FetchBlocked, FetchError
 from app.pdp import item_number_from_url
 
@@ -35,26 +35,11 @@ def _proxy_from_env() -> dict | None:
     Walmart's ad exchange serves headline/sponsored-video creatives only to
     residential-looking clients, so a residential proxy is what makes those ads
     actually render for the scraper — a datacenter IP (our droplet) gets ~zero
-    fill. Configure it in the droplet's ``.env``:
-
-        WALMART_PROXY_SERVER   e.g. "http://gate.provider.com:7000"  (required)
-        WALMART_PROXY_USERNAME provider username                     (optional)
-        WALMART_PROXY_PASSWORD provider password                     (optional)
-
-    When ``WALMART_PROXY_SERVER`` is empty the scraper runs directly, exactly as
-    before, so this is inert until an endpoint is supplied. The password is never
-    logged (see :func:`scrape_keyword_cards`).
+    fill. Thin wrapper over the shared :func:`app.proxy.proxy_from_env` (the same
+    ``WALMART_PROXY_*`` endpoint now also powers Import Product Images); kept as a
+    named function so existing callers/tests are unchanged.
     """
-    server = os.environ.get("WALMART_PROXY_SERVER", "").strip()
-    if not server:
-        return None
-    proxy = {"server": server}
-    username = os.environ.get("WALMART_PROXY_USERNAME", "").strip()
-    if username:
-        # Only attach credentials when a username is set; password may be blank.
-        proxy["username"] = username
-        proxy["password"] = os.environ.get("WALMART_PROXY_PASSWORD", "")
-    return proxy
+    return webproxy.proxy_from_env()
 
 # Politeness delays (seconds): a pause after load before reading, and the wait
 # the worker leaves between keywords. Matches the reference scraper's cadence.

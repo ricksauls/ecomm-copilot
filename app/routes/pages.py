@@ -21,6 +21,7 @@ from flask import (
     flash,
     g,
     jsonify,
+    make_response,
     redirect,
     render_template,
     request,
@@ -50,7 +51,6 @@ from app.imageset import storage as imageset_storage
 from app.imageset import store as imageset_store
 from app.imageset.providers.background_removal import BackgroundRemovalError
 from app.imgimport import sources as import_sources
-from app.imgimport import storage as import_storage
 from app.imgimport import store as import_store
 from app.security import admin_required, login_required
 
@@ -2515,7 +2515,7 @@ def imageset_download_zip(pid):
 # ── Import Product Images (Creative Content Studio) ──────────────────────────
 
 _IMPORT_NAV = "import-images"
-_IMPORT_BREADCRUMB = "Creative Content Studio · Import Product Images"
+_IMPORT_BREADCRUMB = "Creative Content Studio · Acquire Product Images From An Existing Site"
 
 
 def _collect_import_urls(text: str, csv_file) -> tuple[list[str], list[str]]:
@@ -2601,14 +2601,28 @@ def import_images_intake():
     )
 
 
-def _import_asset_filename(asset) -> str:
+_IMPORT_MIME = {"jpg": "image/jpeg", "png": "image/png", "webp": "image/webp",
+                "gif": "image/gif"}
+# The gallery hotlinks product images from external CDNs, so it needs a looser
+# img-src than the app-wide default (which is 'self' only). Scoped to this one page;
+# images only (scripts/styles/fonts stay 'self'), so the relaxation is low-risk.
+_IMPORT_GALLERY_CSP = (
+    "default-src 'self'; img-src 'self' data: https:; "
+    "style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self'"
+)
+
+
+def _import_asset_filename(run_id: int, aid: int, ext: str) -> str:
     """Download filename for one acquired image: ``imported-<run>-<asset>.<ext>``."""
-    ext = (asset["ext"] or "jpg").lower()
-    return f"imported-{asset['run_id']}-{asset['id']}.{ext}"
+    return f"imported-{run_id}-{aid}.{ext}"
 
 
 def _import_gallery_view(db, run_id: int, uid: int) -> list[dict]:
-    """Shape a run's items (each with its acquired assets) for the gallery template."""
+    """Shape a run's items (each with its resolved images) for the gallery/poller.
+
+    No bytes are stored — the gallery hotlinks ``thumb_url`` for display and opens
+    ``full_url`` (both external CDN URLs); only Download routes back through us.
+    """
     assets_by_item: dict[int, list[dict]] = {}
     for a in import_store.assets_for_run(db, run_id, uid):
         assets_by_item.setdefault(a["item_id"], []).append({
@@ -2618,8 +2632,9 @@ def _import_gallery_view(db, run_id: int, uid: int) -> list[dict]:
             "error": a["error"],
             "width": a["width"],
             "height": a["height"],
-            "upscaled": bool(a["upscaled"]),
-            "image_url": url_for("pages.import_asset_image", run_id=run_id, aid=a["id"]),
+            # Hotlinked thumbnail (falls back to the full URL if no thumb was derived).
+            "thumb_url": a["thumb_url"] or a["source_image_url"],
+            "full_url": a["source_image_url"],
             "download_url": url_for("pages.import_asset_download", run_id=run_id, aid=a["id"]),
         })
     items = []
@@ -2646,17 +2661,20 @@ def _import_run_or_404(run_id: int):
 @bp.route("/app/import-images/<int:run_id>")
 @login_required
 def import_images_run(run_id):
-    """Gallery for one import run: per-item status + acquired images; polls while busy."""
+    """Gallery for one import run: per-item status + hotlinked images; polls while busy."""
     run = _import_run_or_404(run_id)
     db, uid = get_db(), g.user["id"]
     items = _import_gallery_view(db, run_id, uid)
     ready_count = sum(1 for it in items for a in it["assets"] if a["ready"])
     pending = run["status"] == import_store.STATUS_PROCESSING
-    return render_template(
+    resp = make_response(render_template(
         "app/import_images_gallery.html", breadcrumb=_IMPORT_BREADCRUMB,
         active_nav=_IMPORT_NAV, run=run, items=items, pending=pending,
         ready_count=ready_count,
-    )
+    ))
+    # Per-page CSP so the hotlinked CDN thumbnails load (see _IMPORT_GALLERY_CSP).
+    resp.headers["Content-Security-Policy"] = _IMPORT_GALLERY_CSP
+    return resp
 
 
 @bp.route("/app/import-images/<int:run_id>/status")
@@ -2672,52 +2690,45 @@ def import_images_status(run_id):
     })
 
 
-def _serve_import_file(asset, *, as_attachment: bool):
-    """Serve a stored import asset by its row (containment-checked path)."""
+def _send_image_bytes(data: bytes, *, ext: str, download_name: str):
+    """Serve in-memory image bytes as a download (no file on disk)."""
+    import io
+
     from flask import send_file
 
-    path = import_storage.abs_path(asset["stored_path"])
-    if not path or not os.path.isfile(path):
-        abort(404)
-    ext = (asset["ext"] or "jpg").lower()
-    mime = {"jpg": "image/jpeg", "png": "image/png", "webp": "image/webp",
-            "gif": "image/gif"}.get(ext, "application/octet-stream")
-    name = _import_asset_filename(asset)
-    return send_file(path, mimetype=mime, as_attachment=as_attachment,
-                     download_name=name, max_age=0)
-
-
-@bp.route("/app/import-images/<int:run_id>/asset/<int:aid>/image")
-@login_required
-def import_asset_image(run_id, aid):
-    """Serve an acquired image inline (same-origin, CSP img-src 'self')."""
-    _import_run_or_404(run_id)  # IDOR: must own the run
-    asset = import_store.get_asset(get_db(), aid, g.user["id"])
-    if asset is None or asset["run_id"] != run_id:
-        abort(404)
-    return _serve_import_file(asset, as_attachment=False)
+    mime = _IMPORT_MIME.get(ext, "application/octet-stream")
+    return send_file(io.BytesIO(data), mimetype=mime, as_attachment=True,
+                     download_name=download_name, max_age=0)
 
 
 @bp.route("/app/import-images/<int:run_id>/asset/<int:aid>/download")
 @login_required
 def import_asset_download(run_id, aid):
-    """Download one acquired image."""
+    """Fetch one image's full-resolution file on demand and return it as a download."""
     _import_run_or_404(run_id)
     asset = import_store.get_asset(get_db(), aid, g.user["id"])
     if asset is None or asset["run_id"] != run_id:
         abort(404)
-    return _serve_import_file(asset, as_attachment=True)
+    try:
+        data, ext, _w, _h = import_sources.download_image(asset["source_image_url"])
+    except import_sources.SourceError as e:
+        logger.warning("Import download failed run=%s asset=%s: %s", run_id, aid, e)
+        abort(502, description=str(e))
+    return _send_image_bytes(data, ext=ext,
+                             download_name=_import_asset_filename(run_id, aid, ext))
 
 
 @bp.route("/app/import-images/<int:run_id>/download.zip")
 @login_required
 def import_download_zip(run_id):
-    """Bundle a run's acquired (ready) images into one ZIP.
+    """Fetch the selected images' full-resolution files on demand and bundle a ZIP.
 
     The gallery submits a GET form, so the checked images arrive as ``ids`` query
     params; a hidden ``scope=selected`` marks that a selection was made (so zero
     checked boxes reads as "nothing selected", not "download everything"). A bare
-    hit with no ``scope`` (a bookmarked URL) still bundles every ready image.
+    hit with no ``scope`` (a bookmarked URL) bundles every resolved image. Each file
+    is fetched now (not stored at acquire time); an image that fails to download is
+    skipped rather than failing the whole ZIP.
     """
     import io
     import zipfile
@@ -2729,8 +2740,6 @@ def import_download_zip(run_id):
     assets = import_store.ready_assets_for_run(db, run_id, uid)
 
     if request.args.get("scope") == "selected":
-        # Intersect the ready assets with the ticked ids (ints only; unknown/foreign
-        # ids simply don't match — the list is already IDOR-scoped to this user).
         wanted = {i for i in request.args.getlist("ids", type=int)}
         assets = [a for a in assets if a["id"] in wanted]
         if not assets:
@@ -2740,13 +2749,16 @@ def import_download_zip(run_id):
     written = 0
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for asset in assets:
-            path = import_storage.abs_path(asset["stored_path"])
-            if not path or not os.path.isfile(path):
+            try:
+                data, ext, _w, _h = import_sources.download_image(asset["source_image_url"])
+            except import_sources.SourceError as e:
+                logger.warning("Import ZIP: skipped asset=%s (%s)", asset["id"], e)
                 continue
-            zf.write(path, arcname=f"imported-images-{run_id}/{_import_asset_filename(asset)}")
+            arc = f"imported-images-{run_id}/{_import_asset_filename(run_id, asset['id'], ext)}"
+            zf.writestr(arc, data)
             written += 1
     if not written:
-        abort(404, description="No images have been acquired yet.")
+        abort(404, description="Couldn't download any of the selected images.")
     buf.seek(0)
     logger.info("Import ZIP: %d image(s) run=%s user_id=%s", written, run_id, uid)
     return send_file(buf, mimetype="application/zip", as_attachment=True,

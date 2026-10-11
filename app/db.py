@@ -440,12 +440,13 @@ CREATE TABLE IF NOT EXISTS import_assets (
     item_id          INTEGER NOT NULL REFERENCES import_items(id) ON DELETE CASCADE,
     run_id           INTEGER NOT NULL REFERENCES import_runs(id) ON DELETE CASCADE,
     user_id          INTEGER NOT NULL REFERENCES users(id),
-    source_image_url TEXT    NOT NULL,
-    stored_path      TEXT,                              -- rel to MEDIA_DIR; NULL until written
-    ext              TEXT    NOT NULL DEFAULT 'jpg',
-    width            INTEGER,
+    source_image_url TEXT    NOT NULL,                   -- full-resolution URL (fetched on Download)
+    thumb_url        TEXT,                               -- lighter URL hotlinked in the gallery
+    stored_path      TEXT,                               -- (unused in the no-pre-download model)
+    ext              TEXT    NOT NULL DEFAULT 'jpg',     -- (unused; download derives ext from the URL)
+    width            INTEGER,                            -- when the source reports it, else NULL
     height           INTEGER,
-    upscaled         INTEGER NOT NULL DEFAULT 0,         -- 1 if Claid super-resolved
+    upscaled         INTEGER NOT NULL DEFAULT 0,         -- (unused; no upscaling in v1)
     status           TEXT    NOT NULL DEFAULT 'ready',   -- ready|failed
     error            TEXT,
     created_at       TEXT    NOT NULL DEFAULT (datetime('now'))
@@ -601,6 +602,15 @@ def _migrate(conn: sqlite3.Connection) -> None:
     if imgset_asset_cols and "kept" not in imgset_asset_cols:
         conn.execute("ALTER TABLE imageset_assets ADD COLUMN kept INTEGER NOT NULL DEFAULT 1")
         logger.info("Migrated imageset_assets: added 'kept' column")
+
+    # import_assets.thumb_url: the no-pre-download gallery hotlinks a lighter image
+    # URL for display and fetches the full-res one only on Download. Added after the
+    # import_* tables shipped, so an already-deployed table needs the ALTER; fresh
+    # DBs get it from _SCHEMA. Guarded on the table existing at all.
+    import_asset_cols = {row[1] for row in conn.execute("PRAGMA table_info(import_assets)")}
+    if import_asset_cols and "thumb_url" not in import_asset_cols:
+        conn.execute("ALTER TABLE import_assets ADD COLUMN thumb_url TEXT")
+        logger.info("Migrated import_assets: added 'thumb_url' column")
 
 
 def ensure_schema(conn: sqlite3.Connection) -> None:

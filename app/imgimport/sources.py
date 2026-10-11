@@ -1,20 +1,21 @@
 """Classify a submitted product URL, resolve it to image URLs, and fetch bytes.
 
-Phase 1 sources:
-- **walmart**  — a Walmart product page; the existing headed-Chrome scraper yields
-  the whole gallery (browser work, worker-only).
+Sources:
+- **walmart**  — a Walmart product page; the headed-Chrome scraper (through the
+  residential proxy) yields the whole gallery (browser work, worker-only).
+- **amazon_pdp** — an Amazon product page; rendered through the proxy and parsed
+  for its hi-res gallery (see :mod:`app.imgimport.amazon`).
 - **image**    — a direct image URL (a known image CDN or an image file extension),
-  including Amazon image URLs, which are normalized to their native max resolution.
-- **amazon_pdp** — an Amazon *product page*. Not supported in Phase 1 (reliable
-  extraction needs a residential proxy — Phase 2); rejected with a clear message.
+  including Amazon image URLs, normalized to their native max resolution.
 - **unknown**  — anything else; attempted as a direct image and rejected if the
   bytes aren't a decodable image.
 
-Security (see security-standards): the download target is user-supplied, so every
-fetch is SSRF-guarded — http/https only, and the host must resolve entirely to
-public IPs (private/loopback/link-local/reserved/multicast are refused). Downloads
-are size-capped and the bytes are verified to be a real image with Pillow rather
-than trusting the server's Content-Type.
+Resolution returns image *URLs* only (no bytes); the full-resolution file is fetched
+later, on Download. Security (see security-standards): the download target is
+user-supplied, so :func:`download_image` is SSRF-guarded — http/https only, and the
+host must resolve entirely to public IPs (private/loopback/link-local/reserved/
+multicast are refused) — size-capped, and the bytes are verified to be a real image
+with Pillow rather than trusting the server's Content-Type.
 """
 
 import io
@@ -51,21 +52,13 @@ _AMAZON_HOST_SUFFIXES = ("amazon.com", "amazon.co.uk", "amazon.ca", "amazon.de",
                          "amazon.fr", "amazon.es", "amazon.it", "amazon.co.jp",
                          "amazon.in", "amazon.com.mx", "amazon.com.au")
 _AMAZON_PDP_PATH_RE = re.compile(r"/(dp|gp/product|gp/aw/d)/", re.IGNORECASE)
-# Amazon bakes the rendition size into the filename, e.g.
-# ``71abc._AC_SL1500_.jpg`` or ``...._SX300_SY300_.jpg``. Stripping the
-# ``._<tokens>_`` segment before the extension yields the original max-res image.
-_AMAZON_SIZE_TOKEN_RE = re.compile(
-    r"\._[A-Za-z0-9,_\-]+_(?=\.(?:jpg|jpeg|png|gif|webp)\b)", re.IGNORECASE)
+# (Amazon size-token stripping lives in app.imgimport.amazon.strip_size_token.)
 
 _PILLOW_FMT_EXT = {"JPEG": "jpg", "PNG": "png", "WEBP": "webp", "GIF": "gif"}
 
 
 class SourceError(RuntimeError):
     """A user-facing, secret-free reason an item couldn't be acquired."""
-
-
-class SourceNotSupported(SourceError):
-    """A recognized but not-yet-implemented source (e.g. an Amazon product page)."""
 
 
 def _host(url: str) -> str:
@@ -100,9 +93,16 @@ def amazon_native_res(url: str) -> str:
     No-op for non-Amazon image hosts and for URLs without a size token, so it's
     safe to call on any image URL.
     """
+    from app.imgimport import amazon  # local import keeps sources→amazon one-way
     if not _host_matches(_host(url), _IMAGE_HOST_SUFFIXES):
         return url
-    return _AMAZON_SIZE_TOKEN_RE.sub("", url)
+    return amazon.strip_size_token(url)
+
+
+def _walmart_thumb(url: str) -> str:
+    """A lighter Walmart image URL for the gallery (i5 honors odn size params)."""
+    sep = "&" if "?" in url else "?"
+    return f"{url}{sep}odnHeight=300&odnWidth=300&odnBg=FFFFFF"
 
 
 def is_safe_public_url(url: str) -> bool:
@@ -197,26 +197,56 @@ def download_image(url: str) -> tuple[bytes, str, int, int]:
     return data, ext, width, height
 
 
-def resolve_image_urls(url: str, source_type: str) -> tuple[str | None, list[str]]:
-    """Resolve a submitted URL to ``(label, [image URLs])`` to download.
+def resolve_images(url: str, source_type: str) -> tuple[str | None, list[dict]]:
+    """Resolve a submitted URL to ``(label, [image refs])`` — no bytes downloaded.
 
-    - ``walmart`` → scrape the gallery (browser; worker-only) + the product title.
-    - ``image``   → the URL itself, normalized to native max-res.
-    - ``unknown`` → attempted as a single direct image.
-    - ``amazon_pdp`` → raises :class:`SourceNotSupported` (Phase 2 / needs a proxy).
+    Each ref is ``{"full", "thumb", "width", "height"}``: ``full`` is the
+    highest-resolution URL (fetched only on Download), ``thumb`` a lighter URL the
+    gallery hotlinks. By source:
+    - ``walmart``    → scrape the gallery (proxied browser; worker-only) + title.
+    - ``amazon_pdp`` → scrape the Amazon PDP (proxied) and extract hi-res + thumbs.
+    - ``image``      → the URL itself (full = native max-res; thumb = as given).
+    - ``unknown``    → treated as a single direct image.
 
-    Raises :class:`SourceError`/:class:`SourceNotSupported` with a user-facing
-    reason; the caller records it on the item.
+    Raises :class:`SourceError` with a user-facing reason; the caller records it on
+    the item. Page scrapes that get bot-blocked are translated to a friendly message.
     """
-    if source_type == AMAZON_PDP:
-        raise SourceNotSupported(
-            "Amazon product-page import isn't available yet — paste the image URL "
-            "directly for now (right-click the product image → Copy image address).")
     if source_type == WALMART:
         from app import fetch  # lazy: browser/Playwright import is heavy
-        title, urls = fetch.fetch_all_image_urls(url)
+        try:
+            title, urls = fetch.fetch_all_image_urls(url, use_proxy=True)
+        except fetch.FetchBlocked:
+            raise SourceError(
+                "Walmart blocked the request (bot detection). Try again in a moment, "
+                "or paste the product image URL directly (right-click the product "
+                "image → Copy image address).")
+        except fetch.FetchError:
+            raise SourceError(
+                "Couldn't read that Walmart page. Try again, or paste the product "
+                "image URL directly (right-click the product image → Copy image address).")
         if not urls:
             raise SourceError("No images were found on that Walmart page.")
-        return (title or None), urls[:MAX_IMAGES_PER_ITEM]
-    # image / unknown: treat as a single direct image, native-res where applicable.
-    return None, [amazon_native_res(url)]
+        refs = [{"full": u, "thumb": _walmart_thumb(u), "width": None, "height": None}
+                for u in urls[:MAX_IMAGES_PER_ITEM]]
+        return (title or None), refs
+
+    if source_type == AMAZON_PDP:
+        from app import fetch
+        from app.imgimport import amazon
+        try:
+            title, refs = amazon.fetch_amazon_images(url)
+        except fetch.FetchBlocked:
+            raise SourceError(
+                "Amazon blocked the request (bot detection). Try again in a moment, "
+                "or paste the product image URL directly (right-click the product "
+                "image → Copy image address).")
+        except fetch.FetchError:
+            raise SourceError(
+                "Couldn't read that Amazon page. Try again, or paste the product "
+                "image URL directly (right-click the product image → Copy image address).")
+        if not refs:
+            raise SourceError("No images were found on that Amazon page.")
+        return (title or None), refs[:MAX_IMAGES_PER_ITEM]
+
+    # image / unknown: a single direct image — full = native max-res, thumb = as given.
+    return None, [{"full": amazon_native_res(url), "thumb": url, "width": None, "height": None}]
