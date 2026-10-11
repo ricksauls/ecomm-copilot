@@ -1,6 +1,8 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-10-08 (session 17 — **shape-adaptive image set** (Phase 1) + a full
+_Last updated: 2026-10-11 (session 18 — wired the **View Creative Content Creation History**
+screen (image-set runs) + added a **search box to every History screen** (brand / product /
+item/SKU, incl. hidden fields). Session 17 — **shape-adaptive image set** (Phase 1) + a full
 wide-product polish round from live testing: wide products get a **product-on-top band** layout
 (picked from real dimensions), size-comparison **gated by size class** + anchored on the longest
 dimension, **PhotoRoom** background removal (reflection/glare fix), **alpha-trim** so the product
@@ -8,6 +10,63 @@ fills its box, and an **AI "straighten"** that de-angles the product for feature
 quality set to **medium**. Droplet now on gpt-image-1 + PhotoRoom. Session 16 — callout layout/halos/
 blur, per-card Regenerate, Lifestyle logo. Session 15 — all 4 image types generate. Session 13 —
 built PDP Image Set.)_
+
+> ## ⭐ Next session — START HERE (session 18, 2026-10-11)
+>
+> **Committed to `main` at `d7277a8` (one code commit) + a docs commit — but NOT pushed, so
+> NOT deployed.** 504 tests passing, `ruff` clean. No migrations. **To ship: `git push`** (CI →
+> auto-deploy restarts both services; a restart orphans any in-flight CI scrape → check for an
+> active run first, see the deploy caution below). The user asked to commit + update this doc;
+> pushing was left to them.
+>
+> ### What shipped this session (local on main)
+> **1. "View Creative Content Creation History" is wired (the long-open carryover).** The nav
+> link, breadcrumb, `activity_all` route + `activity_all.html` already existed; only the data
+> lister was a stub (`_activity_rows` "images" branch returned `[]`). Now:
+> - `store.list_creative_activity` / `store.count_creative_runs` list a user's image-set runs —
+>   projects approved past the cutout gate (**`cutout_approved_at IS NOT NULL`**). That's the
+>   reliable "a run happened" signal: project **status never moves to `ready`** (after
+>   `generating` the gallery computes done/pending **per-asset**), and **`batch_id` is declared
+>   but never populated**, so neither can be used. The approval time is the run date + the
+>   `since` (month) filter key.
+> - `pages._imageset_activity_view` shapes the rows; each links to its **gallery**
+>   (`imageset_gallery`). Thumbnail = the project's own product photo via
+>   `imageset_original_image` (the item-id product-image cache the scored/copy rows thumbnail
+>   from is **not** populated for image-set projects), placeholder when absent.
+> - Dashboard **KPI "images created"** + the monthly "Image Sets" table now show real counts
+>   (both were hardcoded `0`).
+>
+> **2. Search box on every History screen (new reusable component).** Scoring, copy, creative,
+> the combined Content Activity, and the CI (Insights) activity screens.
+> - **Server-side:** each row/run carries a lowercased `search` blob (`pages._search_blob`) that
+>   includes fields that **aren't visible columns** — the **item/SKU number**, and for grouped
+>   scoring runs **every item in the run**, not just the three shown. Added to all four shapers
+>   (`_product_activity_view`, `_imageset_activity_view`, `_ci_activity_view`, `_scored_runs`).
+> - **Macros** (`_dash_tables.html`): a `searchable` flag on `product_table` / `scored_runs_table`
+>   / `ci_table` renders a filter box (**outside** the `<summary>` so typing never toggles the
+>   `<details>`) + per-row `data-search` + a "No matches" line.
+> - **JS** (`dashboard.js`, `initSearch`): substring-filters rows against `data-search` (falls
+>   back to row text), shows an **"N of M"** count, and **lifts the 10-row cap while a query is
+>   active** (so matches past row 10 show on the capped combined/CI screens). Progressive
+>   enhancement — inert with JS off (server still sends every row, newest-first).
+> - **Scope note:** search is **client-side over the loaded rows** (listers cap at **500**,
+>   newest-first). Ample today; if a user ever exceeds 500 history rows we'd want **server-side
+>   search/pagination** — a larger change, deliberately not done now.
+> - Browser-verified on the scoring history: filter by brand ("tabasco" → 1 of 2), by **hidden
+>   SKU** ("20857722" → finds the run), and the "No matches" state (0 of 2).
+>
+> ### Tunable knobs / where to change things
+> `store.list_creative_activity` approval-gate (swap to an assets-ready subquery if you want
+> **only fully-finished** sets in history) · `_search_blob` fields (what's searchable) ·
+> `dashboard.js` `MAX_VISIBLE_ROWS` (10) · the `searchable=` flag per screen in the four
+> `activity_*`/`content_activity`/`ci_activity` templates.
+>
+> ### Commits this session
+> `d7277a8` Creative Content history screen + searchable history tables (code) · + this docs
+> commit. **Both local on `main`, not pushed.**
+>
+> _(Session 17's "start here" block follows below — still accurate for the shape-adaptive image
+> set, PhotoRoom, the AI straighten, and the live droplet `.env` flags.)_
 
 > ## ⭐ Next session — START HERE (session 17, 2026-10-08)
 >
