@@ -19,10 +19,25 @@
   </summary>
 {% endmacro %}
 
+{# Per-table filter box. Sits outside the <summary> (so typing never toggles the
+   <details>) and above the body. dashboard.js wires the input to its table's
+   rows by substring-matching the typed text against each row's data-search,
+   updating the match count and showing the no-match line. Progressive
+   enhancement: with JS off the box is inert and every row still shows. #}
+{% macro _search_bar(title) %}
+  <div class="dash-search-bar">
+    <input type="search" class="dash-search" autocomplete="off"
+           placeholder="Search brand, product, item…"
+           aria-label="Search {{ title }}" />
+    <span class="dash-search-count" aria-live="polite"></span>
+  </div>
+{% endmacro %}
+
 {# A product-activity table: image · date · brand · product (· score). #}
-{% macro product_table(title, sub, rows, with_score, empty, all_url='', cap=false) %}
+{% macro product_table(title, sub, rows, with_score, empty, all_url='', cap=false, searchable=false) %}
 <details class="card dash-table" open>
   {{ _summary(title, sub, rows | length, all_url) }}
+  {% if searchable %}{{ _search_bar(title) }}{% endif %}
   <div class="dash-body{{ ' dash-body-capped' if cap }}">
     <div class="dash-cols dash-cols-product{{ ' has-score' if with_score }} dash-head-row">
       <div class="col" data-nosort>Image</div>
@@ -33,7 +48,7 @@
     </div>
     {% for row in rows %}
     {% set tag = 'a' if row.result_url else 'div' %}
-    <{{ tag }} class="dash-cols dash-cols-product{{ ' has-score' if with_score }} dash-row{{ ' dash-row-link' if row.result_url }}"{% if row.result_url %} href="{{ row.result_url }}"{% endif %}>
+    <{{ tag }} class="dash-cols dash-cols-product{{ ' has-score' if with_score }} dash-row{{ ' dash-row-link' if row.result_url }}"{% if row.result_url %} href="{{ row.result_url }}"{% endif %} data-search="{{ row.search | default('') }}">
       <div class="col dash-thumb-cell">
         {% if row.image_url %}
           <img class="dash-thumb" src="{{ row.image_url }}" alt="" loading="lazy" />
@@ -49,6 +64,7 @@
     {% else %}
     <div class="dash-empty">{{ empty }}</div>
     {% endfor %}
+    {% if searchable %}<div class="dash-empty dash-search-empty" hidden>No matches.</div>{% endif %}
   </div>
 </details>
 {% endmacro %}
@@ -57,9 +73,10 @@
    product table (image · date · brand · product · score), but Brand/Product/Score
    stack up to three of the run's items, with an "And N more…" line under Product.
    The thumbnail and date are the run's; the row reopens the whole run. #}
-{% macro scored_runs_table(title, sub, runs, empty) %}
+{% macro scored_runs_table(title, sub, runs, empty, searchable=false) %}
 <details class="card dash-table" open>
   {{ _summary(title, sub, runs | length, '') }}
+  {% if searchable %}{{ _search_bar(title) }}{% endif %}
   <div class="dash-body">
     <div class="dash-cols dash-cols-product has-score dash-head-row">
       <div class="col" data-nosort>Image</div>
@@ -70,7 +87,7 @@
     </div>
     {% for run in runs %}
     <a class="dash-cols dash-cols-product has-score dash-row dash-row-link dash-row-runs"
-       href="{{ run.result_url }}">
+       href="{{ run.result_url }}" data-search="{{ run.search | default('') }}">
       <div class="col dash-thumb-cell">
         {% if run.image_url %}
           <img class="dash-thumb" src="{{ run.image_url }}" alt="" loading="lazy" />
@@ -99,14 +116,16 @@
     {% else %}
     <div class="dash-empty">{{ empty }}</div>
     {% endfor %}
+    {% if searchable %}<div class="dash-empty dash-search-empty" hidden>No matches.</div>{% endif %}
   </div>
 </details>
 {% endmacro %}
 
 {# A Competitive Intelligence table: name · date · my brand/items · competitor brand/items. #}
-{% macro ci_table(title, sub, rows, empty='Nothing this month yet.', all_url='', cap=false) %}
+{% macro ci_table(title, sub, rows, empty='Nothing this month yet.', all_url='', cap=false, searchable=false) %}
 <details class="card dash-table" open>
   {{ _summary(title, sub, rows | length, all_url) }}
+  {% if searchable %}{{ _search_bar(title) }}{% endif %}
   <div class="dash-body{{ ' dash-body-capped' if cap }}">
     <div class="dash-cols dash-cols-ci dash-head-row">
       <div class="col">Name</div>
@@ -118,7 +137,7 @@
     </div>
     {% for row in rows %}
     {% set tag = 'a' if row.result_url else 'div' %}
-    <{{ tag }} class="dash-cols dash-cols-ci dash-row{{ ' dash-row-link' if row.result_url }}"{% if row.result_url %} href="{{ row.result_url }}"{% endif %}>
+    <{{ tag }} class="dash-cols dash-cols-ci dash-row{{ ' dash-row-link' if row.result_url }}"{% if row.result_url %} href="{{ row.result_url }}"{% endif %} data-search="{{ row.search | default('') }}">
       <div class="col dash-title">{{ row.name }}</div>
       <div class="col dash-date" data-sort="{{ row.sort_date }}">{{ row.date }}</div>
       <div class="col">{{ row.my_brands }}</div>
@@ -129,6 +148,7 @@
     {% else %}
     <div class="dash-empty">{{ empty }}</div>
     {% endfor %}
+    {% if searchable %}<div class="dash-empty dash-search-empty" hidden>No matches.</div>{% endif %}
   </div>
 </details>
 {% endmacro %}

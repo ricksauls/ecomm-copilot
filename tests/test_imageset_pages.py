@@ -348,3 +348,28 @@ def test_idor_other_user_cannot_access(client, auth, tmp_path, monkeypatch):
     assert client.get(f"/app/pdp-image-set/{pid}/cutout").status_code == 404
     assert client.get(f"/app/pdp-image-set/{pid}").status_code == 404
     assert client.get(f"/app/pdp-image-set/{pid}/cutout-image").status_code == 404
+
+
+def test_creative_history_lists_approved_run(client, auth, tmp_path, monkeypatch):
+    # The "View Creative Content Creation History" screen (/app/activity/images)
+    # lists the user's approved image-set runs and links each to its gallery.
+    monkeypatch.setenv("MEDIA_DIR", str(tmp_path))
+    auth.register()
+    _submit_intake(client, name="Chipotle Sauce")
+    with client.application.app_context():
+        db = get_db()
+        pid = isstore.list_projects(db, 1)[0]["id"]
+        # Before approval, the run isn't history yet.
+        before = client.get("/app/activity/images")
+        assert b"No image sets created yet." in before.data
+        isstore.approve_cutout(db, pid)
+
+    resp = client.get("/app/activity/images")
+    assert resp.status_code == 200
+    assert b"Chipotle Sauce" in resp.data
+    assert f"/app/pdp-image-set/{pid}".encode() in resp.data  # row links to the gallery
+    # The screen carries the shared history search box, and the run's searchable
+    # blob includes the product name (lowercased) so it's findable.
+    assert b'class="dash-search"' in resp.data
+    assert b'data-search="' in resp.data
+    assert b"chipotle sauce" in resp.data  # lowercased name in the search blob

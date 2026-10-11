@@ -109,6 +109,59 @@
     capHeight(body, headRow);
   }
 
+  // ── Search / filter ──────────────────────────────────────────────────────────
+
+  // Wire a table's search box to its rows: typing substring-filters the rows by
+  // their data-search blob (brand, product, item/SKU, and — for grouped scoring
+  // runs — every item in the run, not just the three shown). Hidden rows get
+  // .dash-row-hidden (display:none). While a query is active the 10-row cap is
+  // lifted so matches past row 10 are reachable without scrolling a clipped body;
+  // clearing the box restores it. A running "N of M" count and a "No matches" line
+  // keep the result legible. Client-side only: the server already sent every row,
+  // newest-first, so the box is pure enhancement and inert with JS off.
+  function initSearch(input) {
+    var table = input.closest(".dash-table");
+    if (!table) {
+      return;
+    }
+    var body = table.querySelector(".dash-body");
+    if (!body) {
+      return;
+    }
+    var headRow = body.querySelector(".dash-head-row");
+    var rows = Array.prototype.slice.call(body.querySelectorAll(".dash-row"));
+    var countEl = table.querySelector(".dash-search-count");
+    var emptyEl = body.querySelector(".dash-search-empty");
+
+    function apply() {
+      var query = input.value.trim().toLowerCase();
+      var shown = 0;
+      rows.forEach(function (row) {
+        // data-search is the authoritative haystack (it carries hidden fields like
+        // the item number); fall back to the row's visible text if it's absent.
+        var hay = (row.getAttribute("data-search") || row.textContent || "").toLowerCase();
+        var match = query === "" || hay.indexOf(query) !== -1;
+        row.classList.toggle("dash-row-hidden", !match);
+        if (match) {
+          shown += 1;
+        }
+      });
+      if (query === "") {
+        capHeight(body, headRow); // restore the dashboard/combined-screen 10-row cap
+      } else {
+        body.style.maxHeight = ""; // show every match, even past row 10
+      }
+      if (countEl) {
+        countEl.textContent = query === "" ? "" : shown + " of " + rows.length;
+      }
+      if (emptyEl) {
+        emptyEl.hidden = !(query !== "" && shown === 0);
+      }
+    }
+
+    input.addEventListener("input", apply);
+  }
+
   // ── Image hover preview ─────────────────────────────────────────────────────
 
   var preview = null;
@@ -155,6 +208,8 @@
   document.addEventListener("DOMContentLoaded", function () {
     var bodies = document.querySelectorAll(".dash-body");
     Array.prototype.forEach.call(bodies, initTable);
+    var searches = document.querySelectorAll(".dash-search");
+    Array.prototype.forEach.call(searches, initSearch);
   });
 
   // Only real thumbnails (an <img>) enlarge; placeholder tiles are <div>s.

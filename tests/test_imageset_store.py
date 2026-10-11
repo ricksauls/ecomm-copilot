@@ -67,6 +67,55 @@ def test_features_round_trip_into_plan_context(app):
         assert [f.id for f in ctx.features] == ["f1", "f2"]
 
 
+# --- creative history (View Creative Content Creation History) --------------
+
+def test_creative_activity_lists_only_approved_runs_idor_scoped(app):
+    with app.app_context():
+        db = get_db()
+        uid = create_local_user("hist@example.com", "password123")
+        other = create_local_user("hist2@example.com", "password123")
+
+        # An un-approved draft (still at intake/cutout) must NOT appear.
+        _project(db, uid, name="Abandoned Draft")
+        # Two approved runs — both should appear, newest approval first.
+        first = _project(db, uid, name="First Run", brand="Tabasco")
+        store.approve_cutout(db, first)
+        second = _project(db, uid, name="Second Run", brand="OFF!")
+        store.approve_cutout(db, second)
+        # Another user's approved run must NOT leak.
+        theirs = _project(db, other, name="Not Mine")
+        store.approve_cutout(db, theirs)
+
+        rows = store.list_creative_activity(db, uid)
+        names = [r["name"] for r in rows]
+        assert names == ["Second Run", "First Run"]  # approved only, newest first
+        assert all(r["run_at"] is not None for r in rows)
+        assert store.count_creative_runs(db, uid) == 2
+        # The other user sees only their own.
+        assert [r["name"] for r in store.list_creative_activity(db, other)] == ["Not Mine"]
+        assert store.count_creative_runs(db, other) == 1
+
+
+def test_creative_activity_since_filters_by_approval_date(app):
+    with app.app_context():
+        db = get_db()
+        uid = create_local_user("histsince@example.com", "password123")
+        old = _project(db, uid, name="Old Run")
+        store.approve_cutout(db, old)
+        # Backdate the approval to a prior month.
+        db.execute("UPDATE imageset_projects SET cutout_approved_at = '2020-03-01 00:00:00' "
+                   "WHERE id = ?", (old,))
+        db.commit()
+        new = _project(db, uid, name="New Run")
+        store.approve_cutout(db, new)
+
+        # All-time sees both; a current-month cutoff drops the backdated one.
+        assert store.count_creative_runs(db, uid) == 2
+        recent = store.list_creative_activity(db, uid, since="2020-04-01")
+        assert [r["name"] for r in recent] == ["New Run"]
+        assert store.count_creative_runs(db, uid, since="2020-04-01") == 1
+
+
 # --- plan + assets ----------------------------------------------------------
 
 def test_save_plan_creates_eight_assets(app):

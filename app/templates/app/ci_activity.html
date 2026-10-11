@@ -15,8 +15,8 @@
 </div>
 
 <div class="dash-tables">
-  {{ t.ci_table("One-Time Snapshots", "", snapshot, empty="No snapshots run yet.", cap=true) }}
-  {{ t.ci_table("Daily Monitoring", "", monitoring, empty="No monitoring groups yet.", cap=true) }}
+  {{ t.ci_table("One-Time Snapshots", "", snapshot, empty="No snapshots run yet.", cap=true, searchable=true) }}
+  {{ t.ci_table("Daily Monitoring", "", monitoring, empty="No monitoring groups yet.", cap=true, searchable=true) }}
 </div>
 {% endblock %}
 

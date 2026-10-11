@@ -98,6 +98,17 @@ def _format_activity_date(ts: str | None) -> str:
         return ts[:10]
 
 
+def _search_blob(*parts) -> str:
+    """Lowercased, space-joined searchable text for a history row's ``data-search``.
+
+    The client-side history search (``static/js/dashboard.js``) substring-matches a
+    typed query against this, so it can include fields that aren't visible columns
+    (an item/SKU number, every item in a grouped run). Blank/None parts are dropped;
+    numbers are coerced to strings.
+    """
+    return " ".join(str(p).strip() for p in parts if p not in (None, "")).lower()
+
+
 def _item_image_url(item_id):
     """Same-origin URL for an item's cached main image, or ``None`` if uncached.
 
@@ -118,6 +129,8 @@ def _product_activity_view(rows, *, with_score: bool) -> list[dict]:
     """
     views = []
     for r in rows:
+        brand = (r["brand"] or "").strip()
+        title = r["title"] or r["item_id"] or r["url"]
         view = {
             "id": r["id"],  # scored_items / copy_items row id, for the per-item results link
             "image_url": _item_image_url(r["item_id"]),
@@ -125,13 +138,49 @@ def _product_activity_view(rows, *, with_score: bool) -> list[dict]:
             # Raw timestamp for client-side sorting: the display date ("Aug 26")
             # has no year, so sort on the ISO value instead.
             "sort_date": r["created_at"] or "",
-            "brand": (r["brand"] or "").strip() or "—",
-            "title": r["title"] or r["item_id"] or r["url"],
+            "brand": brand or "—",
+            "title": title,
             "item_id": r["item_id"],
+            # Lowercased blob the client-side history search matches against. Includes
+            # the item number, which isn't a visible column, so a user can find a row
+            # by SKU as well as by brand/product.
+            "search": _search_blob(brand, title, r["item_id"]),
         }
         if with_score:
             view["score"] = r["overall"]
         views.append(view)
+    return views
+
+
+def _imageset_activity_view(rows) -> list[dict]:
+    """Shape image-set project rows for the "images" activity table.
+
+    One row per creative run, matching the shared product-table columns (image,
+    date, brand, product). The thumbnail is the project's own uploaded/fetched
+    product photo served from ``imageset_original_image`` — the item-id product-
+    image cache the scored/copy rows thumbnail from isn't populated for image-set
+    projects. A project with no stored photo (shouldn't happen past the cutout
+    gate, but guarded) falls back to the placeholder tile. The product column shows
+    the project name, since an image-set run isn't tied to a single scored item.
+    """
+    views = []
+    for r in rows:
+        brand = (r["brand"] or "").strip()
+        name = r["name"] or "Image set"
+        # The Walmart item number (when the project was prefilled from a PDP) so the
+        # run is searchable by SKU, mirroring the scored/copy rows.
+        item = pdp.item_number_from_url(r["source_url"]) if r["source_url"] else None
+        views.append({
+            "id": r["id"],  # imageset_projects row id, for the gallery link
+            "image_url": (url_for("pages.imageset_original_image", pid=r["id"])
+                          if r["original_path"] else None),
+            "date": _format_activity_date(r["run_at"]),
+            # Raw timestamp for client-side sorting (see _product_activity_view).
+            "sort_date": r["run_at"] or "",
+            "brand": brand or "—",
+            "title": name,
+            "search": _search_blob(brand, name, item),
+        })
     return views
 
 
@@ -149,16 +198,19 @@ def _ci_activity_view(db, uid, rows) -> list[dict]:
         brands = ci_config.list_brands(db, r["group_id"], uid)
         mine = [b for b in brands if b["type"] == "mine"]
         competitors = [b for b in brands if b["type"] != "mine"]
+        my_brands = ", ".join(b["name"] for b in mine)
+        competitor_brands = ", ".join(b["name"] for b in competitors)
         views.append({
             "group_id": r["group_id"],  # for the per-group results link
             "name": r["group_name"],
             "date": _format_activity_date(r["run_at"]),
             # Raw timestamp for client-side sorting (see _product_activity_view).
             "sort_date": r["run_at"] or "",
-            "my_brands": ", ".join(b["name"] for b in mine) or "—",
+            "my_brands": my_brands or "—",
             "my_items": sum(b["product_count"] for b in mine),
-            "competitor_brands": ", ".join(b["name"] for b in competitors) or "—",
+            "competitor_brands": competitor_brands or "—",
             "competitor_items": sum(b["product_count"] for b in competitors),
+            "search": _search_blob(r["group_name"], my_brands, competitor_brands),
         })
     return views
 
@@ -171,7 +223,7 @@ _ACTIVITY_META = {
     "scored":        ("Products scored", "product", True,  "Nothing scored yet."),
     "copy":          ("Copy created", "product", False, "No copy created yet."),
     "images":        ("Image sets created", "product", False,
-                      "Image Set Creation isn’t available yet."),
+                      "No image sets created yet."),
     "ci-snapshot":   ("Competitive Intelligence — One-Time Snapshot", "ci", False,
                       "No snapshots run yet."),
     "ci-monitoring": ("Competitive Intelligence — Daily Monitoring", "ci", False,
@@ -208,9 +260,9 @@ def _activity_rows(db, uid, kind, since):
 
     Shared by the dashboard (``since`` = start of month) and the View All screen
     (``since`` = None). Each row gets a ``result_url`` so it links to that activity's
-    results (a scored/copy item's results page, or a CI group's results/monitoring
-    view). Returns an empty list for the not-yet-built Image Sets feature. Callers
-    validate ``kind`` against :data:`_ACTIVITY_META` first.
+    results (a scored/copy item's results page, an image-set run's gallery, or a CI
+    group's results/monitoring view). Callers validate ``kind`` against
+    :data:`_ACTIVITY_META` first.
     """
     if kind == "scored":
         rows = _product_activity_view(jobs.list_scored_activity(db, uid, since), with_score=True)
@@ -223,7 +275,10 @@ def _activity_rows(db, uid, kind, since):
             r["result_url"] = url_for("pages.pdp_copy_item", cid=r["id"])
         return rows
     if kind == "images":
-        return []  # feature not built yet — always empty
+        rows = _imageset_activity_view(imageset_store.list_creative_activity(db, uid, since))
+        for r in rows:
+            r["result_url"] = url_for("pages.imageset_gallery", pid=r["id"])
+        return rows
     if kind == "ci-snapshot":
         rows = _ci_activity_view(db, uid, ci_jobs.list_snapshot_activity_for_user(db, uid, since))
         for r in rows:
@@ -266,6 +321,9 @@ def _scored_runs(db, uid) -> list[dict]:
             "brand": (r["brand"] or "").strip() or "—",
             "title": r["title"] or r["item_id"] or r["url"],
             "score": r["overall"],
+            # Kept per-item so the run's search blob covers every item (incl. SKU),
+            # not just the three shown on the row.
+            "search": _search_blob(r["brand"], r["title"], r["item_id"]),
         })
 
     runs = []
@@ -280,6 +338,9 @@ def _scored_runs(db, uid) -> list[dict]:
             "shown": shown,
             "more": len(group["items"]) - len(shown),  # 0 when nothing hidden
             "result_url": url_for("pages.pdp_scoring_item", sid=group["first_id"]),
+            # Search across the whole run's items, so a query finds a run even by an
+            # item that isn't among the three displayed.
+            "search": " ".join(it["search"] for it in group["items"]),
         })
     return runs
 
@@ -312,8 +373,8 @@ def dashboard():
 
     view_model = fixtures.get_dashboard()
     # Personalize the demo header and replace the four KPI cards with real,
-    # per-user unique-product counts (total + this month). PDP images aren't a
-    # built feature yet, so that card reads 0 until it ships.
+    # per-user counts (total + this month): managed/scored/copy products, and
+    # image-set runs the user has created.
     view_model["agency"]["name"] = g.user["email"]
     # Portfolio subtitle: distinct brands · distinct products the user has worked
     # on, then their signup date. "Products" reuses the "Products managed" KPI
@@ -333,7 +394,9 @@ def dashboard():
         _kpi("Product Detail Pages copy created",
              copy_jobs.count_copy_products(db, uid),
              copy_jobs.count_copy_products(db, uid, since=month_start)),
-        _kpi("Product Detail Pages images created", 0, 0),
+        _kpi("Product Detail Pages images created",
+             imageset_store.count_creative_runs(db, uid),
+             imageset_store.count_creative_runs(db, uid, since=month_start)),
         # Competitive Intelligence activity: snapshots the user has run and the
         # daily-monitoring schedules they have active.
         _kpi("One-Time Snapshot",

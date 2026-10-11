@@ -232,6 +232,34 @@ def test_scoring_history_groups_by_run(client, auth, app):
     assert b"Product 1" not in body and b"Product 2" not in body
 
 
+def test_history_search_bar_and_blob_cover_hidden_run_items(client, auth, app):
+    # Every history screen carries a search box, and a grouped scoring run's
+    # data-search blob covers ALL items in the run (incl. the two not shown on the
+    # row) and their item numbers — so a search finds a run by any of its items.
+    from app import jobs
+    from app.db import get_db
+
+    auth.register(email="search@example.com")
+    with app.app_context():
+        db = get_db()
+        uid = db.execute("SELECT id FROM users WHERE email = ?", ("search@example.com",)).fetchone()["id"]
+        ids = jobs.enqueue_items(db, uid, [
+            {"url": f"https://www.walmart.com/ip/{n}", "item": str(n), "brand": f"Brand{n}"}
+            for n in range(1, 6)
+        ])
+        for i, sid in enumerate(ids, start=1):
+            jobs.save_result(db, sid, 80 + i, {"overall": 80 + i}, f"Product {i}")
+        db.commit()
+
+    body = client.get("/app/activity/scored").data
+    assert b'class="dash-search"' in body                       # the filter box renders
+    assert b"data-search=" in body
+    # "Product 1" / "Product 2" are hidden from the row display, but their lowercased
+    # text and item numbers live in the searchable blob so the run is findable by them.
+    assert b"Product 1" not in body and b"product 1" in body
+    assert b"brand2" in body                                    # brand of a hidden item
+
+
 def test_view_all_unknown_kind_404s(client, auth):
     auth.register(email="va2@example.com")
     assert client.get("/app/activity/bogus").status_code == 404

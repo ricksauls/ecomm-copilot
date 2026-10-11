@@ -16,10 +16,10 @@
 </div>
 
 <div class="dash-tables">
-  {{ t.product_table("Products Scored", "", scored, true, "Nothing scored yet.", cap=true) }}
-  {{ t.product_table("Copy Created", "", copy, false, "No copy created yet.", cap=true) }}
+  {{ t.product_table("Products Scored", "", scored, true, "Nothing scored yet.", cap=true, searchable=true) }}
+  {{ t.product_table("Copy Created", "", copy, false, "No copy created yet.", cap=true, searchable=true) }}
   {{ t.product_table("Image Sets Created", "", images, false,
-                     "Image Set Creation isn’t available yet.", cap=true) }}
+                     "No image sets created yet.", cap=true, searchable=true) }}
 </div>
 {% endblock %}
 

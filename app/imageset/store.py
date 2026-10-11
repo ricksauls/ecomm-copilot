@@ -140,6 +140,54 @@ def list_projects(conn: sqlite3.Connection, user_id: int, limit: int = 100) -> l
     ).fetchall()
 
 
+def list_creative_activity(
+    conn: sqlite3.Connection, user_id: int, since: str | None = None, limit: int = 500
+) -> list[sqlite3.Row]:
+    """Image-set runs for ``user_id`` — the dashboard "images" table + its View All.
+
+    A "run" is a project the user approved past the cutout gate (``cutout_approved_at``
+    set): that is the point generation is committed, so it mirrors the "finished"
+    filter the scored/copy histories use (``jobs.list_scored_activity`` et al.).
+    Abandoned drafts still at intake or the cutout screen are excluded. The approval
+    time is the activity timestamp (when the creative run happened — not project
+    creation), so it drives both the display date and the ``since`` month filter.
+    Newest run first. ``since`` (an ISO date) restricts to the current month for the
+    dashboard; omit it for the all-time View All. Carries the columns the activity
+    table needs: project id (for the gallery link + thumbnail), name, brand, and
+    whether a product photo exists for the thumbnail. Capped at ``limit`` so the
+    query stays bounded.
+    """
+    sql = ("SELECT id, name, brand, original_path, source_url, "
+           "cutout_approved_at AS run_at "
+           "FROM imageset_projects "
+           "WHERE user_id = ? AND cutout_approved_at IS NOT NULL")
+    params: list = [user_id]
+    if since:
+        sql += " AND cutout_approved_at >= ?"
+        params.append(since)
+    sql += " ORDER BY cutout_approved_at DESC, id DESC LIMIT ?"
+    params.append(max(1, min(limit, 500)))
+    return conn.execute(sql, params).fetchall()
+
+
+def count_creative_runs(
+    conn: sqlite3.Connection, user_id: int, since: str | None = None
+) -> int:
+    """Number of image-set runs the user has created — the dashboard KPI figure.
+
+    Counts the same approved projects :func:`list_creative_activity` lists (one per
+    committed creative run), so the KPI and the activity table agree. ``since`` (an
+    ISO date) restricts to the current month for the card's "this month" footnote.
+    """
+    sql = ("SELECT COUNT(*) FROM imageset_projects "
+           "WHERE user_id = ? AND cutout_approved_at IS NOT NULL")
+    params: list = [user_id]
+    if since:
+        sql += " AND cutout_approved_at >= ?"
+        params.append(since)
+    return int(conn.execute(sql, params).fetchone()[0])
+
+
 def set_status(
     conn: sqlite3.Connection, project_id: int, status: str, *, error: str | None = None
 ) -> None:

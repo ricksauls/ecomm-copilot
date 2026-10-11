@@ -17,9 +17,9 @@
 
 <div class="dash-tables">
   {% if layout == 'product' %}
-    {{ t.product_table(title, "All records", rows, with_score, empty) }}
+    {{ t.product_table(title, "All records", rows, with_score, empty, searchable=true) }}
   {% else %}
-    {{ t.ci_table(title, "All records", rows, empty=empty) }}
+    {{ t.ci_table(title, "All records", rows, empty=empty, searchable=true) }}
   {% endif %}
 </div>
 {% endblock %}
