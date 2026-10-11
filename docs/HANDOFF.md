@@ -1,6 +1,8 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-10-11 (session 18 — wired the **View Creative Content Creation History**
+_Last updated: 2026-10-11 (session 19 — built **Import Product Images** (Creative Content
+Studio): acquire product images from other sites by URL/CSV, native max-res + upscale-if-needed,
+with per-image selection. Session 18 — wired the **View Creative Content Creation History**
 screen (image-set runs) + added a **search box to every History screen** (brand / product /
 item/SKU, incl. hidden fields). Session 17 — **shape-adaptive image set** (Phase 1) + a full
 wide-product polish round from live testing: wide products get a **product-on-top band** layout
@@ -10,6 +12,62 @@ fills its box, and an **AI "straighten"** that de-angles the product for feature
 quality set to **medium**. Droplet now on gpt-image-1 + PhotoRoom. Session 16 — callout layout/halos/
 blur, per-card Regenerate, Lifestyle logo. Session 15 — all 4 image types generate. Session 13 —
 built PDP Image Set.)_
+
+> ## ⭐ Next session — START HERE (session 19, 2026-10-11)
+>
+> **Shipped + pushed: `main` at `30d0cf1` (code) + a docs commit; CI → auto-deploy.**
+> 542 tests, `ruff` clean. **One new DB migration: 3 tables** (`import_runs` /
+> `import_items` / `import_assets`) — additive, auto-created by `ensure_schema` on
+> web+worker restart (CREATE TABLE IF NOT EXISTS; no column ALTERs). **No new `.env`**
+> — upscaling reuses the live `IMAGE_UPSCALE_API_KEY` (Claid), degrading to native res
+> if unset.
+>
+> ### What shipped — Import Product Images (Creative Content Studio, Phase 1)
+> A new menu item under Creative Content Studio that acquires product images that
+> already exist on other sites. Flow: **intake (paste URLs or CSV) → (worker) resolve +
+> download + upscale-if-needed → gallery with per-image selection → ZIP**. New package
+> **`app/imgimport/`** (`storage`, `sources`, `store`, `acquire`); routes in
+> `pages.py` (search `import-images`); templates `app/templates/app/import_images*.html`;
+> `app/static/js/import_gallery.js`; 3 tables in `db.py`. The **item status doubles as
+> the worker queue** (`queued→processing→done|error`) — no jobs table (like the
+> image-set fetch/plan steps).
+>
+> - **Sources (source-pluggable in `sources.py`):** `walmart` (reuse the scraper via the
+>   new `fetch.fetch_all_image_urls` — whole gallery + title; browser work, worker-only),
+>   `image` (direct/Amazon image URLs; Amazon `._AC_SL1500_.` size tokens stripped to
+>   original max-res), `amazon_pdp` (**rejected** with a clear message — Phase 2 needs
+>   the proxy), `unknown` (tried as a direct image).
+> - **Acquire policy (`acquire.py`):** native max-res first (free); **upscale only when
+>   the native longest edge < `image_enhance.target_px()` (2000)** and Claid is
+>   configured. Per-image failures are isolated (one bad image fails only its asset).
+> - **Security:** downloads are **SSRF-guarded** (http/https + host must resolve to
+>   public IPs only — blocks private/loopback/link-local incl. 169.254.169.254),
+>   25 MB-capped, and verified as a real image with Pillow (not Content-Type). All reads
+>   IDOR-scoped.
+> - **Selection (the user's add-on):** per-image checkboxes (default all) +
+>   "Download Selected (N)" + Select-all/Clear toggle. The ZIP is a **GET form**
+>   (`?scope=selected&ids=…`) so it works with JS off; a bare `/download.zip` still
+>   bundles all. **No "kept" DB column** — client-side selection by the user's choice.
+> - **Worker:** `process_import_one` + one-item-per-loop claim (grouped with the browser
+>   work) + `import_store.reclaim_orphaned_items` on startup.
+>
+> ### Phase 2 (NOT built) — needs a residential proxy
+> Amazon **product-page** extraction is deliberately out: it can't work reliably from
+> the droplet's datacenter IP. It's wired to reject cleanly today. The residential-proxy
+> plumbing already in the repo (shipped inert for CI ad-detection) is the shared hook —
+> picking one endpoint unblocks both. The `ImageSource` split keeps the Amazon-PDP impl
+> isolated when it lands.
+>
+> ### Knobs
+> `sources.MAX_IMAGE_BYTES` (25 MB) · `sources.MAX_IMAGES_PER_ITEM` (15) ·
+> `image_enhance` target/price/key (shared with image-fix) · the `scope=selected` ZIP
+> contract.
+>
+> ### Commits this session
+> `30d0cf1` Import Product Images (code) · + this docs commit. **Pushed to `main`.**
+>
+> _(Session 18's "start here" block follows below — still accurate for the history
+> screens + the shared history search.)_
 
 > ## ⭐ Next session — START HERE (session 18, 2026-10-11)
 >
