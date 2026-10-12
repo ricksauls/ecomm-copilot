@@ -59,6 +59,19 @@ def get_by_id(user_id: int) -> sqlite3.Row | None:
     return db.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
 
 
+def set_default_ci_group(user_id: int, group_id: int | None) -> None:
+    """Persist the user's default dashboard brand (a monitoring CI group id).
+
+    ``None`` clears the preference, so the dashboard falls back to the newest
+    group. The caller is responsible for verifying the group is owned by the user
+    before storing it.
+    """
+    db = get_db()
+    db.execute("UPDATE users SET default_ci_group_id = ? WHERE id = ?", (group_id, user_id))
+    db.commit()
+    logger.info("User %s default dashboard brand set to group_id=%s", user_id, group_id)
+
+
 def create_local_user(email: str, password: str) -> int:
     """Create an email+password account and return its new id.
 

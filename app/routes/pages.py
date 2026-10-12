@@ -38,7 +38,6 @@ from app import (
     ci_jobs,
     copy_jobs,
     copygen,
-    fixtures,
     image_enhance,
     image_jobs,
     jobs,
@@ -77,23 +76,6 @@ _COPY_BATCH_KEY = "pdp_copy_batch_ids"
 _COPY_MISSING_KEY = "pdp_copy_missing"
 
 bp = Blueprint("pages", __name__)
-
-
-def _format_signup_date(created_at: str | None) -> str:
-    """Render a stored UTC ``created_at`` as e.g. "Aug 20, 2026" for the dashboard.
-
-    ``created_at`` is a ``YYYY-MM-DD HH:MM:SS`` string. Fail-safe: an unexpected or
-    missing value falls back to the raw date portion rather than 500-ing the
-    dashboard over a cosmetic subtitle.
-    """
-    from datetime import datetime
-
-    if not created_at:
-        return "—"
-    try:
-        return datetime.strptime(created_at[:19], "%Y-%m-%d %H:%M:%S").strftime("%b %-d, %Y")
-    except (ValueError, TypeError):
-        return created_at[:10]
 
 
 def _format_activity_date(ts: str | None) -> str:
@@ -470,82 +452,281 @@ def landing():
     return render_template("landing.html")
 
 
+# ── Performance briefing (the three dashboard cards) ─────────────────────────
+# Discoverability / Conversion / Competition — a per-brand "how are we doing"
+# read that sits above the activity tables. Each card is scoped to one monitoring
+# CI group (its mine brand(s)): Discoverability and Competition come straight from
+# the CI period-over-period engine (share of shelf + keyword leadership), while
+# Conversion aggregates the brand's latest content scores. Deltas reuse the same
+# completed-calendar-period windows as the Daily Monitoring view.
+
+def _delta_pill(delta: float | None, unit: str = "pts") -> tuple[str | None, str | None]:
+    """Format a delta into ``(display, direction)`` for a card's trend pill.
+
+    Direction is always framed so "up" is the good outcome (higher share/readiness,
+    a better — i.e. improved — ranking); callers pass an already-signed delta where
+    positive = improvement, and the template colors the pill from the direction.
+    ``unit`` labels the magnitude ("pts", "spots"); ``None`` delta yields no pill.
+    """
+    if delta is None:
+        return None, None
+    suffix = f" {unit}" if unit else ""
+    if delta > 0:
+        return f"+{delta}{suffix}", "up"
+    if delta < 0:
+        return f"−{abs(delta)}{suffix}", "down"  # U+2212 true minus, not a hyphen
+    return "No change", "flat"
+
+
+def _headline(direction: str | None, up: str, down: str, flat: str) -> str:
+    """Pick a card headline from its delta direction (flat covers None/0)."""
+    if direction == "up":
+        return up
+    if direction == "down":
+        return down
+    return flat
+
+
+def _s(n: int) -> str:
+    """Pluralizing suffix: '' for one, 's' otherwise."""
+    return "" if n == 1 else "s"
+
+
+def _group_brand_label(db, uid, group_id: int, fallback: str) -> str:
+    """Label a group by its own ('mine') brand name(s), falling back to the group name."""
+    mine = [b["name"] for b in ci_config.list_brands(db, group_id, uid) if b["type"] == "mine"]
+    return ", ".join(mine) if mine else fallback
+
+
+def _readiness_trend(db, uid, brands, period):
+    """Content Readiness over the last TREND_PERIODS completed periods (oldest→newest).
+
+    One point per period at that period's closing state (latest score on or before
+    the period end), skipping periods where the brand had no scored products yet.
+    """
+    values, dates = [], []
+    for i in range(ci_analysis.TREND_PERIODS - 1, -1, -1):
+        end = ci_analysis.period_bounds(period, i)[1]
+        stats = jobs.readiness_score(db, uid, brands, as_of=f"{end} 23:59:59")
+        if stats["avg"] is None:
+            continue
+        values.append(stats["avg"])
+        dates.append(ci_analysis.period_label(period, i))
+    return values, dates
+
+
+def _performance_briefing(db, uid) -> dict:
+    """Build the three-card performance briefing for the dashboard.
+
+    Scoped to one monitoring CI group (``?group_id=``, default newest) over one
+    completed period (``?period=``, default first with data) — the same selection
+    model as the Daily Monitoring view (:func:`ci_view`). Returns everything the
+    briefing band needs, including the group/period selectors and per-card empty
+    states, so the template stays logic-light.
+    """
+    groups = ci_config.list_groups(db, uid, mode="monitoring")
+    if not groups:
+        # Nothing to brief on yet — the template shows a "set up tracking" prompt.
+        return {"available": False, "setup_url": url_for("pages.ci_monitoring_home")}
+
+    # Brand selection precedence: an explicit ?group_id= wins, then the user's
+    # saved default brand, then the newest monitoring group.
+    group_id = request.args.get("group_id", type=int)
+    selected = ci_config.get_group(db, group_id, uid) if group_id is not None else None
+    if selected is not None and selected["mode"] != "monitoring":
+        selected = None
+    default_id = g.user["default_ci_group_id"]
+    if selected is None and default_id is not None:
+        saved = ci_config.get_group(db, default_id, uid)
+        if saved is not None and saved["mode"] == "monitoring":
+            selected = saved
+    if selected is None:
+        selected = groups[0]  # newest monitoring group
+    gid = selected["id"]
+    is_default = default_id == gid
+
+    # Period: offer a button only once its most recent completed period has data;
+    # fall back to the first ready period (mirrors ci_view()).
+    available = ci_analysis.available_periods(db, gid)
+    requested = request.args.get("period")
+    period = (requested if requested in available
+              else (available[0] if available else ci_analysis.DEFAULT_PERIOD))
+    has_data = bool(available)
+
+    mine_brands = [b["name"] for b in ci_config.list_brands(db, gid, uid) if b["type"] == "mine"]
+    logger.info("Performance briefing user_id=%s group_id=%s period=%s has_data=%s mine_brands=%d",
+                uid, gid, period, has_data, len(mine_brands))
+
+    explore_ci = url_for("pages.ci_view", group_id=gid, period=period)
+    gathering = "Gathering data — check back after the first full period."
+
+    # ── Discoverability: where the brand's tracked products rank on page 1 ─────
+    # Search Ranking — the average page-1 position of my tracked SKUs across the
+    # terms they appear on (lower is better; monitoring_avg_rank frames the delta
+    # so positive = moved up). Untracked/unauthorized listings and competitors are
+    # excluded by the tracked-items filter inside the aggregation.
+    if has_data:
+        ranks = ci_analysis.monitoring_avg_rank(db, gid, period)
+        mine_ranks = [r for r in ranks if r["type"] == "mine" and r["avg_position"] is not None]
+        if mine_ranks:
+            # One mine brand is the common case; average if a group tracks several.
+            avg_pos = round(sum(r["avg_position"] for r in mine_ranks) / len(mine_ranks), 1)
+            scored_deltas = [r["delta"] for r in mine_ranks if r["delta"] is not None]
+            rank_delta = round(sum(scored_deltas) / len(scored_deltas), 1) if scored_deltas else None
+
+            # Keywords my tracked products don't rank on at all (no page-1 slot).
+            kw_rows = ci_analysis.monitoring_share_by_keyword(db, gid, period)
+            measured = {r["keyword"] for r in kw_rows}
+            present = {r["keyword"] for r in kw_rows if r["type"] == "mine" and r["total_share"] > 0}
+            no_rank = len(measured) - len(present)
+
+            d_display, d_dir = _delta_pill(rank_delta, unit="spots")
+            narrative = (
+                f"Average page-1 rank of {avg_pos} across your tracked keywords. "
+                + (f"{no_rank} tracked keyword{_s(no_rank)} "
+                   + ("has" if no_rank == 1 else "have") + " no page-1 ranking."
+                   if no_rank else "They rank on page 1 for every measured keyword."))
+            discoverability = {
+                "key": "discoverability", "label": "Discoverability", "state": "ok",
+                "metric": f"#{avg_pos}",
+                "delta": d_display, "delta_dir": d_dir,
+                "headline": _headline(d_dir, "Rankings are improving.",
+                                      "Rankings are slipping.", "Rankings are holding."),
+                "narrative": narrative, "explore_url": explore_ci,
+            }
+        else:
+            # Monitoring is live but none of my tracked SKUs hold a page-1 slot yet.
+            discoverability = {"key": "discoverability", "label": "Discoverability",
+                               "state": "gathering", "explore_url": explore_ci,
+                               "narrative": "None of your tracked products rank on page 1 yet."}
+    else:
+        discoverability = {"key": "discoverability", "label": "Discoverability",
+                           "state": "gathering", "narrative": gathering, "explore_url": explore_ci}
+
+    # ── Competition: how much of the whole page-1 shelf the brand holds ────────
+    # My tracked SKUs' page-1 slots ÷ ALL page-1 slots — how much of the contested
+    # shelf my products own against everyone else. Numerator excludes unauthorized
+    # third-party listings of the brand; denominator is the whole page-1 shelf.
+    # (monitoring_keyword_leadership is intentionally left available for the
+    # upcoming competitive-gaps opportunity, just not surfaced on this card.)
+    if has_data:
+        shelf = ci_analysis.monitoring_tracked_shelf_share(db, gid, period)
+        share = shelf["share"]
+        d_display, d_dir = _delta_pill(shelf["delta"])
+        narrative = (
+            f"Your products hold {share}% of all page-1 slots across your tracked keywords."
+            + (f" That's {'up' if shelf['delta'] > 0 else 'down'} {abs(shelf['delta'])} pts "
+               "from last period." if shelf["delta"] else ""))
+        competition = {
+            "key": "competition", "label": "Competition", "state": "ok",
+            "metric": f"{share}%",
+            "delta": d_display, "delta_dir": d_dir,
+            "headline": _headline(d_dir, "You're winning more shelf.",
+                                  "You're losing shelf share.", "Shelf share is steady."),
+            "narrative": narrative, "explore_url": explore_ci,
+        }
+    else:
+        competition = {"key": "competition", "label": "Competition",
+                       "state": "gathering", "narrative": gathering, "explore_url": explore_ci}
+
+    # ── Conversion: content readiness of the brand's scored products ───────────
+    # Independent of CI period data — it reads scored_items — but it borrows the
+    # selected period for its delta/trend so all three cards move together.
+    cur = jobs.readiness_score(db, uid, mine_brands)
+    explore_scored = url_for("pages.activity_all", kind="scored")
+    if cur["avg"] is None:
+        conversion = {"key": "conversion", "label": "Conversion", "state": "empty",
+                      "empty_text": "Score this brand's products to see Content Readiness.",
+                      "empty_url": url_for("pages.pdp_scoring"), "empty_label": "Score products"}
+    else:
+        r_delta = None
+        if has_data:
+            prior_end = ci_analysis.period_bounds(period, 1)[1]
+            prior = jobs.readiness_score(db, uid, mine_brands, as_of=f"{prior_end} 23:59:59")
+            if prior["avg"] is not None:
+                r_delta = cur["avg"] - prior["avg"]
+        d_display, d_dir = _delta_pill(r_delta)
+        needs = cur["needs_attention_count"]
+        narrative = (
+            f"{cur['scored_count']} product{_s(cur['scored_count'])} scored. "
+            + (f"{needs} ha{'s' if needs == 1 else 've'} content issues that need attention."
+               if needs else "All are in good shape."))
+        conversion = {
+            "key": "conversion", "label": "Conversion", "state": "ok",
+            "metric": f"{cur['avg']}/100",
+            "delta": d_display, "delta_dir": d_dir,
+            "headline": _headline(d_dir, "Content health is improving.",
+                                  "Content health is slipping.", "Content health is steady."),
+            "narrative": narrative, "explore_url": explore_scored,
+        }
+
+    return {
+        "available": True,
+        "has_data": has_data,
+        "is_default": is_default,
+        "brand_label": _group_brand_label(db, uid, gid, selected["name"]),
+        "selected_group_id": gid,
+        "period": period,
+        "period_label": ci_analysis.period_label(period) if has_data else None,
+        "groups": [{"id": grp["id"],
+                    "label": _group_brand_label(db, uid, grp["id"], grp["name"]),
+                    "selected": grp["id"] == gid} for grp in groups],
+        "periods": [{"key": p, "label": ci_analysis.PERIOD_LABELS[p],
+                     "enabled": p in available, "selected": p == period}
+                    for p in ci_analysis.PERIODS],
+        "cards": [discoverability, conversion, competition],
+    }
+
+
 @bp.route("/app")
 @login_required
 def dashboard():
     """Agency dashboard. Authenticated workspace, light surface.
 
+    The page is the per-brand performance briefing (the three cards) under a
+    simple Portfolio header. Everything below the cards is being rebuilt as the
+    Opportunities area, so it is intentionally empty for now.
+
     Guarded by ``login_required``: an unauthenticated request is redirected to
     the sign-in page rather than served.
     """
     logger.info("Serving dashboard")
-    from datetime import date
-
     db = get_db()
     uid = g.user["id"]
-    month_start = date.today().replace(day=1).isoformat()  # "this month" boundary
 
-    def _kpi(label: str, total: int, month: int) -> dict:
-        """A KPI card: a unique-product total with the this-month figure beneath it."""
-        return {"label": label, "value": str(total), "footnote": f"{month} this month"}
-
-    view_model = fixtures.get_dashboard()
-    # Personalize the demo header and replace the four KPI cards with real,
-    # per-user counts (total + this month): managed/scored/copy products, and
-    # image-set runs the user has created.
-    view_model["agency"]["name"] = g.user["email"]
-    # Portfolio subtitle: distinct brands · distinct products the user has worked
-    # on, then their signup date. "Products" reuses the "Products managed" KPI
-    # figure below (same helper), and "Walmart" from the demo line is dropped.
-    view_model["agency"]["subtitle"] = (
-        f"{jobs.count_managed_brands(db, uid)} brands · "
-        f"{jobs.count_managed_products(db, uid)} products · "
-        f"As of {_format_signup_date(g.user['created_at'])}"
-    )
-    view_model["kpis"] = [
-        _kpi("Products managed",
-             jobs.count_managed_products(db, uid),
-             jobs.count_managed_products(db, uid, since=month_start)),
-        _kpi("Product Detail Pages scored",
-             jobs.count_scored_products(db, uid),
-             jobs.count_scored_products(db, uid, since=month_start)),
-        _kpi("Product Detail Pages copy created",
-             copy_jobs.count_copy_products(db, uid),
-             copy_jobs.count_copy_products(db, uid, since=month_start)),
-        _kpi("Product Detail Pages images created",
-             imageset_store.count_creative_runs(db, uid),
-             imageset_store.count_creative_runs(db, uid, since=month_start)),
-        # Competitive Intelligence activity: snapshots the user has run and the
-        # daily-monitoring schedules they have active.
-        _kpi("One-Time Snapshot",
-             ci_jobs.count_snapshot_runs_for_user(db, uid),
-             ci_jobs.count_snapshot_runs_for_user(db, uid, since=month_start)),
-        _kpi("Daily Monitoring",
-             ci_config.count_monitoring_groups_for_user(db, uid),
-             ci_config.count_monitoring_groups_for_user(db, uid, since=month_start)),
-    ]
-
-    # "This month" activity tables that replace the old demo "losing ground" table.
-    # Each is month-scoped here; its "View all" link opens the all-time screen.
-    activity = {
-        "scored": _activity_rows(db, uid, "scored", month_start),
-        "copy": _activity_rows(db, uid, "copy", month_start),
-        "image_sets": _activity_rows(db, uid, "images", month_start),
-        "ci_snapshot": _activity_rows(db, uid, "ci-snapshot", month_start),
-        "ci_monitoring": _activity_rows(db, uid, "ci-monitoring", month_start),
+    # Portfolio header: distinct brands · distinct products the user has worked on.
+    portfolio = {
+        "brands": jobs.count_managed_brands(db, uid),
+        "products": jobs.count_managed_products(db, uid),
     }
-    # Seasonal campaign planning nudges (launch/expiration/reminder dates coming up
-    # or overdue). Nothing publishes automatically, so these are reminders to act.
-    seasonal_reminders = seasonal_store.dashboard_reminders(
-        db, uid, date.today().isoformat())
+    briefing = _performance_briefing(db, uid)
     return render_template(
         "app/dashboard.html",
         breadcrumb="Dashboard",
         active_nav="dashboard",
-        activity=activity,
-        seasonal_reminders=seasonal_reminders,
-        **view_model,
+        portfolio=portfolio,
+        briefing=briefing,
     )
+
+
+@bp.route("/app/dashboard/default-brand", methods=["POST"])
+@login_required
+def set_default_brand():
+    """Save the user's default dashboard brand (a monitoring CI group they own).
+
+    The dashboard loads this brand when no explicit ?group_id= is given. Ownership
+    and mode are verified before persisting (an IDOR gate — a forged id for another
+    user's group 404s rather than being stored).
+    """
+    db = get_db()
+    uid = g.user["id"]
+    group_id = request.form.get("group_id", type=int)
+    grp = ci_config.get_group(db, group_id, uid) if group_id is not None else None
+    if grp is None or grp["mode"] != "monitoring":
+        logger.warning("Rejected default-brand set user_id=%s group_id=%s", uid, group_id)
+        abort(404)
+    users.set_default_ci_group(uid, group_id)
+    return redirect(url_for("pages.dashboard", group_id=group_id))
 
 
 @bp.route("/app/activity/<kind>")

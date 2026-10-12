@@ -40,7 +40,10 @@ CREATE TABLE IF NOT EXISTS users (
     -- a global before_request gate blocks the rest of the app until they do, so
     -- the admin's temporary password is never a usable long-lived credential.
     -- 0 = normal (self-service signups and SSO accounts).
-    must_change_password INTEGER NOT NULL DEFAULT 0
+    must_change_password INTEGER NOT NULL DEFAULT 0,
+    -- Dashboard preference: the brand (a monitoring CI group id) to load by
+    -- default in the performance briefing. NULL = fall back to the newest group.
+    default_ci_group_id INTEGER
 );
 
 -- One row per submitted PDP URL. The web app inserts rows as 'queued'; the
@@ -718,6 +721,10 @@ def _migrate(conn: sqlite3.Connection) -> None:
         if col not in user_cols:
             conn.execute(f"ALTER TABLE users ADD COLUMN {col} TEXT")
             logger.info("Migrated users: added '%s' column", col)
+    # default_ci_group_id persists the dashboard's default brand selection.
+    if "default_ci_group_id" not in user_cols:
+        conn.execute("ALTER TABLE users ADD COLUMN default_ci_group_id INTEGER")
+        logger.info("Migrated users: added 'default_ci_group_id' column")
 
     # ci_groups.mode distinguishes one-time snapshot groups from monitoring
     # groups (added when the CI feature split into separate setup menus).

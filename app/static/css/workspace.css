@@ -585,6 +585,182 @@ body.workspace {
   background: var(--black);
 }
 
+/* --- Performance briefing (the three dashboard cards) --------------------
+   A per-brand "how are we doing" band above the KPI row: three cards, each with
+   one dominant metric, a trend-delta pill, a short narrative, and an Explore
+   deep-link. Visually weightier than the KPI count cards — this is the headline
+   read, so it sits above and apart from the counts below. */
+.briefing {
+  margin-bottom: 26px;
+}
+.briefing-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+.briefing-brand {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  margin: 2px 0 0;
+}
+.briefing-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.briefing-brand-form {
+  margin: 0;
+}
+.briefing-select {
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--black);
+  padding: 6px 10px;
+  background: var(--surface);
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-chip);
+}
+/* Default-brand control: a save button, or a star tag once it's the default. */
+.briefing-default-form {
+  margin: 0;
+}
+.briefing-default {
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 6px 10px;
+  color: var(--mid-gray);
+  background: var(--surface);
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-chip);
+  cursor: pointer;
+}
+button.briefing-default:hover {
+  color: var(--black);
+  border-color: var(--mid-gray);
+}
+.briefing-default.is-default {
+  color: var(--accent);
+  border-color: transparent;
+  background: transparent;
+  cursor: default;
+}
+/* Period toggle: a segmented row of text chips. Only periods whose most recent
+   completed window has data are links; the rest render disabled. */
+.briefing-periods {
+  display: flex;
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-chip);
+  overflow: hidden;
+}
+.briefing-period {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 6px 12px;
+  color: var(--mid-gray);
+  text-decoration: none;
+  background: var(--surface);
+}
+.briefing-period.is-active {
+  background: var(--black);
+  color: var(--surface);
+}
+.briefing-period.is-disabled {
+  color: var(--placeholder); /* reads as "not available yet" */
+  cursor: default;
+}
+
+.briefing-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+}
+.briefing-card {
+  padding: 22px 24px;
+  display: flex;
+  flex-direction: column;
+}
+/* The dominant metric — deliberately larger than a KPI value; it's the card's
+   headline number. */
+.briefing-metric {
+  font-size: 40px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  margin-top: 10px;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.briefing-metric-muted {
+  color: var(--cool-gray);
+}
+/* Delta pill — the trend indicator. Unlike the KPI deltas (kept neutral by
+   design), the briefing colors direction: up is good (green), down is a decline
+   (red), flat/neutral stays muted — matching the briefing mockup's green/red. */
+.briefing-delta {
+  font-size: 13px;
+  font-weight: 600;
+}
+.briefing-delta.up {
+  color: var(--signal-green);
+}
+.briefing-delta.down {
+  color: var(--signal-red);
+}
+.briefing-delta.flat {
+  color: var(--mid-gray);
+}
+.briefing-headline {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--black);
+  margin-top: 16px;
+}
+.briefing-narrative {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--mid-gray);
+  margin: 8px 0 0;
+}
+.briefing-explore {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  text-decoration: none;
+  margin-top: 16px;
+}
+.briefing-explore:hover {
+  text-decoration: underline;
+}
+.briefing-setup {
+  margin-bottom: 26px;
+}
+.briefing-setup p {
+  font-size: 13px;
+  color: var(--mid-gray);
+  margin: 8px 0 14px;
+}
+
+/* Stack the three cards and unstack the header on narrow viewports. */
+@media (max-width: 900px) {
+  .briefing-cards {
+    grid-template-columns: 1fr;
+  }
+  .briefing-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
 /* --- Main row: table + sidebar --- */
 /* --- Dashboard "this month" activity tables ---
    Five full-width stacked tables (PDP scored/copy/image-sets, then CI

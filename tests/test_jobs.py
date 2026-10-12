@@ -253,3 +253,58 @@ def test_concurrent_claim_next_never_double_claims(app):
 
     assert sorted(claimed) == sorted(ids)        # every item claimed...
     assert len(claimed) == len(set(claimed))     # ...exactly once (no double-claim)
+
+
+def _score(db, uid, item_id, brand, overall, created_at):
+    """Insert one scored_items row with explicit brand/overall/timestamp."""
+    db.execute(
+        "INSERT INTO scored_items (user_id, item_id, url, brand, overall, created_at) "
+        "VALUES (?,?,?,?,?,?)",
+        (uid, item_id, "u", brand, overall, created_at),
+    )
+
+
+def test_readiness_score_averages_latest_per_product_by_brand(app):
+    # Conversion card: average each product's LATEST score, scoped to the given
+    # brand(s); products below the strong band count as needing attention.
+    with app.app_context():
+        db = get_db()
+        uid = create_local_user("ready@example.com", "password123")
+        # item 1 (Tabasco) re-scored: 60 then 90 -> latest 90 is what counts.
+        _score(db, uid, "1", "Tabasco", 60, "2026-01-01 00:00:00")
+        _score(db, uid, "1", "Tabasco", 90, "2026-03-01 00:00:00")
+        _score(db, uid, "2", "Tabasco", 70, "2026-03-01 00:00:00")  # <80 -> needs attention
+        _score(db, uid, "3", "Frank's", 40, "2026-03-01 00:00:00")
+        _score(db, uid, "4", "Tabasco", None, "2026-03-01 00:00:00")  # unscored -> ignored
+        db.commit()
+
+        tabasco = jobs.readiness_score(db, uid, ["Tabasco"])
+        assert tabasco == {"avg": 80, "scored_count": 2, "needs_attention_count": 1}
+
+        # Brand match is case/space-insensitive.
+        assert jobs.readiness_score(db, uid, [" tabasco "])["avg"] == 80
+
+        both = jobs.readiness_score(db, uid, ["Tabasco", "Frank's"])
+        assert both == {"avg": 67, "scored_count": 3, "needs_attention_count": 2}  # (90+70+40)/3
+
+        # No brand in scope -> empty result, never a degenerate query.
+        assert jobs.readiness_score(db, uid, []) == {
+            "avg": None, "scored_count": 0, "needs_attention_count": 0}
+        assert jobs.readiness_score(db, uid, ["Unknown"]) == {
+            "avg": None, "scored_count": 0, "needs_attention_count": 0}
+
+
+def test_readiness_score_as_of_sees_only_scores_up_to_that_moment(app):
+    # The card derives its period delta by asking for readiness "as of" a past
+    # date — the latest score on or before it.
+    with app.app_context():
+        db = get_db()
+        uid = create_local_user("asof@example.com", "password123")
+        _score(db, uid, "1", "Tabasco", 50, "2026-01-01 00:00:00")
+        _score(db, uid, "1", "Tabasco", 90, "2026-03-01 00:00:00")
+        db.commit()
+        # Before the March re-score, readiness reflects the January 50.
+        assert jobs.readiness_score(db, uid, ["Tabasco"],
+                                    as_of="2026-02-01 23:59:59")["avg"] == 50
+        # With no bound, the current 90 wins.
+        assert jobs.readiness_score(db, uid, ["Tabasco"])["avg"] == 90
