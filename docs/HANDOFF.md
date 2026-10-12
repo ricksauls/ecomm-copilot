@@ -1,19 +1,29 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-10-12 (session 29 — **Portfolio Management** (new feature): a per-user,
-durable catalog of managed products (CSV import / single-add / delete, deduped by Walmart item #),
-reached from a new **"Portfolio Management"** rail leaf below Insights. The catalog surfaces on the
-**Content Scoring** and **Product Copy** intakes as **Step 1 "Choose from your managed items"** — a
-filterable (brand / item # / URL) checkbox pick-list **ahead of** manual URL entry and CSV upload;
-checkboxes post as `urls` so the existing `collect_items` handles them unchanged. New table
-`portfolio_items` (UNIQUE `(user_id, dedupe_key)` enforces skip-on-duplicate); new `app/portfolio.py`
-store + `app/static/js/portfolio.js` filter + `_portfolio_pick.html` macro. Dashboard "Products
-managed"/brands now UNION the portfolio. **Also this session: Brand is now REQUIRED everywhere it's
-entered** (Product Copy, Portfolio add + CSV, Image Set Creator) with server-side enforcement — per
-the user "Brand should not be optional anywhere." **And: a "Download a template" link on every CSV
-upload screen** (Scoring, Copy, Acquire Images, Seasonal, Portfolio) via a shared helper + per-screen
-routes. **679 tests (26 new), ruff clean, no new env.** **BUILT LOCALLY — NOT yet committed/pushed/
-deployed** (`main` still `114b96b`). See the START HERE block.
+_Last updated: 2026-10-12 (session 29 — **Portfolio Management + managed-items pickers everywhere**.
+**✅ ALL SHIPPED + DEPLOYED** across 4 PRs (**#34, #35, #36, #37** squash-merged, CI→deploy green);
+`main` at `928fd22`. **686 tests, ruff clean. Two additive migrations, no new env.**
+**(1) Portfolio Management (new feature, #34):** a per-user catalog of managed products, new rail
+leaf **"Portfolio Management"** below Insights. CSV import / single-add / delete, deduped per user on
+the Walmart item # (new `portfolio_items` table, UNIQUE `(user_id, dedupe_key)` = skip-on-duplicate).
+New `app/portfolio.py` store, `app/static/js/portfolio.js`, `_portfolio_pick.html` macro. Dashboard
+"Products managed"/brands now UNION the portfolio. Plus a **"Download a template"** link on all 5 CSV
+upload screens (Scoring, Copy, Acquire Images, Seasonal, Portfolio) via `_csv_template_response`.
+**(2) Managed-items pickers on the intakes:** a **"Choose from your managed items"** pick-list ahead
+of manual entry — **multi-select checkboxes on Content Scoring, Product Copy, and Seasonal** (#34/#37;
+checkboxes post as `urls`, so `collect_items` / the seasonal route `getlist("urls")`-join handle
+them), and **single-select radios on the Image Set Creator** (#36, required — the set is for one
+product; radios submit via `form=`, selecting auto-fills the prefill URL, stored as `source_url`).
+**(3) Unified search + product titles (#36):** one search box (brand / item # / **title** / URL)
+replaced the brand dropdown on every picker + the Portfolio screen. Titles aren't in the CSV, so new
+`portfolio_items.title` + `title_status` columns (**migrated**; ALTER default enqueues existing rows)
++ a low-priority **worker backfill** (`fetch.fetch_title`; blocked/failed → `title_status='error'`,
+terminal). **(4) Brand rule (evolved #34→#35→#36):** Brand is required only where the USER is the
+source — **Portfolio add + CSV import**. It is NOT asked for where a fetch/managed-item supplies it:
+the **Product Copy brand field was removed** (worker fills from the PDP, #35) and **Image Set brand is
+optional** (#36). **(5) Fix (#35):** pick-list rows weren't hiding when filtered —
+`.pf-pick-row { display:flex }` overrode `[hidden]`; added `.pf-pick-row[hidden] { display:none }`.
+See the START HERE block.
 Session 28 — **Seasonal seasons + auto-dates, History-tab
 renames, rail cleanup**: added 7 seasons to Seasonal (New Year's, Valentine's Day, Memorial
 Day, Father's Day, 4th of July, Labor Day, Thanksgiving) with **auto-defaulted launch /
@@ -80,11 +90,19 @@ built PDP Image Set.)_
 
 > ## ⭐ Next session — START HERE (session 29 — Portfolio Management, 2026-10-12)
 >
-> **⚠️ BUILT LOCALLY — NOT yet committed, pushed, or deployed.** All work is on the working
-> tree only (`main` still at `114b96b`). **667 tests pass (14 new), `ruff` clean.** New table
-> `portfolio_items` is created by `CREATE TABLE IF NOT EXISTS` in `_SCHEMA` (no `_migrate` ALTER
-> needed — it's a brand-new table; `ensure_schema` creates it on both web + worker startup). **No
-> new env vars.** Next session should branch, open a PR, and deploy per the usual flow.
+> **✅ SHIPPED + DEPLOYED — `main` at `928fd22`.** This block narrates the FIRST slice (Portfolio
+> Management, PR #34); the work then continued across **#35, #36, #37**, all merged + live. **The
+> preamble at the very top of this file is the authoritative, up-to-date session-29 summary — read
+> that first.** **686 tests, `ruff` clean. Two additive migrations** (the `portfolio_items` table in
+> #34; `title` + `title_status` columns in #36, added in `_migrate` because `_SCHEMA` can't reference
+> a not-yet-added column — the `title_status` claim index lives in `_migrate`, like
+> `idx_image_jobs_claim`). **No new env vars.**
+>
+> ⚠️ **Two things below are now SUPERSEDED (see the top preamble for the final state):** (a) "Brand
+> required everywhere" — later refined: Brand is required only on **Portfolio add + CSV import**; the
+> **Product Copy brand field was removed** and **Image Set brand is optional** (a fetch/managed-item
+> supplies it). (b) The brand **dropdown** on the pickers was replaced by a single **unified search**
+> (brand / item # / title / URL) in #36.
 >
 > ### What was built — Portfolio Management (new feature)
 > A per-user, durable catalog of managed products that feeds the Content Scoring / Product Copy
