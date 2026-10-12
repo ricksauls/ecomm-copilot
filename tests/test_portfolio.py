@@ -170,6 +170,78 @@ def test_distinct_brands_sorted_case_insensitive(app):
         assert portfolio.distinct_brands(db, uid) == ["apple", "Mango", "Zed"]
 
 
+# ── Title backfill queue ──────────────────────────────────────────────────────
+
+def test_new_items_are_queued_for_a_title(app):
+    with app.app_context():
+        db = get_db()
+        uid = create_local_user("title@example.com", "password123")
+        portfolio.add_item(db, uid, "Tabasco", "https://www.walmart.com/ip/10294528", None)
+
+        assert portfolio.has_claimable_title(db) is True
+        item = portfolio.claim_next_title(db)
+        assert item is not None and item["title_status"] == "fetching"
+        # Claiming moved it out of the queue (no double-processing).
+        assert portfolio.has_claimable_title(db) is False
+
+        portfolio.save_title(db, item["id"], "  Tabasco Original Red Pepper Sauce ")
+        row = db.execute(
+            "SELECT title, title_status FROM portfolio_items WHERE id = ?", (item["id"],)
+        ).fetchone()
+        assert row["title"] == "Tabasco Original Red Pepper Sauce"  # trimmed
+        assert row["title_status"] == "done"
+
+
+def test_fail_title_is_terminal(app):
+    with app.app_context():
+        db = get_db()
+        uid = create_local_user("fail@example.com", "password123")
+        portfolio.add_item(db, uid, "Tabasco", "https://www.walmart.com/ip/1", None)
+        item = portfolio.claim_next_title(db)
+        portfolio.fail_title(db, item["id"])
+        row = db.execute(
+            "SELECT title_status FROM portfolio_items WHERE id = ?", (item["id"],)
+        ).fetchone()
+        assert row["title_status"] == "error"
+        # A failed item is not re-queued (no spin).
+        assert portfolio.has_claimable_title(db) is False
+
+
+def test_worker_backfills_title(app, monkeypatch):
+    import worker
+    with app.app_context():
+        db = get_db()
+        uid = create_local_user("w@example.com", "password123")
+        portfolio.add_item(db, uid, "Tabasco", "https://www.walmart.com/ip/10294528", None)
+        item = portfolio.claim_next_title(db)
+        monkeypatch.setattr(worker, "fetch_title", lambda url, item_id: "Fetched Name")
+        worker.process_portfolio_title_one(db, item)
+        row = db.execute(
+            "SELECT title, title_status FROM portfolio_items WHERE id = ?", (item["id"],)
+        ).fetchone()
+        assert row["title"] == "Fetched Name"
+        assert row["title_status"] == "done"
+
+
+def test_worker_marks_error_when_fetch_blocked(app, monkeypatch):
+    import worker
+    from app.fetch import FetchBlocked
+    with app.app_context():
+        db = get_db()
+        uid = create_local_user("blocked@example.com", "password123")
+        portfolio.add_item(db, uid, "Tabasco", "https://www.walmart.com/ip/10294528", None)
+        item = portfolio.claim_next_title(db)
+
+        def _blocked(url, item_id):
+            raise FetchBlocked("bot wall")
+        monkeypatch.setattr(worker, "fetch_title", _blocked)
+        worker.process_portfolio_title_one(db, item)  # must not raise
+        row = db.execute(
+            "SELECT title_status FROM portfolio_items WHERE id = ?", (item["id"],)
+        ).fetchone()
+        assert row["title_status"] == "error"
+
+
 # ── dashboard union ───────────────────────────────────────────────────────────
 
 def test_portfolio_feeds_managed_product_and_brand_counts(app):

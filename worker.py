@@ -35,7 +35,7 @@ from zoneinfo import ZoneInfo  # noqa: E402
 
 from app import (  # noqa: E402  (after load_dotenv is intentional)
     ci_config, ci_images, ci_jobs, ci_scraper, copy_jobs, copygen, db,
-    image_enhance, image_jobs, jobs, keywords,
+    image_enhance, image_jobs, jobs, keywords, portfolio,
 )
 from app.imageset import generate as imageset_generate  # noqa: E402
 from app.imageset import jobs as imageset_jobs  # noqa: E402
@@ -46,7 +46,9 @@ from app.imgimport import store as import_store  # noqa: E402
 from app.seasonal import generate as seasonal_generate  # noqa: E402
 from app.seasonal import jobs as seasonal_jobs  # noqa: E402
 from app.seasonal import store as seasonal_store  # noqa: E402
-from app.fetch import FetchBlocked, FetchError, fetch_main_image_url, fetch_pdp  # noqa: E402
+from app.fetch import (  # noqa: E402
+    FetchBlocked, FetchError, fetch_main_image_url, fetch_pdp, fetch_title,
+)
 from app.scoring import PdpRecord, result_to_dict, score_pdp  # noqa: E402
 
 # Scrape dates are stamped in Central time so a monitoring run near midnight lands
@@ -719,6 +721,27 @@ def process_import_one(conn: sqlite3.Connection, item: sqlite3.Row) -> None:
     import_acquire.process_item(conn, item)
 
 
+def process_portfolio_title_one(conn: sqlite3.Connection, item: sqlite3.Row) -> None:
+    """Backfill one claimed portfolio item's product title (Walmart PDP scrape).
+
+    Browser work like the other fetches, but lightweight (name only). A blocked or
+    failed fetch settles the row to 'error' (terminal, not re-queued) so it never
+    spins; the item stays searchable by brand / item # / URL meanwhile. Never
+    raises — it settles the row itself so the worker loop keeps draining.
+    """
+    try:
+        title = fetch_title(item["walmart_url"], item["item_id"])
+        portfolio.save_title(conn, item["id"], title)
+        log.info("Portfolio title fetched id=%s item=%s len=%d",
+                 item["id"], item["item_id"], len(title))
+    except FetchBlocked as e:
+        log.warning("Portfolio title fetch blocked id=%s: %s", item["id"], e)
+        portfolio.fail_title(conn, item["id"])
+    except FetchError as e:
+        log.warning("Portfolio title fetch failed id=%s: %s", item["id"], e)
+        portfolio.fail_title(conn, item["id"])
+
+
 def process_seasonal_product_one(conn: sqlite3.Connection, product: sqlite3.Row) -> None:
     """Acquire one claimed seasonal-campaign product (resolve its URL → gallery).
 
@@ -920,6 +943,14 @@ def main() -> None:
         ci_run = ci_jobs.claim_next_run(conn)
         if ci_run is not None:
             process_ci_run(conn, ci_run)
+            continue
+
+        # Portfolio title backfill — lowest priority (a light name-only scrape that
+        # only makes the pick-lists searchable by title). One item per loop so it
+        # never competes with real work; runs only when every queue above is idle.
+        title_item = portfolio.claim_next_title(conn)
+        if title_item is not None:
+            process_portfolio_title_one(conn, title_item)
             continue
 
         time.sleep(POLL_INTERVAL_S)

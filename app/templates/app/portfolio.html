@@ -78,14 +78,9 @@
     </div>
     {% if items %}
     <div class="pf-filter-bar">
-      <select class="ci-input" data-filter-brand aria-label="Filter by brand">
-        <option value="">All brands</option>
-        {% for b in brands %}
-        <option value="{{ b | lower }}">{{ b }}</option>
-        {% endfor %}
-      </select>
       <input type="search" class="ci-input grow" data-filter-search
-             placeholder="Filter by item # or URL…" aria-label="Filter by item number or URL" />
+             placeholder="Search brand, item #, title, or URL…"
+             aria-label="Search managed items" />
     </div>
     {% endif %}
   </div>
@@ -96,6 +91,7 @@
         <tr>
           <th>Brand</th>
           <th>Item #</th>
+          <th class="col-product">Product</th>
           <th class="col-product">Walmart URL</th>
           <th>Amazon</th>
           <th></th>
@@ -103,14 +99,16 @@
       </thead>
       <tbody>
         {% for it in items %}
-        {# data-* attributes back the client-side filter (brand / item # / URL),
+        {# data-* attributes back the unified search (brand / item # / title / URL),
            all lowercased so matching is case-insensitive. #}
         <tr data-portfolio-row
             data-brand="{{ (it.brand or '') | lower }}"
             data-item="{{ it.item_id or '' }}"
+            data-title="{{ (it.title or '') | lower }}"
             data-url="{{ it.walmart_url | lower }}">
           <td>{{ it.brand or '—' }}</td>
           <td>{{ it.item_id or '—' }}</td>
+          <td class="col-product">{{ it.title or '—' }}</td>
           <td class="col-product">
             <a href="{{ it.walmart_url }}" target="_blank" rel="noopener noreferrer"
                class="cell-muted">{{ it.walmart_url }}</a>
@@ -130,9 +128,9 @@
           </td>
         </tr>
         {% endfor %}
-        {# Shown by the filter JS when no row matches; hidden otherwise. #}
+        {# Shown by the search JS when no row matches; hidden otherwise. #}
         <tr class="pf-empty-filtered" hidden>
-          <td colspan="5" class="results-count">No items match that filter.</td>
+          <td colspan="6" class="results-count">No items match that search.</td>
         </tr>
       </tbody>
     </table>

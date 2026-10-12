@@ -20,6 +20,9 @@ def _png() -> bytes:
 def _intake_data(**over):
     data = {
         "name": "Bug Spray", "brand": "Tabasco", "category": "insect repellent",
+        # A managed item is now required on the intake (the set is created for one
+        # of the user's managed products).
+        "managed_url": "https://www.walmart.com/ip/10294528",
         "environments": "a patio, a trail", "feature_title": "DEET-free",
         "height": "7.8", "width": "2.2", "unit": "in", "weight": "6 oz",
         "photo": (io.BytesIO(_png()), "product.png"),
@@ -68,6 +71,24 @@ def test_intake_post_requires_name_and_category(client, auth, tmp_path, monkeypa
     auth.register()
     resp = _submit_intake(client, category="")
     assert resp.status_code == 400
+
+
+def test_intake_requires_a_managed_item(client, auth, tmp_path, monkeypatch):
+    # A single managed item must be selected; without it the intake is rejected.
+    monkeypatch.setenv("MEDIA_DIR", str(tmp_path))
+    auth.register()
+    resp = _submit_intake(client, managed_url="")
+    assert resp.status_code == 400
+    assert b"managed item" in resp.data.lower()
+
+
+def test_intake_brand_is_optional(client, auth, tmp_path, monkeypatch):
+    # Brand is no longer required on the Image Set intake (prefilled from the fetch).
+    monkeypatch.setenv("MEDIA_DIR", str(tmp_path))
+    auth.register()
+    resp = _submit_intake(client, brand="")
+    assert resp.status_code == 302
+    assert "/cutout" in resp.headers["Location"]
 
 
 def test_intake_post_rejects_non_image(client, auth, tmp_path, monkeypatch):
@@ -298,13 +319,19 @@ def test_download_names_use_walmart_item_number(client, auth, tmp_path, monkeypa
 
 
 def test_download_name_falls_back_to_project_id(client, auth, tmp_path, monkeypatch):
-    """A manually-uploaded product (no Walmart URL) falls back to proj<id> naming."""
+    """A product with no Walmart URL falls back to proj<id> naming.
+
+    The intake now always records the selected managed item's URL as the source,
+    so clear it to recreate the no-URL case the download fallback handles.
+    """
     monkeypatch.setenv("MEDIA_DIR", str(tmp_path))
     auth.register()
     _submit_intake(client)
     with client.application.app_context():
         db = get_db()
         pid = isstore.list_projects(db, 1)[0]["id"]
+        db.execute("UPDATE imageset_projects SET source_url = NULL WHERE id = ?", (pid,))
+        db.commit()
     client.post(f"/app/pdp-image-set/{pid}/approve")
     with client.application.app_context():
         db = get_db()

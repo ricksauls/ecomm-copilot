@@ -632,10 +632,7 @@ def _portfolio_pick_context() -> dict:
     """
     db = get_db()
     uid = g.user["id"]
-    return {
-        "portfolio_items": portfolio.list_items(db, uid),
-        "portfolio_brands": portfolio.distinct_brands(db, uid),
-    }
+    return {"portfolio_items": portfolio.list_items(db, uid)}
 
 
 @bp.route("/app/pdp-scoring", methods=["GET", "POST"])
@@ -1616,7 +1613,6 @@ def portfolio_home():
         breadcrumb="Portfolio Management · Managed Items",
         active_nav=_PORTFOLIO_NAV,
         items=portfolio.list_items(db, uid),
-        brands=portfolio.distinct_brands(db, uid),
     )
 
 
@@ -2351,10 +2347,16 @@ def _validate_upload(file, label: str = "product photo") -> tuple[bytes | None, 
 
 
 def _imageset_intake_context(**extra):
-    """Shared render context for the intake form."""
+    """Shared render context for the intake form.
+
+    Includes the user's managed portfolio for the required single-select picker
+    (``portfolio_items`` / ``portfolio_brands``), scoped to the signed-in user.
+    """
+    db, uid = get_db(), g.user["id"]
     ctx = {"breadcrumb": _IMGSET_BREADCRUMB, "active_nav": _IMGSET_NAV,
            "project": None, "features": [], "fetching": False, "has_image": False,
            "has_logo": False, "pf": {},
+           "portfolio_items": portfolio.list_items(db, uid),
            # The URL field autofills with this prefix so the user only types the item id.
            "url_prefix": pdp.WALMART_IP_PREFIX}
     ctx.update(extra)
@@ -2488,8 +2490,15 @@ def imageset_intake():
             has_image=bool(proj and proj["original_path"]),
             has_logo=bool(proj and proj["logo_path"]))), code
 
-    if not fields["name"] or not fields["brand"] or not fields["category"]:
-        return _rerender("Product name, brand, and category are required.", 400)
+    if not fields["name"] or not fields["category"]:
+        return _rerender("Product name and category are required.", 400)
+
+    # A managed item is required: the image set is created for one of the user's
+    # managed products. Validated at the boundary (the radios also enforce it in
+    # the browser). Brand is NOT required here — it's prefilled from the fetch.
+    managed_url = pdp.validate_item_url((form.get("managed_url") or "").strip())
+    if not managed_url:
+        return _rerender("Select one of your managed items.", 400)
 
     # Photo: a new upload always wins; otherwise a prefilled draft may reuse the
     # fetched product image. A brand-new project must supply a photo.
@@ -2519,6 +2528,8 @@ def imageset_intake():
         pid = project["id"]
         imageset_store.update_project_fields(db, pid, **fields)
     imageset_store.set_features(db, pid, _intake_feature_items(form))
+    # Record which managed product this set is for (the required selection above).
+    imageset_store.set_source_url(db, pid, managed_url)
 
     # Store the optional brand logo. A storage failure is non-fatal: the set still
     # generates, just without the logo (logged for follow-up) rather than blocking.

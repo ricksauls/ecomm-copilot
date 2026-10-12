@@ -200,6 +200,21 @@ def set_status(
     conn.commit()
 
 
+def set_source_url(conn: sqlite3.Connection, project_id: int, url: str) -> None:
+    """Record the managed-item / product URL this image set is created for.
+
+    Set from the required Managed Items selection on the intake form so each image
+    set is associated with a product in the user's portfolio. Status/image left
+    untouched.
+    """
+    conn.execute(
+        "UPDATE imageset_projects SET source_url = ?, updated_at = datetime('now') "
+        "WHERE id = ?",
+        (url, project_id),
+    )
+    conn.commit()
+
+
 def set_original_image(conn: sqlite3.Connection, project_id: int, path: str) -> None:
     """Record the uploaded product photo and move the project to cutout_pending."""
     conn.execute(
