@@ -34,7 +34,13 @@ CREATE TABLE IF NOT EXISTS users (
     -- screens. ADMIN_EMAILS seeds/guarantees admins at startup and at signup
     -- (break-glass if locked out), but this column is the day-to-day source of
     -- truth — an admin demoted in the UI stays demoted until re-granted.
-    role           TEXT    NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin'))
+    role           TEXT    NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin')),
+    -- Admin-provisioned accounts start with a temporary password the admin set.
+    -- This flag forces the person to choose their own password at first sign-in;
+    -- a global before_request gate blocks the rest of the app until they do, so
+    -- the admin's temporary password is never a usable long-lived credential.
+    -- 0 = normal (self-service signups and SSO accounts).
+    must_change_password INTEGER NOT NULL DEFAULT 0
 );
 
 -- One row per submitted PDP URL. The web app inserts rows as 'queued'; the
@@ -628,6 +634,17 @@ def _migrate(conn: sqlite3.Connection) -> None:
             "CHECK (role IN ('user', 'admin'))"
         )
         logger.info("Migrated users: added 'role' column")
+
+    # users.must_change_password: forces an admin-provisioned account to reset its
+    # temporary password at first sign-in. Added after admin user-provisioning
+    # shipped; existing rows default to 0 (not forced). Fresh DBs get it from
+    # _SCHEMA. `user_cols` is re-read because the role ALTER above may have run.
+    user_cols = {row[1] for row in conn.execute("PRAGMA table_info(users)")}
+    if user_cols and "must_change_password" not in user_cols:
+        conn.execute(
+            "ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0"
+        )
+        logger.info("Migrated users: added 'must_change_password' column")
 
 
 def ensure_schema(conn: sqlite3.Connection) -> None:

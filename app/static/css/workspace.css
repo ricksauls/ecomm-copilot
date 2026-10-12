@@ -2126,6 +2126,22 @@ body.cost-modal-open {
   border-color: var(--signal-red);
 }
 
+/* "Password pending": a provisioned account that hasn't done its first-login
+   reset yet. Muted pill so it informs without competing with the role badge. */
+.pending-pill {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--mid-gray);
+  background: var(--surface);
+  white-space: nowrap;
+}
+
 .admin-table .cell-action {
   text-align: right;
   white-space: nowrap;

@@ -12,6 +12,39 @@
   </div>
 </div>
 
+{% with flashes = get_flashed_messages(with_categories=true) %}
+  {% for category, message in flashes %}
+  <div class="ci-flash {{ category }}" role="alert">{{ message }}</div>
+  {% endfor %}
+{% endwith %}
+
+{# Admin-provisioned accounts: email + role + a temporary password. The person
+   is forced to set their own password at first sign-in, so this one is a
+   starter the admin shares with them. #}
+<div class="card card-pad">
+  <div class="ci-section-title">Add a user</div>
+  <form method="post" action="{{ url_for('pages.admin_add_user') }}" class="msg-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+    <div class="msg-form-row">
+      <input type="email" name="email" class="ci-input grow" placeholder="Email"
+             maxlength="254" autocomplete="off" required />
+      <select name="role" class="ci-input msg-category" aria-label="Role">
+        <option value="user">User</option>
+        <option value="admin">Admin</option>
+      </select>
+    </div>
+    <div class="msg-form-row">
+      <input type="text" name="password" class="ci-input grow"
+             placeholder="Temporary password (min 8 chars)" minlength="8" maxlength="200"
+             autocomplete="new-password" required />
+      <button type="submit" class="wbtn wbtn-primary">Add User</button>
+    </div>
+    <p class="cell-muted" style="margin: 0; font-size: 12px;">
+      They'll be prompted to set their own password the first time they sign in.
+    </p>
+  </form>
+</div>
+
 <div class="card card-pad">
   <div class="table-scroll">
     <table class="admin-table">
@@ -34,7 +67,13 @@
         {% set is_self = current_user and u.id == current_user['id'] %}
         <tr>
           <td class="cell-muted">{{ u.id }}</td>
-          <td>{{ u.email }}{% if is_self %} <span class="cell-muted">(you)</span>{% endif %}</td>
+          <td>
+            {{ u.email }}{% if is_self %} <span class="cell-muted">(you)</span>{% endif %}
+            {# Provisioned account that hasn't completed its first-login reset yet. #}
+            {% if u.must_change_password %}
+            <span class="pending-pill" title="Will set their own password at first sign-in">Password pending</span>
+            {% endif %}
+          </td>
           <td><span class="role-badge role-{{ u.role }}">{{ u.role | capitalize }}</span></td>
           <td>{{ u.auth_provider }}</td>
           <td class="cell-muted">{{ u.created_at }}</td>

@@ -97,6 +97,42 @@ def load_current_user() -> None:
         session.pop(_USER_KEY, None)
 
 
+# Endpoints an account with a *pending forced password change* may still reach.
+# Everything else is redirected to the change-password page, so an admin-set
+# temporary password cannot be used to roam the app — it can only be changed.
+# `static` keeps CSS/JS loading; `auth.signout` lets a stuck user leave.
+_PW_CHANGE_ALLOWED_ENDPOINTS = frozenset({
+    "pages.change_password",
+    "auth.signout",
+    "static",
+})
+
+
+def require_password_change() -> None:
+    """Force an admin-provisioned user to reset their password before anything else.
+
+    Registered as a ``before_request`` hook (after :func:`load_current_user`, so
+    ``g.user`` is populated). When the signed-in user has ``must_change_password``
+    set, every request outside :data:`_PW_CHANGE_ALLOWED_ENDPOINTS` is redirected
+    to the change-password page. Returning a response from a ``before_request``
+    short-circuits the view, which is exactly the gate we want.
+    """
+    user = g.get("user")
+    if user is None:
+        return
+    try:
+        pending = bool(user["must_change_password"])
+    except (KeyError, IndexError):
+        # Row predating the column (shouldn't happen post-migration) — treat as
+        # not pending rather than locking everyone out.
+        pending = False
+    if not pending:
+        return
+    if (request.endpoint or "") in _PW_CHANGE_ALLOWED_ENDPOINTS:
+        return
+    return redirect(url_for("pages.change_password"))
+
+
 def login_user(user_id: int) -> None:
     """Establish an authenticated session for a user id.
 
@@ -187,6 +223,20 @@ def safe_next_url(candidate: str | None) -> str | None:
 # --- Input validation -----------------------------------------------------
 
 
+def validate_password(password: str) -> str | None:
+    """Validate a password's length bounds. Return an error message, or None.
+
+    Lower bound enforces a minimum strength; upper bound stops unbounded input
+    (a DoS vector, and scrypt hashing cost grows with length). Shared by signup,
+    admin provisioning, and the change-password flow so the rule lives once.
+    """
+    if not password or len(password) < _MIN_PASSWORD_LEN:
+        return f"Password must be at least {_MIN_PASSWORD_LEN} characters."
+    if len(password) > _MAX_PASSWORD_LEN:
+        return "Password is too long."
+    return None
+
+
 def validate_credentials(email: str, password: str) -> str | None:
     """Validate signup/login input. Return an error message, or None if valid.
 
@@ -196,8 +246,4 @@ def validate_credentials(email: str, password: str) -> str | None:
     email = (email or "").strip()
     if not email or len(email) > _MAX_EMAIL_LEN or not _EMAIL_RE.match(email):
         return "Enter a valid email address."
-    if not password or len(password) < _MIN_PASSWORD_LEN:
-        return f"Password must be at least {_MIN_PASSWORD_LEN} characters."
-    if len(password) > _MAX_PASSWORD_LEN:
-        return "Password is too long."
-    return None
+    return validate_password(password)

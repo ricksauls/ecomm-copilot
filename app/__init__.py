@@ -148,6 +148,9 @@ def create_app() -> Flask:
 
     app.before_request(security.load_current_user)
     app.before_request(security.verify_csrf)
+    # After the user is loaded, force an admin-provisioned account to reset its
+    # temporary password before it can reach any other page.
+    app.before_request(security.require_password_change)
 
     # Expose the CSRF token, current user, and a cache-busting static_url() to
     # every template.

@@ -52,7 +52,12 @@ from app.imageset import store as imageset_store
 from app.imageset.providers.background_removal import BackgroundRemovalError
 from app.imgimport import sources as import_sources
 from app.imgimport import store as import_store
-from app.security import admin_required, login_required
+from app.security import (
+    admin_required,
+    login_required,
+    validate_credentials,
+    validate_password,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1907,6 +1912,40 @@ def admin_users():
     )
 
 
+@bp.route("/admin/users", methods=["POST"])
+@admin_required
+def admin_add_user():
+    """Admin provisions a local account (email + role + temporary password).
+
+    POST-only + CSRF + admin-guarded. The password is validated for strength and
+    the new account is flagged ``must_change_password`` so the person sets their
+    own at first sign-in. Duplicate email or bad input re-flashes on the list.
+    """
+    email = request.form.get("email", "")
+    password = request.form.get("password", "")
+    role = (request.form.get("role") or users.ROLE_USER).strip()
+
+    error = validate_credentials(email, password)
+    if error is None and role not in users.VALID_ROLES:
+        error = "Pick a valid role."
+    if error is None:
+        try:
+            new_id = users.admin_create_user(email, password, role)
+        except users.EmailAlreadyRegistered:
+            error = "That email is already registered."
+        else:
+            logger.info("Admin user_id=%s provisioned user_id=%s role=%s",
+                        g.user["id"], new_id, role)
+            flash(
+                f"Created {users.normalize_email(email)}. They'll set their own "
+                "password the first time they sign in.", "ok",
+            )
+            return redirect(url_for("pages.admin_users"))
+
+    flash(error, "error")
+    return redirect(url_for("pages.admin_users"))
+
+
 @bp.route("/admin/users/<int:user_id>/role", methods=["POST"])
 @admin_required
 def admin_set_role(user_id):
@@ -2885,6 +2924,40 @@ def import_download_zip(run_id):
     logger.info("Import ZIP: %d image(s) run=%s user_id=%s", written, run_id, uid)
     return send_file(buf, mimetype="application/zip", as_attachment=True,
                      download_name=zip_name, max_age=0)
+
+
+# ── Account: change password ─────────────────────────────────────────────────
+
+@bp.route("/account/password", methods=["GET", "POST"])
+@login_required
+def change_password():
+    """Let a signed-in user set a new password.
+
+    Also the destination of the forced-change gate for admin-provisioned accounts
+    (:func:`security.require_password_change`); ``forced`` tailors the copy and
+    hides the "cancel" path. Saving clears the ``must_change_password`` flag (in
+    :func:`users.set_password`), which releases the gate on the next request.
+    """
+    forced = bool(g.user["must_change_password"])
+    if request.method == "POST":
+        password = request.form.get("password", "")
+        confirm = request.form.get("confirm", "")
+        error = validate_password(password)
+        if error is None and password != confirm:
+            error = "The two passwords don't match."
+        if error is None:
+            users.set_password(g.user["id"], password)
+            logger.info("User user_id=%s set a new password", g.user["id"])
+            flash("Password updated.", "ok")
+            return redirect(url_for("pages.dashboard"))
+        flash(error, "error")
+
+    return render_template(
+        "app/change_password.html",
+        breadcrumb="Change Password",
+        active_nav=None,
+        forced=forced,
+    )
 
 
 # ── Contact Us (user side) ───────────────────────────────────────────────────

@@ -104,6 +104,55 @@ def get_or_create_sso_user(email: str, provider: str) -> int:
     return int(cursor.lastrowid)
 
 
+def admin_create_user(email: str, password: str, role: str,
+                      *, must_change_password: bool = True) -> int:
+    """Create a local account on an admin's behalf; return its new id.
+
+    Unlike self-service :func:`create_local_user`, the admin chooses the role and
+    sets a *temporary* password. ``must_change_password`` defaults to True so the
+    person is forced to pick their own password at first sign-in (the admin's
+    temporary one never becomes a lasting credential — see the forced-change gate
+    in ``security.require_password_change``). The plaintext is hashed before it
+    touches the DB and is never logged.
+
+    Raises :class:`EmailAlreadyRegistered` if the email is taken, and
+    ``ValueError`` on an invalid role (defense in depth alongside the route's
+    validation and the column CHECK).
+    """
+    if role not in VALID_ROLES:
+        raise ValueError(f"Invalid role: {role!r}")
+    email = normalize_email(email)
+    db = get_db()
+    try:
+        cursor = db.execute(
+            "INSERT INTO users (email, password_hash, auth_provider, role, "
+            "must_change_password) VALUES (?, ?, 'local', ?, ?)",
+            (email, generate_password_hash(password), role,
+             1 if must_change_password else 0),
+        )
+        db.commit()
+    except sqlite3.IntegrityError as e:
+        raise EmailAlreadyRegistered(email) from e
+    logger.info("Admin-provisioned account created: user_id=%s role=%s", cursor.lastrowid, role)
+    return int(cursor.lastrowid)
+
+
+def set_password(user_id: int, password: str) -> None:
+    """Set a user's password (hashed) and clear any forced-change flag.
+
+    Used by the self-service change-password flow and by an admin-provisioned
+    user completing their first-login reset. Plaintext is hashed here and never
+    logged.
+    """
+    db = get_db()
+    db.execute(
+        "UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?",
+        (generate_password_hash(password), user_id),
+    )
+    db.commit()
+    logger.info("Password updated for user_id=%s", user_id)
+
+
 def record_login(user_id: int) -> None:
     """Stamp a successful login: roll ``last_login_at`` into ``prev_login_at``.
 
@@ -138,7 +187,8 @@ def list_users() -> list[sqlite3.Row]:
     """Return all users, newest first, for the admin users table."""
     db = get_db()
     return db.execute(
-        "SELECT id, email, auth_provider, created_at, last_login_at, role "
+        "SELECT id, email, auth_provider, created_at, last_login_at, role, "
+        "must_change_password "
         "FROM users ORDER BY id DESC"
     ).fetchall()
 
