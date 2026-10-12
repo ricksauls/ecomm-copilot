@@ -398,11 +398,11 @@ def test_rail_routes_workspaces_not_separate_histories(client, auth):
     rail = client.get("/app").data
 
     # Workspaces are present under their shortened feature labels. Content Scoring
-    # and Copy Studio are single-workspace leaves (the product-copy tool is reached
-    # straight off "Copy Studio", no "Product Copy" child); Creative Studio keeps
+    # and Product Copy are single-workspace leaves (the copy tool is reached
+    # straight off the "Product Copy" leaf, no sub-menu); Creative Studio keeps
     # its three children.
     assert b"Content Scoring" in rail
-    assert b"Copy Studio" in rail
+    assert b"Product Copy" in rail
     assert b"Creative Studio" in rail
     for label in (b"Product Image Import",
                   b"Product Image Set Creator", b"Seasonal Campaigns"):

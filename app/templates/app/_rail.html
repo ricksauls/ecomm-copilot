@@ -82,7 +82,7 @@
   {# Group item lists — `(slug, label, href)`. History no longer lives in the
      rail: each tool is a workspace with a Create New / History tab (see
      `_workspace_tabs.html`), so the rail only routes to the workspace itself.
-     Labels name the feature (not the action). Content Scoring and Copy Studio
+     Labels name the feature (not the action). Content Scoring and Product Copy
      each have a single workspace, so they're standalone leaves below (no group). #}
   {% set creative_items = [
     ('import-images', 'Product Image Import', url_for('pages.import_images_intake')),
@@ -111,12 +111,12 @@
       <span class="rail-main-label">Content Scoring</span>
     </a>
 
-    {# Copy Studio — also a single workspace (Product Copy), so a standalone leaf
-       linking straight to it rather than a group with one child. #}
+    {# Product Copy — also a single workspace, so a standalone leaf linking
+       straight to it rather than a group with one child. #}
     <a href="{{ url_for('pages.pdp_copy') }}"
        class="rail-leaf{{ ' active' if active_nav == 'pdp-copy' else '' }}">
       <span class="rail-ico">{{ rail_icon('copy') }}</span>
-      <span class="rail-main-label">Copy Studio</span>
+      <span class="rail-main-label">Product Copy</span>
     </a>
 
     {{ rail_group('creative', 'Creative Studio', creative_items, active_nav) }}
