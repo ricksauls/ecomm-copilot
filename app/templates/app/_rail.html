@@ -66,6 +66,7 @@
   ] %}
   {% set creative_items = [
     ('import-images', 'Acquire Product Images From An Existing Site', url_for('pages.import_images_intake')),
+    ('history-acquired', 'View Acquired Images History', url_for('pages.activity_all', kind='acquired')),
     ('pdp-image-set', 'Product Detail Page Image Set Creation', url_for('pages.imageset_intake')),
     ('history-images', 'View Creative Content Creation History', url_for('pages.activity_all', kind='images')),
   ] %}

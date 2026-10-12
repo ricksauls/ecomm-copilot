@@ -85,6 +85,33 @@ def test_gallery_hotlinks_thumbnails(client, auth, app):
     assert "img-src 'self' data: https:" in gal.headers["Content-Security-Policy"]
 
 
+def test_acquired_history_lists_finished_runs(client, auth, app):
+    auth.register(email="imp-hist@example.com")
+    full = "https://m.media-amazon.com/images/I/71abc.jpg"
+    run_id, aids, uid = _seed_ready_run(app, "imp-hist@example.com", [full])
+
+    resp = client.get("/app/activity/acquired")
+    assert resp.status_code == 200
+    # The run's product label and a link back to its gallery both show.
+    assert b"Thing" in resp.data
+    assert f"/app/import-images/{run_id}".encode() in resp.data
+    # Thumbnail is hotlinked, so the page relaxes CSP img-src like the gallery.
+    assert "img-src 'self' data: https:" in resp.headers["Content-Security-Policy"]
+    assert (full + "?thumb").encode() in resp.data
+
+
+def test_acquired_history_empty_when_no_finished_runs(client, auth, app):
+    auth.register(email="imp-hist-empty@example.com")
+    # A still-processing run (no ready assets) must not appear as history.
+    with app.app_context():
+        db = get_db()
+        uid = _uid(db, "imp-hist-empty@example.com")
+        imp_store.create_run(db, uid)
+    resp = client.get("/app/activity/acquired")
+    assert resp.status_code == 200
+    assert b"No images acquired yet." in resp.data
+
+
 def test_download_fetches_on_demand(client, auth, app, monkeypatch):
     auth.register(email="imp-dl@example.com")
     run_id, aids, uid = _seed_ready_run(app, "imp-dl@example.com",

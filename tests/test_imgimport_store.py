@@ -75,6 +75,66 @@ def test_reclaim_orphaned_items(app):
         assert store.get_run(db, run_id, uid)["status"] == store.STATUS_FAILED
 
 
+# --- activity / history -----------------------------------------------------
+
+def test_list_acquire_activity_summarizes_ready_runs(app):
+    with app.app_context():
+        db = get_db()
+        uid = create_local_user("imp-hist@example.com", "password123")
+
+        # A finished run: two products (one labelled, one not), three ready images.
+        run_id = store.create_run(db, uid)
+        walmart = store.add_item(db, run_id=run_id, user_id=uid,
+                                 source_url="https://www.walmart.com/ip/10294528",
+                                 source_type="walmart")
+        amazon = store.add_item(db, run_id=run_id, user_id=uid,
+                                source_url="https://www.amazon.com/dp/B07NV281TK",
+                                source_type="amazon_pdp")
+        store.set_item_status(db, walmart, store.ITEM_DONE, label="Tabasco Sauce")
+        store.set_item_status(db, amazon, store.ITEM_DONE, label="Chipotle Sauce")
+        store.add_ready_asset(db, item_id=walmart, run_id=run_id, user_id=uid,
+                              full_url="https://cdn/a.jpg", thumb_url="https://cdn/a_t.jpg")
+        store.add_ready_asset(db, item_id=walmart, run_id=run_id, user_id=uid,
+                              full_url="https://cdn/b.jpg", thumb_url=None)
+        store.add_ready_asset(db, item_id=amazon, run_id=run_id, user_id=uid,
+                              full_url="https://cdn/c.jpg", thumb_url="https://cdn/c_t.jpg")
+        store.recompute_run_status(db, run_id)
+
+        rows = store.list_acquire_activity(db, uid)
+        assert len(rows) == 1
+        row = rows[0]
+        assert row["id"] == run_id
+        assert row["image_count"] == 3
+        assert row["product_count"] == 2
+        # Thumbnail is the earliest ready asset's thumb (full-res fallback handled elsewhere).
+        assert row["thumb_url"] == "https://cdn/a_t.jpg"
+        assert set(row["source_types"].split(",")) == {"walmart", "amazon_pdp"}
+        assert set(row["labels"].split(store._LABEL_SEP)) == {"Tabasco Sauce", "Chipotle Sauce"}
+
+
+def test_list_acquire_activity_excludes_unfinished_and_scopes_by_user(app):
+    with app.app_context():
+        db = get_db()
+        uid = create_local_user("imp-hist2@example.com", "password123")
+        other = create_local_user("imp-hist3@example.com", "password123")
+
+        # Still-processing run (no ready asset) — excluded.
+        processing, _ = _run_with_item(db, uid)
+        # Wholly-failed run — excluded.
+        failed, fitem = _run_with_item(db, uid, url="x", stype="unknown")
+        store.set_item_status(db, fitem, store.ITEM_ERROR, error="nope")
+        store.recompute_run_status(db, failed)
+        # Another user's finished run — must not leak (IDOR).
+        orun, oitem = _run_with_item(db, other)
+        store.add_ready_asset(db, item_id=oitem, run_id=orun, user_id=other,
+                              full_url="https://cdn/o.jpg", thumb_url=None)
+        store.set_item_status(db, oitem, store.ITEM_DONE)
+        store.recompute_run_status(db, orun)
+
+        assert store.list_acquire_activity(db, uid) == []
+        assert [r["id"] for r in store.list_acquire_activity(db, other)] == [orun]
+
+
 # --- acquire orchestrator (resolve-only, no download) -----------------------
 
 def test_process_item_records_resolved_images(app, monkeypatch):

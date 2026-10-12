@@ -121,6 +121,52 @@
 </details>
 {% endmacro %}
 
+{# An acquired-images table: image · date · source · product · images(count).
+   Reuses the product grid (has-score = 5 columns, last one right-aligned and
+   numeric), so the image-count fits the "score" slot with no new CSS. The
+   thumbnail hotlinks an external CDN URL (no bytes stored); the acquired-history
+   page relaxes its CSP img-src to allow it, and referrerpolicy keeps the referer
+   off the CDN request. #}
+{% macro acquired_table(title, sub, rows, empty, all_url='', cap=false, searchable=false) %}
+<details class="card dash-table" open>
+  {{ _summary(title, sub, rows | length, all_url) }}
+  {% if searchable %}{{ _search_bar(title) }}{% endif %}
+  <div class="dash-body{{ ' dash-body-capped' if cap }}">
+    <div class="dash-cols dash-cols-product has-score dash-head-row">
+      <div class="col" data-nosort>Image</div>
+      <div class="col">Date</div>
+      <div class="col">Source</div>
+      <div class="col">Product</div>
+      <div class="col r">Images</div>
+    </div>
+    {% for row in rows %}
+    {% set tag = 'a' if row.result_url else 'div' %}
+    <{{ tag }} class="dash-cols dash-cols-product has-score dash-row{{ ' dash-row-link' if row.result_url }}"{% if row.result_url %} href="{{ row.result_url }}"{% endif %} data-search="{{ row.search | default('') }}">
+      <div class="col dash-thumb-cell">
+        {% if row.image_url %}
+          <img class="dash-thumb" src="{{ row.image_url }}" alt="" loading="lazy" referrerpolicy="no-referrer" />
+        {% else %}
+          <div class="dash-thumb placeholder"></div>
+        {% endif %}
+      </div>
+      <div class="col dash-date" data-sort="{{ row.sort_date }}">{{ row.date }}</div>
+      <div class="col">{{ row.source }}</div>
+      <div class="col dash-title">
+        <span class="run-stack">
+          <span class="run-line">{{ row.title }}</span>
+          {% if row.more %}<span class="run-more">+{{ row.more }} more</span>{% endif %}
+        </span>
+      </div>
+      <div class="col r dash-score">{{ row.count }}</div>
+    </{{ tag }}>
+    {% else %}
+    <div class="dash-empty">{{ empty }}</div>
+    {% endfor %}
+    {% if searchable %}<div class="dash-empty dash-search-empty" hidden>No matches.</div>{% endif %}
+  </div>
+</details>
+{% endmacro %}
+
 {# A Competitive Intelligence table: name · date · my brand/items · competitor brand/items. #}
 {% macro ci_table(title, sub, rows, empty='Nothing this month yet.', all_url='', cap=false, searchable=false) %}
 <details class="card dash-table" open>

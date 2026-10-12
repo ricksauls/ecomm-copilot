@@ -187,6 +187,60 @@ def _imageset_activity_view(rows) -> list[dict]:
     return views
 
 
+# Human-readable names for the acquire source types stored on import_items.
+# source_type (walmart|amazon_pdp|image|unknown); unknown titles fall back to
+# the raw value so a new source type still renders something sensible.
+_ACQUIRE_SOURCE_LABELS = {
+    "walmart": "Walmart",
+    "amazon_pdp": "Amazon",
+    "image": "Image URL",
+    "unknown": "Other",
+}
+
+
+def _acquire_activity_view(rows) -> list[dict]:
+    """Shape finished acquire runs for the "Acquired Images" history table.
+
+    One row per run (:func:`import_store.list_acquire_activity`). Columns are
+    image, date, source site(s), the product(s) acquired, and the image count.
+    The thumbnail hotlinks the run's first ready asset — an external CDN URL, since
+    the no-pre-download model stores no bytes — so the history page relaxes its CSP
+    the same way the gallery does; if that URL has since rotted the cell falls back
+    to the placeholder tile. The product cell shows the first product's label plus
+    an "+N more" count when a run pulled several; a run with no labelled items
+    (e.g. bare image URLs, which carry no title) shows its source instead so the
+    cell is never blank. Search covers every product label and the source, not just
+    the shown one.
+    """
+    views = []
+    for r in rows:
+        labels = [s for s in (r["labels"] or "").split(import_store._LABEL_SEP) if s.strip()]
+        source_types = [s for s in (r["source_types"] or "").split(",") if s]
+        # De-dupe source names while preserving order (dict keys are ordered).
+        source = ", ".join(dict.fromkeys(
+            _ACQUIRE_SOURCE_LABELS.get(s, s.title()) for s in source_types)) or "—"
+        if labels:
+            product = labels[0]
+        else:
+            # Bare image URLs carry no title; show the source so the cell isn't blank.
+            product = source if source != "—" else "Acquired images"
+        views.append({
+            "id": r["id"],  # import_runs row id, for the gallery link
+            "image_url": r["thumb_url"] or None,
+            "date": _format_activity_date(r["run_at"]),
+            # Raw timestamp for client-side sorting (see _product_activity_view).
+            "sort_date": r["run_at"] or "",
+            "source": source,
+            "title": product,
+            # Extra products beyond the one shown — rendered on its own muted line so
+            # it survives the product column's ellipsis truncation.
+            "more": max(0, len(labels) - 1),
+            "count": r["image_count"],
+            "search": _search_blob(source, *labels),
+        })
+    return views
+
+
 def _ci_activity_view(db, uid, rows) -> list[dict]:
     """Shape CI snapshot/monitoring activity rows with their brand config.
 
@@ -227,6 +281,8 @@ _ACTIVITY_META = {
     "copy":          ("Copy created", "product", False, "No copy created yet."),
     "images":        ("Image sets created", "product", False,
                       "No image sets created yet."),
+    "acquired":      ("Images acquired", "acquired", False,
+                      "No images acquired yet."),
     "ci-snapshot":   ("Competitive Intelligence — One-Time Snapshot", "ci", False,
                       "No snapshots run yet."),
     "ci-monitoring": ("Competitive Intelligence — Daily Monitoring", "ci", False,
@@ -242,6 +298,7 @@ _ACTIVITY_ACTIVE_NAV = {
     "scored": "history-scored",
     "copy": "history-copy",
     "images": "history-images",
+    "acquired": "history-acquired",
     "ci-snapshot": "ci-activity",
     "ci-monitoring": "ci-activity",
 }
@@ -253,6 +310,7 @@ _ACTIVITY_BREADCRUMB = {
     "scored": "Product Content Scoring · View Scoring History",
     "copy": "Copy Content Studio · View Copy Content Creation History",
     "images": "Creative Content Studio · View Creative Content Creation History",
+    "acquired": "Creative Content Studio · View Acquired Images History",
     "ci-snapshot": "Insights · One-Time Snapshot",
     "ci-monitoring": "Insights · Daily Monitoring",
 }
@@ -281,6 +339,11 @@ def _activity_rows(db, uid, kind, since):
         rows = _imageset_activity_view(imageset_store.list_creative_activity(db, uid, since))
         for r in rows:
             r["result_url"] = url_for("pages.imageset_gallery", pid=r["id"])
+        return rows
+    if kind == "acquired":
+        rows = _acquire_activity_view(import_store.list_acquire_activity(db, uid, since))
+        for r in rows:
+            r["result_url"] = url_for("pages.import_images_run", run_id=r["id"])
         return rows
     if kind == "ci-snapshot":
         rows = _ci_activity_view(db, uid, ci_jobs.list_snapshot_activity_for_user(db, uid, since))
@@ -460,7 +523,7 @@ def activity_all(kind):
 
     rows = _activity_rows(db, uid, kind, since=None)  # all-time
     logger.info("Serving View All activity=%s user_id=%s rows=%d", kind, uid, len(rows))
-    return render_template(
+    resp = make_response(render_template(
         "app/activity_all.html",
         breadcrumb=_ACTIVITY_BREADCRUMB.get(kind, "Dashboard · " + title),
         active_nav=_ACTIVITY_ACTIVE_NAV.get(kind, "dashboard"),
@@ -469,7 +532,13 @@ def activity_all(kind):
         with_score=with_score,
         empty=empty,
         rows=rows,
-    )
+    ))
+    # The acquired-images history hotlinks external CDN thumbnails (the
+    # no-pre-download model stores no bytes), so relax img-src for this page
+    # only — the same per-page CSP the acquire gallery uses.
+    if kind == "acquired":
+        resp.headers["Content-Security-Policy"] = _IMPORT_GALLERY_CSP
+    return resp
 
 
 @bp.route("/app/content-activity")

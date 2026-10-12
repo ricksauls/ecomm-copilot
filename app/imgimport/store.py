@@ -240,3 +240,53 @@ def asset_index_in_item(conn: sqlite3.Connection, item_id: int, asset_id: int) -
         "SELECT COUNT(*) FROM import_assets WHERE item_id = ? AND id <= ?",
         (item_id, asset_id),
     ).fetchone()[0])
+
+
+# --- activity / history -----------------------------------------------------
+
+# Labels can't contain this separator (it's not a title character), so the caller
+# can split a run's GROUP_CONCAT'd product labels back apart without ambiguity.
+_LABEL_SEP = "||"
+
+
+def list_acquire_activity(
+    conn: sqlite3.Connection, user_id: int, since: str | None = None, limit: int = 500
+) -> list[sqlite3.Row]:
+    """Finished acquire runs for ``user_id`` — backs the "Acquired Images" history.
+
+    A run counts as finished once it reached ``ready``: ``recompute_run_status``
+    sets that only when the run actually produced at least one ready asset. That
+    mirrors the "committed run" filter the other content histories use (image sets
+    gate on ``cutout_approved_at``, scoring/copy on a saved result), so an
+    abandoned or wholly-failed run never shows. Still-``processing`` and
+    ``failed`` runs are excluded; newest run first.
+
+    Each row is a one-query summary (correlated subqueries, no N+1): ``image_count``
+    (ready assets), ``product_count`` (submitted items), ``source_types`` (the
+    distinct ``import_items.source_type`` values), ``thumb_url`` (the earliest
+    ready asset's hotlinked thumbnail, full-res as fallback), and ``labels`` (the
+    product titles joined on :data:`_LABEL_SEP`). ``since`` (an ISO date) restricts
+    to a month for a dashboard table; omit it for the all-time history. Capped at
+    ``limit`` so the query stays bounded (IDOR-scoped by ``user_id``).
+    """
+    sql = (
+        "SELECT r.id, r.created_at AS run_at, "
+        "  (SELECT COUNT(*) FROM import_assets a "
+        "     WHERE a.run_id = r.id AND a.status = ?) AS image_count, "
+        "  (SELECT COUNT(*) FROM import_items i WHERE i.run_id = r.id) AS product_count, "
+        "  (SELECT GROUP_CONCAT(DISTINCT i.source_type) FROM import_items i "
+        "     WHERE i.run_id = r.id) AS source_types, "
+        "  (SELECT COALESCE(a.thumb_url, a.source_image_url) FROM import_assets a "
+        "     WHERE a.run_id = r.id AND a.status = ? ORDER BY a.id LIMIT 1) AS thumb_url, "
+        "  (SELECT GROUP_CONCAT(i.label, ?) FROM import_items i "
+        "     WHERE i.run_id = r.id AND i.label IS NOT NULL AND TRIM(i.label) != '') AS labels "
+        "FROM import_runs r "
+        "WHERE r.user_id = ? AND r.status = ?"
+    )
+    params: list = [STATUS_READY, STATUS_READY, _LABEL_SEP, user_id, STATUS_READY]
+    if since:
+        sql += " AND r.created_at >= ?"
+        params.append(since)
+    sql += " ORDER BY r.created_at DESC, r.id DESC LIMIT ?"
+    params.append(max(1, min(limit, 500)))
+    return conn.execute(sql, params).fetchall()
