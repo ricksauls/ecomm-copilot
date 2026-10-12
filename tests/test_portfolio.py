@@ -1,0 +1,248 @@
+"""Tests for Portfolio Management: the portfolio store and its page routes."""
+
+import io
+
+from werkzeug.datastructures import FileStorage
+
+from app import jobs, portfolio
+from app.db import get_db
+from app.users import create_local_user
+
+
+def _csv(text: str) -> FileStorage:
+    """Wrap CSV text as an uploaded file, as the request layer would deliver it."""
+    return FileStorage(
+        stream=io.BytesIO(text.encode("utf-8")),
+        filename="portfolio.csv",
+        content_type="text/csv",
+    )
+
+
+# ── parse_csv ────────────────────────────────────────────────────────────────
+
+def test_parse_csv_reads_named_columns_in_any_order():
+    # Header names (not positions) decide the columns, and casing/spacing is lenient.
+    csv_text = (
+        "Amazon ASIN URL (Optional),Brand,Walmart Item URL\n"
+        "https://www.amazon.com/dp/B001,Tabasco,https://www.walmart.com/ip/10294528\n"
+    )
+    rows, invalid = portfolio.parse_csv(_csv(csv_text))
+    assert invalid == 0
+    assert rows == [{
+        "brand": "Tabasco",
+        "walmart_url": "https://www.walmart.com/ip/10294528",
+        "amazon_url": "https://www.amazon.com/dp/B001",
+    }]
+
+
+def test_parse_csv_counts_rows_without_a_valid_url_as_invalid():
+    csv_text = (
+        "Brand,Walmart Item URL,Amazon ASIN URL (Optional)\n"
+        "Good,https://www.walmart.com/ip/1,\n"
+        "Bad,not-a-url,\n"
+        "javascript:,javascript:alert(1),\n"  # rejected scheme
+        ",,\n"  # blank line — noise, not invalid
+    )
+    rows, invalid = portfolio.parse_csv(_csv(csv_text))
+    assert [r["walmart_url"] for r in rows] == ["https://www.walmart.com/ip/1"]
+    assert invalid == 2
+
+
+def test_parse_csv_requires_a_brand_on_each_row():
+    # Brand is required on every managed item, so a row without one is dropped
+    # (counted invalid), not imported with a blank brand.
+    csv_text = (
+        "Brand,Walmart Item URL,Amazon ASIN URL (Optional)\n"
+        "Tabasco,https://www.walmart.com/ip/1,\n"
+        ",https://www.walmart.com/ip/2,\n"  # no brand -> invalid
+    )
+    rows, invalid = portfolio.parse_csv(_csv(csv_text))
+    assert [r["brand"] for r in rows] == ["Tabasco"]
+    assert invalid == 1
+
+
+def test_parse_csv_falls_back_to_positional_without_a_recognized_header():
+    # No "Walmart" header: treat columns positionally as brand, walmart, amazon,
+    # and re-check the first row as data (nothing is silently dropped).
+    csv_text = (
+        "Tabasco,https://www.walmart.com/ip/1,https://www.amazon.com/dp/B1\n"
+        "Cholula,https://www.walmart.com/ip/2,\n"
+    )
+    rows, invalid = portfolio.parse_csv(_csv(csv_text))
+    assert invalid == 0
+    assert [r["brand"] for r in rows] == ["Tabasco", "Cholula"]
+    assert [r["walmart_url"] for r in rows] == [
+        "https://www.walmart.com/ip/1",
+        "https://www.walmart.com/ip/2",
+    ]
+
+
+# ── import_rows (dedupe / skip) ───────────────────────────────────────────────
+
+def test_import_skips_items_already_in_the_portfolio(app):
+    with app.app_context():
+        db = get_db()
+        uid = create_local_user("p@example.com", "password123")
+        rows = [
+            {"brand": "Tabasco", "walmart_url": "https://www.walmart.com/ip/slug/10294528", "amazon_url": None},
+            {"brand": "Cholula", "walmart_url": "https://www.walmart.com/ip/222", "amazon_url": None},
+        ]
+        first = portfolio.import_rows(db, uid, rows)
+        assert first == {"added": 2, "skipped": 0}
+
+        # Re-import: same item number (even via a different slug) is skipped.
+        again = portfolio.import_rows(db, uid, [
+            {"brand": "Tabasco", "walmart_url": "https://www.walmart.com/ip/other-slug/10294528", "amazon_url": None},
+            {"brand": "New", "walmart_url": "https://www.walmart.com/ip/333", "amazon_url": None},
+        ])
+        assert again == {"added": 1, "skipped": 1}
+        assert len(portfolio.list_items(db, uid)) == 3
+
+
+def test_import_dedupes_within_one_batch(app):
+    with app.app_context():
+        db = get_db()
+        uid = create_local_user("dupe@example.com", "password123")
+        result = portfolio.import_rows(db, uid, [
+            {"brand": "A", "walmart_url": "https://www.walmart.com/ip/1", "amazon_url": None},
+            {"brand": "A", "walmart_url": "https://www.walmart.com/ip/1", "amazon_url": None},
+        ])
+        assert result == {"added": 1, "skipped": 1}
+
+
+def test_import_is_scoped_per_user(app):
+    with app.app_context():
+        db = get_db()
+        a = create_local_user("a@example.com", "password123")
+        b = create_local_user("b@example.com", "password123")
+        portfolio.import_rows(db, a, [{"brand": "X", "walmart_url": "https://www.walmart.com/ip/1", "amazon_url": None}])
+        # Same product for a different user is a genuinely new row, not a skip.
+        result = portfolio.import_rows(db, b, [{"brand": "X", "walmart_url": "https://www.walmart.com/ip/1", "amazon_url": None}])
+        assert result == {"added": 1, "skipped": 0}
+
+
+# ── add_item / delete_item ────────────────────────────────────────────────────
+
+def test_add_item_validates_and_dedupes(app):
+    with app.app_context():
+        db = get_db()
+        uid = create_local_user("add@example.com", "password123")
+
+        ok, err = portfolio.add_item(db, uid, "Tabasco", "https://www.walmart.com/ip/10294528", None)
+        assert ok and err is None
+
+        ok, err = portfolio.add_item(db, uid, "Tabasco", "https://www.walmart.com/ip/10294528", None)
+        assert not ok and "already" in err.lower()
+
+        ok, err = portfolio.add_item(db, uid, "Bad", "not-a-url", None)
+        assert not ok and "valid" in err.lower()
+
+        # Brand is required — a blank/whitespace brand is rejected.
+        ok, err = portfolio.add_item(db, uid, "  ", "https://www.walmart.com/ip/999", None)
+        assert not ok and "brand" in err.lower()
+
+
+def test_delete_item_is_owner_scoped(app):
+    with app.app_context():
+        db = get_db()
+        owner = create_local_user("owner@example.com", "password123")
+        other = create_local_user("other@example.com", "password123")
+        portfolio.add_item(db, owner, "X", "https://www.walmart.com/ip/1", None)
+        pk = portfolio.list_items(db, owner)[0]["id"]
+
+        # A non-owner can't delete it (IDOR guard); the owner can.
+        assert portfolio.delete_item(db, other, pk) is False
+        assert portfolio.delete_item(db, owner, pk) is True
+        assert portfolio.list_items(db, owner) == []
+
+
+def test_distinct_brands_sorted_case_insensitive(app):
+    with app.app_context():
+        db = get_db()
+        uid = create_local_user("brands@example.com", "password123")
+        for brand, n in [("Zed", 1), ("apple", 2), ("Mango", 3)]:
+            portfolio.add_item(db, uid, brand, f"https://www.walmart.com/ip/{n}", None)
+        # A legacy NULL-brand row (brand is required on new items, but an older row
+        # could be NULL) must be excluded from the filter list.
+        db.execute("INSERT INTO portfolio_items (user_id, walmart_url, dedupe_key) "
+                   "VALUES (?, ?, ?)", (uid, "https://www.walmart.com/ip/4", "4"))
+        db.commit()
+        assert portfolio.distinct_brands(db, uid) == ["apple", "Mango", "Zed"]
+
+
+# ── dashboard union ───────────────────────────────────────────────────────────
+
+def test_portfolio_feeds_managed_product_and_brand_counts(app):
+    with app.app_context():
+        db = get_db()
+        uid = create_local_user("kpi@example.com", "password123")
+        jobs.enqueue_items(db, uid, [{"url": "https://www.walmart.com/ip/1", "item": "1"}])
+        db.execute("UPDATE scored_items SET brand = 'Scored' WHERE user_id = ?", (uid,))
+        db.commit()
+        portfolio.add_item(db, uid, "Portfolio", "https://www.walmart.com/ip/2", None)
+
+        # Product 2 only exists in the portfolio -> union counts both products,
+        # and the portfolio brand joins the distinct-brand count.
+        assert jobs.count_managed_products(db, uid) == 2
+        assert jobs.count_managed_brands(db, uid) == 2
+
+
+# ── routes ────────────────────────────────────────────────────────────────────
+
+def test_portfolio_page_requires_login(client):
+    resp = client.get("/app/portfolio")
+    assert resp.status_code in (302, 401)
+
+
+def test_import_add_delete_flow_via_routes(client, auth):
+    auth.register(email="flow@example.com", password="password123")
+    auth.login(email="flow@example.com", password="password123")
+
+    # Import a CSV.
+    csv_bytes = (
+        b"Brand,Walmart Item URL,Amazon ASIN URL (Optional)\n"
+        b"Tabasco,https://www.walmart.com/ip/10294528,\n"
+    )
+    resp = client.post(
+        "/app/portfolio/import",
+        data={"csv": (io.BytesIO(csv_bytes), "p.csv")},
+        content_type="multipart/form-data",
+        follow_redirects=True,
+    )
+    assert resp.status_code == 200
+    assert b"10294528" in resp.data  # the item appears in the table
+
+    # Add one more inline.
+    client.post("/app/portfolio/add", data={
+        "brand": "Cholula",
+        "walmart_url": "https://www.walmart.com/ip/222",
+        "amazon_url": "",
+    }, follow_redirects=True)
+
+    page = client.get("/app/portfolio")
+    assert b"Cholula" in page.data
+
+    # The pick-list shows on the scoring and copy intakes.
+    scoring = client.get("/app/pdp-scoring")
+    assert b"Choose from your managed items" in scoring.data
+    assert b"10294528" in scoring.data
+    copy = client.get("/app/pdp-copy")
+    assert b"Choose from your managed items" in copy.data
+
+
+def test_copy_intake_requires_a_brand(client, auth):
+    # Brand is now required on Product Copy — a valid URL with no brand is a 400,
+    # enforced server-side (not only by the browser's `required`).
+    auth.register(email="copybrand@example.com", password="password123")
+    resp = client.post("/app/pdp-copy", data={"urls": "https://www.walmart.com/ip/10294528"})
+    assert resp.status_code == 400
+    assert b"brand" in resp.data.lower()
+
+
+def test_template_download_has_expected_headers(client, auth):
+    auth.register(email="tmpl@example.com", password="password123")
+    auth.login(email="tmpl@example.com", password="password123")
+    resp = client.get("/app/portfolio/template.csv")
+    assert resp.status_code == 200
+    assert "text/csv" in resp.headers["Content-Type"]
+    assert b"Brand,Walmart Item URL,Amazon ASIN URL (Optional)" in resp.data

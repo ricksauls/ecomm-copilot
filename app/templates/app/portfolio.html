@@ -1,0 +1,150 @@
+{% extends "app/base.html" %}
+{% block title %}Portfolio Management — DISCOtech{% endblock %}
+
+{% block pane_content %}
+<div class="page-header">
+  <div>
+    <h1>Portfolio Management</h1>
+    <p class="subtitle">
+      The products you manage. Import a CSV or add items one at a time — they'll
+      appear as a filterable pick-list on Content Scoring and Product Copy.
+    </p>
+  </div>
+</div>
+
+{% with flashes = get_flashed_messages(with_categories=true) %}
+  {% for category, message in flashes %}
+  <div class="ci-flash {{ category }}" role="alert">{{ message }}</div>
+  {% endfor %}
+{% endwith %}
+
+{# --- Import a CSV ---------------------------------------------------------- #}
+<div class="card card-pad">
+  <div class="ci-section-title">Import items from a CSV</div>
+  <p class="brand-hint">
+    Columns: <strong>Brand</strong> and <strong>Walmart Item URL</strong> (both
+    required), <strong>Amazon ASIN URL</strong> (optional). Rows missing a brand or
+    URL are skipped, as are items already in your portfolio.
+    <a href="{{ url_for('pages.portfolio_template') }}">Download a template</a>.
+  </p>
+  <form method="post" action="{{ url_for('pages.portfolio_import') }}"
+        enctype="multipart/form-data" class="pf-import-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+
+    {# Styled drop zone — the real <input type="file"> is visually hidden but
+       still the label's target, so click-to-browse works with no JS; the shared
+       intake.js adds drag-and-drop and the filename readout as enhancement. #}
+    <label id="csv-drop" class="csv-drop" for="csv">
+      <svg class="csv-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="1.5" aria-hidden="true">
+        <path d="M12 15V4M8 8l4-4 4 4" />
+        <path d="M4 15v3a2 2 0 002 2h12a2 2 0 002-2v-3" />
+      </svg>
+      <span class="csv-drop-text">Drag a CSV here, or <span class="link">browse</span></span>
+      <span class="csv-drop-hint">Brand · Walmart Item URL · Amazon ASIN URL (Optional)</span>
+      <input type="file" id="csv" name="csv" accept=".csv,text/csv" class="csv-input-hidden" />
+    </label>
+    <p id="csv-filename" class="csv-filename" hidden></p>
+
+    <button type="submit" class="wbtn wbtn-primary">Import CSV</button>
+  </form>
+</div>
+
+{# --- Add a single item ----------------------------------------------------- #}
+<div class="card card-pad">
+  <div class="ci-section-title">Add a single item</div>
+  <form method="post" action="{{ url_for('pages.portfolio_add') }}" class="msg-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+    <div class="msg-form-row">
+      <input type="text" name="brand" class="ci-input" placeholder="Brand"
+             maxlength="120" autocomplete="off" required />
+      <input type="url" name="walmart_url" class="ci-input grow"
+             placeholder="https://www.walmart.com/ip/10294528" maxlength="2048"
+             autocomplete="off" required />
+    </div>
+    <div class="msg-form-row">
+      <input type="url" name="amazon_url" class="ci-input grow"
+             placeholder="Amazon ASIN URL (optional)" maxlength="2048" autocomplete="off" />
+      <button type="submit" class="wbtn wbtn-primary">Add Item</button>
+    </div>
+  </form>
+</div>
+
+{# --- Managed items: filter + table ---------------------------------------- #}
+<div class="card card-pad" data-portfolio-filter>
+  <div class="pf-list-head">
+    <div class="ci-section-title">
+      Managed items <span class="cell-muted" data-filter-count>({{ items | length }})</span>
+    </div>
+    {% if items %}
+    <div class="pf-filter-bar">
+      <select class="ci-input" data-filter-brand aria-label="Filter by brand">
+        <option value="">All brands</option>
+        {% for b in brands %}
+        <option value="{{ b | lower }}">{{ b }}</option>
+        {% endfor %}
+      </select>
+      <input type="search" class="ci-input grow" data-filter-search
+             placeholder="Filter by item # or URL…" aria-label="Filter by item number or URL" />
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="table-scroll">
+    <table class="admin-table">
+      <thead>
+        <tr>
+          <th>Brand</th>
+          <th>Item #</th>
+          <th class="col-product">Walmart URL</th>
+          <th>Amazon</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for it in items %}
+        {# data-* attributes back the client-side filter (brand / item # / URL),
+           all lowercased so matching is case-insensitive. #}
+        <tr data-portfolio-row
+            data-brand="{{ (it.brand or '') | lower }}"
+            data-item="{{ it.item_id or '' }}"
+            data-url="{{ it.walmart_url | lower }}">
+          <td>{{ it.brand or '—' }}</td>
+          <td>{{ it.item_id or '—' }}</td>
+          <td class="col-product">
+            <a href="{{ it.walmart_url }}" target="_blank" rel="noopener noreferrer"
+               class="cell-muted">{{ it.walmart_url }}</a>
+          </td>
+          <td>
+            {% if it.amazon_url %}
+            <a href="{{ it.amazon_url }}" target="_blank" rel="noopener noreferrer"
+               class="cell-muted">link</a>
+            {% else %}—{% endif %}
+          </td>
+          <td class="cell-action">
+            <form method="post" action="{{ url_for('pages.portfolio_delete', item_id=it.id) }}"
+                  class="pf-delete-form">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+              <button type="submit" class="btn-delete">Remove</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+        {# Shown by the filter JS when no row matches; hidden otherwise. #}
+        <tr class="pf-empty-filtered" hidden>
+          <td colspan="5" class="results-count">No items match that filter.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  {% if not items %}
+  <p class="results-count">No managed items yet. Import a CSV or add one above to get started.</p>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+{# intake.js powers the CSV drop zone; portfolio.js powers the client-side filter. #}
+<script src="{{ static_url('js/intake.js') }}"></script>
+<script src="{{ static_url('js/portfolio.js') }}"></script>
+{% endblock %}

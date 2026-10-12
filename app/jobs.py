@@ -141,16 +141,17 @@ def count_managed_products(conn: sqlite3.Connection, user_id: int,
     """Distinct products a user has worked on — the dashboard "Products managed" KPI.
 
     A product counts once if the user has scored it OR created copy content for it
-    (creative/image sets will union in here once that feature exists). Keyed on the
-    Walmart item id, so the same product across scoring + copy is counted once;
-    rows without an item id (a failed parse) are excluded. ``since`` (an ISO date)
-    restricts to rows created on/after that date, for the "this month" figure.
+    OR added it to their managed portfolio (creative/image sets will union in here
+    once that feature exists). Keyed on the Walmart item id, so the same product
+    across scoring + copy + portfolio is counted once; rows without an item id (a
+    failed parse) are excluded. ``since`` (an ISO date) restricts to rows created
+    on/after that date, for the "this month" figure.
     """
     date_clause = " AND created_at >= ?" if since else ""
     params: list = [user_id]
     if since:
         params.append(since)
-    # Same clause + params for each side of the UNION.
+    # Same clause + params for each arm of the UNION (scored / copy / portfolio).
     row = conn.execute(
         "SELECT COUNT(*) FROM ("
         "  SELECT item_id FROM scored_items "
@@ -158,8 +159,11 @@ def count_managed_products(conn: sqlite3.Connection, user_id: int,
         "  UNION "
         "  SELECT item_id FROM copy_items "
         "    WHERE user_id = ? AND item_id IS NOT NULL AND item_id != ''" + date_clause +
+        "  UNION "
+        "  SELECT item_id FROM portfolio_items "
+        "    WHERE user_id = ? AND item_id IS NOT NULL AND item_id != ''" + date_clause +
         ")",
-        params + params,
+        params + params + params,
     ).fetchone()
     return int(row[0])
 
@@ -169,25 +173,27 @@ def count_managed_brands(conn: sqlite3.Connection, user_id: int,
     """Distinct brands a user has worked on — the dashboard "brands" subtitle figure.
 
     A brand counts once across everything the user has scored OR created copy for
-    (creative/image sets union in here once that feature exists). Compared
-    case-insensitively (``LOWER(TRIM(...))``) so "Tabasco" and "TABASCO" — e.g. a
-    user-typed label vs the PDP's spelling — don't double-count; NULL/blank brands
-    are excluded. ``since`` (an ISO date) restricts to rows created on/after that
-    date, mirroring the product counts.
+    OR added to their managed portfolio (creative/image sets union in here once
+    that feature exists). Compared case-insensitively (``LOWER(TRIM(...))``) so
+    "Tabasco" and "TABASCO" — e.g. a user-typed label vs the PDP's spelling —
+    don't double-count; NULL/blank brands are excluded. ``since`` (an ISO date)
+    restricts to rows created on/after that date, mirroring the product counts.
     """
     date_clause = " AND created_at >= ?" if since else ""
     params: list = [user_id]
     if since:
         params.append(since)
-    # Same brand filter + params for each side of the UNION.
+    # Same brand filter + params for each arm of the UNION (scored / copy / portfolio).
     brand_filter = " AND brand IS NOT NULL AND TRIM(brand) != ''"
     row = conn.execute(
         "SELECT COUNT(DISTINCT LOWER(TRIM(brand))) FROM ("
         "  SELECT brand FROM scored_items WHERE user_id = ?" + brand_filter + date_clause +
         "  UNION ALL "
         "  SELECT brand FROM copy_items WHERE user_id = ?" + brand_filter + date_clause +
+        "  UNION ALL "
+        "  SELECT brand FROM portfolio_items WHERE user_id = ?" + brand_filter + date_clause +
         ")",
-        params + params,
+        params + params + params,
     ).fetchone()
     return int(row[0])
 

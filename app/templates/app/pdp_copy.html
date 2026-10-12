@@ -1,5 +1,6 @@
 {% extends "app/base.html" %}
 {% import "app/_workspace_tabs.html" as ws %}
+{% import "app/_portfolio_pick.html" as pf %}
 {% block title %}Product Detail Page Copy Content Creation — DISCOtech{% endblock %}
 
 {% block pane_content %}
@@ -19,20 +20,26 @@
         class="pdp-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
 
-    {# Optional batch-level brand. Applies to every item in this submission; the
-       worker fills it from the PDP only where the user leaves it blank. #}
+    {# Required batch-level brand. Applies to every item in this submission and
+       anchors the generated copy, so we ask for it explicitly rather than relying
+       on scraping it from the PDP. Enforced server-side in pdp_copy() too. #}
     <div class="form-section brand-section">
-      <label class="field-label" for="brand">Brand <span class="field-optional">(optional)</span></label>
-      <p class="brand-hint">Label these products with your brand — we’ll capture it from the page where you leave it blank.</p>
+      <label class="field-label" for="brand">Brand <span class="field-required">(required)</span></label>
+      <p class="brand-hint">Tell us the brand for these products — it anchors the copy we generate.</p>
       <span class="brand-field">
         <input type="text" id="brand" name="brand" class="brand-input" maxlength="120"
-               placeholder="e.g. Tabasco" />
+               placeholder="e.g. Tabasco" value="{{ brand_value | default('') }}" required />
       </span>
     </div>
 
+    {# Step 1 — pick from the user's managed portfolio (filterable). #}
+    {{ pf.portfolio_pick(portfolio_items, portfolio_brands) }}
+
+    <div class="form-divider"><span>or</span></div>
+
     <div class="form-section">
       <div class="section-head">
-        <span class="step">1</span>
+        <span class="step">2</span>
         <label class="field-label">Add item URLs</label>
       </div>
 
@@ -59,7 +66,7 @@
 
     <div class="form-section">
       <div class="section-head">
-        <span class="step">2</span>
+        <span class="step">3</span>
         <label class="field-label" for="csv">Upload a CSV</label>
       </div>
 
@@ -77,6 +84,10 @@
         <input type="file" id="csv" name="csv" accept=".csv,text/csv" class="csv-input-hidden" />
       </label>
       <p id="csv-filename" class="csv-filename" hidden></p>
+      <p class="csv-template-line">
+        Not sure of the format?
+        <a href="{{ url_for('pages.pdp_copy_template') }}">Download a template</a>.
+      </p>
     </div>
 
     <button type="submit" class="wbtn wbtn-primary wbtn-lg">Get Current Copy Content</button>
@@ -86,4 +97,5 @@
 
 {% block scripts %}
 <script src="{{ static_url('js/intake.js') }}"></script>
+<script src="{{ static_url('js/portfolio.js') }}"></script>
 {% endblock %}

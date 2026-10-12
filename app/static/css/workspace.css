@@ -930,6 +930,15 @@ a:focus-visible,
   letter-spacing: 0;
   color: var(--cool-gray);
 }
+/* Counterpart to .field-optional for fields we now require (e.g. Brand). Same
+   muted weight/case as the optional tag, tinted with the accent so "(required)"
+   reads as a deliberate signal rather than an error. */
+.field-required {
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--accent);
+}
 .brand-hint {
   margin: 6px 0 10px;
   font-size: 12.5px;
@@ -1111,6 +1120,14 @@ a:focus-visible,
   font-size: 12.5px;
   color: var(--mid-gray);
 }
+/* "Download a template" hint under every CSV drop zone — muted, with an accented
+   link, so it reads as a helper line rather than a primary action. */
+.csv-template-line {
+  margin: 8px 0 0;
+  font-size: 12.5px;
+  color: var(--cool-gray);
+}
+.csv-template-line a { color: var(--accent); }
 .pdp-form .wbtn-lg {
   margin-top: 26px;
   padding: 12px 22px;
@@ -3146,3 +3163,75 @@ textarea.text-input { resize: vertical; line-height: 1.5; }
 .seasonal-reminder-reminder { border-left-color: var(--signal-red); }
 .seasonal-reminder-expiring_soon { border-left-color: var(--accent); }
 .seasonal-reminder-launching_soon { border-left-color: var(--accent); }
+
+/* ── Portfolio Management ───────────────────────────────────────────────────
+   The managed-items catalog screen plus the "Choose from your managed items"
+   pick-list on the Content Scoring / Product Copy intakes. Reuses the card,
+   table, and .ci-input controls; these rules add the filter bar and the
+   checkbox pick-list. */
+
+/* Filter bar: brand dropdown + free-text search, shared by the table and the
+   pick-list. Wraps on narrow panes so neither control gets crushed. */
+.pf-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-8);
+  margin-bottom: var(--space-12);
+}
+.pf-filter-bar .ci-input { min-width: 14ch; }
+
+/* Managed-items card header: section title on the left, filter bar on the right
+   when there's room; stacks on narrow panes. */
+.pf-list-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-12);
+}
+.pf-list-head .pf-filter-bar { margin-bottom: 0; }
+
+/* Keep the single-add and import forms off the card edge. */
+.pf-import-form { margin-top: var(--space-12); }
+.pf-import-form .wbtn { margin-top: var(--space-12); }
+
+/* Delete/Remove form sits inline in the row's action cell (no block margin). */
+.pf-delete-form { margin: 0; }
+
+/* Pick-list: a scrollable column of selectable rows. Bounded height so a large
+   portfolio doesn't push the manual-entry sections off-screen. */
+.pf-pick-list {
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+}
+.pf-pick-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-12);
+  padding: var(--space-9) var(--space-12);
+  border-bottom: 1px solid var(--divider);
+  cursor: pointer;
+}
+.pf-pick-row:last-of-type { border-bottom: none; }
+.pf-pick-row:hover { background: var(--row-hover); }
+.pf-pick-check { flex: 0 0 auto; }
+.pf-pick-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-8);
+  min-width: 0;
+  font-size: 13px;
+}
+.pf-pick-brand { font-weight: 600; color: var(--black); }
+.pf-pick-item { color: var(--mid-gray); font-variant-numeric: tabular-nums; }
+.pf-pick-url {
+  color: var(--cool-gray);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.pf-empty-filtered { padding: var(--space-12); margin: 0; }

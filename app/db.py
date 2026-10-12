@@ -111,6 +111,31 @@ CREATE TABLE IF NOT EXISTS copy_items (
 CREATE INDEX IF NOT EXISTS idx_copy_items_status ON copy_items(status);
 CREATE INDEX IF NOT EXISTS idx_copy_items_user ON copy_items(user_id, id);
 
+-- One row per product the user explicitly manages — their "portfolio". Populated
+-- from a CSV upload (columns Brand / Walmart Item URL / Amazon ASIN URL) or the
+-- single-item add form on the Portfolio Management screen, and offered as a
+-- filterable pick-list on the Content Scoring and Product Copy intakes (ahead of
+-- manual URL entry). Distinct from scored_items/copy_items, which are per-run
+-- activity: this is the durable catalog the user curates. `dedupe_key` is the
+-- Walmart item number when the URL carries one, else the lowercased URL; the
+-- per-user UNIQUE index on it makes re-importing a list skip products already in
+-- the portfolio (INSERT OR IGNORE at the DB, not just in app code).
+CREATE TABLE IF NOT EXISTS portfolio_items (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id      INTEGER NOT NULL REFERENCES users(id),
+    brand        TEXT,                              -- from the CSV "Brand" column; nullable
+    walmart_url  TEXT    NOT NULL,                  -- the managed product's Walmart PDP URL
+    item_id      TEXT,                              -- Walmart item number parsed from walmart_url, when present
+    amazon_url   TEXT,                              -- optional Amazon ASIN URL
+    dedupe_key   TEXT    NOT NULL,                  -- item_id when present, else LOWER(walmart_url); drives the UNIQUE
+    created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+    updated_at   TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+-- Enforce "skip items already in the portfolio" at the DB: a per-user duplicate
+-- dedupe_key is rejected, so INSERT OR IGNORE counts the genuinely-new rows.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_portfolio_items_dedupe ON portfolio_items(user_id, dedupe_key);
+CREATE INDEX IF NOT EXISTS idx_portfolio_items_user ON portfolio_items(user_id, id);
+
 -- One row per AI image-fix (upscale / white-background) requested from the
 -- scoring results page. The web app inserts rows as 'queued'; the background
 -- worker claims them, calls the upscaling provider, and caches the output under

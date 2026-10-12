@@ -9,6 +9,8 @@ Sign-in / sign-up / sign-out live in the ``auth`` blueprint. The dashboard is
 guarded by ``login_required``, so it is no longer world-reachable.
 """
 
+import csv
+import io
 import json
 import logging
 import os
@@ -42,6 +44,7 @@ from app import (
     jobs,
     messages,
     pdp,
+    portfolio,
     users,
 )
 from app.db import get_db
@@ -619,6 +622,22 @@ def ci_activity():
     )
 
 
+def _portfolio_pick_context() -> dict:
+    """Portfolio pick-list context shared by the scoring and copy intakes.
+
+    Both screens offer the user's managed portfolio as a filterable checkbox list
+    above manual URL entry; this returns the items and their distinct brands (for
+    the brand filter). Scoped to the signed-in user so one user never sees
+    another's portfolio.
+    """
+    db = get_db()
+    uid = g.user["id"]
+    return {
+        "portfolio_items": portfolio.list_items(db, uid),
+        "portfolio_brands": portfolio.distinct_brands(db, uid),
+    }
+
+
 @bp.route("/app/pdp-scoring", methods=["GET", "POST"])
 @login_required
 def pdp_scoring():
@@ -644,6 +663,7 @@ def pdp_scoring():
                     submitted=False,
                     max_items=pdp.MAX_ITEMS,
                     error="No valid item URLs were provided.",
+                    **_portfolio_pick_context(),
                 ),
                 400,
             )
@@ -669,6 +689,7 @@ def pdp_scoring():
         submitted=False,
         max_items=pdp.MAX_ITEMS,
         url_prefix=pdp.WALMART_IP_PREFIX,
+        **_portfolio_pick_context(),
     )
 
 
@@ -1534,20 +1555,30 @@ def pdp_copy():
         form_urls = request.form.getlist("urls")
         csv_file = request.files.get("csv")
         accepted, rejected = pdp.collect_items(form_urls, csv_file)
+        brand = pdp.clean_brand(request.form.get("brand"))
 
+        # Brand is required on copy creation — it anchors the generated copy, so we
+        # ask for it rather than scraping. Enforce at the boundary, not only via the
+        # browser's `required` (a direct POST bypasses client-side validation).
+        error = None
         if not accepted:
+            error = "No valid item URLs were provided."
+        elif not brand:
+            error = "Enter a brand for these products."
+        if error:
             return (
                 render_template(
                     "app/pdp_copy.html",
                     breadcrumb="Copy Content Studio · Product Detail Page Copy Content Creation",
                     active_nav="pdp-copy",
                     max_items=pdp.MAX_ITEMS,
-                    error="No valid item URLs were provided.",
+                    error=error,
+                    brand_value=request.form.get("brand", ""),  # keep what they typed
+                    **_portfolio_pick_context(),
                 ),
                 400,
             )
 
-        brand = pdp.clean_brand(request.form.get("brand"))
         items = [
             {"url": url, "item": pdp.item_number_from_url(url), "brand": brand}
             for url in accepted
@@ -1568,6 +1599,170 @@ def pdp_copy():
         active_nav="pdp-copy",
         max_items=pdp.MAX_ITEMS,
         url_prefix=pdp.WALMART_IP_PREFIX,
+        **_portfolio_pick_context(),
+    )
+
+
+# ── Portfolio Management ─────────────────────────────────────────────────────
+# The user's durable, curated catalog of managed products. CSV import / single
+# add / delete here; the catalog then surfaces as the first pick-list on the
+# Content Scoring and Product Copy intakes.
+
+_PORTFOLIO_NAV = "portfolio"
+
+
+@bp.route("/app/portfolio")
+@login_required
+def portfolio_home():
+    """Portfolio Management screen: list managed items, with import/add/filter."""
+    logger.info("Serving Portfolio Management, user_id=%s", g.user["id"])
+    db = get_db()
+    uid = g.user["id"]
+    return render_template(
+        "app/portfolio.html",
+        breadcrumb="Portfolio Management · Managed Items",
+        active_nav=_PORTFOLIO_NAV,
+        items=portfolio.list_items(db, uid),
+        brands=portfolio.distinct_brands(db, uid),
+    )
+
+
+@bp.route("/app/portfolio/import", methods=["POST"])
+@login_required
+def portfolio_import():
+    """Import managed products from an uploaded CSV, skipping existing items."""
+    csv_file = request.files.get("csv")
+    if csv_file is None or not csv_file.filename:
+        flash("Choose a CSV file to import.", "error")
+        return redirect(url_for("pages.portfolio_home"))
+
+    rows, invalid = portfolio.parse_csv(csv_file)
+    if not rows:
+        # Nothing usable — tell the user rather than claiming a silent success.
+        flash(
+            "No valid items found in that CSV. Each row needs a \"Brand\" and a "
+            "\"Walmart Item URL\" (a full product URL).",
+            "error",
+        )
+        return redirect(url_for("pages.portfolio_home"))
+
+    result = portfolio.import_rows(get_db(), g.user["id"], rows)
+    # Summarize the outcome so the user knows exactly what happened: added vs
+    # skipped (already present / duplicate in the file) vs invalid (no URL).
+    parts = [f"{result['added']} item{'' if result['added'] == 1 else 's'} added"]
+    if result["skipped"]:
+        parts.append(f"{result['skipped']} skipped (already in your portfolio)")
+    if invalid:
+        parts.append(f"{invalid} row{'' if invalid == 1 else 's'} ignored (missing brand or URL)")
+    flash(" · ".join(parts), "ok")
+    return redirect(url_for("pages.portfolio_home"))
+
+
+@bp.route("/app/portfolio/add", methods=["POST"])
+@login_required
+def portfolio_add():
+    """Add a single managed product from the inline form."""
+    ok, error = portfolio.add_item(
+        get_db(),
+        g.user["id"],
+        brand=request.form.get("brand"),
+        walmart_url_raw=request.form.get("walmart_url", ""),
+        amazon_url_raw=request.form.get("amazon_url"),
+    )
+    flash("Item added to your portfolio." if ok else error, "ok" if ok else "error")
+    return redirect(url_for("pages.portfolio_home"))
+
+
+@bp.route("/app/portfolio/delete/<int:item_id>", methods=["POST"])
+@login_required
+def portfolio_delete(item_id: int):
+    """Delete one managed product the user owns."""
+    removed = portfolio.delete_item(get_db(), g.user["id"], item_id)
+    flash("Item removed." if removed else "That item is no longer in your portfolio.",
+          "ok" if removed else "error")
+    return redirect(url_for("pages.portfolio_home"))
+
+
+def _csv_template_response(filename: str, header: list[str], rows: list[list[str]]):
+    """Build a downloadable CSV template: one header row + illustrative examples.
+
+    Shared by every screen that accepts a CSV upload, so each "Download a template"
+    link produces a correctly-shaped starter file (header the user keeps, example
+    rows they replace). ``filename`` sets the download name via Content-Disposition.
+    """
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(header)
+    for row in rows:
+        writer.writerow(row)
+    resp = make_response(buf.getvalue())
+    resp.headers["Content-Type"] = "text/csv; charset=utf-8"
+    resp.headers["Content-Disposition"] = f"attachment; filename={filename}"
+    return resp
+
+
+@bp.route("/app/portfolio/template.csv")
+@login_required
+def portfolio_template():
+    """Download a blank CSV with the three expected column headers + one example."""
+    # One illustrative row so the expected URL shape is obvious; the user replaces it.
+    return _csv_template_response(
+        "portfolio-template.csv",
+        list(portfolio.TEMPLATE_HEADERS),
+        [["Tabasco", "https://www.walmart.com/ip/10294528",
+          "https://www.amazon.com/dp/B00004S1C5"]],
+    )
+
+
+# CSV templates for the URL-upload screens. All of these parse via pdp.urls_from_csv
+# (any cell that looks like an http(s) URL is picked up, header ignored), so each
+# template is a single URL column with example rows matching what that screen accepts.
+
+@bp.route("/app/pdp-scoring/template.csv")
+@login_required
+def pdp_scoring_template():
+    """Download a CSV template for Content Scoring (Walmart item URLs)."""
+    return _csv_template_response(
+        "content-scoring-template.csv",
+        ["Walmart Item URL"],
+        [["https://www.walmart.com/ip/10294528"],
+         ["https://www.walmart.com/ip/592012115"]],
+    )
+
+
+@bp.route("/app/pdp-copy/template.csv")
+@login_required
+def pdp_copy_template():
+    """Download a CSV template for Product Copy (Walmart item URLs)."""
+    return _csv_template_response(
+        "product-copy-template.csv",
+        ["Walmart Item URL"],
+        [["https://www.walmart.com/ip/10294528"],
+         ["https://www.walmart.com/ip/592012115"]],
+    )
+
+
+@bp.route("/app/import-images/template.csv")
+@login_required
+def import_images_template():
+    """Download a CSV template for Acquire Product Images (product or image URLs)."""
+    return _csv_template_response(
+        "acquire-images-template.csv",
+        ["Product or Image URL"],
+        [["https://www.walmart.com/ip/10294528"],
+         ["https://m.media-amazon.com/images/I/71abcdefgh._AC_SL1500_.jpg"]],
+    )
+
+
+@bp.route("/app/seasonal/template.csv")
+@login_required
+def seasonal_template():
+    """Download a CSV template for Seasonal Campaigns (Walmart or Amazon product URLs)."""
+    return _csv_template_response(
+        "seasonal-products-template.csv",
+        ["Product URL"],
+        [["https://www.walmart.com/ip/10294528"],
+         ["https://www.amazon.com/dp/B00004S1C5"]],
     )
 
 
@@ -2300,8 +2495,8 @@ def imageset_intake():
             has_image=bool(proj and proj["original_path"]),
             has_logo=bool(proj and proj["logo_path"]))), code
 
-    if not fields["name"] or not fields["category"]:
-        return _rerender("Product name and category are required.", 400)
+    if not fields["name"] or not fields["brand"] or not fields["category"]:
+        return _rerender("Product name, brand, and category are required.", 400)
 
     # Photo: a new upload always wins; otherwise a prefilled draft may reuse the
     # fetched product image. A brand-new project must supply a photo.

@@ -205,7 +205,8 @@ def test_submit_from_prefilled_draft_reuses_image(client, auth, tmp_path, monkey
         isstore.finish_fetch(db, pid)
     # Submit with project_id and NO upload → reuse the fetched image, run the cutout.
     resp = client.post("/app/pdp-image-set", data={
-        "project_id": str(pid), "name": "Red Pepper Sauce", "category": "hot sauce", "unit": "in"})
+        "project_id": str(pid), "name": "Red Pepper Sauce", "brand": "Tabasco",
+        "category": "hot sauce", "unit": "in"})
     assert resp.status_code == 302 and "/cutout" in resp.headers["Location"]
     with client.application.app_context():
         assert isstore.get_project(get_db(), pid, 1)["cutout_path"]
