@@ -337,13 +337,23 @@ _ACTIVITY_WORKSPACE_CREATE = {
     "acquired": "pages.import_images_intake",
 }
 
+# The History tab is named after what that workspace produces (e.g. "Copy
+# Created"), rather than a generic "History", so the tab reads clearly on its own.
+# Must stay in sync with the labels passed on each workspace's Create-New view.
+_ACTIVITY_HISTORY_LABEL = {
+    "scored": "History - Content Scored",
+    "copy": "History - Copy Created",
+    "images": "History - Image Sets Created",
+    "acquired": "History - Images Acquired",
+}
+
 
 def _activity_workspace(kind):
     """Build the workspace-tab context for a history page, or None for CI kinds.
 
-    Returns a dict of the two tab hrefs so the shared ``activity_all.html`` /
-    ``activity_scored_runs.html`` can render the Create New / History bar only on
-    content workspaces.
+    Returns a dict of the two tab hrefs plus the history-tab label so the shared
+    ``activity_all.html`` / ``activity_scored_runs.html`` can render the Create New
+    / History bar only on content workspaces.
     """
     create_endpoint = _ACTIVITY_WORKSPACE_CREATE.get(kind)
     if create_endpoint is None:
@@ -351,6 +361,7 @@ def _activity_workspace(kind):
     return {
         "create_href": url_for(create_endpoint),
         "history_href": url_for("pages.activity_all", kind=kind),
+        "history_label": _ACTIVITY_HISTORY_LABEL.get(kind, "History"),
     }
 
 
@@ -3057,10 +3068,9 @@ def seasonal_home():
             return (render_template(
                 "app/seasonal_home.html", breadcrumb=_SEASONAL_BREADCRUMB,
                 active_nav=_SEASONAL_NAV, themes=seasonal_themes.theme_choices(),
-                campaigns=seasonal_store.list_campaigns(db, uid), form=request.form,
+                form=request.form,
                 theme_defaults=seasonal_themes.theme_defaults(),
                 default_theme=seasonal_themes.DEFAULT_THEME,
-                theme_label=seasonal_themes.theme_label,
             ), 400)
 
         cid = seasonal_store.create_campaign(
@@ -3073,19 +3083,23 @@ def seasonal_home():
     return render_template(
         "app/seasonal_home.html", breadcrumb=_SEASONAL_BREADCRUMB,
         active_nav=_SEASONAL_NAV, themes=seasonal_themes.theme_choices(),
-        campaigns=seasonal_store.list_campaigns(db, uid), form={},
+        form={},
         theme_defaults=seasonal_themes.theme_defaults(),
         default_theme=seasonal_themes.DEFAULT_THEME,
-        theme_label=seasonal_themes.theme_label,
     )
 
 
 @bp.route("/app/seasonal/history")
 @login_required
 def seasonal_history():
-    """History of campaigns that produced at least one seasonal image (ready only)."""
+    """All of the user's campaigns — the single campaign list for the workspace.
+
+    Lists every campaign (drafts included), not just those that produced a finished
+    image: this is the only place campaigns are listed now that the Create-New tab's
+    inline list was removed, so a draft must remain reachable here.
+    """
     db, uid = get_db(), g.user["id"]
-    campaigns = seasonal_store.list_campaigns(db, uid, ready_only=True)
+    campaigns = seasonal_store.list_campaigns(db, uid)
     logger.info("Serving Seasonal Campaign history user_id=%s (%d)", uid, len(campaigns))
     return render_template(
         "app/seasonal_history.html",

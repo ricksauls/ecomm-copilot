@@ -9,7 +9,7 @@
     <p class="subtitle">Add the Walmart items you want to rewrite, or upload a CSV. We’ll pull the current Title, Description, and Key Features so you can generate improved copy.</p>
   </div>
 </div>
-{{ ws.workspace_tabs('create', url_for('pages.pdp_copy'), url_for('pages.activity_all', kind='copy')) }}
+{{ ws.workspace_tabs('create', url_for('pages.pdp_copy'), url_for('pages.activity_all', kind='copy'), 'History - Copy Created') }}
 
 {% if error %}
 <div class="form-error" role="alert">{{ error }}</div>

@@ -1,6 +1,5 @@
 {% extends "app/base.html" %}
 {% import "app/_workspace_tabs.html" as ws %}
-{% import "app/_dash_tables.html" as t %}
 {% block title %}Seasonal Content Campaigns — DISCOtech{% endblock %}
 
 {% block pane_content %}
@@ -12,7 +11,7 @@
       AI-generated seasonal backdrop, ready to review and download.</p>
   </div>
 </div>
-{{ ws.workspace_tabs('create', url_for('pages.seasonal_home'), url_for('pages.seasonal_history')) }}
+{{ ws.workspace_tabs('create', url_for('pages.seasonal_home'), url_for('pages.seasonal_history'), 'History - Seasonal Campaigns Created') }}
 
 {% with messages = get_flashed_messages(with_categories=true) %}
   {% for category, message in messages %}
@@ -80,21 +79,13 @@
     <button type="submit" class="wbtn wbtn-primary wbtn-lg">Create campaign</button>
   </form>
 </div>
-
-{# ── Existing campaigns ───────────────────────────────────────────────── #}
-{# The dash-table is self-titled ("Your campaigns"), so no separate <h2> here —
-   matching the dashboard/History pattern. #}
-<div class="dash-tables seasonal-campaign-tables">
-  {{ t.campaign_table('Your campaigns', '', campaigns,
-       'No campaigns yet — create one above to get started.',
-       theme_label, searchable=true) }}
-</div>
+{# Existing campaigns (including in-progress drafts) live on the History tab
+   ("History - Seasonal Campaigns Created"), so there's no campaign list here. #}
 {% endblock %}
 
 {% block scripts %}
 {# Default the planning dates from the chosen season (Python computes them; this
-   just applies the lookup) + sortable/searchable campaign table (dashboard.js). #}
+   just applies the lookup to the date fields on load and on season change). #}
 <script id="seasonal-theme-defaults" type="application/json">{{ theme_defaults | tojson }}</script>
 <script src="{{ static_url('js/seasonal_home.js') }}"></script>
-<script src="{{ static_url('js/dashboard.js') }}"></script>
 {% endblock %}

@@ -17,7 +17,7 @@
     <a href="{{ url_for('pages.dashboard') }}" class="wbtn wbtn-secondary">← Dashboard</a>
   </div>
 </div>
-{% if workspace %}{{ ws.workspace_tabs('history', workspace.create_href, workspace.history_href) }}{% endif %}
+{% if workspace %}{{ ws.workspace_tabs('history', workspace.create_href, workspace.history_href, workspace.history_label) }}{% endif %}
 
 <div class="dash-tables">
   {% if layout == 'product' %}

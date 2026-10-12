@@ -14,7 +14,7 @@
       generate a set of marketplace images grounded in the facts you confirm. Nothing is invented.</p>
   </div>
 </div>
-{{ ws.workspace_tabs('create', url_for('pages.imageset_intake'), url_for('pages.activity_all', kind='images')) }}
+{{ ws.workspace_tabs('create', url_for('pages.imageset_intake'), url_for('pages.activity_all', kind='images'), 'History - Image Sets Created') }}
 
 {% if error %}
 <div class="form-error" role="alert">{{ error }}</div>

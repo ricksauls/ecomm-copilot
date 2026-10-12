@@ -187,6 +187,18 @@ body.workspace {
   display: flex;
   flex-direction: column;
 }
+/* Iconed children carry their own icon, so they need less left indent — the icon
+   (not the label) sits just right of the parent's icon, keeping the hierarchy
+   legible without pushing the row far across. Label-only groups keep the 38px. */
+.rail-children-iconed {
+  padding-left: 14px;
+}
+/* Child icon: a touch smaller than the 18px main-option icons. */
+.nav-sub-ico,
+.nav-sub-ico svg {
+  width: 16px;
+  height: 16px;
+}
 .nav-sub-item {
   position: relative;
   display: flex;                  /* label + optional right-aligned badge */
@@ -582,11 +594,6 @@ body.workspace {
   display: flex;
   flex-direction: column;
   gap: 14px;
-}
-/* On the Seasonal "Create New" tab the campaigns table follows the new-campaign
-   form card directly (no page-header above it), so it needs its own top gap. */
-.seasonal-campaign-tables {
-  margin-top: 22px;
 }
 /* Each table is a native <details> card (collapsible, no JS — CSP-safe). */
 .dash-table {

@@ -11,7 +11,7 @@
       that fall short.</p>
   </div>
 </div>
-{{ ws.workspace_tabs('create', url_for('pages.import_images_intake'), url_for('pages.activity_all', kind='acquired')) }}
+{{ ws.workspace_tabs('create', url_for('pages.import_images_intake'), url_for('pages.activity_all', kind='acquired'), 'History - Images Acquired') }}
 
 {% if error %}
 <div class="form-error" role="alert">{{ error }}</div>
