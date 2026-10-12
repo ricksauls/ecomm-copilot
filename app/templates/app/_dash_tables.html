@@ -167,6 +167,50 @@
 </details>
 {% endmacro %}
 
+{# A Seasonal-campaign table: name · theme · status · products · images · launch ·
+   expires. One row per campaign, linking to its detail page. Reuses the dash-table
+   chrome (collapse, sort, search) so it matches the History tables; its own grid
+   (.dash-cols-campaign) supplies the column widths. `theme_label` is the slug→name
+   function passed in by the view. #}
+{% macro campaign_table(title, sub, rows, empty, theme_label, searchable=false) %}
+<details class="card dash-table" open>
+  {{ _summary(title, sub, rows | length, '') }}
+  {% if searchable %}{{ _search_bar(title) }}{% endif %}
+  <div class="dash-body">
+    <div class="dash-cols dash-cols-campaign dash-head-row">
+      <div class="col">Campaign</div>
+      <div class="col">Theme</div>
+      <div class="col">Status</div>
+      <div class="col r">Products</div>
+      <div class="col r">Images</div>
+      <div class="col">Launch</div>
+      <div class="col">Expires</div>
+    </div>
+    {% for row in rows %}
+    {% set ready = row['status'] == 'ready' %}
+    <a class="dash-cols dash-cols-campaign dash-row dash-row-link"
+       href="{{ url_for('pages.seasonal_campaign', cid=row['id']) }}"
+       data-search="{{ row['name'] }} {{ theme_label(row['theme']) }} {{ 'ready' if ready else 'draft' }}">
+      <div class="col dash-title">{{ row['name'] }}</div>
+      <div class="col">{{ theme_label(row['theme']) }}</div>
+      <div class="col">
+        <span class="import-state {{ 'import-state-done' if ready else 'import-state-working' }}">
+          {{ 'Ready' if ready else 'Draft' }}
+        </span>
+      </div>
+      <div class="col r">{{ row['product_count'] }}</div>
+      <div class="col r">{{ row['image_count'] }}</div>
+      <div class="col dash-date" data-sort="{{ row['launch_date'] or '' }}">{{ row['launch_date'] or '—' }}</div>
+      <div class="col dash-date" data-sort="{{ row['expiration_date'] or '' }}">{{ row['expiration_date'] or '—' }}</div>
+    </a>
+    {% else %}
+    <div class="dash-empty">{{ empty }}</div>
+    {% endfor %}
+    {% if searchable %}<div class="dash-empty dash-search-empty" hidden>No matches.</div>{% endif %}
+  </div>
+</details>
+{% endmacro %}
+
 {# A Competitive Intelligence table: name · date · my brand/items · competitor brand/items. #}
 {% macro ci_table(title, sub, rows, empty='Nothing this month yet.', all_url='', cap=false, searchable=false) %}
 <details class="card dash-table" open>

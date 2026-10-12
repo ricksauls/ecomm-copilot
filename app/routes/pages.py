@@ -3058,6 +3058,9 @@ def seasonal_home():
                 "app/seasonal_home.html", breadcrumb=_SEASONAL_BREADCRUMB,
                 active_nav=_SEASONAL_NAV, themes=seasonal_themes.theme_choices(),
                 campaigns=seasonal_store.list_campaigns(db, uid), form=request.form,
+                theme_defaults=seasonal_themes.theme_defaults(),
+                default_theme=seasonal_themes.DEFAULT_THEME,
+                theme_label=seasonal_themes.theme_label,
             ), 400)
 
         cid = seasonal_store.create_campaign(
@@ -3071,6 +3074,9 @@ def seasonal_home():
         "app/seasonal_home.html", breadcrumb=_SEASONAL_BREADCRUMB,
         active_nav=_SEASONAL_NAV, themes=seasonal_themes.theme_choices(),
         campaigns=seasonal_store.list_campaigns(db, uid), form={},
+        theme_defaults=seasonal_themes.theme_defaults(),
+        default_theme=seasonal_themes.DEFAULT_THEME,
+        theme_label=seasonal_themes.theme_label,
     )
 
 

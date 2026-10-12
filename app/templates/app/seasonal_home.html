@@ -1,5 +1,6 @@
 {% extends "app/base.html" %}
 {% import "app/_workspace_tabs.html" as ws %}
+{% import "app/_dash_tables.html" as t %}
 {% block title %}Seasonal Content Campaigns — DISCOtech{% endblock %}
 
 {% block pane_content %}
@@ -38,9 +39,12 @@
         <span class="step">2</span>
         <label class="field-label" for="theme">Season / theme</label>
       </div>
+      {# On a fresh form (no submitted theme) pre-select DEFAULT_THEME so the
+         JS-filled date defaults on load match the shown season. #}
+      {% set selected_theme = form.get('theme') or default_theme %}
       <select id="theme" name="theme" class="text-input">
-        {% for t in themes %}
-        <option value="{{ t.slug }}"{{ ' selected' if form.get('theme') == t.slug else '' }}>{{ t.label }}</option>
+        {% for opt in themes %}
+        <option value="{{ opt.slug }}"{{ ' selected' if selected_theme == opt.slug else '' }}>{{ opt.label }}</option>
         {% endfor %}
       </select>
       <p class="field-hint">Pick a season, or choose <strong>Custom</strong> and describe the
@@ -78,30 +82,19 @@
 </div>
 
 {# ── Existing campaigns ───────────────────────────────────────────────── #}
-<div class="page-header">
-  <div><h2>Your campaigns</h2></div>
+{# The dash-table is self-titled ("Your campaigns"), so no separate <h2> here —
+   matching the dashboard/History pattern. #}
+<div class="dash-tables seasonal-campaign-tables">
+  {{ t.campaign_table('Your campaigns', '', campaigns,
+       'No campaigns yet — create one above to get started.',
+       theme_label, searchable=true) }}
 </div>
-{% if campaigns %}
-<div class="seasonal-campaign-list">
-  {% for c in campaigns %}
-  <a class="card card-pad seasonal-campaign-card" href="{{ url_for('pages.seasonal_campaign', cid=c['id']) }}">
-    <div class="seasonal-campaign-head">
-      <span class="seasonal-campaign-name">{{ c['name'] }}</span>
-      <span class="import-state {{ 'import-state-done' if c['status'] == 'ready' else 'import-state-working' }}">
-        {{ 'Ready' if c['status'] == 'ready' else 'Draft' }}
-      </span>
-    </div>
-    <div class="seasonal-campaign-meta">
-      {{ c['product_count'] }} product(s) · {{ c['image_count'] }} seasonal image(s)
-    </div>
-    <div class="seasonal-campaign-dates">
-      {% if c['launch_date'] %}Launch {{ c['launch_date'] }}{% endif %}
-      {% if c['expiration_date'] %} · Expires {{ c['expiration_date'] }}{% endif %}
-    </div>
-  </a>
-  {% endfor %}
-</div>
-{% else %}
-<p class="empty-note">No campaigns yet — create one above to get started.</p>
-{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{# Default the planning dates from the chosen season (Python computes them; this
+   just applies the lookup) + sortable/searchable campaign table (dashboard.js). #}
+<script id="seasonal-theme-defaults" type="application/json">{{ theme_defaults | tojson }}</script>
+<script src="{{ static_url('js/seasonal_home.js') }}"></script>
+<script src="{{ static_url('js/dashboard.js') }}"></script>
 {% endblock %}

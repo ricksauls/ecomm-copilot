@@ -583,6 +583,11 @@ body.workspace {
   flex-direction: column;
   gap: 14px;
 }
+/* On the Seasonal "Create New" tab the campaigns table follows the new-campaign
+   form card directly (no page-header above it), so it needs its own top gap. */
+.seasonal-campaign-tables {
+  margin-top: 22px;
+}
 /* Each table is a native <details> card (collapsible, no JS — CSP-safe). */
 .dash-table {
   padding: 0;
@@ -718,6 +723,12 @@ img.dash-thumb {
 }
 .dash-cols-ci {
   grid-template-columns: 1.4fr 70px 1.2fr 72px 1.4fr 96px;
+}
+/* Seasonal campaigns: name · theme · status · products · images · launch · expires.
+   Name takes the flexible column; the two counts are right-aligned (via .col.r) in
+   narrow fixed slots, and the dates get just enough room for an ISO YYYY-MM-DD. */
+.dash-cols-campaign {
+  grid-template-columns: 2fr 1.2fr 78px 78px 66px 108px 108px;
 }
 /* Header stays pinned while the capped body scrolls; its surface background
    hides rows passing underneath. */
