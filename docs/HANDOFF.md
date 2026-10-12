@@ -1,6 +1,25 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-10-12 (session 29 — **Portfolio Management + managed-items pickers everywhere**.
+_Last updated: 2026-10-12 (session 30 — **Dashboard redesign, Phase 1: the three performance cards**.
+Committed on `feature/dashboard-performance-cards`, deploying to production via PR → `main` (CI → auto-deploy).
+**694 tests, ruff clean. One additive migration (`users.default_ci_group_id`), no new env.** The dashboard
+is now a **per-brand performance briefing**: a simplified **Portfolio** header (brand + product counts only —
+the per-user email/agency name and the signup date were dropped) over three cards scoped to one **monitoring
+CI group** — **Discoverability = Search Ranking** (tracked SKUs' avg page-1 position, `ci_analysis.monitoring_avg_rank`),
+**Conversion = Content Readiness** (avg of each product's latest score /100, new `jobs.readiness_score`),
+**Competition = page-1 shelf share** (tracked SKUs' slots ÷ ALL page-1 slots, new
+`ci_analysis.monitoring_tracked_shelf_share` — numerator excludes unauthorized third-party listings and
+competitors). An always-on **brand selector** switches brand (CI group) with a **savable default** (new
+`users.default_ci_group_id`; `POST /app/dashboard/default-brand`, IDOR-guarded) loaded when no `?group_id`;
+period reuses the calendar **WoW/MoM/QoQ/YoY** engine (7/30/90-day rolling deferred). Card deep-links renamed
+**"Dig it →"**. Everything below the cards (KPI row, 5 activity tables, seasonal nudges, `dashboard.js`) was
+**removed from the dashboard** for the upcoming Opportunities build — the View All activity routes still work
+but are now **unlinked** (nav gap to revisit). `ci_analysis.monitoring_keyword_leadership` (Keyword Lead Rate)
+is **built + tested but intentionally not surfaced**, reserved for the competitive-gaps opportunity.
+**Next: the Opportunities area below the cards** — see the session-30 START HERE block. The prior session-29
+summary follows._
+
+_Session 29 — (session 29 — **Portfolio Management + managed-items pickers everywhere**.
 **✅ ALL SHIPPED + DEPLOYED** across 4 PRs (**#34, #35, #36, #37** squash-merged, CI→deploy green);
 `main` at `928fd22`. **686 tests, ruff clean. Two additive migrations, no new env.**
 **(1) Portfolio Management (new feature, #34):** a per-user catalog of managed products, new rail
@@ -88,6 +107,58 @@ quality set to **medium**. Droplet now on gpt-image-1 + PhotoRoom. Session 16 �
 blur, per-card Regenerate, Lifestyle logo. Session 15 — all 4 image types generate. Session 13 —
 built PDP Image Set.)_
 
+> ## ⭐ Next session — START HERE (session 30 — Dashboard redesign Phase 1, 2026-10-12)
+>
+> **Dashboard redesign, Phase 1 — the three performance cards + header/selector cleanup.** The top
+> preamble is the authoritative summary; this adds the build detail. **694 tests, ruff clean. One
+> additive migration (`users.default_ci_group_id`), no new env.**
+>
+> ### What the dashboard is now
+> `GET /app` (`pages.dashboard`) renders a **per-brand performance briefing** and nothing else: a plain
+> **Portfolio** header (`{N} brand(s) · {N} products`, from `jobs.count_managed_brands` /
+> `count_managed_products`) + three cards, all scoped to ONE **monitoring CI group** = "the brand".
+> `_performance_briefing(db, uid)` (in `pages.py`) builds everything; `dashboard.html` is presentation-only.
+>
+> ### The three cards (metric · source)
+> - **Discoverability = Search Ranking** — tracked SKUs' avg page-1 position (`#1.5`), delta in "spots"
+>   (positive = moved up). `ci_analysis.monitoring_avg_rank`, `type=="mine"` rows.
+> - **Conversion = Content Readiness** — avg of each product's LATEST score /100 over the group's mine-brand
+>   names. New `jobs.readiness_score(conn, user_id, brands, as_of=None)` (window-function latest-per-item;
+>   `as_of` gives the prior-period value for the delta; `needs_attention` = latest `< 80`).
+> - **Competition = page-1 shelf share** — tracked SKUs' slots ÷ ALL page-1 slots (`20.0%`). New
+>   `ci_analysis.monitoring_tracked_shelf_share` (+ `_tracked_shelf_share_range`): numerator joins
+>   `ci_products`→`ci_brands type='mine'`, so **unauthorized third-party listings of the brand and all
+>   competitors are excluded from the numerator**; denominator = every `ci_search_results` card.
+>
+> ### Brand selection + default
+> Precedence: `?group_id=` → saved default (`users.default_ci_group_id`) → newest monitoring group. The
+> selector is always shown (`briefing.groups`), labeled by each group's mine brand(s). **Set-as-default:**
+> `POST /app/dashboard/default-brand` (`pages.set_default_brand`, ownership/mode-checked → 404 on a foreign
+> id) → `users.set_default_ci_group`. Period: `available_periods` + `?period=`, calendar WoW/MoM/QoQ/YoY
+> (reused; 7/30/90-day rolling deferred). Card links say **"Dig it →"** (Discoverability/Competition →
+> `ci_view`; Conversion → `activity_all?kind=scored`).
+>
+> ### Removed from the dashboard (not deleted)
+> KPI row, the 5 "this month" activity tables, seasonal reminders, and the `dashboard.js` include are gone
+> from `dashboard.html` for the Opportunities rebuild. The **View All routes still exist** (`activity_all`,
+> `ci_activity`) and are tested directly — **but nothing in the UI links to them right now** (nav gap).
+>
+> ### Reserved, not surfaced
+> `ci_analysis.monitoring_keyword_leadership` + `_keyword_leadership_range` (Keyword Lead Rate: % of tracked
+> keywords the brand leads, with delta/trend) are **built + unit-tested** but no longer on a card — kept for
+> the **"close competitive gaps on N keywords" opportunity**.
+>
+> ### Verified
+> Full suite green (694). Also driven live in a throwaway-seeded preview of `/app`: the three cards, the brand
+> selector, Set-as-default → "★ Default", and the period toggle all render/behave; the metric math reconciles
+> (rank `#1.5`, readiness `81/100`, shelf `20.0% +5pts`). The migration auto-applies on service restart.
+>
+> ### Next session — Opportunities
+> Build the **prioritized Opportunities list below the cards**: aggregate per-product scoring findings (image
+> vs. copy issues) + competitive gaps (via the reserved `monitoring_keyword_leadership`) into a few ranked,
+> deep-linked actions ("Improve images for N products" → image workflow, etc.). Also decide whether to
+> re-link the View All activity screens somewhere.
+>
 > ## ⭐ Next session — START HERE (session 29 — Portfolio Management, 2026-10-12)
 >
 > **✅ SHIPPED + DEPLOYED — `main` at `928fd22`.** This block narrates the FIRST slice (Portfolio

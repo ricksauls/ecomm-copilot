@@ -655,6 +655,128 @@ def monitoring_brand_share_of_shelf(conn, group_id, period, today=None) -> list[
     return _assemble_share_over_period(conn, group_id, period, today, _brand_share_of_shelf_range)
 
 
+# ── Tracked shelf share (the dashboard's "Discoverability" headline) ─────────────
+
+def _tracked_shelf_share_range(conn, group_id, start, end) -> dict:
+    """The user's own tracked SKUs' page-1 slots as a share of ALL page-1 slots.
+
+    Numerator counts only page-1 cards for products the user tracks under a *mine*
+    brand — deliberately excluding unauthorized third-party listings of the same
+    brand (which the owner can't act on) and all competitors. Denominator is every
+    page-1 card scraped in the window, so the figure answers "how much of page 1 do
+    my managed products hold," not "share among the tracked set". Both counts span
+    all scrapes in the window; the ratio is the window's average share.
+    """
+    total = conn.execute(
+        "SELECT COUNT(*) FROM ci_search_results "
+        "WHERE group_id = ? AND scraped_at >= ? AND scraped_at <= ?",
+        (group_id, start, end),
+    ).fetchone()[0]
+    # Tracked SKUs under a 'mine' brand only — join ci_products→ci_brands so an
+    # unauthorized seller's card for the same item id (not a tracked product) and a
+    # competitor's cards are both left out of the numerator.
+    mine = conn.execute(
+        "SELECT COUNT(*) FROM ci_search_results "
+        "WHERE group_id = ? AND scraped_at >= ? AND scraped_at <= ? "
+        "AND item_id IN (SELECT p.walmart_item_id FROM ci_products p "
+        "  JOIN ci_brands b ON b.id = p.brand_id "
+        "  WHERE p.group_id = ? AND p.active = 1 AND b.type = 'mine')",
+        (group_id, start, end, group_id),
+    ).fetchone()[0]
+    return {"mine_slots": mine, "total_slots": total, "share": _pct(mine, total)}
+
+
+def monitoring_tracked_shelf_share(conn, group_id, period, today=None) -> dict:
+    """Tracked page-1 shelf share for the last completed period, with delta + trend.
+
+    The Discoverability card headline. Delta is current minus prior share
+    (percentage points; positive = my managed products hold more of page 1 than
+    last period). ``trend`` is the share across the last :data:`TREND_PERIODS`
+    periods (oldest→newest) for a sparkline; periods with nothing scraped are
+    skipped so the line doesn't read a misleading zero.
+    """
+    cur = _tracked_shelf_share_range(conn, group_id, *period_bounds(period, 0, today))
+    prior = _tracked_shelf_share_range(conn, group_id, *period_bounds(period, 1, today))
+    delta = round(cur["share"] - prior["share"], 1) if prior["total_slots"] else None
+
+    values, dates = [], []
+    for i in range(TREND_PERIODS - 1, -1, -1):
+        stats = _tracked_shelf_share_range(conn, group_id, *period_bounds(period, i, today))
+        if not stats["total_slots"]:
+            continue
+        values.append(stats["share"])
+        dates.append(period_label(period, i, today))
+    return {**cur, "delta": delta, "trend": values, "trend_dates": dates}
+
+
+# ── Keyword leadership (the dashboard's "Competition" headline) ──────────────────
+
+def _keyword_leadership_range(conn, group_id, start, end) -> dict:
+    """How often the user's own brand(s) lead their tracked keywords over a window.
+
+    For each tracked keyword, the "leader" is the brand holding the largest share
+    of that keyword's page-1 shelf. We count keywords led by a *mine* brand vs. by
+    a competitor, over only the keywords that actually had page-1 data in the
+    window (a keyword with no data is neither a win nor a gap — it just isn't
+    measured yet). Built on :func:`_share_by_keyword_range` so the per-keyword
+    shares match the Share-of-Shelf table exactly.
+
+    Returns ``{lead_count, competitor_lead_count, keyword_count, lead_rate}`` where
+    ``lead_rate`` is the percentage of measured keywords the user leads. ``None``
+    brand (the untracked "Other" bucket) can win a keyword but is never counted as
+    a user lead — it just means neither side owns that keyword outright.
+    """
+    rows = _share_by_keyword_range(conn, group_id, start, end)
+
+    # Pick the top-share brand per keyword. Rows arrive sorted by total_share
+    # descending within each keyword (see _share_by_keyword_range), so the first
+    # row seen for a keyword is its leader.
+    leader_type: dict[str, str] = {}
+    for r in rows:
+        if r["keyword"] not in leader_type:
+            leader_type[r["keyword"]] = r["type"]
+
+    keyword_count = len(leader_type)
+    lead_count = sum(1 for t in leader_type.values() if t == "mine")
+    competitor_lead_count = sum(1 for t in leader_type.values() if t == "competitor")
+    return {
+        "lead_count": lead_count,
+        "competitor_lead_count": competitor_lead_count,
+        "keyword_count": keyword_count,
+        "lead_rate": _pct(lead_count, keyword_count),
+    }
+
+
+def monitoring_keyword_leadership(conn, group_id, period, today=None) -> dict:
+    """Keyword Lead Rate for the last completed period, with delta + trend.
+
+    The dashboard's "Competition" card headline: of the keywords the user tracks,
+    what share do their own brand(s) lead? Delta is current minus prior lead rate
+    (percentage points; positive = the user leads more keywords than last period).
+    ``trend`` is the lead rate across the last :data:`TREND_PERIODS` periods
+    (oldest→newest) for a sparkline. Mirrors the assemble-over-period shape of
+    :func:`_assemble_share_over_period`, but collapses to one figure per period
+    (leadership is a group-wide tally, not a per-brand row).
+    """
+    cur = _keyword_leadership_range(conn, group_id, *period_bounds(period, 0, today))
+    prior = _keyword_leadership_range(conn, group_id, *period_bounds(period, 1, today))
+    delta = (round(cur["lead_rate"] - prior["lead_rate"], 1)
+             if prior["keyword_count"] else None)
+
+    # One lead-rate point per completed period, oldest→newest; skip periods with no
+    # measured keywords so the sparkline doesn't dip to a misleading zero.
+    trend_values: list[float] = []
+    trend_dates: list[str] = []
+    for i in range(TREND_PERIODS - 1, -1, -1):
+        stats = _keyword_leadership_range(conn, group_id, *period_bounds(period, i, today))
+        if not stats["keyword_count"]:
+            continue
+        trend_values.append(stats["lead_rate"])
+        trend_dates.append(period_label(period, i, today))
+
+    return {**cur, "delta": delta, "trend": trend_values, "trend_dates": trend_dates}
+
+
 # ── Brand Advertising Presence (headline + sponsored-video ad sightings) ─────────
 
 def _shape_brand_ads(rows: list, brand_meta: dict) -> list[dict]:

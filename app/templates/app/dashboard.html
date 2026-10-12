@@ -1,94 +1,105 @@
 {% extends "app/base.html" %}
-{% import "app/_dash_tables.html" as t %}
 {% block title %}Dashboard — DISCOtech{% endblock %}
 
 {% block pane_content %}
 {# --- Page header --- #}
 <div class="page-header">
   <div>
-    <p class="label eyebrow">Portfolio</p>
-    <h1>{{ agency.name }}</h1>
-    <p class="subtitle">{{ agency.subtitle }}</p>
+    <h1>Portfolio</h1>
+    <p class="subtitle">{{ portfolio.brands }} brand{{ 's' if portfolio.brands != 1 }} ·
+       {{ portfolio.products }} product{{ 's' if portfolio.products != 1 }}</p>
   </div>
 </div>
 
-{# --- KPI row --- #}
-<div class="kpi-row">
-  {% for kpi in kpis %}
-  <div class="card kpi">
-    <div class="label">{{ kpi.label }}</div>
-    <div class="metric">
-      {{ kpi.value }}
-      {% if kpi.delta %}<span class="delta">{{ kpi.delta }}</span>{% endif %}
-    </div>
-    {% if kpi.sparkline %}
-      {# Final bar is "now" (black); the two before it are mid-tone. #}
-      <div class="sparkline">
-        {% for h in kpi.sparkline %}
-          {% set idx = loop.index0 %}
-          {% set count = kpi.sparkline | length %}
-          <span class="bar {{ 'now' if idx == count - 1 else ('mid' if idx >= count - 3 else '') }}"
-                style="height: {{ h }}px;"></span>
-        {% endfor %}
+{# --- Performance briefing ---
+   The three cards (Discoverability / Conversion / Competition): a per-brand
+   "how are we doing" read, scoped to one monitoring CI group over one completed
+   period. Selectors switch brand (group) and period; each card deep-links into
+   its detailed workspace via Explore. The Opportunities area will be built below
+   this section. Built in _performance_briefing() so this stays presentation-only. #}
+{% if not briefing.available %}
+  {# No monitoring groups yet — the cards have nothing to report, so point the
+     user at setting up tracking instead of showing empty gauges. #}
+  <div class="card card-pad briefing-setup">
+    <div class="label">Your performance briefing</div>
+    <p>Set up Daily Monitoring for a brand to unlock Discoverability, Conversion
+       and Competition insights here.</p>
+    <a class="wbtn wbtn-primary" href="{{ briefing.setup_url }}">Set up tracking</a>
+  </div>
+{% else %}
+  <section class="briefing">
+    <div class="briefing-header">
+      <div>
+        <p class="label eyebrow">Your Summary</p>
+        <h2 class="briefing-brand">{{ briefing.brand_label }}</h2>
+        {% if briefing.period_label %}
+          <p class="subtitle">{{ briefing.period_label }}</p>
+        {% endif %}
       </div>
-    {% elif kpi.footnote %}
-      <div class="footnote">{{ kpi.footnote }}</div>
-    {% endif %}
-  </div>
-  {% endfor %}
-</div>
+      <div class="briefing-controls">
+        {# Brand selector: each option is one monitoring group, labeled by its own
+           brand. Always shown (even with a single brand) so the default can be set.
+           Auto-submits on change; period rides along so switching brand keeps the
+           chosen window. #}
+        <form method="get" action="{{ url_for('pages.dashboard') }}" class="briefing-brand-form">
+          <input type="hidden" name="period" value="{{ briefing.period }}">
+          <select name="group_id" class="briefing-select" onchange="this.form.submit()"
+                  aria-label="Brand">
+            {% for opt in briefing.groups %}
+            <option value="{{ opt.id }}" {{ 'selected' if opt.selected }}>{{ opt.label }}</option>
+            {% endfor %}
+          </select>
+        </form>
+        {# Default brand: the one loaded when no brand is in the URL. A star tag when
+           the current brand already is the default; otherwise a one-click save. #}
+        {% if briefing.is_default %}
+          <span class="briefing-default is-default" title="Loads by default">★ Default</span>
+        {% else %}
+          <form method="post" action="{{ url_for('pages.set_default_brand') }}"
+                class="briefing-default-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+            <input type="hidden" name="group_id" value="{{ briefing.selected_group_id }}">
+            <button type="submit" class="briefing-default">☆ Set as default</button>
+          </form>
+        {% endif %}
+        {# Period toggle: only periods with completed-period data are clickable. #}
+        <div class="briefing-periods" role="group" aria-label="Reporting period">
+          {% for p in briefing.periods %}
+            {% if p.enabled %}
+              <a class="briefing-period {{ 'is-active' if p.selected }}"
+                 href="{{ url_for('pages.dashboard', group_id=briefing.selected_group_id, period=p.key) }}"
+              >{{ p.label }}</a>
+            {% else %}
+              <span class="briefing-period is-disabled" title="No data yet">{{ p.label }}</span>
+            {% endif %}
+          {% endfor %}
+        </div>
+      </div>
+    </div>
 
-{# --- Seasonal campaign reminders ---
-   Planning nudges from the user's seasonal campaigns (launch/expiration/reminder
-   dates). Shown only when there's something upcoming or overdue; nothing publishes
-   automatically, so these are reminders to act, each linking to its campaign. #}
-{% if seasonal_reminders %}
-<div class="card card-pad seasonal-reminders">
-  <div class="label">Seasonal campaign reminders</div>
-  <ul class="seasonal-reminder-list">
-    {% for r in seasonal_reminders %}
-    <li class="seasonal-reminder seasonal-reminder-{{ r.kind }}">
-      <a href="{{ url_for('pages.seasonal_campaign', cid=r.id) }}">{{ r.name }}</a>
-      <span class="seasonal-reminder-tag">
-        {% if r.kind == 'overdue' %}Expired {{ -r.days }} day(s) ago ({{ r.date }})
-        {% elif r.kind == 'reminder' %}Reminder due{% if r.days < 0 %} ({{ -r.days }} day(s) ago){% endif %} ({{ r.date }})
-        {% elif r.kind == 'expiring_soon' %}Expires in {{ r.days }} day(s) ({{ r.date }})
-        {% else %}Launches in {{ r.days }} day(s) ({{ r.date }}){% endif %}
-      </span>
-    </li>
-    {% endfor %}
-  </ul>
-</div>
+    <div class="briefing-cards">
+      {% for c in briefing.cards %}
+      <div class="card briefing-card briefing-{{ c.key }}">
+        <div class="label">{{ c.label }}</div>
+        {% if c.state == 'ok' %}
+          <div class="briefing-metric">
+            {{ c.metric }}
+            {% if c.delta %}<span class="briefing-delta {{ c.delta_dir }}">{{ c.delta }}</span>{% endif %}
+          </div>
+          <div class="briefing-headline">{{ c.headline }}</div>
+          <p class="briefing-narrative">{{ c.narrative }}</p>
+          <a class="briefing-explore" href="{{ c.explore_url }}">Dig it →</a>
+        {% elif c.state == 'empty' %}
+          <div class="briefing-metric briefing-metric-muted">—</div>
+          <p class="briefing-narrative">{{ c.empty_text }}</p>
+          <a class="briefing-explore" href="{{ c.empty_url }}">{{ c.empty_label }} →</a>
+        {% else %}{# gathering #}
+          <div class="briefing-metric briefing-metric-muted">—</div>
+          <p class="briefing-narrative">{{ c.narrative }}</p>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </section>
 {% endif %}
-
-{# --- "This month" activity tables ---
-   Five month-scoped tables (PDP scored/copy/image-sets, then CI snapshot/
-   monitoring). Each is capped at 10 rows and carries a "View all" link to its
-   all-time screen. Markup lives in the shared _dash_tables.html macros. #}
-<div class="dash-tables">
-  {# Single title per table (no subtitle); the empty string is the sub arg.
-     Bracket access, not dot: activity.copy would resolve to dict.copy (a method). #}
-  {{ t.product_table("Product Detail Pages Scored This Month", "",
-       activity['scored'], true, "Nothing scored this month yet.",
-       all_url=url_for('pages.activity_all', kind='scored'), cap=true) }}
-  {{ t.product_table("Product Detail Pages With New Copy Created This Month", "",
-       activity['copy'], false, "No copy created this month yet.",
-       all_url=url_for('pages.activity_all', kind='copy'), cap=true) }}
-  {{ t.product_table("Product Detail Pages With New Image Sets Created This Month", "",
-       activity['image_sets'], false, "Image Set Creation isn’t available yet.",
-       all_url=url_for('pages.activity_all', kind='images'), cap=true) }}
-  {{ t.ci_table("Competitive Intelligence Snapshots Created And Run This Month", "",
-       activity['ci_snapshot'],
-       all_url=url_for('pages.activity_all', kind='ci-snapshot'), cap=true) }}
-  {{ t.ci_table("Competitive Intelligence Daily Monitoring Created This Month", "",
-       activity['ci_monitoring'],
-       all_url=url_for('pages.activity_all', kind='ci-monitoring'), cap=true) }}
-</div>
-{% endblock %}
-
-{% block scripts %}
-{# Column sorting, the "10 rows then scroll" cap, and image hover-preview.
-   Progressive enhancement: the server renders rows newest-first, so the tables
-   are useful with JS disabled. #}
-<script src="{{ static_url('js/dashboard.js') }}"></script>
 {% endblock %}

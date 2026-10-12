@@ -136,6 +136,79 @@ def count_scored_products(conn: sqlite3.Connection, user_id: int,
     return int(conn.execute(sql, params).fetchone()[0])
 
 
+# The "strong" content-health band boundary: a product scoring below this has at
+# least one dimension worth fixing. Mirrors the strong≥80 cut in the scoring
+# results summary (``_SCORE_BANDS`` in app/routes/pages.py); kept here as a plain
+# constant so this aggregate stays importable without pulling in the routes module.
+READINESS_STRONG_MIN = 80
+
+
+def readiness_score(conn: sqlite3.Connection, user_id: int, brands: list[str],
+                    as_of: str | None = None) -> dict:
+    """Content Readiness for a set of brands — the dashboard's "Conversion" card.
+
+    Readiness is the average of each product's *latest* overall score (0-100), so
+    a product counts once at its current state no matter how many times it was
+    re-scored. Scoping to ``brands`` (the CI group's own brand names) ties the card
+    to the same brand context as the Discoverability/Competition cards; an empty
+    ``brands`` list short-circuits to an empty result (no brand selected / matched).
+
+    ``as_of`` (an ISO datetime) computes readiness as it stood at a past moment —
+    the latest score *on or before* that date — which is how the card derives its
+    period-over-period delta and trend without any extra history table.
+
+    Args:
+        conn: Open SQLite connection (request or worker).
+        user_id: Owner of the scored items.
+        brands: Brand names to include; matched case/space-insensitively.
+        as_of: Optional ISO datetime upper bound on ``created_at``.
+
+    Returns:
+        ``{avg, scored_count, needs_attention_count}`` — ``avg`` is the rounded
+        mean readiness (``None`` when no products qualify), ``scored_count`` the
+        number of distinct products averaged, and ``needs_attention_count`` those
+        scoring below :data:`READINESS_STRONG_MIN`.
+    """
+    # Normalize brand names to match the LOWER(TRIM(...)) comparison in SQL. An
+    # empty set means "no brand in scope", which can't match anything — return
+    # early rather than build a degenerate ``IN ()`` clause.
+    wanted = [b.strip().lower() for b in brands if b and b.strip()]
+    if not wanted:
+        return {"avg": None, "scored_count": 0, "needs_attention_count": 0}
+
+    placeholders = ",".join("?" for _ in wanted)
+    params: list = [user_id, *wanted]
+    as_of_clause = ""
+    if as_of:
+        as_of_clause = " AND created_at <= ?"
+        params.append(as_of)
+
+    # One row per product: its most recent scored overall (newest created_at, with
+    # id as the tiebreak when two scores share a timestamp). Window function keeps
+    # this correct even when re-scores land in the same second.
+    rows = conn.execute(
+        "SELECT overall FROM ("
+        "  SELECT overall, ROW_NUMBER() OVER ("
+        "    PARTITION BY item_id ORDER BY created_at DESC, id DESC) AS rn "
+        "  FROM scored_items "
+        "  WHERE user_id = ? AND item_id IS NOT NULL AND item_id != '' "
+        "    AND overall IS NOT NULL "
+        "    AND LOWER(TRIM(brand)) IN (" + placeholders + ")" + as_of_clause +
+        ") WHERE rn = 1",
+        params,
+    ).fetchall()
+
+    if not rows:
+        return {"avg": None, "scored_count": 0, "needs_attention_count": 0}
+
+    scores = [r["overall"] for r in rows]
+    needs_attention = sum(1 for s in scores if s < READINESS_STRONG_MIN)
+    avg = round(sum(scores) / len(scores))
+    logger.debug("Readiness user_id=%s brands=%s as_of=%s → avg=%s n=%d needs=%d",
+                 user_id, wanted, as_of, avg, len(scores), needs_attention)
+    return {"avg": avg, "scored_count": len(scores), "needs_attention_count": needs_attention}
+
+
 def count_managed_products(conn: sqlite3.Connection, user_id: int,
                            since: str | None = None) -> int:
     """Distinct products a user has worked on — the dashboard "Products managed" KPI.

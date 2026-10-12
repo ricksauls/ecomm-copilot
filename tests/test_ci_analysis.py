@@ -384,3 +384,84 @@ def test_monitoring_avg_rank_empty_when_no_period_data(app):
         db = get_db()
         _, gid, *_ = _setup(db)
         assert ci_analysis.monitoring_avg_rank(db, gid, "wow", today=date(2026, 8, 26)) == []
+
+
+def test_keyword_leadership_counts_wins_gaps_and_delta(app):
+    # Competition card: of the keywords the user tracks, how many does their own
+    # brand lead (largest share of that keyword's shelf), vs. the prior period.
+    with app.app_context():
+        db = get_db()
+        uid, gid, mine, comp, _, k1, rid = _setup(db)
+        k2 = ci_config.add_keyword(db, gid, uid, "pepper sauce")
+        T = date(2026, 8, 26)
+        # Last completed week (Aug 17–23): mine leads k1, competitor leads k2.
+        _sos(db, rid, gid, k1, "2026-08-20", mine, 8, 0)
+        _sos(db, rid, gid, k1, "2026-08-20", comp, 2, 0)
+        _sos(db, rid, gid, k2, "2026-08-20", mine, 2, 0)
+        _sos(db, rid, gid, k2, "2026-08-20", comp, 8, 0)
+        # Prior week (Aug 10–16): mine leads both.
+        _sos(db, rid, gid, k1, "2026-08-13", mine, 8, 0)
+        _sos(db, rid, gid, k1, "2026-08-13", comp, 2, 0)
+        _sos(db, rid, gid, k2, "2026-08-13", mine, 8, 0)
+        _sos(db, rid, gid, k2, "2026-08-13", comp, 2, 0)
+        db.commit()
+
+        lead = ci_analysis.monitoring_keyword_leadership(db, gid, "wow", today=T)
+        assert lead["keyword_count"] == 2
+        assert lead["lead_count"] == 1
+        assert lead["competitor_lead_count"] == 1
+        assert lead["lead_rate"] == 50.0
+        assert lead["delta"] == -50.0          # 50% now vs 100% the prior week
+        assert lead["trend"] == [100.0, 50.0]  # prior week -> current week
+        assert lead["trend_dates"] == [ci_analysis.period_label("wow", 1, T),
+                                       ci_analysis.period_label("wow", 0, T)]
+
+
+def test_keyword_leadership_range_excludes_unmeasured_keywords(app):
+    # A tracked keyword with no page-1 data in the window is neither a win nor a
+    # gap — it's simply not measured yet, so it must not dilute the lead rate.
+    with app.app_context():
+        db = get_db()
+        uid, gid, mine, comp, _, k1, rid = _setup(db)
+        ci_config.add_keyword(db, gid, uid, "unscraped term")  # no SOS rows -> unmeasured
+        _sos(db, rid, gid, k1, "2026-08-20", mine, 6, 0)
+        _sos(db, rid, gid, k1, "2026-08-20", comp, 1, 0)
+        db.commit()
+        start, end = ci_analysis.period_bounds("wow", 0, date(2026, 8, 26))
+        stats = ci_analysis._keyword_leadership_range(db, gid, start, end)
+        assert stats == {"lead_count": 1, "competitor_lead_count": 0,
+                         "keyword_count": 1, "lead_rate": 100.0}
+
+
+def test_tracked_shelf_share_counts_only_owned_tracked_skus(app):
+    # Discoverability: my tracked SKUs' page-1 cards ÷ ALL page-1 cards. An
+    # unauthorized third-party listing of my brand (an item id I don't track) and
+    # all competitors land in the denominator but never the numerator.
+    with app.app_context():
+        db = get_db()
+        uid, gid, mine, comp, _, kid, rid = _setup(db)
+        _track(db, gid, mine, "m1")  # a product I actually manage
+        T = date(2026, 8, 26)
+        # Last completed week (Aug 17–23): 2 of my cards out of 10 total slots.
+        _result(db, rid, gid, kid, "2026-08-18", 1, "m1", mine)
+        _result(db, rid, gid, kid, "2026-08-20", 3, "m1", mine)
+        _result(db, rid, gid, kid, "2026-08-18", 2, "unauth1", mine)  # my brand, not my listing
+        for pos, item in enumerate(("c1", "c2", "c3", "c4"), start=4):
+            _result(db, rid, gid, kid, "2026-08-18", pos, item, comp)
+        for pos, item in enumerate(("o1", "o2", "o3"), start=8):
+            _result(db, rid, gid, kid, "2026-08-18", pos, item, None)  # untracked "Other"
+        # Prior week (Aug 10–16): 1 of my cards out of 10.
+        _result(db, rid, gid, kid, "2026-08-12", 1, "m1", mine)
+        for pos, item in enumerate(("c1", "c2", "c3", "c4", "c5", "o1", "o2", "o3", "o4"), start=2):
+            _result(db, rid, gid, kid, "2026-08-12", pos, item, comp)
+        db.commit()
+
+        assert ci_analysis._tracked_shelf_share_range(db, gid, "2026-08-17", "2026-08-23") == {
+            "mine_slots": 2, "total_slots": 10, "share": 20.0}  # unauth1 excluded from numerator
+
+        mss = ci_analysis.monitoring_tracked_shelf_share(db, gid, "wow", today=T)
+        assert mss["mine_slots"] == 2
+        assert mss["total_slots"] == 10
+        assert mss["share"] == 20.0
+        assert mss["delta"] == 10.0            # 20% now vs 10% the prior week
+        assert mss["trend"] == [10.0, 20.0]    # prior week -> current week

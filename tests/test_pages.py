@@ -26,42 +26,69 @@ def test_signin_renders(client):
 
 
 def test_dashboard_renders_when_authenticated(client, auth):
-    # Registering logs the user in, so the guarded dashboard is reachable.
+    # Registering logs the user in, so the guarded dashboard is reachable. The page
+    # is now just the Portfolio header + the performance briefing; everything that
+    # used to sit below the cards (KPI row, activity tables, seasonal nudges) is
+    # gone while the Opportunities area is rebuilt.
     auth.register()
     resp = client.get("/app")
     assert resp.status_code == 200
-    # The five "this month" activity tables replace the old demo table. Assert on
-    # apostrophe-free substrings of each single-line title (the titles use a
-    # curly apostrophe, awkward to match as bytes).
-    assert b"Scored This Month" in resp.data
-    assert b"With New Copy Created This Month" in resp.data
-    assert b"New Image Set" in resp.data
-    assert b"Snapshots Created And Run This Month" in resp.data
-    assert b"Daily Monitoring Created This Month" in resp.data
-    # A brand-new account has no activity, so each table shows its empty state.
-    assert b"Nothing scored this month yet." in resp.data
-    # The demo table and the (non-functional) Export report button are gone.
+    assert b"Portfolio" in resp.data
+    assert b"brands" in resp.data and b"products" in resp.data
+    # A fresh account has no monitoring group, so the briefing prompts setup.
+    assert b"Set up tracking" in resp.data
+    # The old under-card content and its enhancement script are removed.
+    assert b"Scored This Month" not in resp.data
+    assert b"Products managed" not in resp.data
     assert b"Products losing ground" not in resp.data
-    assert b"Export report" not in resp.data
-    # The sort + row-cap enhancement script is wired in.
-    assert b"js/dashboard.js" in resp.data
+    assert b"js/dashboard.js" not in resp.data
 
 
-def test_dashboard_is_personalized_to_the_user(client, auth):
-    # Portfolio header shows the signed-in user; the old agency name is gone from
-    # the header and the topbar breadcrumb.
+def test_dashboard_header_drops_agency_name(client, auth):
+    # The header is a plain "Portfolio" + counts; the demo agency name and the old
+    # per-user email headline are no longer the page title.
     auth.register(email="rick@example.com")
     body = client.get("/app").data
-    assert b"rick@example.com" in body
+    assert b"Portfolio" in body
     assert b"Meridian Commerce Group" not in body
-    # The KPI row: four per-user product metrics plus the two CI activity cards.
-    assert b"Products managed" in body
-    assert b"scored" in body            # PDP's scored
-    assert b"copy created" in body      # PDP's copy created
-    assert b"images created" in body    # PDP's images created
-    assert b"One-Time Snapshot" in body  # CI snapshot card
-    assert b"Daily Monitoring" in body   # CI monitoring card
-    assert b"this month" in body        # each card's this-month footnote
+
+
+def test_set_default_brand_persists_and_loads_and_guards_ownership(client, auth, app):
+    # Saving a default brand persists it and makes the dashboard load that brand
+    # when no ?group_id= is given; a group the user doesn't own is rejected.
+    from app import ci_config
+    from app.db import get_db
+    from app.users import create_local_user
+
+    auth.register(email="def@example.com")
+    with app.app_context():
+        db = get_db()
+        uid = db.execute("SELECT id FROM users WHERE email = ?",
+                         ("def@example.com",)).fetchone()[0]
+        g1 = ci_config.create_group(db, uid, "Brand A", mode="monitoring")
+        g2 = ci_config.create_group(db, uid, "Brand B", mode="monitoring")
+        ci_config.add_brand(db, g1, uid, "Alpha", "mine")
+        ci_config.add_brand(db, g2, uid, "Beta", "mine")
+        other_uid = create_local_user("other@example.com", "password123")
+        og = ci_config.create_group(db, other_uid, "Theirs", mode="monitoring")
+        db.commit()
+
+    resp = client.post("/app/dashboard/default-brand", data={"group_id": g1})
+    assert resp.status_code in (302, 303)
+    with app.app_context():
+        db = get_db()
+        saved = db.execute("SELECT default_ci_group_id FROM users WHERE id = ?",
+                           (uid,)).fetchone()[0]
+        assert saved == g1
+
+    # With no group_id, the dashboard now loads the saved default (Brand A), not the
+    # newest group (Brand B) — assert g1 is the selected option, since both brand
+    # labels appear in the selector regardless.
+    body = client.get("/app").data
+    assert f'value="{g1}" selected'.encode() in body
+
+    # A forged id for another user's group is rejected, not stored (IDOR gate).
+    assert client.post("/app/dashboard/default-brand", data={"group_id": og}).status_code == 404
 
 
 def test_pdp_scoring_page_renders(client, auth):
@@ -190,12 +217,7 @@ def test_view_all_shows_all_time_records(client, auth, app):
                    (ids[0],))
         db.commit()
 
-    # Dashboard: this-month table hides the old row but carries the View all link.
-    dash = client.get("/app").data
-    assert b"/app/activity/scored" in dash
-    assert b"Old Scored Product" not in dash
-
-    # View All: all-time, so the old row appears.
+    # View All: all-time, so the old (prior-month) row appears.
     resp = client.get("/app/activity/scored")
     assert resp.status_code == 200
     assert b"Old Scored Product" in resp.data
@@ -272,7 +294,7 @@ def test_view_all_requires_login(client):
 
 
 def test_activity_rows_link_to_results(client, auth, app):
-    # Dashboard rows carry a per-item results link, and that route opens the item's
+    # View All rows carry a per-item results link, and that route opens the item's
     # results (ownership-checked).
     from app import jobs
     from app.db import get_db
@@ -286,8 +308,8 @@ def test_activity_rows_link_to_results(client, auth, app):
         db.commit()
         sid = ids[0]
 
-    # The dashboard renders the row as a link to the per-item results route.
-    body = client.get("/app").data
+    # The View All screen renders the row as a link to the per-item results route.
+    body = client.get("/app/activity/scored").data
     assert f"/app/pdp-scoring/item/{sid}".encode() in body
 
     # Following it lands on the scoring results page for that item.
@@ -1179,3 +1201,65 @@ def test_view_copy_sets_batch_and_redirects(client, auth, app):
     resp = client.get("/app/pdp-scoring/view-copy")
     assert resp.status_code == 302
     assert "/app/pdp-copy/results" in resp.headers["Location"]
+
+
+def test_dashboard_briefing_prompts_setup_without_monitoring(client, auth):
+    # A fresh account has no monitoring groups, so the performance briefing shows
+    # the "set up tracking" prompt rather than empty gauges.
+    auth.register()
+    body = client.get("/app").data
+    assert b"Set up Daily Monitoring" in body
+    assert b"Set up tracking" in body
+    # No cards are built in this state.
+    assert b"briefing-card" not in body
+
+
+def test_dashboard_briefing_renders_three_cards_with_data(client, auth, app):
+    # With a monitoring group that has current-week data, the three performance
+    # cards render for the group's own brand.
+    from app import ci_analysis, ci_config, ci_jobs
+    from app.db import get_db
+
+    auth.register(email="brief@example.com")
+    with app.app_context():
+        db = get_db()
+        uid = db.execute("SELECT id FROM users WHERE email = ?",
+                         ("brief@example.com",)).fetchone()[0]
+        gid = ci_config.create_group(db, uid, "Hot Sauce", mode="monitoring")
+        mine = ci_config.add_brand(db, gid, uid, "Tabasco", "mine")
+        comp = ci_config.add_brand(db, gid, uid, "Frank's", "competitor")
+        kid = ci_config.add_keyword(db, gid, uid, "hot sauce")
+        rid = ci_jobs.enqueue_run(db, gid, run_type="monitoring")
+        # Seed share-of-search inside the last completed week so a period is offered.
+        day = ci_analysis.period_bounds("wow", 0)[0]
+        db.execute(
+            "INSERT INTO ci_share_of_search (run_id, group_id, keyword_id, date, slot, "
+            "brand_id, organic_count, sponsored_count, total_count) VALUES (?,?,?,?,?,?,?,?,?)",
+            (rid, gid, kid, day, None, mine, 8, 0, 8))
+        db.execute(
+            "INSERT INTO ci_share_of_search (run_id, group_id, keyword_id, date, slot, "
+            "brand_id, organic_count, sponsored_count, total_count) VALUES (?,?,?,?,?,?,?,?,?)",
+            (rid, gid, kid, day, None, comp, 2, 0, 2))
+        # Register x1 as a tracked product so Search Ranking (Discoverability) and
+        # shelf share (Competition) both have a tracked SKU to measure, then place
+        # it on page 1.
+        db.execute(
+            "INSERT INTO ci_products (group_id, brand_id, name, walmart_item_id, walmart_url) "
+            "VALUES (?,?,?,?,?)", (gid, mine, None, "x1", "https://www.walmart.com/ip/x/x1"))
+        db.execute(
+            "INSERT INTO ci_search_results (run_id, group_id, keyword_id, scraped_at, position, "
+            "position_type, item_id, brand_id, is_new_sku) VALUES (?,?,?,?,?,?,?,?,0)",
+            (rid, gid, kid, day, 1, "organic", "x1", mine))
+        # A scored product for the brand so the Conversion card has a readiness score.
+        db.execute("INSERT INTO scored_items (user_id, item_id, url, brand, overall) "
+                   "VALUES (?,?,?,?,?)", (uid, "1", "u", "Tabasco", 85))
+        db.commit()
+
+    body = client.get("/app").data
+    assert b"briefing-card" in body
+    assert b"Discoverability" in body
+    assert b"Conversion" in body
+    assert b"Competition" in body
+    assert b"Tabasco" in body        # the brand label
+    assert b"Dig it" in body         # the renamed Explore link
+    assert b"#1.0" in body           # Discoverability shows the tracked item's page-1 rank
