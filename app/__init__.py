@@ -198,7 +198,7 @@ def create_app() -> Flask:
         # created (otherwise a genuine new signup wouldn't surface until the
         # second login). Later logins use the real prev_login_at. This feeds the
         # topbar new-user badge; the per-table rail counts were retired when the
-        # Admin nav collapsed to the User Activity / System Activity overviews.
+        # Admin nav was simplified to User Management + Messages.
         reference = user["prev_login_at"] or user["created_at"]
         return {
             "is_admin": True,
