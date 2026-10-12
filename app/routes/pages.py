@@ -3322,6 +3322,8 @@ def seasonal_campaign(cid):
         active_nav=_SEASONAL_NAV, campaign=campaign, products=products, pending=pending,
         ready_count=ready_count, theme_label=seasonal_themes.theme_label(campaign["theme"]),
         max_items=pdp.MAX_ITEMS,
+        # Managed-items picker above the manual URL entry (same as Scoring/Copy).
+        portfolio_items=portfolio.list_items(db, uid),
     ))
     resp.headers["Content-Security-Policy"] = _SEASONAL_GALLERY_CSP
     return resp
@@ -3333,8 +3335,10 @@ def seasonal_add_products(cid):
     """Add product URLs (textarea and/or CSV) to a campaign; the worker acquires each."""
     _seasonal_campaign_or_404(cid)
     db, uid = get_db(), g.user["id"]
-    accepted, rejected = _collect_import_urls(request.form.get("urls", ""),
-                                              request.files.get("csv"))
+    # Both the managed-items picker (checkboxes) and the manual textarea post under
+    # "urls"; join every value into one blob so _collect_import_urls sees them all.
+    urls_text = "\n".join(request.form.getlist("urls"))
+    accepted, rejected = _collect_import_urls(urls_text, request.files.get("csv"))
     if not accepted:
         flash("No valid product or image URLs were provided.", "error")
         return redirect(url_for("pages.seasonal_campaign", cid=cid))
