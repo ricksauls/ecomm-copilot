@@ -1,6 +1,52 @@
 {% extends "app/base.html" %}
 {% block title %}Dashboard — DISCOtech{% endblock %}
 
+{# --- Opportunity row helpers ---
+   Inline SVG only (the dashboard ships no JS, and CSP blocks inline styles/scripts).
+   `opp_icon` keys the leading glyph off the opportunity's workflow; `opp_meter`
+   draws the proportion bar (how much is already in good shape) + its caption. #}
+{% macro opp_icon(name) -%}
+{%- if name == 'images' -%}
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.6"/><path d="M21 15l-5-4.5L6.5 20"/></svg>
+{%- elif name == 'copy' -%}
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L18.5 9.5l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>
+{%- elif name == 'competitive' -%}
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16"/><rect x="6" y="11.5" width="3" height="6.5" rx="0.6"/><rect x="10.5" y="7" width="3" height="11" rx="0.6"/><rect x="15" y="9.5" width="3" height="8.5" rx="0.6"/></svg>
+{%- endif -%}
+{%- endmacro %}
+
+{# An opportunity's indicator is EITHER a proportion meter (content gaps: how much
+   is already strong) OR a trend sparkline (the competitive gap: lead rate over
+   time). Both sit in the same fixed column so rows line up. #}
+{% macro opp_meter(m) -%}
+{# Fill width is proportional within the fixed 120-unit viewBox; the SVG scales to
+   its container, so rounded ends stay crisp (unlike a stretched percent-width). #}
+{% set fw = (120.0 * m.filled / m.total) if m.total else 0 %}
+<span class="opp-meter-wrap">
+  <svg class="opp-bar" viewBox="0 0 120 8" aria-hidden="true">
+    <rect x="0" y="0" width="120" height="8" rx="4" class="opp-bar-track"/>
+    {% if fw > 0 %}<rect x="0" y="0" width="{{ fw }}" height="8" rx="4" class="opp-bar-fill"/>{% endif %}
+  </svg>
+  <span class="opp-bar-caption">{{ m.caption }}</span>
+</span>
+{%- endmacro %}
+
+{% macro opp_spark(s, caption) -%}
+{# Trend sparkline over the last few periods above a state caption. Coordinates are
+   precomputed in _sparkline() for the matching 120x28 viewBox; `dir` (up/down/flat)
+   colors the line. A single-point series shows just the end dot; a missing series
+   (no history yet) leaves the caption standing alone. #}
+<span class="opp-spark-wrap">
+  {% if s %}
+  <svg class="opp-spark spark-{{ s.dir }}" viewBox="0 0 120 28" aria-hidden="true">
+    {% if not s.single %}<polyline class="opp-spark-line" points="{{ s.points }}"/>{% endif %}
+    <circle class="opp-spark-dot" cx="{{ s.dot.x }}" cy="{{ s.dot.y }}" r="2.6"/>
+  </svg>
+  {% endif %}
+  <span class="opp-bar-caption">{{ caption }}</span>
+</span>
+{%- endmacro %}
+
 {% block pane_content %}
 {# --- Page header --- #}
 <div class="page-header">
@@ -99,6 +145,35 @@
         {% endif %}
       </div>
       {% endfor %}
+    </div>
+
+    {# --- Opportunities ---
+       The ranked, deep-linked action list below the cards. Each row is a whole-row
+       link into the workflow that closes the gap, with a proportion meter showing
+       how much of that dimension is already strong. No open gaps = an "all caught
+       up" note rather than an empty void. Built in _opportunities(). #}
+    <div class="opportunities">
+      <p class="label eyebrow opp-eyebrow">Opportunities</p>
+      {% if briefing.opportunities %}
+        <div class="opp-list">
+          {% for o in briefing.opportunities %}
+          <a class="opp-row opp-{{ o.key }}" href="{{ o.cta_url }}">
+            <span class="opp-icon">{{ opp_icon(o.icon) }}</span>
+            <span class="opp-body">
+              <span class="opp-title">{{ o.title }}</span>
+              <span class="opp-detail">{{ o.detail }}</span>
+            </span>
+            {% if o.meter %}{{ opp_meter(o.meter) }}{% else %}{{ opp_spark(o.spark, o.caption) }}{% endif %}
+            <span class="opp-cta">{{ o.cta_label }}</span>
+          </a>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="card card-pad opp-empty">
+          <p>No open opportunities for {{ briefing.brand_label }} right now — content
+             and shelf position are in good shape.</p>
+        </div>
+      {% endif %}
     </div>
   </section>
 {% endif %}

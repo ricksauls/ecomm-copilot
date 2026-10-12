@@ -506,9 +506,11 @@ def test_ci_activity_shows_both_ci_tables_all_time(client, auth, app):
     # Snapshot rows link to that group's results.
     assert f"/app/competitive-intel/groups/{snap}/results".encode() in resp.data
 
-    # Rail: the new item is present; the two removed items are gone.
+    # Rail (as of session 31): the Insights area was reworked, so the old
+    # View-Snapshot/Monitoring leaves AND this View-All-CI-Activity leaf are all
+    # hidden from the rail. The activity page above still renders directly.
     dash = client.get("/app").data
-    assert b"/app/competitive-intel/activity" in dash
+    assert b"/app/competitive-intel/activity" not in dash
     assert b">View Snapshot<" not in dash
     assert b">View Monitoring<" not in dash
 
@@ -1263,3 +1265,136 @@ def test_dashboard_briefing_renders_three_cards_with_data(client, auth, app):
     assert b"Tabasco" in body        # the brand label
     assert b"Dig it" in body         # the renamed Explore link
     assert b"#1.0" in body           # Discoverability shows the tracked item's page-1 rank
+
+
+def test_sparkline_spec_scales_and_signs_direction():
+    # The Opportunities sparkline helper: empty -> None; a single point -> just a
+    # dot; direction is signed last-vs-first; a flat series lands on the mid-line.
+    from app.routes.pages import _SPARK_H, _sparkline
+
+    assert _sparkline([]) is None
+
+    one = _sparkline([50])
+    assert one["single"] is True and one["dir"] == "flat"
+
+    up = _sparkline([60, 70, 90])
+    assert up["single"] is False and up["dir"] == "up"
+    assert len(up["points"].split()) == 3          # one point per value
+    down = _sparkline([90, 50])
+    assert down["dir"] == "down"
+
+    flat = _sparkline([80, 80, 80])
+    assert flat["dir"] == "flat"
+    # A flat series draws along the vertical mid-line (every y equals H/2).
+    ys = {pt.split(",")[1] for pt in flat["points"].split()}
+    assert ys == {str(_SPARK_H / 2)}
+
+
+def test_insights_placeholder_renders_and_guards_section(client, auth):
+    # The two new Insights rail leaves link to in-design stubs; an unknown section
+    # 404s rather than rendering an arbitrary heading.
+    auth.register()
+    disco = client.get("/app/insights/disco-conv")
+    assert disco.status_code == 200
+    assert b"Discoverability &amp; Conversion" in disco.data
+    assert b"In design" in disco.data
+
+    comp = client.get("/app/insights/competitive")
+    assert comp.status_code == 200
+    assert b"Competitive Intelligence" in comp.data
+
+    assert client.get("/app/insights/bogus").status_code == 404
+
+
+def test_rail_shows_new_insights_items_and_hides_old(client, auth):
+    # The Insights group now lists the two new sections; the three prior leaves are
+    # hidden from the rail (their routes still exist, just unlinked here).
+    auth.register()
+    body = client.get("/app").data
+    assert b"Discoverability &amp; Conversion" in body
+    assert b"Competitive Intelligence" in body
+    # The old rail label was unique to that leaf, so its absence proves it's hidden.
+    assert b"View All Competitive Intelligence Activity" not in body
+
+
+def test_dashboard_opportunities_rank_content_and_competitive_gaps(client, auth, app):
+    # Below the three cards, the Opportunities list surfaces ranked, deep-linked
+    # actions: image/copy content gaps (from scoring) + keywords a competitor leads.
+    import json
+
+    from app import ci_analysis, ci_config, ci_jobs
+    from app.db import get_db
+
+    auth.register(email="opps@example.com")
+    with app.app_context():
+        db = get_db()
+        uid = db.execute("SELECT id FROM users WHERE email = ?",
+                         ("opps@example.com",)).fetchone()[0]
+        gid = ci_config.create_group(db, uid, "Hot Sauce", mode="monitoring")
+        mine = ci_config.add_brand(db, gid, uid, "Tabasco", "mine")
+        comp = ci_config.add_brand(db, gid, uid, "Frank's", "competitor")
+        kw_win = ci_config.add_keyword(db, gid, uid, "hot sauce")
+        kw_lose = ci_config.add_keyword(db, gid, uid, "pepper sauce")
+        rid = ci_jobs.enqueue_run(db, gid, run_type="monitoring")
+        day = ci_analysis.period_bounds("wow", 0)[0]
+        # "hot sauce": we lead (8 vs 2). "pepper sauce": a competitor leads (2 vs 8),
+        # so it's one lost keyword -> a competitive opportunity.
+        for kid, mine_ct, comp_ct in ((kw_win, 8, 2), (kw_lose, 2, 8)):
+            db.execute(
+                "INSERT INTO ci_share_of_search (run_id, group_id, keyword_id, date, slot, "
+                "brand_id, organic_count, sponsored_count, total_count) VALUES (?,?,?,?,?,?,?,?,?)",
+                (rid, gid, kid, day, None, mine, mine_ct, 0, mine_ct))
+            db.execute(
+                "INSERT INTO ci_share_of_search (run_id, group_id, keyword_id, date, slot, "
+                "brand_id, organic_count, sponsored_count, total_count) VALUES (?,?,?,?,?,?,?,?,?)",
+                (rid, gid, kid, day, None, comp, comp_ct, 0, comp_ct))
+
+        # Two scored Tabasco products with dimension detail: one weak imagery (image
+        # gap), one weak title (copy gap).
+        def score(item_id, dims):
+            db.execute(
+                "INSERT INTO scored_items (user_id, item_id, url, brand, overall, result_json) "
+                "VALUES (?,?,?,?,?,?)",
+                (uid, item_id, "u", "Tabasco", 60,
+                 json.dumps({"overall": 60, "dimensions":
+                             [{"key": k, "label": k, "score": s, "available": True}
+                              for k, s in dims]})))
+        score("1", [("imagery", 40), ("title", 95)])
+        score("2", [("imagery", 100), ("title", 30)])
+        db.commit()
+
+    body = client.get("/app").data
+    assert b"opp-row" in body
+    assert b"opp-meter-wrap" in body   # content rows use the proportion meter
+    assert b"opp-spark" in body        # the competitive row uses the trend sparkline
+    assert b"Improve images on 1 product" in body
+    assert b"Strengthen copy on 1 product" in body
+    assert b"Win back 1 keyword" in body
+
+
+def test_dashboard_opportunities_empty_state_when_all_strong(client, auth, app):
+    # With a monitoring group but no content/competitive gaps, the list shows the
+    # "all caught up" note instead of rows.
+    from app import ci_analysis, ci_config, ci_jobs
+    from app.db import get_db
+
+    auth.register(email="allgood@example.com")
+    with app.app_context():
+        db = get_db()
+        uid = db.execute("SELECT id FROM users WHERE email = ?",
+                         ("allgood@example.com",)).fetchone()[0]
+        gid = ci_config.create_group(db, uid, "Hot Sauce", mode="monitoring")
+        mine = ci_config.add_brand(db, gid, uid, "Tabasco", "mine")
+        kid = ci_config.add_keyword(db, gid, uid, "hot sauce")
+        rid = ci_jobs.enqueue_run(db, gid, run_type="monitoring")
+        day = ci_analysis.period_bounds("wow", 0)[0]
+        # We lead the only keyword and have no scored products -> no opportunities.
+        db.execute(
+            "INSERT INTO ci_share_of_search (run_id, group_id, keyword_id, date, slot, "
+            "brand_id, organic_count, sponsored_count, total_count) VALUES (?,?,?,?,?,?,?,?,?)",
+            (rid, gid, kid, day, None, mine, 10, 0, 10))
+        db.commit()
+
+    body = client.get("/app").data
+    assert b"opp-row" not in body
+    assert b"No open opportunities" in body

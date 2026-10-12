@@ -142,6 +142,103 @@ def count_scored_products(conn: sqlite3.Connection, user_id: int,
 # constant so this aggregate stays importable without pulling in the routes module.
 READINESS_STRONG_MIN = 80
 
+# Each scoring dimension maps to the workflow that fixes it: the imagery dimension
+# is addressed in the image tools, the text dimensions in Product Copy. The
+# dashboard Opportunities list uses this split to point each gap at the right
+# workflow. Keys match the ``dimensions[].key`` values in a scored result_json.
+IMAGE_DIMENSIONS = frozenset({"imagery"})
+COPY_DIMENSIONS = frozenset({"title", "key_features", "description"})
+
+
+def readiness_breakdown(conn: sqlite3.Connection, user_id: int,
+                        brands: list[str]) -> dict:
+    """Per-workflow content gaps for a set of brands — feeds the Opportunities list.
+
+    Reads each product's *latest* scored result (one row per item, newest first),
+    parses its dimension scores, and tallies how many products have an **image gap**
+    (the imagery dimension below :data:`READINESS_STRONG_MIN`) versus a **copy gap**
+    (any text dimension below it). A product can count in both buckets. Only
+    dimensions marked ``available`` are judged — an unmeasured dimension (e.g. images
+    that couldn't be fetched) is not counted as a gap.
+
+    Scoping to ``brands`` (the selected CI group's own brand names) keeps the
+    Opportunities list on the same brand as the three cards; an empty list
+    short-circuits (no brand selected / matched).
+
+    Args:
+        conn: Open SQLite connection (request or worker).
+        user_id: Owner of the scored items.
+        brands: Brand names to include; matched case/space-insensitively.
+
+    Returns:
+        ``{scored_count, image_gap_count, copy_gap_count, image_items, copy_items}``.
+        The ``*_items`` lists carry ``{item_id, title}`` for the gapped products
+        (capped at :data:`_OPP_ITEMS_CAP`), newest-scored first, for later drill-down.
+    """
+    wanted = [b.strip().lower() for b in brands if b and b.strip()]
+    if not wanted:
+        return {"scored_count": 0, "image_gap_count": 0, "copy_gap_count": 0,
+                "image_items": [], "copy_items": []}
+
+    placeholders = ",".join("?" for _ in wanted)
+    # One row per product at its most recent scored state (same window-function
+    # latest-per-item rule as readiness_score), carrying the dimension detail.
+    rows = conn.execute(
+        "SELECT item_id, title, result_json FROM ("
+        "  SELECT item_id, title, result_json, ROW_NUMBER() OVER ("
+        "    PARTITION BY item_id ORDER BY created_at DESC, id DESC) AS rn "
+        "  FROM scored_items "
+        "  WHERE user_id = ? AND item_id IS NOT NULL AND item_id != '' "
+        "    AND overall IS NOT NULL AND result_json IS NOT NULL AND result_json != '' "
+        "    AND LOWER(TRIM(brand)) IN (" + placeholders + ")"
+        ") WHERE rn = 1 ORDER BY item_id",
+        [user_id, *wanted],
+    ).fetchall()
+
+    scored_count = 0
+    image_items: list[dict] = []
+    copy_items: list[dict] = []
+    for r in rows:
+        try:
+            dims = json.loads(r["result_json"]).get("dimensions", [])
+        except (ValueError, TypeError):
+            # A malformed result shouldn't sink the whole briefing — skip it and
+            # keep going, but leave a breadcrumb so a bad write is traceable.
+            logger.warning("Skipping unparseable scored result user_id=%s item_id=%s",
+                           user_id, r["item_id"])
+            continue
+        scored_count += 1
+        has_image_gap = has_copy_gap = False
+        for d in dims:
+            if not d.get("available", True) or d.get("score") is None:
+                continue
+            if d["score"] >= READINESS_STRONG_MIN:
+                continue
+            if d.get("key") in IMAGE_DIMENSIONS:
+                has_image_gap = True
+            elif d.get("key") in COPY_DIMENSIONS:
+                has_copy_gap = True
+        item = {"item_id": r["item_id"], "title": r["title"]}
+        if has_image_gap:
+            image_items.append(item)
+        if has_copy_gap:
+            copy_items.append(item)
+
+    logger.debug("Readiness breakdown user_id=%s brands=%s → scored=%d image_gap=%d copy_gap=%d",
+                 user_id, wanted, scored_count, len(image_items), len(copy_items))
+    return {
+        "scored_count": scored_count,
+        "image_gap_count": len(image_items),
+        "copy_gap_count": len(copy_items),
+        "image_items": image_items[:_OPP_ITEMS_CAP],
+        "copy_items": copy_items[:_OPP_ITEMS_CAP],
+    }
+
+
+# Upper bound on the example products carried per content gap (the row shows a
+# count; the list is for a future per-product drill-down). Keeps the payload small.
+_OPP_ITEMS_CAP = 20
+
 
 def readiness_score(conn: sqlite3.Connection, user_id: int, brands: list[str],
                     as_of: str | None = None) -> dict:

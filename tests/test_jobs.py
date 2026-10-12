@@ -294,6 +294,86 @@ def test_readiness_score_averages_latest_per_product_by_brand(app):
             "avg": None, "scored_count": 0, "needs_attention_count": 0}
 
 
+def _score_detailed(db, uid, item_id, brand, overall, dims, created_at, title=None):
+    """Insert a scored_items row carrying a dimension breakdown (result_json).
+
+    ``dims`` is a list of ``(key, score)`` or ``(key, score, available)`` tuples,
+    shaped into the ``{"dimensions": [...]}`` payload readiness_breakdown parses.
+    """
+    dimensions = [
+        {"key": k, "label": k, "score": s, "available": (a[0] if a else True)}
+        for d in dims for (k, s, *a) in [d]
+    ]
+    db.execute(
+        "INSERT INTO scored_items (user_id, item_id, url, brand, overall, title, "
+        "result_json, created_at) VALUES (?,?,?,?,?,?,?,?)",
+        (uid, item_id, "u", brand, overall, title,
+         json.dumps({"overall": overall, "dimensions": dimensions}), created_at),
+    )
+
+
+def test_readiness_breakdown_buckets_image_vs_copy_gaps(app):
+    # Opportunities list: per-product, flag an image gap (imagery < 80) and/or a
+    # copy gap (any text dimension < 80), scoped to the brand, latest score only.
+    with app.app_context():
+        db = get_db()
+        uid = create_local_user("breakdown@example.com", "password123")
+        # item 1: weak imagery only -> image gap.
+        _score_detailed(db, uid, "1", "Tabasco", 70,
+                        [("imagery", 50), ("title", 90), ("description", 85)],
+                        "2026-03-01 00:00:00")
+        # item 2: weak title only -> copy gap.
+        _score_detailed(db, uid, "2", "Tabasco", 72,
+                        [("imagery", 100), ("title", 40), ("key_features", 90)],
+                        "2026-03-01 00:00:00")
+        # item 3: weak on both -> counts in both buckets.
+        _score_detailed(db, uid, "3", "Tabasco", 55,
+                        [("imagery", 30), ("description", 20)],
+                        "2026-03-01 00:00:00")
+        # item 4: all strong -> no gap.
+        _score_detailed(db, uid, "4", "Tabasco", 95,
+                        [("imagery", 100), ("title", 90)],
+                        "2026-03-01 00:00:00")
+        # item 5 (other brand) -> excluded from the Tabasco breakdown.
+        _score_detailed(db, uid, "5", "Frank's", 10,
+                        [("imagery", 10), ("title", 10)],
+                        "2026-03-01 00:00:00")
+        db.commit()
+
+        b = jobs.readiness_breakdown(db, uid, ["Tabasco"])
+        assert b["scored_count"] == 4
+        assert b["image_gap_count"] == 2   # items 1 and 3
+        assert b["copy_gap_count"] == 2    # items 2 and 3
+        assert {i["item_id"] for i in b["image_items"]} == {"1", "3"}
+        assert {i["item_id"] for i in b["copy_items"]} == {"2", "3"}
+
+        # Empty / unmatched brand scope short-circuits cleanly.
+        assert jobs.readiness_breakdown(db, uid, [])["scored_count"] == 0
+        assert jobs.readiness_breakdown(db, uid, ["Nope"])["image_gap_count"] == 0
+
+
+def test_readiness_breakdown_latest_score_and_unmeasured_dimension(app):
+    # Only the latest score per product is judged, and a dimension marked
+    # unavailable (e.g. images that couldn't be fetched) is never a gap.
+    with app.app_context():
+        db = get_db()
+        uid = create_local_user("breakdown2@example.com", "password123")
+        # item 1 re-scored: an early weak imagery, then a strong latest -> no gap.
+        _score_detailed(db, uid, "1", "Tabasco", 40,
+                        [("imagery", 20)], "2026-01-01 00:00:00")
+        _score_detailed(db, uid, "1", "Tabasco", 95,
+                        [("imagery", 100)], "2026-03-01 00:00:00")
+        # item 2: imagery not measured -> not counted as an image gap.
+        _score_detailed(db, uid, "2", "Tabasco", 85,
+                        [("imagery", 0, False), ("title", 90)], "2026-03-01 00:00:00")
+        db.commit()
+
+        b = jobs.readiness_breakdown(db, uid, ["Tabasco"])
+        assert b["scored_count"] == 2
+        assert b["image_gap_count"] == 0
+        assert b["copy_gap_count"] == 0
+
+
 def test_readiness_score_as_of_sees_only_scores_up_to_that_moment(app):
     # The card derives its period delta by asking for readiness "as of" a past
     # date — the latest score on or before it.
