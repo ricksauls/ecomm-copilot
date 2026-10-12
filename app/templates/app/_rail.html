@@ -111,6 +111,7 @@
      enforce access server-side regardless). #}
   {% if is_admin %}
   {% set admin_items = [
+    ('admin-users', 'User Management', url_for('pages.admin_users')),
     ('admin-activity', 'User Activity', url_for('pages.admin_activity')),
     ('admin-system-activity', 'System Activity', url_for('pages.admin_system_activity')),
   ] %}

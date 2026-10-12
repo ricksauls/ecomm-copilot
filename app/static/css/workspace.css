@@ -2081,14 +2081,53 @@ body.cost-modal-open {
   overflow-wrap: anywhere;
 }
 
-/* Delete action in the admin users table. */
+/* Role badge + role/delete actions in the User Management table. */
+.role-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--mid-gray);
+  background: var(--surface);
+}
+/* Admin stands out (signal red); a plain user stays muted/neutral. */
+.role-badge.role-admin {
+  color: var(--signal-red);
+  border-color: var(--signal-red);
+}
+
 .admin-table .cell-action {
   text-align: right;
   white-space: nowrap;
 }
+.role-form,
 .delete-user-form {
   display: inline;
-  margin: 0;
+  margin: 0 0 0 6px;
+}
+.role-form:first-child {
+  margin-left: 0;
+}
+/* Neutral sibling of .btn-delete for the Make Admin / Make User toggle. */
+.btn-role {
+  font-size: 12px;
+  font-weight: 500;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  color: var(--mid-gray);
+  cursor: pointer;
+  font-family: inherit;
+  transition: border-color var(--fade) var(--ease), color var(--fade) var(--ease);
+}
+.btn-role:hover {
+  border-color: var(--control-border);
+  color: var(--black);
 }
 .btn-delete {
   font-size: 12px;

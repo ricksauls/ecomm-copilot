@@ -132,13 +132,18 @@ def login_required(view):
 def is_admin(user) -> bool:
     """Whether ``user`` (a row or None) is an admin.
 
-    Admins are an email allowlist in ``ADMIN_EMAILS`` config (server-side only —
-    never trust a client flag). Emails are compared normalized (lowercased).
+    Authorization is the DB ``role`` column (server-side only — never trust a
+    client flag). The ``ADMIN_EMAILS`` allowlist is not consulted here: it grants
+    admin by writing ``role`` at account creation and at startup
+    (:func:`users.apply_admin_allowlist`), so a UI demotion still sticks. A row
+    predating the column (shouldn't happen post-migration) reads as non-admin.
     """
     if not user:
         return False
-    allowed = current_app.config.get("ADMIN_EMAILS", set())
-    return (user["email"] or "").strip().lower() in allowed
+    try:
+        return (user["role"] or "") == users.ROLE_ADMIN
+    except (KeyError, IndexError):
+        return False
 
 
 def admin_required(view):

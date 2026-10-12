@@ -4,7 +4,9 @@ Authorization is the important part — the admin routes must fail closed for
 non-admins and the unauthenticated, regardless of whether the nav is shown.
 """
 
-from app import ci_config, ci_jobs, copy_jobs, jobs
+import pytest
+
+from app import ci_config, ci_jobs, copy_jobs, jobs, users
 from app.db import get_db
 from app.users import (
     count_created_since,
@@ -137,16 +139,16 @@ def test_admin_activity_consolidated_view(client, auth, app):
 
 
 def test_admin_nav_visibility(client, auth, app):
-    # The Admin rail is just User Activity + System Activity; the per-table screens
-    # are no longer linked (they live inside User Activity). A regular user sees no
-    # Admin nav at all.
+    # The Admin rail is User Management + User Activity + System Activity. The
+    # per-table reporting screens (copy/CI) are not linked (they live inside User
+    # Activity). A regular user sees no Admin nav at all.
     _as_admin(app)
     auth.register(email=_ADMIN, password=_PW)
     dash = client.get("/app").data
+    assert b"/admin/users" in dash  # User Management screen
     assert b"/admin/activity" in dash
     assert b"/admin/system-activity" in dash
-    # The individual screens are no longer in the nav.
-    assert b"/admin/users" not in dash
+    # The reporting per-table screens are not in the nav.
     assert b"/admin/copy" not in dash
     assert b"/admin/ci-snapshots" not in dash
     assert b"/admin/ci-monitoring" not in dash
@@ -154,6 +156,7 @@ def test_admin_nav_visibility(client, auth, app):
     auth.logout()
     auth.register(email="regular@example.com", password=_PW)
     regular = client.get("/app").data
+    assert b"/admin/users" not in regular
     assert b"/admin/activity" not in regular
     assert b"/admin/system-activity" not in regular
 
@@ -291,3 +294,102 @@ def test_new_user_notification_renders_for_admin(client, auth, app):
     # The shell (topbar) should now show the new-user badge.
     resp = client.get("/app")
     assert b"1 new user" in resp.data
+
+
+# --- User Management: roles ------------------------------------------------
+
+def test_signup_with_allowlisted_email_becomes_admin(client, auth, app):
+    _as_admin(app)
+    auth.register(email=_ADMIN, password=_PW)
+    with app.app_context():
+        assert get_by_email(_ADMIN)["role"] == users.ROLE_ADMIN
+
+
+def test_signup_without_allowlist_is_plain_user(client, auth, app):
+    _as_admin(app)
+    auth.register(email="plain@example.com", password=_PW)
+    with app.app_context():
+        assert get_by_email("plain@example.com")["role"] == users.ROLE_USER
+
+
+def test_allowlist_promotes_existing_user(client, auth, app):
+    """A user who existed before being allowlisted is promoted by the bootstrap."""
+    auth.register(email="later-admin@example.com", password=_PW)  # not allowlisted yet
+    with app.app_context():
+        uid = get_by_email("later-admin@example.com")["id"]
+        assert get_by_id(uid)["role"] == users.ROLE_USER
+        promoted = users.apply_admin_allowlist(get_db(), {"later-admin@example.com"})
+        assert promoted == 1
+        assert get_by_id(uid)["role"] == users.ROLE_ADMIN
+        # Idempotent: a second pass promotes no one.
+        assert users.apply_admin_allowlist(get_db(), {"later-admin@example.com"}) == 0
+
+
+def test_admin_can_promote_and_demote(client, auth, app):
+    _as_admin(app)
+    auth.register(email=_ADMIN, password=_PW)  # the sole admin, logged in
+    with app.app_context():
+        member = create_local_user("member@example.com", _PW)
+    # Promote → admin.
+    resp = client.post(f"/admin/users/{member}/role", data={"role": "admin"})
+    assert resp.status_code == 302
+    with app.app_context():
+        assert get_by_id(member)["role"] == users.ROLE_ADMIN
+    # Demote back → user (allowed now that two admins exist).
+    resp = client.post(f"/admin/users/{member}/role", data={"role": "user"})
+    assert resp.status_code == 302
+    with app.app_context():
+        assert get_by_id(member)["role"] == users.ROLE_USER
+
+
+def test_cannot_demote_the_last_admin(client, auth, app):
+    _as_admin(app)
+    auth.register(email=_ADMIN, password=_PW)
+    with app.app_context():
+        me = get_by_email(_ADMIN)["id"]
+    resp = client.post(f"/admin/users/{me}/role", data={"role": "user"})
+    assert resp.status_code == 400
+    with app.app_context():
+        assert get_by_id(me)["role"] == users.ROLE_ADMIN  # unchanged
+
+
+def test_invalid_role_is_rejected(client, auth, app):
+    _as_admin(app)
+    auth.register(email=_ADMIN, password=_PW)
+    with app.app_context():
+        member = create_local_user("m2@example.com", _PW)
+    resp = client.post(f"/admin/users/{member}/role", data={"role": "superuser"})
+    assert resp.status_code == 400
+    with app.app_context():
+        assert get_by_id(member)["role"] == users.ROLE_USER
+
+
+def test_role_change_forbidden_for_non_admin(client, auth, app):
+    _as_admin(app)
+    auth.register(email="regular@example.com", password=_PW)  # plain user, logged in
+    with app.app_context():
+        victim = create_local_user("victim@example.com", _PW)
+    resp = client.post(f"/admin/users/{victim}/role", data={"role": "admin"})
+    assert resp.status_code == 403
+    with app.app_context():
+        assert get_by_id(victim)["role"] == users.ROLE_USER  # unchanged
+
+
+def test_set_role_rejects_invalid_value(app):
+    with app.app_context():
+        uid = create_local_user("sr@example.com", _PW)
+        with pytest.raises(ValueError):
+            users.set_role(uid, "root")
+
+
+def test_user_management_shows_role_controls(client, auth, app):
+    _as_admin(app)
+    auth.register(email=_ADMIN, password=_PW)
+    with app.app_context():
+        create_local_user("member@example.com", _PW)
+    resp = client.get("/admin/users")
+    assert resp.status_code == 200
+    assert b"User Management" in resp.data
+    # The plain member can be promoted; the sole admin shows the last-admin guard.
+    assert b"Make Admin" in resp.data
+    assert b"Last admin" in resp.data

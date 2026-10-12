@@ -29,7 +29,12 @@ CREATE TABLE IF NOT EXISTS users (
     -- prev_login_at (the login before the current one) is the reference for the
     -- "new users since your last login" notification.
     last_login_at  TEXT,
-    prev_login_at  TEXT
+    prev_login_at  TEXT,
+    -- Authorization role: 'user' (default) or 'admin'. Admins reach the admin
+    -- screens. ADMIN_EMAILS seeds/guarantees admins at startup and at signup
+    -- (break-glass if locked out), but this column is the day-to-day source of
+    -- truth — an admin demoted in the UI stays demoted until re-granted.
+    role           TEXT    NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin'))
 );
 
 -- One row per submitted PDP URL. The web app inserts rows as 'queued'; the
@@ -612,6 +617,18 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE import_assets ADD COLUMN thumb_url TEXT")
         logger.info("Migrated import_assets: added 'thumb_url' column")
 
+    # users.role: authorization role, added after auth shipped as an email-only
+    # allowlist. Existing rows default to 'user'; the ADMIN_EMAILS bootstrap
+    # (users.apply_admin_allowlist, run at startup) then promotes the right ones.
+    # Fresh DBs get the column (with its CHECK) from _SCHEMA.
+    user_cols = {row[1] for row in conn.execute("PRAGMA table_info(users)")}
+    if user_cols and "role" not in user_cols:
+        conn.execute(
+            "ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user' "
+            "CHECK (role IN ('user', 'admin'))"
+        )
+        logger.info("Migrated users: added 'role' column")
+
 
 def ensure_schema(conn: sqlite3.Connection) -> None:
     """Create the schema if absent and apply additive migrations. Idempotent.
@@ -642,6 +659,11 @@ def init_db(app: Flask) -> None:
         # worker threads and web requests start contending for it.
         tune_connection(conn)
         ensure_schema(conn)
+        # Break-glass admin bootstrap: promote any existing user whose email is
+        # in ADMIN_EMAILS to the 'admin' role. Local import avoids a db<->users
+        # import cycle. Idempotent; a no-op when the allowlist is empty.
+        from app import users
+        users.apply_admin_allowlist(conn, app.config.get("ADMIN_EMAILS") or set())
     finally:
         conn.close()
 

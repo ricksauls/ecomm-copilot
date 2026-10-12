@@ -8,11 +8,19 @@ All queries are parameterized (see security-standards).
 import logging
 import sqlite3
 
+from flask import current_app
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from app.db import get_db
 
 logger = logging.getLogger(__name__)
+
+# Authorization roles. Admins reach the admin screens; everyone else is a plain
+# 'user' with full non-admin app access. Kept as constants so the role string
+# lives in exactly one place (schema CHECK, set_role validation, is_admin).
+ROLE_ADMIN = "admin"
+ROLE_USER = "user"
+VALID_ROLES = frozenset({ROLE_ADMIN, ROLE_USER})
 
 
 class EmailAlreadyRegistered(Exception):
@@ -22,6 +30,18 @@ class EmailAlreadyRegistered(Exception):
 def normalize_email(email: str) -> str:
     """Lowercase and trim an email so lookups and uniqueness are consistent."""
     return email.strip().lower()
+
+
+def _role_for_new_email(email: str) -> str:
+    """Role to assign a newly created account: admin if its email is allowlisted.
+
+    The ADMIN_EMAILS allowlist grants admin at *account creation* as well as at
+    startup, so an allowlisted email becomes admin the moment it signs up (no
+    restart needed) — while a later UI demotion still sticks, because this only
+    fires on insert, never on every authorization check.
+    """
+    allowed = current_app.config.get("ADMIN_EMAILS") or set()
+    return ROLE_ADMIN if normalize_email(email) in allowed else ROLE_USER
 
 
 def get_by_email(email: str) -> sqlite3.Row | None:
@@ -47,11 +67,13 @@ def create_local_user(email: str, password: str) -> int:
     or logged.
     """
     email = normalize_email(email)
+    role = _role_for_new_email(email)
     db = get_db()
     try:
         cursor = db.execute(
-            "INSERT INTO users (email, password_hash, auth_provider) VALUES (?, ?, 'local')",
-            (email, generate_password_hash(password)),
+            "INSERT INTO users (email, password_hash, auth_provider, role) "
+            "VALUES (?, ?, 'local', ?)",
+            (email, generate_password_hash(password), role),
         )
         db.commit()
     except sqlite3.IntegrityError as e:
@@ -71,10 +93,11 @@ def get_or_create_sso_user(email: str, provider: str) -> int:
     existing = get_by_email(email)
     if existing is not None:
         return int(existing["id"])
+    role = _role_for_new_email(email)
     db = get_db()
     cursor = db.execute(
-        "INSERT INTO users (email, password_hash, auth_provider) VALUES (?, NULL, ?)",
-        (normalize_email(email), provider),
+        "INSERT INTO users (email, password_hash, auth_provider, role) VALUES (?, NULL, ?, ?)",
+        (normalize_email(email), provider, role),
     )
     db.commit()
     logger.info("New SSO account created: user_id=%s provider=%s", cursor.lastrowid, provider)
@@ -115,9 +138,57 @@ def list_users() -> list[sqlite3.Row]:
     """Return all users, newest first, for the admin users table."""
     db = get_db()
     return db.execute(
-        "SELECT id, email, auth_provider, created_at, last_login_at "
+        "SELECT id, email, auth_provider, created_at, last_login_at, role "
         "FROM users ORDER BY id DESC"
     ).fetchall()
+
+
+def set_role(user_id: int, role: str) -> None:
+    """Set a user's authorization role. The caller must authorize (admin).
+
+    Validates against :data:`VALID_ROLES` so a bad value can never reach the
+    database (defense in depth alongside the column's CHECK constraint). Guarding
+    against removing the last admin is the route's responsibility — this is the
+    low-level setter.
+    """
+    if role not in VALID_ROLES:
+        raise ValueError(f"Invalid role: {role!r}")
+    db = get_db()
+    db.execute("UPDATE users SET role = ? WHERE id = ?", (role, user_id))
+    db.commit()
+    logger.info("Set role of user_id=%s to %s", user_id, role)
+
+
+def count_admins() -> int:
+    """Number of users with the admin role — backs the last-admin lockout guard."""
+    return int(get_db().execute(
+        "SELECT COUNT(*) FROM users WHERE role = ?", (ROLE_ADMIN,)
+    ).fetchone()[0])
+
+
+def apply_admin_allowlist(conn: sqlite3.Connection, emails) -> int:
+    """Promote every existing user whose email is in ``emails`` to admin.
+
+    Runs at startup (break-glass bootstrap) with a raw connection, so it takes
+    ``conn`` explicitly rather than using the request-scoped :func:`get_db`.
+    Idempotent — only rows not already admin are touched — and a no-op when the
+    allowlist is empty. ``emails`` are expected pre-normalized (lowercased), as
+    the app factory stores them. Returns the number of users promoted.
+    """
+    emails = {e for e in emails if e}
+    if not emails:
+        return 0
+    # One placeholder per email; values are bound, so this is not string-built SQL.
+    placeholders = ",".join("?" for _ in emails)
+    cur = conn.execute(
+        f"UPDATE users SET role = ? "
+        f"WHERE LOWER(TRIM(email)) IN ({placeholders}) AND role != ?",
+        (ROLE_ADMIN, *sorted(emails), ROLE_ADMIN),
+    )
+    conn.commit()
+    if cur.rowcount:
+        logger.info("Admin allowlist: promoted %d existing user(s) to admin", cur.rowcount)
+    return int(cur.rowcount)
 
 
 def count_users() -> int:

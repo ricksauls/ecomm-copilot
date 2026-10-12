@@ -1895,14 +1895,45 @@ def pdp_scoring_view_copy():
 @bp.route("/admin/users")
 @admin_required
 def admin_users():
-    """Admin: table of all registered users."""
+    """Admin: User Management — list every account with role controls."""
     logger.info("Admin users view: admin_user_id=%s", g.user["id"])
     return render_template(
         "app/admin_users.html",
-        breadcrumb="Admin · Users",
+        breadcrumb="Admin · User Management",
         active_nav="admin-users",
         users=users.list_users(),
+        # Drives the last-admin lockout guard in the template (also enforced below).
+        admin_count=users.count_admins(),
     )
+
+
+@bp.route("/admin/users/<int:user_id>/role", methods=["POST"])
+@admin_required
+def admin_set_role(user_id):
+    """Change a user's role (admin <-> user). POST-only + CSRF + admin-guarded.
+
+    Refuses an invalid role, and refuses to demote the **last** admin so the app
+    can never be left with no one who can administer it (a lockout). Demoting
+    yourself is allowed only while another admin remains — the same last-admin
+    rule covers it.
+    """
+    new_role = (request.form.get("role") or "").strip()
+    if new_role not in users.VALID_ROLES:
+        abort(400, description="Invalid role.")
+    target = users.get_by_id(user_id)
+    if target is None:
+        abort(404)
+    current_role = target["role"]
+    if (current_role == users.ROLE_ADMIN and new_role != users.ROLE_ADMIN
+            and users.count_admins() <= 1):
+        logger.warning("Admin user_id=%s blocked from demoting the last admin (user_id=%s)",
+                       g.user["id"], user_id)
+        abort(400, description="You can't remove the last admin. Promote another admin first.")
+    if new_role != current_role:
+        users.set_role(user_id, new_role)
+        logger.info("Admin user_id=%s changed role of user_id=%s: %s -> %s",
+                    g.user["id"], user_id, current_role, new_role)
+    return redirect(url_for("pages.admin_users"))
 
 
 @bp.route("/admin/users/<int:user_id>/delete", methods=["POST"])
@@ -1910,11 +1941,18 @@ def admin_users():
 def admin_delete_user(user_id):
     """Delete a user (and their scored items). POST-only + CSRF + admin-guarded.
 
-    Blocks self-deletion so an admin can't remove their own account by accident.
+    Blocks self-deletion so an admin can't remove their own account by accident,
+    and blocks deleting the last remaining admin (a lockout).
     """
     if user_id == g.user["id"]:
         logger.warning("Admin user_id=%s tried to delete their own account", g.user["id"])
         abort(400, description="You can't delete your own account.")
+    target = users.get_by_id(user_id)
+    if (target is not None and target["role"] == users.ROLE_ADMIN
+            and users.count_admins() <= 1):
+        logger.warning("Admin user_id=%s blocked from deleting the last admin (user_id=%s)",
+                       g.user["id"], user_id)
+        abort(400, description="You can't delete the last admin.")
     users.delete_user(user_id)
     logger.info("Admin user_id=%s deleted user_id=%s", g.user["id"], user_id)
     return redirect(url_for("pages.admin_users"))

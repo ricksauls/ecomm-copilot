@@ -1,12 +1,13 @@
 {% extends "app/base.html" %}
-{% block title %}Users — DISCOtech{% endblock %}
+{% block title %}User Management — DISCOtech{% endblock %}
 
 {% block pane_content %}
 <div class="page-header">
   <div>
-    <h1>Users</h1>
+    <h1>User Management</h1>
     <p class="subtitle">
-      {{ users | length }} registered user{{ '' if users | length == 1 else 's' }}
+      {{ users | length }} user{{ '' if users | length == 1 else 's' }}
+      · {{ admin_count }} admin{{ '' if admin_count == 1 else 's' }}
     </p>
   </div>
 </div>
@@ -18,6 +19,7 @@
         <tr>
           <th>ID</th>
           <th>Email</th>
+          <th>Role</th>
           <th>Sign-in</th>
           <th>Registered</th>
           <th>Last login</th>
@@ -26,15 +28,40 @@
       </thead>
       <tbody>
         {% for u in users %}
+        {# The last admin can be neither demoted nor deleted (lockout guard);
+           both are also enforced server-side regardless of what's rendered. #}
+        {% set is_last_admin = (u.role == 'admin' and admin_count <= 1) %}
+        {% set is_self = current_user and u.id == current_user['id'] %}
         <tr>
           <td class="cell-muted">{{ u.id }}</td>
-          <td>{{ u.email }}</td>
+          <td>{{ u.email }}{% if is_self %} <span class="cell-muted">(you)</span>{% endif %}</td>
+          <td><span class="role-badge role-{{ u.role }}">{{ u.role | capitalize }}</span></td>
           <td>{{ u.auth_provider }}</td>
           <td class="cell-muted">{{ u.created_at }}</td>
           <td class="cell-muted">{{ u.last_login_at or '—' }}</td>
           <td class="cell-action">
-            {# No delete on your own row — guarded server-side too. #}
-            {% if current_user and u.id != current_user['id'] %}
+            {# Role toggle: promote a user, or demote an admin (never the last one). #}
+            {% if u.role == 'admin' %}
+              {% if is_last_admin %}
+              <span class="cell-muted" title="Promote another admin first">Last admin</span>
+              {% else %}
+              <form method="post" class="role-form"
+                    action="{{ url_for('pages.admin_set_role', user_id=u.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+                <input type="hidden" name="role" value="user" />
+                <button type="submit" class="btn-role">Make User</button>
+              </form>
+              {% endif %}
+            {% else %}
+              <form method="post" class="role-form"
+                    action="{{ url_for('pages.admin_set_role', user_id=u.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+                <input type="hidden" name="role" value="admin" />
+                <button type="submit" class="btn-role">Make Admin</button>
+              </form>
+            {% endif %}
+            {# No delete on your own row or the last admin (both guarded server-side). #}
+            {% if not is_self and not is_last_admin %}
             <form method="post" class="delete-user-form"
                   action="{{ url_for('pages.admin_delete_user', user_id=u.id) }}"
                   data-email="{{ u.email }}">
