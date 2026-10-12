@@ -3122,6 +3122,27 @@ def seasonal_add_products(cid):
     return redirect(url_for("pages.seasonal_campaign", cid=cid))
 
 
+@bp.route("/app/seasonal/<int:cid>/product/<int:pid>/retry", methods=["POST"])
+@login_required
+def seasonal_retry_product(cid, pid):
+    """Retry a failed product's acquire (e.g. after a Walmart bot-detection block).
+
+    Re-queues the product in place (no new row) so the worker tries again; only a
+    product that actually failed is re-queued.
+    """
+    _seasonal_campaign_or_404(cid)
+    db, uid = get_db(), g.user["id"]
+    product = seasonal_store.get_product(db, pid, uid)
+    if product is None or product["campaign_id"] != cid:
+        abort(404)
+    if seasonal_store.requeue_product(db, pid, uid):
+        flash("Retrying — acquiring the main image again…", "ok")
+    else:
+        flash("That product isn’t in a failed state.", "ok")
+    logger.info("Seasonal retry product=%s campaign=%s user_id=%s", pid, cid, uid)
+    return redirect(url_for("pages.seasonal_campaign", cid=cid))
+
+
 @bp.route("/app/seasonal/<int:cid>/image/<int:iid>/regenerate", methods=["POST"])
 @login_required
 def seasonal_regenerate_image(cid, iid):

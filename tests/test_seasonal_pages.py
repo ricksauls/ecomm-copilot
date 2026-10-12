@@ -99,6 +99,21 @@ def test_add_products_queues_acquire(client, auth, app):
         assert {p["source_type"] for p in products} == {"walmart", "amazon_pdp"}
 
 
+def test_retry_product_requeues_failed_acquire(client, auth, app):
+    cid, uid = _make_campaign(client, auth, app, "sp-retry@example.com")
+    with app.app_context():
+        db = get_db()
+        pid = store.add_product(db, campaign_id=cid, user_id=uid,
+                                source_url="https://www.walmart.com/ip/10294528",
+                                source_type="walmart")
+        store.set_product_status(db, pid, store.PRODUCT_ERROR, error="Walmart blocked the request.")
+    resp = client.post(f"/app/seasonal/{cid}/product/{pid}/retry")
+    assert resp.status_code == 302
+    with app.app_context():
+        row = store.get_product(get_db(), pid, uid)
+        assert row["status"] == store.PRODUCT_QUEUED and row["error"] is None
+
+
 def test_regenerate_requeues_main_image(client, auth, app):
     cid, uid = _make_campaign(client, auth, app, "sp-regen@example.com")
     with app.app_context():

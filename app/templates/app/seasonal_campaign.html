@@ -108,6 +108,10 @@
 
     {% if product.status == 'error' %}
       <p class="import-item-error">{{ product.error }}</p>
+      <form method="post" action="{{ url_for('pages.seasonal_retry_product', cid=campaign['id'], pid=product.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+        <button type="submit" class="wbtn wbtn-secondary wbtn-sm">Retry</button>
+      </form>
     {% elif product.images %}
       <div class="import-thumbs">
         {% for im in product.images %}
