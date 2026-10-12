@@ -1,6 +1,10 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-10-11 (session 23 — **User Management + roles**: replaced the email-only
+_Last updated: 2026-10-11 (session 24 — **Admin nav simplified**: removed the System Activity
+and consolidated User Activity screens; the Admin rail is now **User Management + Messages**
+(Messages points at the existing `/admin/messages` inbox); also vertically centered the
+signed-in user's avatar chip against their email in the rail. Session 23 — **User Management +
+roles**: replaced the email-only
 admin model with a DB `role` column (admin|user), a User Management screen to manage it, and
 ADMIN_EMAILS kept as break-glass (grants admin at startup + signup). Session 22 —
 **View Acquired Images History**: a dedicated history
@@ -23,6 +27,37 @@ fills its box, and an **AI "straighten"** that de-angles the product for feature
 quality set to **medium**. Droplet now on gpt-image-1 + PhotoRoom. Session 16 — callout layout/halos/
 blur, per-card Regenerate, Lifestyle logo. Session 15 — all 4 image types generate. Session 13 —
 built PDP Image Set.)_
+
+> ## ⭐ Next session — START HERE (session 24, 2026-10-11)
+>
+> **Shipped + pushed: `main` at `1d1bb11` (code) + this docs commit; CI → auto-deploy.**
+> 570 tests, `ruff` clean. **No migration, no new `.env`.**
+>
+> ### What shipped this session — Admin nav simplified
+> The Admin rail is now just **User Management + Messages**.
+> - **Removed "System Activity"** (placeholder): route `admin_system_activity`, template
+>   `admin_system_activity.html`, rail item. `/admin/system-activity` now 404s.
+> - **Removed the consolidated "User Activity"** screen (`/admin/activity`,
+>   `admin_activity` route + `admin_activity.html`) — it duplicated the Messages inbox plus
+>   Users/Items/Copy/Image-Sets/CI sections. `/admin/activity` now 404s. The rail **Messages**
+>   item points at the **existing `/admin/messages` inbox** (`admin_messages`, with reply +
+>   open/close actions and the per-thread view) — the one screen, also reached from the topbar
+>   bell. **Non-admins keep the bell** for their own Contact Us thread (unchanged).
+> - Dropped the now-dead `.activity-section` CSS; refreshed a stale nav comment in `__init__.py`.
+> - **Rail polish:** the signed-in user's avatar chip is now vertically centered against the
+>   email (`.user-block { align-items: center }`) so they stay aligned when a long address
+>   wraps to two lines.
+> - **Tests:** `/admin/activity` + `/admin/system-activity` assert 404; Messages is in the
+>   admin nav and admin-guarded (`test_admin.py` + existing `test_messages_pages.py`); the old
+>   consolidated-view / system-activity tests were removed.
+> - Verified live (preview): Admin rail shows only User Management + Messages; Messages opens
+>   the inbox; both removed routes 404; avatar chip centered against the wrapped email.
+>
+> ### Commits this session
+> `1d1bb11` Admin nav Messages-only + rail avatar centering · + this docs commit.
+> **Pushed to `main`.**
+>
+> _(Session 23's block follows.)_
 
 > ## ⭐ Next session — START HERE (session 23, 2026-10-11)
 >
