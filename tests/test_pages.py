@@ -401,8 +401,8 @@ def test_rail_routes_workspaces_not_separate_histories(client, auth):
     assert b"Content Scoring" in rail
     assert b"Copy Studio" in rail
     assert b"Creative Studio" in rail
-    for label in (b"PDP Copy Creator", b"Image Import", b"PDP Image Creator",
-                  b"Seasonal Campaigns"):
+    for label in (b"Product Copy", b"Product Image Import",
+                  b"Product Image Set Creator", b"Seasonal Campaigns"):
         assert label in rail
 
     # The old action-worded labels and the per-category history twins are gone.

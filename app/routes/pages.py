@@ -320,9 +320,9 @@ _ACTIVITY_ACTIVE_NAV = {
 # (reached from the dashboard) use the closest Insights flow.
 _ACTIVITY_BREADCRUMB = {
     "scored": "Content Scoring · History",
-    "copy": "PDP Copy Creator · History",
-    "images": "PDP Image Creator · History",
-    "acquired": "Image Import · History",
+    "copy": "Product Copy · History",
+    "images": "Product Image Set Creator · History",
+    "acquired": "Product Image Import · History",
     "ci-snapshot": "Insights · One-Time Snapshot",
     "ci-monitoring": "Insights · Daily Monitoring",
 }

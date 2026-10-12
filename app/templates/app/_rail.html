@@ -71,11 +71,11 @@
      Labels name the feature (not the action). Content Scoring has a single
      workspace, so it's a standalone leaf below (no group). #}
   {% set copy_items = [
-    ('pdp-copy', 'PDP Copy Creator', url_for('pages.pdp_copy')),
+    ('pdp-copy', 'Product Copy', url_for('pages.pdp_copy')),
   ] %}
   {% set creative_items = [
-    ('import-images', 'Image Import', url_for('pages.import_images_intake')),
-    ('pdp-image-set', 'PDP Image Creator', url_for('pages.imageset_intake')),
+    ('import-images', 'Product Image Import', url_for('pages.import_images_intake')),
+    ('pdp-image-set', 'Product Image Set Creator', url_for('pages.imageset_intake')),
     ('seasonal', 'Seasonal Campaigns', url_for('pages.seasonal_home')),
   ] %}
   {% set reporting_items = [
