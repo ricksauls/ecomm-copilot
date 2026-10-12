@@ -33,12 +33,16 @@ def test_resolve_scene_preset_vs_custom():
 
 def test_build_seasonal_prompt_pins_surface_and_excludes_product():
     prompt = themes.build_seasonal_prompt("christmas")
-    # The lifestyle scaffolding must pin a resting surface (so the product grounds)
-    # and forbid the model from drawing the product/text itself.
-    assert "resting surface" in prompt.lower()
-    assert "do not include the product" in prompt.lower()
+    low = prompt.lower()
+    # Pins a resting surface (so the product grounds) and forbids the product/text.
+    assert "resting surface" in low
+    assert "do not include the product" in low
+    # Must forbid discrete raised props the composited product could hang over, and
+    # require a single full-width continuous surface (the reliability fix).
+    assert "slab" in low and "pedestal" in low
+    assert "continuous" in low and "full width" in low
     # The theme's scene brief is woven into the prompt.
-    assert "christmas" in prompt.lower()
+    assert "christmas" in low
 
 
 def test_build_seasonal_prompt_custom_uses_user_scene():
