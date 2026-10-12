@@ -24,7 +24,7 @@ from app.imageset import config as imageset_config
 from app.imageset.providers.background_removal import get_background_removal_provider
 from app.imageset.providers.image_generation import get_image_generation_provider
 from app.imgimport import sources
-from app.seasonal import storage, store, themes
+from app.seasonal import jobs, storage, store, themes
 
 logger = logging.getLogger(__name__)
 
@@ -49,27 +49,34 @@ class GenerationError(Exception):
 # --- ACQUIRE phase ----------------------------------------------------------
 
 def process_product(conn, product) -> None:
-    """Resolve one claimed product's images into ``acquired`` rows, then settle it.
+    """Resolve one claimed product and queue its MAIN image for seasonal treatment.
 
-    Mirrors :func:`app.imgimport.acquire.process_item`: resolution yields image URLs
-    only (no bytes downloaded here); the full-resolution image is fetched later, at
+    The seasonal process only ever treats a product's **main image** — the first
+    image the resolver returns (the acquire resolver yields the gallery in order,
+    main first; see :mod:`app.fetch`, which treats ``image_urls[0]`` as the main
+    everywhere). So we take ``refs[0]``, record it, and **enqueue its generation
+    immediately** (no user selection step). Resolution yields image URLs only (no
+    bytes downloaded here); the full-resolution main image is fetched later, at
     generation time. Never raises — a resolution failure marks the product ``error``
     with a user-facing reason.
     """
     product_id, campaign_id = product["id"], product["campaign_id"]
     try:
         label, refs = sources.resolve_images(product["source_url"], product["source_type"])
-        for ref in refs:
-            store.add_acquired_image(
-                conn, product_id=product_id, campaign_id=campaign_id,
-                user_id=product["user_id"], full_url=ref["full"],
-                thumb_url=ref.get("thumb"), width=ref.get("width"), height=ref.get("height"))
         if not refs:
             store.set_product_status(conn, product_id, store.PRODUCT_ERROR, label=label,
                                      error="No images could be found for this URL.")
-        else:
-            store.set_product_status(conn, product_id, store.PRODUCT_DONE, label=label)
-            logger.info("Acquired %d image(s) for seasonal product=%s", len(refs), product_id)
+            return
+        main = refs[0]  # the product's main image (resolver returns main first)
+        image_id = store.add_main_image(
+            conn, product_id=product_id, campaign_id=campaign_id,
+            user_id=product["user_id"], full_url=main["full"], thumb_url=main.get("thumb"),
+            width=main.get("width"), height=main.get("height"))
+        store.set_product_status(conn, product_id, store.PRODUCT_DONE, label=label)
+        # Auto-queue the main image's seasonal generation — no selection step.
+        jobs.enqueue_image_job(conn, user_id=product["user_id"], campaign_id=campaign_id,
+                               image_id=image_id)
+        logger.info("Queued main image for seasonal product=%s image=%s", product_id, image_id)
     except sources.SourceError as e:
         store.set_product_status(conn, product_id, store.PRODUCT_ERROR, error=str(e))
     except Exception as e:  # noqa: BLE001 - never let one product crash the worker

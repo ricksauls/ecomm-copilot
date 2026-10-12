@@ -30,8 +30,8 @@ PRODUCT_PROCESSING = "processing"
 PRODUCT_DONE = "done"
 PRODUCT_ERROR = "error"
 
-# Image generation statuses.
-GEN_ACQUIRED = "acquired"      # resolved into the gallery, not yet generated
+# Image generation statuses. There is no resting "acquired" stage: a product's main
+# image is auto-queued the moment it's resolved, so it goes straight to 'queued'.
 GEN_QUEUED = "queued"
 GEN_GENERATING = "generating"
 GEN_READY = "ready"
@@ -276,19 +276,21 @@ def reclaim_orphaned_products(conn: sqlite3.Connection) -> int:
 
 # --- images (gallery + GENERATE outputs) ------------------------------------
 
-def add_acquired_image(conn: sqlite3.Connection, *, product_id: int, campaign_id: int,
-                       user_id: int, full_url: str, thumb_url: str | None,
-                       width: int | None = None, height: int | None = None) -> int:
-    """Record one resolved gallery image (``acquired``) and return its id.
+def add_main_image(conn: sqlite3.Connection, *, product_id: int, campaign_id: int,
+                   user_id: int, full_url: str, thumb_url: str | None,
+                   width: int | None = None, height: int | None = None) -> int:
+    """Record a product's main image (``queued`` for generation) and return its id.
 
-    No bytes are downloaded at acquire time: the gallery hotlinks ``thumb_url`` and
-    the full-resolution ``full_url`` is fetched only when the image is generated.
+    No bytes are downloaded at acquire time: the detail page hotlinks ``thumb_url``
+    for the source preview and the full-resolution ``full_url`` is fetched only when
+    the seasonal image is generated. The row starts ``queued`` because the caller
+    enqueues its generation immediately (the process only ever treats the main image).
     """
     cur = conn.execute(
         "INSERT INTO seasonal_images "
         "(product_id, campaign_id, user_id, full_url, thumb_url, width, height, gen_status) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        (product_id, campaign_id, user_id, full_url, thumb_url, width, height, GEN_ACQUIRED),
+        (product_id, campaign_id, user_id, full_url, thumb_url, width, height, GEN_QUEUED),
     )
     conn.commit()
     return int(cur.lastrowid)
@@ -319,37 +321,6 @@ def ready_images_for_campaign(conn: sqlite3.Connection, campaign_id: int,
         "SELECT * FROM seasonal_images WHERE campaign_id = ? AND user_id = ? "
         "AND gen_status = ? AND kept = 1 ORDER BY product_id, id",
         (campaign_id, user_id, GEN_READY),
-    ).fetchall()
-
-
-def set_selection(conn: sqlite3.Connection, campaign_id: int, user_id: int,
-                  selected_ids: set[int]) -> int:
-    """Set exactly which images in a campaign are selected; return the selected count.
-
-    Images whose ids are in ``selected_ids`` get ``selected = 1``; all others in the
-    campaign get ``selected = 0``. IDOR-scoped so a user can only touch their own
-    campaign's images. The caller enqueues the selected ones for generation.
-    """
-    rows = conn.execute(
-        "SELECT id FROM seasonal_images WHERE campaign_id = ? AND user_id = ?",
-        (campaign_id, user_id),
-    ).fetchall()
-    for row in rows:
-        conn.execute(
-            "UPDATE seasonal_images SET selected = ?, updated_at = datetime('now') WHERE id = ?",
-            (1 if row["id"] in selected_ids else 0, row["id"]),
-        )
-    conn.commit()
-    return sum(1 for row in rows if row["id"] in selected_ids)
-
-
-def selected_images(conn: sqlite3.Connection, campaign_id: int,
-                    user_id: int) -> list[sqlite3.Row]:
-    """The campaign's currently-selected images (IDOR-scoped)."""
-    return conn.execute(
-        "SELECT * FROM seasonal_images WHERE campaign_id = ? AND user_id = ? AND selected = 1 "
-        "ORDER BY product_id, id",
-        (campaign_id, user_id),
     ).fetchall()
 
 

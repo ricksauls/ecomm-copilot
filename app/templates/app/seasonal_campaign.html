@@ -69,8 +69,8 @@
       </div>
       <textarea id="urls" name="urls" class="text-input" rows="4"
                 placeholder="One Walmart or Amazon product URL per line (or a direct image URL)">{{ '' }}</textarea>
-      <p class="field-hint">Up to {{ max_items }} per batch. We acquire each product’s image
-        gallery; you then pick which images get the seasonal treatment.</p>
+      <p class="field-hint">Up to {{ max_items }} per batch. We take each product’s main
+        image and apply the seasonal treatment automatically.</p>
       <label id="csv-drop" class="csv-drop" for="csv">
         <span class="csv-drop-text">…or drag a CSV of URLs here, or <span class="link">browse</span></span>
         <input type="file" id="csv" name="csv" accept=".csv,text/csv" class="csv-input-hidden" />
@@ -81,18 +81,11 @@
   </form>
 </div>
 
-{# ── Hidden generate form: checkboxes below associate via form="seasonal-generate" ── #}
-<form id="seasonal-generate" method="post"
-      action="{{ url_for('pages.seasonal_generate_selected', cid=campaign['id']) }}">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-</form>
-
 {% if products %}
 <div class="page-header">
-  <div><h2>Products &amp; images</h2></div>
-  <div class="page-header-actions">
-    <button type="submit" form="seasonal-generate" class="wbtn wbtn-primary">
-      Apply seasonal treatment to selected (<span class="seasonal-sel-count">0</span>)</button>
+  <div>
+    <h2>Products</h2>
+    <p class="subtitle">Each product’s <strong>main image</strong> is seasonalized automatically.</p>
   </div>
 </div>
 
@@ -107,11 +100,9 @@
         <a class="import-item-url" href="{{ product.source_url }}" target="_blank" rel="noopener noreferrer">{{ product.source_url }}</a>
       </div>
       {% if product.status in ('queued', 'processing') %}
-        <span class="import-state import-state-working"><span class="spinner" aria-hidden="true"></span>Acquiring…</span>
+        <span class="import-state import-state-working"><span class="spinner" aria-hidden="true"></span>Acquiring main image…</span>
       {% elif product.status == 'error' %}
         <span class="import-state import-state-failed" title="{{ product.error or '' }}">Couldn’t acquire</span>
-      {% else %}
-        <span class="import-state import-state-done">{{ product.images | length }} image(s)</span>
       {% endif %}
     </div>
 
@@ -124,10 +115,10 @@
           {% if im.ready %}
             {# Generated seasonal image — show the result, served same-origin. #}
             <a href="{{ im.final_url }}" target="_blank" rel="noopener noreferrer">
-              <img src="{{ im.thumb_url }}" alt="Seasonal treatment" loading="lazy" />
+              <img src="{{ im.thumb_url }}" alt="Seasonal treatment of the main image" loading="lazy" />
             </a>
             <div class="import-thumb-foot">
-              <span class="seasonal-badge seasonal-badge-ready">Seasonal</span>
+              <span class="seasonal-badge seasonal-badge-ready">Seasonal main image</span>
               <a class="wbtn wbtn-secondary wbtn-sm" href="{{ im.download_url }}">Download</a>
             </div>
             <div class="seasonal-thumb-actions">
@@ -141,38 +132,32 @@
               </form>
             </div>
           {% elif im.pending %}
-            {# Queued or generating — show the source with a working badge. #}
-            <img src="{{ im.source_thumb_url }}" alt="" loading="lazy" referrerpolicy="no-referrer" />
+            {# Queued or generating — show the source main image with a working badge. #}
+            <img src="{{ im.source_thumb_url }}" alt="Main image" loading="lazy" referrerpolicy="no-referrer" />
             <div class="import-thumb-foot">
               <span class="import-state import-state-working"><span class="spinner" aria-hidden="true"></span>Generating…</span>
             </div>
           {% else %}
-            {# Acquired (not yet generated) or failed — selectable for generation. #}
-            <label class="import-check" title="Apply the seasonal treatment to this image">
-              <input type="checkbox" name="image_ids" value="{{ im.id }}" form="seasonal-generate"
-                     {{ 'checked' if im.selected else '' }} />
-            </label>
-            <img src="{{ im.source_thumb_url }}" alt="" loading="lazy" referrerpolicy="no-referrer" />
+            {# Failed — show the source main image + a Regenerate to retry. #}
+            <img src="{{ im.source_thumb_url }}" alt="Main image" loading="lazy" referrerpolicy="no-referrer" />
             <div class="import-thumb-foot">
-              {% if im.failed %}
-                <span class="import-state import-state-failed" title="{{ im.error or '' }}">Failed — reselect to retry</span>
-              {% else %}
-                <span class="seasonal-badge">Source</span>
-              {% endif %}
+              <span class="import-state import-state-failed" title="{{ im.error or '' }}">Failed</span>
+              <form method="post" action="{{ url_for('pages.seasonal_regenerate_image', cid=campaign['id'], iid=im.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+                <button type="submit" class="wbtn-link">Retry</button>
+              </form>
             </div>
           {% endif %}
         </div>
         {% endfor %}
       </div>
-    {% elif product.status not in ('queued', 'processing') %}
-      <p class="import-item-error">No images found for this product.</p>
     {% endif %}
   </div>
   {% endfor %}
 </div>
 {% else %}
-<p class="empty-note">No products yet — add one or more product URLs above and we’ll acquire
-  their images for you to choose from.</p>
+<p class="empty-note">No products yet — add one or more product URLs above and we’ll
+  seasonalize each product’s main image automatically.</p>
 {% endif %}
 {% endblock %}
 

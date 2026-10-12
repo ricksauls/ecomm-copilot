@@ -1,4 +1,4 @@
-"""Route tests for Seasonal Content Campaigns (create → add → select/generate → download)."""
+"""Route tests for Seasonal Content Campaigns (create → add (auto main-image) → review → download)."""
 
 from app.db import get_db
 from app.seasonal import store
@@ -99,35 +99,21 @@ def test_add_products_queues_acquire(client, auth, app):
         assert {p["source_type"] for p in products} == {"walmart", "amazon_pdp"}
 
 
-def test_generate_selected_enqueues_only_ungenerated(client, auth, app):
-    cid, uid = _make_campaign(client, auth, app, "sp-gen@example.com")
+def test_regenerate_requeues_main_image(client, auth, app):
+    cid, uid = _make_campaign(client, auth, app, "sp-regen@example.com")
     with app.app_context():
         db = get_db()
         pid = store.add_product(db, campaign_id=cid, user_id=uid,
                                 source_url="https://cdn/x.jpg", source_type="image")
-        acquired = store.add_acquired_image(db, product_id=pid, campaign_id=cid, user_id=uid,
-                                            full_url="https://cdn/a.jpg", thumb_url=None)
-        already = store.add_acquired_image(db, product_id=pid, campaign_id=cid, user_id=uid,
-                                           full_url="https://cdn/b.jpg", thumb_url=None)
-        store.update_image(db, already, gen_status=store.GEN_READY,
-                           final_path="seasonal/1/final/2.png")
-    resp = client.post(f"/app/seasonal/{cid}/generate",
-                       data={"image_ids": [str(acquired), str(already)]})
+        iid = store.add_main_image(db, product_id=pid, campaign_id=cid, user_id=uid,
+                                   full_url="https://cdn/a.jpg", thumb_url=None)
+        store.update_image(db, iid, gen_status=store.GEN_READY,
+                           final_path="seasonal/1/final/1.png")
+    resp = client.post(f"/app/seasonal/{cid}/image/{iid}/regenerate")
     assert resp.status_code == 302
     with app.app_context():
-        db = get_db()
-        # Both are now selected...
-        assert {im["id"] for im in store.selected_images(db, cid, uid)} == {acquired, already}
-        # ...but only the un-generated one was queued; the ready one is untouched.
-        assert store.get_image(db, acquired, uid)["gen_status"] == store.GEN_QUEUED
-        assert store.get_image(db, already, uid)["gen_status"] == store.GEN_READY
-
-
-def test_generate_without_selection_is_rejected(client, auth, app):
-    cid, _uid_ = _make_campaign(client, auth, app, "sp-nosel@example.com")
-    resp = client.post(f"/app/seasonal/{cid}/generate", data={}, follow_redirects=True)
-    assert resp.status_code == 200
-    assert b"Select at least one image" in resp.data
+        # Re-queued for a fresh backdrop.
+        assert store.get_image(get_db(), iid, uid)["gen_status"] == store.GEN_QUEUED
 
 
 # --- status / download / delete ---------------------------------------------
@@ -151,7 +137,7 @@ def test_image_download_404_until_ready(client, auth, app):
         db = get_db()
         pid = store.add_product(db, campaign_id=cid, user_id=uid,
                                 source_url="https://cdn/x.jpg", source_type="image")
-        iid = store.add_acquired_image(db, product_id=pid, campaign_id=cid, user_id=uid,
+        iid = store.add_main_image(db, product_id=pid, campaign_id=cid, user_id=uid,
                                        full_url="https://cdn/a.jpg", thumb_url=None)
     # Not generated yet → 404 (no final file).
     assert client.get(f"/app/seasonal/{cid}/image/{iid}/download").status_code == 404
@@ -188,7 +174,7 @@ def test_history_shows_only_ready_campaigns(client, auth, app):
         db = get_db()
         pid = store.add_product(db, campaign_id=cid, user_id=uid,
                                 source_url="https://cdn/x.jpg", source_type="image")
-        iid = store.add_acquired_image(db, product_id=pid, campaign_id=cid, user_id=uid,
+        iid = store.add_main_image(db, product_id=pid, campaign_id=cid, user_id=uid,
                                        full_url="https://cdn/a.jpg", thumb_url=None)
         store.update_image(db, iid, gen_status=store.GEN_READY, final_path="seasonal/1/final/1.png")
         store.recompute_campaign_status(db, cid)

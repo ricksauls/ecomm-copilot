@@ -57,7 +57,7 @@ def test_delete_campaign_cascades_and_is_idor_scoped(app):
         other = create_local_user("sea-e@example.com", "password123")
         cid = _campaign(db, uid)
         pid = _product(db, cid, uid)
-        store.add_acquired_image(db, product_id=pid, campaign_id=cid, user_id=uid,
+        store.add_main_image(db, product_id=pid, campaign_id=cid, user_id=uid,
                                  full_url="https://cdn/x.jpg", thumb_url=None)
         # Another user can't delete it.
         assert store.delete_campaign(db, cid, other) is False
@@ -74,7 +74,7 @@ def test_recompute_campaign_status(app):
         uid = create_local_user("sea-f@example.com", "password123")
         cid = _campaign(db, uid)
         pid = _product(db, cid, uid)
-        iid = store.add_acquired_image(db, product_id=pid, campaign_id=cid, user_id=uid,
+        iid = store.add_main_image(db, product_id=pid, campaign_id=cid, user_id=uid,
                                        full_url="https://cdn/x.jpg", thumb_url=None)
         assert store.recompute_campaign_status(db, cid) == store.CAMPAIGN_DRAFT
         store.update_image(db, iid, gen_status=store.GEN_READY, final_path="seasonal/1/final/1.png")
@@ -110,35 +110,15 @@ def test_reclaim_orphaned_products(app):
 
 # --- images: selection + generation state -----------------------------------
 
-def test_set_selection_is_exclusive_and_idor_scoped(app):
-    with app.app_context():
-        db = get_db()
-        uid = create_local_user("sea-i@example.com", "password123")
-        cid = _campaign(db, uid)
-        pid = _product(db, cid, uid)
-        a = store.add_acquired_image(db, product_id=pid, campaign_id=cid, user_id=uid,
-                                     full_url="https://cdn/a.jpg", thumb_url=None)
-        b = store.add_acquired_image(db, product_id=pid, campaign_id=cid, user_id=uid,
-                                     full_url="https://cdn/b.jpg", thumb_url=None)
-        c = store.add_acquired_image(db, product_id=pid, campaign_id=cid, user_id=uid,
-                                     full_url="https://cdn/c.jpg", thumb_url=None)
-        assert store.set_selection(db, cid, uid, {a, c}) == 2
-        selected = {im["id"] for im in store.selected_images(db, cid, uid)}
-        assert selected == {a, c}
-        # Re-selecting a different set clears the old selection (exclusive set).
-        store.set_selection(db, cid, uid, {b})
-        assert {im["id"] for im in store.selected_images(db, cid, uid)} == {b}
-
-
 def test_ready_images_only_returns_kept_ready(app):
     with app.app_context():
         db = get_db()
         uid = create_local_user("sea-j@example.com", "password123")
         cid = _campaign(db, uid)
         pid = _product(db, cid, uid)
-        ready = store.add_acquired_image(db, product_id=pid, campaign_id=cid, user_id=uid,
+        ready = store.add_main_image(db, product_id=pid, campaign_id=cid, user_id=uid,
                                          full_url="https://cdn/r.jpg", thumb_url=None)
-        discarded = store.add_acquired_image(db, product_id=pid, campaign_id=cid, user_id=uid,
+        discarded = store.add_main_image(db, product_id=pid, campaign_id=cid, user_id=uid,
                                              full_url="https://cdn/d.jpg", thumb_url=None)
         store.update_image(db, ready, gen_status=store.GEN_READY, final_path="seasonal/1/final/1.png")
         store.update_image(db, discarded, gen_status=store.GEN_READY, final_path="seasonal/1/final/2.png")
@@ -153,7 +133,7 @@ def test_update_image_rejects_unknown_column(app):
         uid = create_local_user("sea-k@example.com", "password123")
         cid = _campaign(db, uid)
         pid = _product(db, cid, uid)
-        iid = store.add_acquired_image(db, product_id=pid, campaign_id=cid, user_id=uid,
+        iid = store.add_main_image(db, product_id=pid, campaign_id=cid, user_id=uid,
                                        full_url="https://cdn/x.jpg", thumb_url=None)
         try:
             store.update_image(db, iid, bogus_column="x")
@@ -171,7 +151,7 @@ def test_enqueue_is_idempotent_and_marks_image_queued(app):
         uid = create_local_user("sea-l@example.com", "password123")
         cid = _campaign(db, uid)
         pid = _product(db, cid, uid)
-        iid = store.add_acquired_image(db, product_id=pid, campaign_id=cid, user_id=uid,
+        iid = store.add_main_image(db, product_id=pid, campaign_id=cid, user_id=uid,
                                        full_url="https://cdn/x.jpg", thumb_url=None)
         j1 = jobs.enqueue_image_job(db, user_id=uid, campaign_id=cid, image_id=iid)
         # Image flipped into the queue.
@@ -212,7 +192,7 @@ def test_claim_and_reclaim_seasonal_jobs(app):
         uid = create_local_user("sea-m@example.com", "password123")
         cid = _campaign(db, uid)
         pid = _product(db, cid, uid)
-        iid = store.add_acquired_image(db, product_id=pid, campaign_id=cid, user_id=uid,
+        iid = store.add_main_image(db, product_id=pid, campaign_id=cid, user_id=uid,
                                        full_url="https://cdn/x.jpg", thumb_url=None)
         jobs.enqueue_image_job(db, user_id=uid, campaign_id=cid, image_id=iid)
         assert jobs.has_claimable_jobs(db) is True

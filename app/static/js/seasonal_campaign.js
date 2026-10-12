@@ -1,14 +1,9 @@
-// Seasonal campaign detail — selection count + live updates.
+// Seasonal campaign detail — live updates.
 //
-// Two enhancements over a page that works without JS:
-//   1. Selection: keep the "…selected (N)" count on the Generate button in sync
-//      with the ticked source images. (The generate form is a plain POST, so it
-//      already works with JS off — the browser submits the checked image_ids.)
-//   2. Polling: while any product is still acquiring or any image is still
-//      generating, poll the status endpoint and reload once something changes, so
-//      new thumbnails and the seasonal results render from the server. The
-//      <noscript> meta-refresh is the no-JS fallback.
-// CSP is script-src 'self' — external file only.
+// While any product is still acquiring its main image or any image is still
+// generating, poll the status endpoint and reload once something changes, so the
+// new seasonal results render from the server. The <noscript> meta-refresh is the
+// no-JS fallback. CSP is script-src 'self' — external file only.
 
 (function () {
   "use strict";
@@ -17,31 +12,6 @@
   if (!grid) {
     return;
   }
-
-  // --- Selection count -----------------------------------------------------
-
-  var countEl = document.querySelector(".seasonal-sel-count");
-
-  function checkboxes() {
-    // Every image_ids checkbox on the page belongs to the one generate form
-    // (associated via its form="seasonal-generate" attribute).
-    return Array.prototype.slice.call(document.querySelectorAll('input[name="image_ids"]'));
-  }
-
-  function refreshCount() {
-    if (!countEl) {
-      return;
-    }
-    var checked = checkboxes().filter(function (b) { return b.checked; });
-    countEl.textContent = String(checked.length);
-  }
-
-  document.addEventListener("change", function (event) {
-    if (event.target && event.target.name === "image_ids") {
-      refreshCount();
-    }
-  });
-  refreshCount();
 
   // --- Polling (only while work is pending) --------------------------------
 

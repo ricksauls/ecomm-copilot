@@ -2994,10 +2994,9 @@ def _seasonal_detail_view(db, cid: int, uid: int) -> list[dict]:
             "failed": im["gen_status"] == seasonal_store.GEN_FAILED,
             "pending": im["gen_status"] in (seasonal_store.GEN_QUEUED,
                                             seasonal_store.GEN_GENERATING),
-            "selected": bool(im["selected"]),
             "kept": bool(im["kept"]),
             "error": im["error"],
-            # Acquired source (hotlinked external CDN thumbnail + full URL).
+            # Main source image (hotlinked external CDN thumbnail + full URL).
             "source_thumb_url": im["thumb_url"] or im["full_url"],
             # Generated outputs, served same-origin (only meaningful once ready).
             "final_url": url_for("pages.seasonal_image_file", cid=cid, iid=im["id"]),
@@ -3113,42 +3112,13 @@ def seasonal_add_products(cid):
     for url in accepted:
         seasonal_store.add_product(db, campaign_id=cid, user_id=uid, source_url=url,
                                    source_type=import_sources.classify(url))
-    msg = f"Added {len(accepted)} product(s). Acquiring their images…"
+    msg = (f"Added {len(accepted)} product(s). Acquiring each main image and "
+           "applying the seasonal treatment…")
     if rejected:
         msg += f" ({len(rejected)} entry(ies) weren't valid URLs and were skipped.)"
     flash(msg, "ok")
     logger.info("Seasonal campaign=%s added %d product(s), %d rejected, user_id=%s",
                 cid, len(accepted), len(rejected), uid)
-    return redirect(url_for("pages.seasonal_campaign", cid=cid))
-
-
-@bp.route("/app/seasonal/<int:cid>/generate", methods=["POST"])
-@login_required
-def seasonal_generate_selected(cid):
-    """Set the selected images and enqueue generation for the newly-chosen ones.
-
-    The checked image ids arrive as ``image_ids``. Selection is persisted (so the
-    checkboxes survive a reload), then every selected image that hasn't been
-    generated yet (``acquired`` or a prior ``failed``) is queued — already-ready or
-    in-flight images are left alone (use Regenerate to redo a ready one).
-    """
-    _seasonal_campaign_or_404(cid)
-    db, uid = get_db(), g.user["id"]
-    wanted = {i for i in request.form.getlist("image_ids", type=int)}
-    if not wanted:
-        flash("Select at least one image to apply the seasonal treatment to.", "error")
-        return redirect(url_for("pages.seasonal_campaign", cid=cid))
-    seasonal_store.set_selection(db, cid, uid, wanted)
-    queued = 0
-    for im in seasonal_store.selected_images(db, cid, uid):
-        if im["gen_status"] in (seasonal_store.GEN_ACQUIRED, seasonal_store.GEN_FAILED):
-            seasonal_jobs.enqueue_image_job(db, user_id=uid, campaign_id=cid, image_id=im["id"])
-            queued += 1
-    if queued:
-        flash(f"Generating {queued} seasonal image(s)…", "ok")
-    else:
-        flash("Those images are already generated or in progress.", "ok")
-    logger.info("Seasonal campaign=%s queued %d image(s) user_id=%s", cid, queued, uid)
     return redirect(url_for("pages.seasonal_campaign", cid=cid))
 
 

@@ -15,6 +15,7 @@ from app.db import get_db
 from app.imageset.config import CANVAS_SIZE
 from app.imgimport import sources
 from app.seasonal import generate, store
+from app.seasonal import jobs as seasonal_jobs
 from app.users import create_local_user
 
 
@@ -38,26 +39,29 @@ def _campaign_with_product(db, uid, **kw):
 
 # --- ACQUIRE phase ----------------------------------------------------------
 
-def test_process_product_records_gallery(app, monkeypatch):
+def test_process_product_takes_main_image_and_auto_queues(app, monkeypatch):
     with app.app_context():
         db = get_db()
         uid = create_local_user("seag-a@example.com", "password123")
         cid, pid = _campaign_with_product(db, uid)
-        # Stub the resolver (no network): a 2-image gallery with a title.
+        # Stub the resolver (no network): a 2-image gallery, main first.
         monkeypatch.setattr(sources, "resolve_images", lambda url, stype: (
             "Tabasco Hot Sauce",
-            [{"full": "https://cdn/a.jpg", "thumb": "https://cdn/a_t.jpg", "width": 1500, "height": 1500},
-             {"full": "https://cdn/b.jpg", "thumb": "https://cdn/b_t.jpg", "width": None, "height": None}],
+            [{"full": "https://cdn/main.jpg", "thumb": "https://cdn/main_t.jpg", "width": 1500, "height": 1500},
+             {"full": "https://cdn/other.jpg", "thumb": "https://cdn/other_t.jpg", "width": None, "height": None}],
         ))
         product = store.claim_next_product(db)
         generate.process_product(db, product)
         settled = store.get_product(db, pid, uid)
         assert settled["status"] == store.PRODUCT_DONE
         assert settled["label"] == "Tabasco Hot Sauce"
+        # Only the MAIN image (refs[0]) is recorded — not the rest of the gallery.
         images = store.images_for_campaign(db, cid, uid)
-        assert len(images) == 2
-        assert all(im["gen_status"] == store.GEN_ACQUIRED for im in images)
-        assert images[0]["full_url"] == "https://cdn/a.jpg"
+        assert len(images) == 1
+        assert images[0]["full_url"] == "https://cdn/main.jpg"
+        # And it's auto-queued for generation (no selection step).
+        assert images[0]["gen_status"] == store.GEN_QUEUED
+        assert seasonal_jobs.has_claimable_jobs(db) is True
 
 
 def test_process_product_marks_error_on_source_failure(app, monkeypatch):
@@ -91,7 +95,7 @@ def test_process_product_no_images_is_error(app, monkeypatch):
 # --- GENERATE phase ---------------------------------------------------------
 
 def _acquired_image(db, uid, cid, pid):
-    return store.add_acquired_image(db, product_id=pid, campaign_id=cid, user_id=uid,
+    return store.add_main_image(db, product_id=pid, campaign_id=cid, user_id=uid,
                                     full_url="https://cdn/a.jpg", thumb_url="https://cdn/a_t.jpg")
 
 

@@ -526,24 +526,24 @@ CREATE TABLE IF NOT EXISTS seasonal_products (
 CREATE INDEX IF NOT EXISTS idx_seasonal_products_claim ON seasonal_products(status, id);
 CREATE INDEX IF NOT EXISTS idx_seasonal_products_campaign ON seasonal_products(campaign_id, id);
 
--- One row per acquired gallery image AND its seasonal treatment. Starts life as a
--- hotlinked gallery thumbnail ('acquired'); when the user selects it and runs the
--- campaign, gen_status advances through the generation queue and the output paths
--- fill in. full_url is the full-resolution source (fetched on generate, never at
--- acquire time); thumb_url is the lighter URL the gallery hotlinks.
+-- One row per product's MAIN image AND its seasonal treatment. The seasonal process
+-- only ever treats the product's main image (the first image the acquire resolver
+-- returns — see app.fetch, which treats image_urls[0] as the main everywhere), so
+-- there is exactly one of these per product. full_url is the full-resolution source
+-- (fetched on generate, never at acquire time); thumb_url is the lighter URL the
+-- detail page hotlinks for the "source" preview.
 CREATE TABLE IF NOT EXISTS seasonal_images (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     product_id   INTEGER NOT NULL REFERENCES seasonal_products(id) ON DELETE CASCADE,
     campaign_id  INTEGER NOT NULL REFERENCES seasonal_campaigns(id) ON DELETE CASCADE,
     user_id      INTEGER NOT NULL REFERENCES users(id),
-    full_url     TEXT    NOT NULL,                     -- full-res source image URL
-    thumb_url    TEXT,                                 -- lighter URL hotlinked in the gallery
+    full_url     TEXT    NOT NULL,                     -- full-res main image URL
+    thumb_url    TEXT,                                 -- lighter URL hotlinked for the source preview
     width        INTEGER,
     height       INTEGER,
-    -- 1 when the user ticked this image to receive the seasonal treatment.
-    selected     INTEGER NOT NULL DEFAULT 0,
-    -- acquired (gallery only) -> queued -> generating -> ready (plus failed).
-    gen_status   TEXT    NOT NULL DEFAULT 'acquired',
+    -- queued -> generating -> ready (plus failed). Auto-queued at acquire time, so
+    -- an image never rests at an 'acquired' stage — generation starts immediately.
+    gen_status   TEXT    NOT NULL DEFAULT 'queued',
     original_path TEXT,          -- downloaded full-res source (rel to MEDIA_DIR)
     cutout_path  TEXT,           -- transparent-PNG product cutout (rel to MEDIA_DIR)
     scene_path   TEXT,           -- raw AI seasonal backdrop before compositing
