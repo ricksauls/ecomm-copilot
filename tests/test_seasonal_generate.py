@@ -94,6 +94,17 @@ def test_process_product_no_images_is_error(app, monkeypatch):
 
 # --- GENERATE phase ---------------------------------------------------------
 
+def test_default_render_mode_is_composite(monkeypatch):
+    # Label fidelity matters for real SKUs, so composite (pixel-exact) is the default;
+    # 'edit' is opt-in via the env var, and junk values fall back to composite.
+    monkeypatch.delenv("SEASONAL_RENDER_MODE", raising=False)
+    assert generate._render_mode() == generate.RENDER_COMPOSITE
+    monkeypatch.setenv("SEASONAL_RENDER_MODE", "edit")
+    assert generate._render_mode() == generate.RENDER_EDIT
+    monkeypatch.setenv("SEASONAL_RENDER_MODE", "nonsense")
+    assert generate._render_mode() == generate.RENDER_COMPOSITE
+
+
 def _acquired_image(db, uid, cid, pid):
     return store.add_main_image(db, product_id=pid, campaign_id=cid, user_id=uid,
                                     full_url="https://cdn/a.jpg", thumb_url="https://cdn/a_t.jpg")
@@ -103,7 +114,7 @@ def test_edit_mode_generates_final_2000_no_cutout(app, tmp_path, monkeypatch):
     # Default render mode is 'edit' — the model places the product, so there is no
     # separate cutout artifact. Produces a ready 2000px final + thumbnail.
     monkeypatch.setenv("MEDIA_DIR", str(tmp_path))
-    monkeypatch.delenv("SEASONAL_RENDER_MODE", raising=False)
+    monkeypatch.setenv("SEASONAL_RENDER_MODE", "edit")
     with app.app_context():
         db = get_db()
         uid = create_local_user("seag-d@example.com", "password123")
@@ -170,7 +181,7 @@ def test_edit_mode_prompt_uses_custom_scene_and_preserves_product(app, tmp_path,
     # In edit mode the product image is sent to edit_image with a prompt that carries
     # the custom scene AND a product-preservation instruction.
     monkeypatch.setenv("MEDIA_DIR", str(tmp_path))
-    monkeypatch.delenv("SEASONAL_RENDER_MODE", raising=False)
+    monkeypatch.setenv("SEASONAL_RENDER_MODE", "edit")
     with app.app_context():
         db = get_db()
         uid = create_local_user("seag-f@example.com", "password123")

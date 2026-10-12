@@ -14,8 +14,6 @@ the model can't hallucinate a competing product or a readable claim into the sce
 These are data + pure string assembly only: no I/O, no secrets.
 """
 
-from app.imageset.prompts import build_lifestyle_prompt
-
 # The product is grounded low in the frame; the backdrop must have its resting
 # surface at this line (fraction of height). Matches the image-set LIFESTYLE
 # placement so the shared compositor lands the product naturally on the surface.
@@ -109,18 +107,46 @@ def resolve_scene(theme: str, custom_prompt: str | None = None) -> str:
 
 
 def build_seasonal_prompt(theme: str, custom_prompt: str | None = None) -> str:
-    """Assemble the backdrop prompt for the COMPOSITE render path.
+    """Assemble the backdrop prompt for the COMPOSITE render path (product-free scene).
 
-    Wraps the theme's scene brief in the lifestyle scaffolding (resting surface
-    pinned to :data:`GROUND_LINE`, depth of field, single coherent light), so the
-    product the compositor adds afterward is grounded and reads as the sharp
-    subject. ``category`` is generic ("seasonal lifestyle") because a campaign spans
-    many products — the season, not the product category, drives the scene.
+    The composite pastes the real product at a fixed ground line, so the backdrop
+    must present a *predictable* place to land — the original failure was the model
+    inventing a stone slab / cutting board / pedestal with an edge the product then
+    hung over. This prompt therefore forbids any discrete raised object under the
+    product and demands ONE continuous, flat, full-width surface at :data:`GROUND_LINE`,
+    with all seasonal decor pushed into the blurred background. Keeps placement
+    reliable across any product shape while the real label stays pixel-exact.
     """
-    return build_lifestyle_prompt(
-        category="seasonal lifestyle product photography",
-        scene_description=resolve_scene(theme, custom_prompt),
-        ground_line=GROUND_LINE,
+    scene = resolve_scene(theme, custom_prompt)
+    surface_pct = round(GROUND_LINE * 100)
+    band_top = round((GROUND_LINE - 0.12) * 100)
+    return (
+        "Create a photorealistic seasonal product-photography BACKGROUND. The product "
+        "itself is added later — do not include the product.\n\n"
+        f"Seasonal mood:\n{scene}\n\n"
+        "Foreground resting surface (critical — a product is composited onto it later):\n"
+        f"- Exactly ONE continuous, flat, level, horizontal surface fills the bottom of the "
+        f"frame edge to edge. Its top runs straight across at about {surface_pct}% down from "
+        f"the top, and the solid surface fills from about {band_top}% down to the bottom edge — "
+        "full width, no gap, no drop-off.\n"
+        "- Do NOT place any slab, stone, board, cutting board, tray, plate, pedestal, riser, "
+        "platform, box, crate, pumpkin, or other raised object ON or in FRONT of this surface. "
+        "There must be no edge, lip, step, or separate object for a product to hang over, "
+        "straddle, or balance on — the product will rest directly on the one continuous surface.\n"
+        "- Keep the horizontal center of the surface clear and unobstructed (the product and "
+        "its shadow go there).\n\n"
+        "Seasonal decor placement:\n"
+        "- Put all seasonal elements (e.g. pumpkins, leaves, string lights, ornaments, snow, "
+        "candles, flowers) in the BLURRED BACKGROUND, behind and above the surface — never on "
+        "the surface itself and never where the product sits.\n\n"
+        "Depth of field and light:\n"
+        "- The foreground surface is sharp and well-lit; everything behind it is softly "
+        "blurred (bokeh) so a product placed on the surface reads as the crisp subject.\n"
+        "- One coherent, warm light source; soft shadows all falling the same direction.\n\n"
+        "Requirements:\n"
+        "- No product, packaging, bottles, cans, people, hands, readable text, or logos.\n"
+        "- Realistic scale, perspective and lighting; suitable for a professional eCommerce "
+        "marketplace listing."
     )
 
 

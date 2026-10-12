@@ -32,21 +32,22 @@ from app.seasonal import jobs, storage, store, themes
 logger = logging.getLogger(__name__)
 
 # Render mode — how the product ends up in the seasonal scene:
-#   'edit'      (default): the image model PLACES the real product into a scene it
-#               builds around it (correct perspective + grounding, scalable across
-#               shapes/backdrops; regenerates pixels, so label fidelity is a risk).
-#   'composite':           cut the product out + generate an empty backdrop + paste
-#               it on with a fixed ground line (label pixel-exact, but placement can
-#               mismatch the generated surface). Fallback if 'edit' garbles labels.
+#   'composite' (default): cut the product out + generate a product-free backdrop
+#               that has one clean, flat, full-width surface + paste the real product
+#               on it. Label stays PIXEL-EXACT. Placement is reliable because the
+#               backdrop prompt forbids slabs/props the product could hang over.
+#   'edit':                the image model PLACES the real product into a scene it
+#               builds around it (great placement, but it regenerates pixels and
+#               GARBLES label text — confirmed on a real SKU, so not the default).
 # Switchable via the SEASONAL_RENDER_MODE env var without a code change.
 RENDER_EDIT = "edit"
 RENDER_COMPOSITE = "composite"
 
 
 def _render_mode() -> str:
-    """The configured render mode (defaults to 'edit'; unknown values fall back)."""
-    mode = (os.environ.get("SEASONAL_RENDER_MODE") or RENDER_EDIT).strip().lower()
-    return mode if mode in (RENDER_EDIT, RENDER_COMPOSITE) else RENDER_EDIT
+    """The configured render mode (defaults to 'composite'; unknown values fall back)."""
+    mode = (os.environ.get("SEASONAL_RENDER_MODE") or RENDER_COMPOSITE).strip().lower()
+    return mode if mode in (RENDER_EDIT, RENDER_COMPOSITE) else RENDER_COMPOSITE
 
 
 # Product placement on the seasonal backdrop — the image-set LIFESTYLE look (a
