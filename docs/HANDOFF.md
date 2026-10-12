@@ -1,6 +1,12 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-10-11 (session 24 — **Admin nav simplified**: removed the System Activity
+_Last updated: 2026-10-11 (session 25 — **Admin Compose message**: admins can now *start*
+conversations, not just reply. A **Compose** button on the Messages inbox opens a screen with a
+recipient checklist (Select all + live count) and a subject/body; sending **fans out to one
+private thread per recipient** (announcement category, admin-authored opening message, unread
+for the recipient). One recipient drops into the new thread; several land back in the inbox with
+a count flash. Each recipient's replies stay private to their own thread. Session 24 —
+**Admin nav simplified**: removed the System Activity
 and consolidated User Activity screens; the Admin rail is now **User Management + Messages**
 (Messages points at the existing `/admin/messages` inbox); also vertically centered the
 signed-in user's avatar chip against their email in the rail. Session 23 — **User Management +
@@ -27,6 +33,58 @@ fills its box, and an **AI "straighten"** that de-angles the product for feature
 quality set to **medium**. Droplet now on gpt-image-1 + PhotoRoom. Session 16 — callout layout/halos/
 blur, per-card Regenerate, Lifestyle logo. Session 15 — all 4 image types generate. Session 13 —
 built PDP Image Set.)_
+
+> ## ⭐ Next session — START HERE (session 25, 2026-10-11)
+>
+> **Staged locally — NOT yet committed/pushed.** 583 tests, `ruff` clean. **No migration, no
+> new `.env`.** Verified live in the browser preview (seeded + cleaned up test data).
+>
+> ### What shipped this session — Admin Compose (admins start conversations)
+> The inbox previously only let admins **reply**; there was no way to **initiate** a message.
+> Added a **Compose** flow. The user chose: **private per-recipient fan-out** (not a shared group
+> thread) and a **pick-from-list + Select-all** recipient picker.
+> - **`messages.broadcast_from_admin(conn, recipient_ids, admin_id, subject, body)`**
+>   (`app/messages.py`): de-dupes recipients, validates subject/body + that every recipient
+>   exists, then creates **one thread per recipient in a single transaction** — each with the
+>   admin's message as the opening message (so it lands **read for admin / unread for recipient**,
+>   lighting their badge). Returns the new thread ids. Mirrors `create_thread` but admin-side.
+> - **New category `announcement`** (`CATEGORY_ANNOUNCEMENT`): stamped on admin-initiated threads.
+>   Kept **out of** the user-facing `CATEGORIES` allowlist (display-only, never user-selectable);
+>   added to `_CATEGORY_LABELS` for the badge.
+> - **Routes** (`app/routes/pages.py`): `GET /admin/messages/new` (compose screen, `admin_required`,
+>   passes `recipients=users.list_users()`) + `POST /admin/messages/new` (`admin_message_send`):
+>   parses `recipient_ids` checkboxes (skips non-numeric), calls `broadcast_from_admin`. **1
+>   recipient → redirect into the new thread**; **several → redirect to the inbox** with a
+>   "Message sent to N recipients." flash (category `ok`). `MessageError` reflashes the compose form.
+> - **UI**: new `admin_message_new.html` (recipient checklist with role badges, Select-all,
+>   subject + body); **Compose** button + flash block added to `admin_messages.html`; recipient-list
+>   CSS in `workspace.css`. **`static/js/admin_compose.js`** = Select-all master toggle
+>   (incl. indeterminate state) + live "N recipients selected" count — **external file** because
+>   CSP is `script-src 'self'` (no inline scripts); the form works without JS.
+> - **Tests** (+13 → 583): unit (`test_messages.py`) cover fan-out, single recipient, de-dupe,
+>   private-reply isolation, validation (empty/unknown recipient is all-or-nothing); page-layer
+>   (`test_messages_pages.py`) cover the compose screen, admin-only guard, single vs multi send,
+>   and empty-recipient reflash.
+> - **Verified live** (preview): Compose button → screen; Select-all indeterminate + count update
+>   (no console errors); broadcast to 2 → 2 ANNOUNCEMENT threads + count flash; single send →
+>   dropped into the new thread with the admin's right-aligned "DISCOtech team" opening bubble;
+>   DB confirmed each recipient's thread is unread-for-recipient with an admin first message.
+>   Seeded test threads + the temp admin account were deleted afterward (`app.db` is gitignored).
+>
+> ### To deploy
+> **Not pushed yet** — review the diff, then commit the code + this docs update and push to `main`
+> (CI → auto-deploy). No migration, no new env. On the droplet the two real admins
+> (`ricksauls@cox.net`, `ricksauls1@gmail.com`) already have the `admin` role, so Compose shows up
+> for them on deploy.
+>
+> ### Watch / next-ups
+> - **Recipient list is unbounded** — it renders every user in one scrollable box. Fine at current
+>   scale; add search/pagination (the list already has a `max-height` scroll) when the user count grows.
+> - Thought about but **not built** (easy follow-ups): filter recipients by role, a "sent/announcements"
+>   view for the admin's own outgoing broadcasts, scheduled/queued sends.
+> - Pre-production watch-item still open (`docs/roadmap.md`): Acquire ZIP → worker job.
+>
+> _(Session 24's block follows.)_
 
 > ## ⭐ Next session — START HERE (session 24, 2026-10-11)
 >
