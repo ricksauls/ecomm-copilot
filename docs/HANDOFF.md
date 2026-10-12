@@ -5,7 +5,9 @@ conversations, not just reply. A **Compose** button on the Messages inbox opens 
 recipient checklist (Select all + live count) and a subject/body; sending **fans out to one
 private thread per recipient** (announcement category, admin-authored opening message, unread
 for the recipient). One recipient drops into the new thread; several land back in the inbox with
-a count flash. Each recipient's replies stay private to their own thread. Session 24 —
+a count flash. Each recipient's replies stay private to their own thread. **Follow-up:**
+**Contact Us** is now **hidden from the rail for admins** (they use the Messages inbox); the
+unread indicator (red count badge) **moved onto the Admin → Messages** rail item. Session 24 —
 **Admin nav simplified**: removed the System Activity
 and consolidated User Activity screens; the Admin rail is now **User Management + Messages**
 (Messages points at the existing `/admin/messages` inbox); also vertically centered the
@@ -71,9 +73,22 @@ built PDP Image Set.)_
 >   DB confirmed each recipient's thread is unread-for-recipient with an admin first message.
 >   Seeded test threads + the temp admin account were deleted afterward (`app.db` is gitignored).
 >
+> ### Follow-up (same session) — Contact Us hidden for admins
+> Admins have the Messages inbox, so the user-side **Contact Us** rail item is now hidden for them
+> (`{% if not is_admin %}` in `_rail.html`). The unread indicator didn't disappear — the red count
+> badge **moved onto the Admin → Messages** item: `rail_group` grew an optional `badges` map
+> (slug → count) and the admin block passes `{'admin-messages': admin_msg_unread_count}`.
+> `.nav-sub-item` is now a flex row (label + right-aligned badge) with a sub-item `.nav-count`
+> alert style in `workspace.css`. Regular users are unchanged (Contact Us still shows, with its
+> own badge). Tests: `test_admin_nav_visibility` asserts `/app/contact` is absent for admins /
+> present for users; `test_admin_messages_nav_shows_unread_badge` asserts the alert badge appears
+> only when the inbox has unread. **584 tests, `ruff` clean.** Verified live (admin: no Contact Us,
+> red "1" on Messages, topbar "1 new message"; user: Contact Us present, no Admin group).
+>
 > ### To deploy
-> **Not pushed yet** — review the diff, then commit the code + this docs update and push to `main`
-> (CI → auto-deploy). No migration, no new env. On the droplet the two real admins
+> The **first commit (Compose) is already pushed** to `main`. The **Contact-Us-hidden follow-up is
+> staged locally, not yet committed/pushed** — review the diff, then commit the code + this docs
+> update and push (CI → auto-deploy). No migration, no new env. On the droplet the two real admins
 > (`ricksauls@cox.net`, `ricksauls1@gmail.com`) already have the `admin` role, so Compose shows up
 > for them on deploy.
 >
