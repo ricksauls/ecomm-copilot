@@ -3214,6 +3214,11 @@ textarea.text-input { resize: vertical; line-height: 1.5; }
   border-bottom: 1px solid var(--divider);
   cursor: pointer;
 }
+/* The brand/search filter hides non-matching rows via the `hidden` attribute, but
+   `display: flex` above would otherwise override the UA `[hidden]` rule (equal
+   specificity, author wins) and keep them visible. This selector is more specific,
+   so a filtered-out row actually disappears. */
+.pf-pick-row[hidden] { display: none; }
 .pf-pick-row:last-of-type { border-bottom: none; }
 .pf-pick-row:hover { background: var(--row-hover); }
 .pf-pick-check { flex: 0 0 auto; }

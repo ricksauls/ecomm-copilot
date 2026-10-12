@@ -20,18 +20,6 @@
         class="pdp-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
 
-    {# Required batch-level brand. Applies to every item in this submission and
-       anchors the generated copy, so we ask for it explicitly rather than relying
-       on scraping it from the PDP. Enforced server-side in pdp_copy() too. #}
-    <div class="form-section brand-section">
-      <label class="field-label" for="brand">Brand <span class="field-required">(required)</span></label>
-      <p class="brand-hint">Tell us the brand for these products — it anchors the copy we generate.</p>
-      <span class="brand-field">
-        <input type="text" id="brand" name="brand" class="brand-input" maxlength="120"
-               placeholder="e.g. Tabasco" value="{{ brand_value | default('') }}" required />
-      </span>
-    </div>
-
     {# Step 1 — pick from the user's managed portfolio (filterable). #}
     {{ pf.portfolio_pick(portfolio_items, portfolio_brands) }}
 
@@ -43,6 +31,8 @@
         <label class="field-label">Add item URLs</label>
       </div>
 
+      {# No brand field here: these URLs are fetched, and the worker reads the brand
+         from the PDP (see copy_jobs.save_current_copy), so the user needn't type it. #}
       {# JS clones a .url-row here; at least one always remains. #}
       <div id="url-rows" class="url-rows">
         <div class="url-row">
