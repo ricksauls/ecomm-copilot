@@ -5,19 +5,22 @@ Two phases, each called by the worker for a claimed unit of work:
 - :func:`process_product` (ACQUIRE) — resolve one product URL to its image gallery
   (via the shared Acquire-by-URL resolver) and record the images. Never raises: a
   bad URL settles the product ``error`` so one product can't sink the campaign.
-- :func:`process_image` (GENERATE) — for one selected image: download the full-res
-  source, cut out the product, generate a fresh seasonal backdrop from the
-  campaign's theme, composite the cutout onto it, and store the final + thumbnail.
-  Raises :class:`GenerationError` on a missing input or provider failure; the worker
-  catches it and marks the job + image failed, so one bad image never sinks the run.
+- :func:`process_image` (GENERATE) — for one product's main image: download the
+  full-res source and render it into the seasonal scene. Two render modes
+  (:data:`RENDER_EDIT` default, :data:`RENDER_COMPOSITE` fallback) decide *how* the
+  product lands in the scene — the model places it, or we composite a cutout — then
+  it stores the final + thumbnail. Raises :class:`GenerationError` on a missing input
+  or provider failure; the worker catches it and marks the job + image failed, so one
+  bad image never sinks the run.
 
 The heavy lifting is all reused: :mod:`app.imgimport.sources` for resolution +
-SSRF-safe download, :func:`app.imageset.compose.composite_product_on_scene` for the
-overlay, and the configured image-generation / background-removal providers.
+SSRF-safe download, the configured image-generation (edit + generate) and
+background-removal providers, and :mod:`app.imageset.compose` for the composite path.
 """
 
 import json
 import logging
+import os
 
 from app.imageset import compose
 from app.imageset import config as imageset_config
@@ -27,6 +30,24 @@ from app.imgimport import sources
 from app.seasonal import jobs, storage, store, themes
 
 logger = logging.getLogger(__name__)
+
+# Render mode — how the product ends up in the seasonal scene:
+#   'edit'      (default): the image model PLACES the real product into a scene it
+#               builds around it (correct perspective + grounding, scalable across
+#               shapes/backdrops; regenerates pixels, so label fidelity is a risk).
+#   'composite':           cut the product out + generate an empty backdrop + paste
+#               it on with a fixed ground line (label pixel-exact, but placement can
+#               mismatch the generated surface). Fallback if 'edit' garbles labels.
+# Switchable via the SEASONAL_RENDER_MODE env var without a code change.
+RENDER_EDIT = "edit"
+RENDER_COMPOSITE = "composite"
+
+
+def _render_mode() -> str:
+    """The configured render mode (defaults to 'edit'; unknown values fall back)."""
+    mode = (os.environ.get("SEASONAL_RENDER_MODE") or RENDER_EDIT).strip().lower()
+    return mode if mode in (RENDER_EDIT, RENDER_COMPOSITE) else RENDER_EDIT
+
 
 # Product placement on the seasonal backdrop — the image-set LIFESTYLE look (a
 # grounded product with a contact/cast shadow and a softly-blurred background), so
@@ -114,41 +135,56 @@ def _download_source(full_url: str) -> bytes:
     return compose.to_png_bytes(img)
 
 
-def process_image(conn, image, campaign) -> None:
-    """Generate one seasonal image end to end and persist it. Raises on failure.
+def _render_edit(campaign, image_id: int, original_bytes: bytes) -> tuple[bytes, bytes, None, dict]:
+    """AI-edit render: the model places the real product into a seasonal scene.
 
-    download full-res → cut out product → AI seasonal backdrop → composite → store
-    (final + thumbnail + the raw backdrop). The caller (the worker) catches
-    :class:`GenerationError` / unexpected errors and marks the job + image failed.
+    Sends the product's main image to the image model's edit endpoint with a strong
+    product-preservation prompt; the model returns a finished scene with the product
+    already grounded in it — no separate cutout or fixed-ground-line composite, so
+    placement/perspective/shadow are the model's job and can't mismatch a generated
+    surface. Returns ``(final_bytes, raw_edit_bytes, None, meta)`` (no cutout).
     """
-    image_id, campaign_id = image["id"], campaign["id"]
-    store.update_image(conn, image_id, gen_status=store.GEN_GENERATING, error=None)
+    prompt = themes.build_seasonal_edit_prompt(campaign["theme"], campaign["custom_prompt"])
+    provider = get_image_generation_provider()
+    size = f"{imageset_config.AI_SCENE_SIZE}x{imageset_config.AI_SCENE_SIZE}"
+    result = provider.edit_image(
+        prompt=prompt, image=original_bytes, content_type="image/png",
+        size=size, background="opaque",
+        context={"campaign_id": campaign["id"], "image_id": image_id,
+                 "feature": "seasonal", "mode": RENDER_EDIT},
+    )
+    # The edit output is the finished image; normalize to the 2000px square canvas.
+    final_bytes = compose.export_image(compose.cover_scene(compose.load_image(result.png)))
+    meta = {"provider": result.provider, "model": result.model,
+            "estimated_cost_usd": result.estimated_cost_usd, "mode": RENDER_EDIT}
+    return final_bytes, result.png, None, meta
 
-    # 1) Download the selected full-resolution source image.
-    original_bytes = _download_source(image["full_url"])
-    original_path = storage.save(campaign_id, "original", image_id, original_bytes)
 
-    # 2) Cut the product out (transparent PNG), then tighten to its visible content
-    #    so it fills its placement box instead of being shrunk by a transparent border.
+def _render_composite(campaign, image_id: int,
+                      original_bytes: bytes) -> tuple[bytes, bytes, bytes, dict]:
+    """Composite render: cut the product out, generate an empty backdrop, paste it on.
+
+    Cuts the product out, generates a product-free seasonal backdrop, relights the
+    cutout toward the scene, and composites it with a grounded lifestyle look + a
+    firm ambient-occlusion contact. Keeps the label pixel-exact but places at a fixed
+    ground line (can mismatch the generated surface). Returns
+    ``(final_bytes, scene_bytes, cutout_bytes, meta)``.
+    """
     bg_provider = get_background_removal_provider()
     cutout_result = bg_provider.remove_background(data=original_bytes, content_type="image/png")
-    cutout_path = storage.save(campaign_id, "cutout", image_id, cutout_result.png)
     cutout = compose.trim_to_content(compose.load_image(cutout_result.png))
     logger.info("Seasonal cutout campaign=%s image=%s content_size=%s",
-                campaign_id, image_id, cutout.size)
+                campaign["id"], image_id, cutout.size)
 
-    # 3) Generate the seasonal backdrop (scene only — never the product or text).
     prompt = themes.build_seasonal_prompt(campaign["theme"], campaign["custom_prompt"])
     img_provider = get_image_generation_provider()
     size = f"{imageset_config.AI_SCENE_SIZE}x{imageset_config.AI_SCENE_SIZE}"
     scene = img_provider.generate_image(
         prompt=prompt, size=size, background="opaque",
-        context={"campaign_id": campaign_id, "image_id": image_id, "feature": "seasonal"},
+        context={"campaign_id": campaign["id"], "image_id": image_id,
+                 "feature": "seasonal", "mode": RENDER_COMPOSITE},
     )
 
-    # 4) Relight the real cutout toward the backdrop's ambient light (so a studio-lit
-    #    product doesn't glow on a warm/dark scene), then composite with the grounded
-    #    lifestyle look + a firm ambient-occlusion contact at the base.
     scene_img = compose.load_image(scene.png)
     ambient_rgb, ambient_lum = compose.sample_scene_light(
         scene_img, ground_line=_PLACEMENT["ground_line"])
@@ -163,10 +199,35 @@ def process_image(conn, image, campaign) -> None:
         shadow_strength=_PLACEMENT["shadow_strength"],
         blur_background=True, cast_shadow=True, contact_ao=_CONTACT_AO,
     )
+    meta = {"provider": scene.provider, "model": scene.model,
+            "estimated_cost_usd": scene.estimated_cost_usd, "mode": RENDER_COMPOSITE}
+    return compose.export_image(composed), scene.png, cutout_result.png, meta
 
-    # 5) Store the outputs (final 2000px PNG, gallery thumbnail, raw backdrop).
-    final_bytes = compose.export_image(composed)
-    scene_path = storage.save(campaign_id, "scene", image_id, scene.png)
+
+def process_image(conn, image, campaign) -> None:
+    """Generate one seasonal image end to end and persist it. Raises on failure.
+
+    Downloads the product's main image, renders it into the seasonal scene via the
+    configured mode (:func:`_render_edit` by default, or :func:`_render_composite`),
+    and stores the outputs (final + thumbnail, plus the raw scene and, in composite
+    mode, the cutout). The caller (the worker) catches :class:`GenerationError` /
+    unexpected errors and marks the job + image failed.
+    """
+    image_id, campaign_id = image["id"], campaign["id"]
+    store.update_image(conn, image_id, gen_status=store.GEN_GENERATING, error=None)
+
+    # Download the full-resolution main image, then render it into the scene.
+    original_bytes = _download_source(image["full_url"])
+    original_path = storage.save(campaign_id, "original", image_id, original_bytes)
+
+    mode = _render_mode()
+    render = _render_edit if mode == RENDER_EDIT else _render_composite
+    final_bytes, scene_bytes, cutout_bytes, meta = render(campaign, image_id, original_bytes)
+
+    cutout_path = (storage.save(campaign_id, "cutout", image_id, cutout_bytes)
+                   if cutout_bytes else None)
+    scene_path = (storage.save(campaign_id, "scene", image_id, scene_bytes)
+                  if scene_bytes else None)
     final_path = storage.save(campaign_id, "final", image_id, final_bytes)
     thumb_path = storage.save(
         campaign_id, "thumb", image_id,
@@ -181,7 +242,5 @@ def process_image(conn, image, campaign) -> None:
         final_path=final_path, thumb_path=thumb_path, error=None,
     )
     store.recompute_campaign_status(conn, campaign_id)
-    meta = {"provider": scene.provider, "model": scene.model,
-            "estimated_cost_usd": scene.estimated_cost_usd}
-    logger.info("Seasonal image ready campaign=%s image=%s meta=%s",
-                campaign_id, image_id, json.dumps(meta))
+    logger.info("Seasonal image ready campaign=%s image=%s mode=%s meta=%s",
+                campaign_id, image_id, mode, json.dumps(meta))

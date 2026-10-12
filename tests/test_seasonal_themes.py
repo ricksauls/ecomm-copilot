@@ -44,3 +44,14 @@ def test_build_seasonal_prompt_pins_surface_and_excludes_product():
 def test_build_seasonal_prompt_custom_uses_user_scene():
     prompt = themes.build_seasonal_prompt("custom", "A Diwali table with marigolds and diyas")
     assert "marigolds" in prompt
+
+
+def test_build_seasonal_edit_prompt_preserves_product_and_carries_scene():
+    prompt = themes.build_seasonal_edit_prompt("halloween")
+    low = prompt.lower()
+    # Forceful product-preservation language (the edit endpoint regenerates pixels).
+    assert "exactly as shown" in low
+    assert "do not" in low and ("label" in low or "text" in low)
+    # The theme scene is woven in, and it asks the model to place + ground the product.
+    assert "halloween" in low or "pumpkin" in low
+    assert "contact shadow" in low
