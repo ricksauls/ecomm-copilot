@@ -32,14 +32,23 @@ logger = logging.getLogger(__name__)
 # grounded product with a contact/cast shadow and a softly-blurred background), so
 # the composite reads as a real staged seasonal photo. ``ground_line`` matches
 # :data:`app.seasonal.themes.GROUND_LINE` so the product lands on the surface the
-# backdrop prompt pinned there.
+# backdrop prompt pinned there. Grounding is stronger than the image-set default
+# (a firmer contact shadow + an ambient-occlusion band) so the product doesn't look
+# like it's floating; see _CONTACT_AO.
 _PLACEMENT = {
     "scale": 0.62,
     "offset_x": 0.0,
     "offset_y": 0.0,
     "ground_line": themes.GROUND_LINE,
-    "shadow_strength": 0.6,
+    "shadow_strength": 0.78,
 }
+# Strength of the tight ambient-occlusion contact band at the product base.
+_CONTACT_AO = 0.7
+# How strongly to relight the product toward the scene's ambient light (0 = keep the
+# product exactly as shot; 1 = full match). Kept mild so the label stays legible —
+# this only shifts lighting, never redraws the product (its pixels/geometry are the
+# real cutout).
+_RELIGHT_STRENGTH = 0.35
 
 
 class GenerationError(Exception):
@@ -137,13 +146,22 @@ def process_image(conn, image, campaign) -> None:
         context={"campaign_id": campaign_id, "image_id": image_id, "feature": "seasonal"},
     )
 
-    # 4) Composite the cutout onto the backdrop with the grounded lifestyle look.
+    # 4) Relight the real cutout toward the backdrop's ambient light (so a studio-lit
+    #    product doesn't glow on a warm/dark scene), then composite with the grounded
+    #    lifestyle look + a firm ambient-occlusion contact at the base.
+    scene_img = compose.load_image(scene.png)
+    ambient_rgb, ambient_lum = compose.sample_scene_light(
+        scene_img, ground_line=_PLACEMENT["ground_line"])
+    light_side = compose.detect_light_side(scene_img)
+    relit = compose.relight_cutout(
+        cutout, ambient_rgb=ambient_rgb, ambient_lum=ambient_lum,
+        light_side=light_side, strength=_RELIGHT_STRENGTH)
     composed = compose.composite_product_on_scene(
-        compose.load_image(scene.png), cutout,
+        scene_img, relit,
         scale=_PLACEMENT["scale"], offset_x=_PLACEMENT["offset_x"],
         offset_y=_PLACEMENT["offset_y"], ground_line=_PLACEMENT["ground_line"],
         shadow_strength=_PLACEMENT["shadow_strength"],
-        blur_background=True, cast_shadow=True,
+        blur_background=True, cast_shadow=True, contact_ao=_CONTACT_AO,
     )
 
     # 5) Store the outputs (final 2000px PNG, gallery thumbnail, raw backdrop).

@@ -88,6 +88,41 @@ def test_composite_product_on_scene_output():
     assert out.mode == "RGB"
 
 
+def test_sample_scene_light_returns_colour_and_luma():
+    rgb, lum = compose.sample_scene_light(_scene((200, 100, 50)))
+    # Near the flat scene's colour (JPEG-free, so basically exact).
+    assert abs(rgb[0] - 200) < 6 and abs(rgb[1] - 100) < 6 and abs(rgb[2] - 50) < 6
+    assert 100 < lum < 160
+
+
+def test_relight_cutout_preserves_size_alpha_and_only_darkens_on_dark_scene():
+    cut = _cutout()
+    relit = compose.relight_cutout(
+        cut, ambient_rgb=(20, 20, 30), ambient_lum=30.0, light_side="left", strength=0.5)
+    # Same dimensions + alpha channel preserved (product geometry untouched).
+    assert relit.size == cut.size
+    assert relit.getchannel("A").getbbox() == cut.getchannel("A").getbbox()
+    # A bright red product on a dark scene is toned down (never brightened).
+    cx, cy = 100, 250  # inside the block
+    before = cut.convert("RGB").getpixel((cx, cy))
+    after = relit.convert("RGB").getpixel((cx, cy))
+    assert sum(after) < sum(before)
+
+
+def test_relight_zero_strength_is_a_no_op_on_colour():
+    cut = _cutout()
+    relit = compose.relight_cutout(
+        cut, ambient_rgb=(10, 10, 10), ambient_lum=10.0, light_side="left", strength=0.0)
+    assert relit.convert("RGB").getpixel((100, 250)) == cut.convert("RGB").getpixel((100, 250))
+
+
+def test_composite_with_contact_ao_output():
+    out = compose.composite_product_on_scene(
+        _scene(), _cutout(), blur_background=True, cast_shadow=True, contact_ao=0.7)
+    assert out.size == (CANVAS_SIZE, CANVAS_SIZE)
+    assert out.mode == "RGB"
+
+
 def test_contact_shadow_has_dark_pixels():
     layer = compose.contact_shadow(600, 0.6, size=CANVAS_SIZE)
     assert layer.mode == "RGBA"

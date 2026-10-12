@@ -19,7 +19,7 @@ import io
 import logging
 import os
 
-from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
+from PIL import Image, ImageChops, ImageDraw, ImageEnhance, ImageFilter, ImageFont, ImageOps
 
 from app.imageset.config import CANVAS_SIZE, SAFE_MARGIN
 
@@ -382,6 +382,96 @@ def grounding_shadow_layers(
     return layers
 
 
+def sample_scene_light(scene: Image.Image, ground_line: float = 0.82,
+                       size: int = CANVAS_SIZE) -> tuple[tuple[int, int, int], float]:
+    """Sample a scene's ambient colour + luminance near where the product grounds.
+
+    Reads a horizontal band around the ground line (the surface the product rests on,
+    which drives the bounce light hitting it) and returns ``((r, g, b), luminance)``.
+    Used by :func:`relight_cutout` so a composited product can be tinted/toned to the
+    scene instead of keeping its studio lighting.
+    """
+    img = cover_scene(scene, size).convert("RGB")
+    y0 = int(_clamp(ground_line - 0.18, 0.0, 1.0) * size)
+    y1 = int(_clamp(ground_line + 0.08, 0.0, 1.0) * size)
+    band = img.crop((0, y0, size, max(y1, y0 + 1))).resize((32, 8), Image.LANCZOS)
+    raw = band.tobytes()  # RGB, row-major
+    n = max(1, len(raw) // 3)
+    r = sum(raw[0::3]) / n
+    g = sum(raw[1::3]) / n
+    b = sum(raw[2::3]) / n
+    lum = 0.299 * r + 0.587 * g + 0.114 * b
+    return (round(r), round(g), round(b)), lum
+
+
+def relight_cutout(
+    cutout: Image.Image,
+    *,
+    ambient_rgb: tuple[int, int, int],
+    ambient_lum: float,
+    light_side: str = "left",
+    strength: float = 0.35,
+) -> Image.Image:
+    """Gently relight a product cutout toward a scene's ambient light (RGBA out).
+
+    Three subtle, global adjustments so a studio-lit product doesn't read as pasted
+    onto a warm, low-key scene: (1) a low-opacity tint toward the scene's ambient
+    colour, (2) a brightness ease-down toward the scene's luminance (only darkens,
+    never brightens, so label contrast is preserved), and (3) a soft directional
+    shade on the side away from the light. Deliberately mild — the product's label
+    and design stay fully legible; only the lighting shifts. Alpha is preserved, so
+    the real product geometry/text is never redrawn.
+    """
+    s = _clamp(strength, 0.0, 1.0)
+    rgba = cutout.convert("RGBA")
+    alpha = rgba.getchannel("A")
+    rgb = rgba.convert("RGB")
+
+    # 1) Tint toward the scene's ambient colour (flat overlay at low opacity).
+    ambient = Image.new("RGB", rgb.size, ambient_rgb)
+    rgb = Image.blend(rgb, ambient, 0.16 * s)
+
+    # 2) Brightness match: ease a bright product down toward a dark scene. Factor in
+    #    [0.72, 1.0]; only darkens. A luminance of ~180+ leaves it essentially as-is.
+    factor = _clamp(0.60 + 0.40 * (ambient_lum / 180.0), 0.72, 1.0)
+    factor = 1.0 - (1.0 - factor) * s
+    rgb = ImageEnhance.Brightness(rgb).enhance(factor)
+
+    # 3) Directional shade: a horizontal gradient darkening the side away from the
+    #    light (max ~24% at the far edge), multiplied over the product.
+    w, h = rgb.size
+    row = Image.new("L", (w, 1))
+    for x in range(w):
+        t = x / max(1, w - 1)  # 0 at left edge, 1 at right edge
+        away = t if light_side == "left" else (1.0 - t)  # 1 on the shadowed side
+        row.putpixel((x, 0), int(255 - away * 60 * s))
+    shade = Image.merge("RGB", (row, row, row)).resize((w, h))
+    rgb = ImageChops.multiply(rgb, shade)
+
+    out = rgb.convert("RGBA")
+    out.putalpha(alpha)
+    return out
+
+
+def contact_ao_layer(product_width: float, strength: float = 0.6,
+                     size: int = CANVAS_SIZE) -> Image.Image:
+    """A tight, dark ambient-occlusion band for right under the product base (RGBA).
+
+    A small, dense, lightly-blurred ellipse centred on the canvas — composited at the
+    product's base beneath the soft contact pool, it's the hard "pressed into the
+    surface" contact that keeps the base from looking like it floats above the ground.
+    """
+    s = _clamp(strength, 0.0, 1.0)
+    rx = round(product_width * 0.42)
+    ry = max(2, round(rx * 0.16))
+    blur = max(2, round(product_width * 0.02))
+    cx = cy = size / 2
+    layer = _blank_layer(size)
+    ImageDraw.Draw(layer).ellipse(
+        [cx - rx, cy - ry, cx + rx, cy + ry], fill=(0, 0, 0, round(255 * s * 0.6)))
+    return layer.filter(ImageFilter.GaussianBlur(blur))
+
+
 def composite_product_on_scene(
     scene: Image.Image,
     cutout: Image.Image,
@@ -397,11 +487,15 @@ def composite_product_on_scene(
     shadow_length: float = 1.0,
     shadow_offset_x: float = 0.0,
     shadow_offset_y: float = 0.0,
+    contact_ao: float = 0.0,
 ) -> Image.Image:
     """Composite an approved cutout onto a scene with a grounding shadow (RGB out).
 
     The product stays proportional and inside the safe boundaries; it is grounded
     at ``ground_line`` (fraction of canvas height) with the offsets applied.
+    ``contact_ao`` (0 disables it, the default, so existing callers are unchanged)
+    adds a tight ambient-occlusion band at the base for a firmer "pressed into the
+    surface" contact.
     """
     size = CANVAS_SIZE
     scale = _clamp(scale, 0.2, 0.9)
@@ -434,6 +528,12 @@ def composite_product_on_scene(
         shadow_offset_x=shadow_offset_x, shadow_offset_y=shadow_offset_y, size=size,
     ):
         base.alpha_composite(layer, (lx, ly))
+    # Tight ambient-occlusion contact at the base (above the soft pool, below the
+    # product) so the base reads as pressed into the surface rather than floating.
+    if contact_ao > 0:
+        ao = contact_ao_layer(pw, contact_ao, size)
+        base.alpha_composite(ao, (round(base_center_x - size / 2),
+                                  round(base_y - size / 2)))
     base.alpha_composite(product, (left, top))
     return base.convert("RGB")
 
