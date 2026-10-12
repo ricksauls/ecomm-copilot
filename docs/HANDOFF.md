@@ -1,6 +1,18 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-10-12 (session 27 — **Nav redesign** (menu cleanup): flatter rail,
+_Last updated: 2026-10-12 (session 28 — **Seasonal seasons + auto-dates, History-tab
+renames, rail cleanup**: added 7 seasons to Seasonal (New Year's, Valentine's Day, Memorial
+Day, Father's Day, 4th of July, Labor Day, Thanksgiving) with **auto-defaulted launch /
+expiration / reminder dates** (holiday −30d / +1d / 3 business days before launch; floating
+holidays computed; summer & back-to-school use representative dates; custom blank). Each tool's
+**History tab is now named** for what it produces (Copy Created, Images Acquired, Image Sets
+Created, Content Scored, Seasonal Campaigns Created). Seasonal's inline **"Your campaigns" list
+was removed** and **History now lists ALL campaigns (drafts included)**. **Copy Studio collapsed
+to a single "Product Copy" rail leaf** and **sub-menu icons** were added (Creative Studio + Admin;
+**Insights left icon-free** — still WIP). "Your campaigns" / history campaign lists are now a
+sortable/searchable `dash-table` (`campaign_table` macro). **3 PRs shipped + live** (#31, #32,
+#33), `main` at `114b96b`, **654 tests, ruff clean, no migration, no new env**. Session 27 —
+**Nav redesign** (menu cleanup): flatter rail,
 feature-named labels, and each content tool is now a workspace with a **Create New / History**
 tab (the five "View … History" rail twins removed). **Shipped + live** (PR #30). Session 26 —
 **Seasonal Content Campaigns** (new Creative
@@ -51,6 +63,47 @@ fills its box, and an **AI "straighten"** that de-angles the product for feature
 quality set to **medium**. Droplet now on gpt-image-1 + PhotoRoom. Session 16 — callout layout/halos/
 blur, per-card Regenerate, Lifestyle logo. Session 15 — all 4 image types generate. Session 13 —
 built PDP Image Set.)_
+
+> ## ⭐ Next session — START HERE (session 28 — Seasonal dates + nav polish, 2026-10-12)
+>
+> **✅ ALL SHIPPED + DEPLOYED to production.** `main` at `114b96b`; CI + Deploy green on each
+> commit; verified live (ecomm-copilot.com 200; `/app` 302→/signin; served `workspace.css` has the
+> new `.dash-cols-campaign`, `.nav-sub-ico`, `.rail-children-iconed` rules; `seasonal_home.js`
+> served). **654 tests, `ruff` clean. No migration, no new env.** 3 PRs, squash-merged:
+> **#31** Seasonal seasons + auto-dates + campaign tables · **#32** named History tabs + Seasonal
+> single list + Copy→leaf + sub-icons · **#33** rail leaf "Copy Studio" → "Product Copy".
+>
+> ### What shipped
+> - **Seasonal seasons + auto-dates (`app/seasonal/themes.py`):** `THEMES` now has 12 presets +
+>   custom (added New Year's, Valentine's Day, Memorial Day, Father's Day, 4th of July, Labor Day,
+>   Thanksgiving), ordered by calendar. New **pure** date helpers `default_dates(slug, today=None)`
+>   / `theme_defaults()`: launch = next-upcoming holiday − 30d, expiration = holiday + 1d, reminder
+>   = 3 **business** days before launch. Floating holidays (`_nth_weekday` / `_last_weekday`)
+>   computed; summer (Jun 21) & back-to-school (Aug 15) are representative stand-ins; custom → blank.
+>   Python is the single source of truth; the form applies it via **`static/js/seasonal_home.js`**
+>   from a `theme_defaults` JSON blob, on load + on season change (fields stay editable). Dropdown
+>   pre-selects `DEFAULT_THEME`.
+> - **Campaign tables:** new `campaign_table` macro (`app/templates/app/_dash_tables.html`) +
+>   `.dash-cols-campaign` grid — sortable/searchable, matching the other History tables.
+> - **History-tab renames:** `workspace_tabs` already had a `history_label`; set per workspace on
+>   **both** the Create-New view and the History view, kept in sync by `_ACTIVITY_HISTORY_LABEL`
+>   (`pages.py`). A test guards the two from drifting.
+> - **Seasonal = one campaign list:** removed the inline "Your campaigns" list from Create-New;
+>   `seasonal_history` dropped `ready_only`, so History lists **all** campaigns (drafts included,
+>   Draft/Ready pill). Create view no longer queries/loads the list.
+> - **Rail (`app/templates/app/_rail.html`):** Copy Studio had a single child, so it's now a
+>   standalone **"Product Copy"** leaf (links to `pdp_copy`, like Content Scoring). Added slug-keyed
+>   outline icons to sub-menu items — Creative Studio (import / image-set / seasonal) + Admin
+>   (users / messages) — via new `rail_icon` branches + a **`child_icons`** flag on `rail_group`.
+>   **Insights children intentionally icon-free** (per the user, Insights is still being worked
+>   through).
+>
+> ### Deliberately NOT touched / easy follow-ups
+> - **Insights sub-menu icons** — left off on purpose; add them when the Insights rework settles.
+> - **The session-26 open item is STILL open:** judge the **flat-surface composite output quality**
+>   (blocked on the user's PhotoRoom account) — see the session-26 START HERE block below.
+>
+> _(The session-27 Nav-redesign block follows.)_
 
 > ## ⭐ Next session — START HERE (session 27 — Nav redesign, 2026-10-12)
 >
