@@ -1,6 +1,8 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-10-11 (session 21 — **Acquire Product Images**: Amazon verified working
+_Last updated: 2026-10-11 (session 22 — **View Acquired Images History**: a dedicated history
+screen for Acquire Product Images runs (separate from the image-set history), under Creative
+Content Studio. Session 21 — **Acquire Product Images**: Amazon verified working
 live; added **product-based download filenames** (title slug + ASIN/Walmart item #, ZIP foldered
 per product) and **upscale-on-download** (resize to the 2000px target when below spec, via Claid).
 Session 20 — reworked **Acquire Product Images From An Existing Site** (renamed from "Import
@@ -18,6 +20,57 @@ fills its box, and an **AI "straighten"** that de-angles the product for feature
 quality set to **medium**. Droplet now on gpt-image-1 + PhotoRoom. Session 16 — callout layout/halos/
 blur, per-card Regenerate, Lifestyle logo. Session 15 — all 4 image types generate. Session 13 —
 built PDP Image Set.)_
+
+> ## ⭐ Next session — START HERE (session 22, 2026-10-11)
+>
+> **Shipped + pushed: `main` at `7df1d15` (code) + this docs commit; CI → auto-deploy.**
+> 562 tests, `ruff` clean. **No migration, no new `.env`.**
+>
+> **Counter note:** this is the user's chat-session title **22**, and the HANDOFF
+> counter is now realigned to it (sessions 20 + 21 were both done on the same day, so
+> the doc had run one ahead of the chat titles). Go by the user's session title from here.
+>
+> ### What shipped this session — View Acquired Images History
+> A dedicated history for **Acquire Product Images** runs, **separate** from the image-set
+> "View Creative Content Creation History" (the user chose two separate histories over one
+> combined screen). New rail item **"View Acquired Images History"** under Creative Content
+> Studio, paired right under the Acquire tool.
+> - **`store.list_acquire_activity`** (`app/imgimport/store.py`): one-query summaries of
+>   **finished** acquire runs (`status = ready`, which `recompute_run_status` sets only when
+>   the run produced ≥1 ready asset — so abandoned/failed runs are excluded, mirroring the
+>   other histories' committed-run filter). Each row carries image count, product count,
+>   distinct source types, the first ready asset's thumbnail (full-res fallback), and the
+>   product labels joined on `||`. IDOR-scoped, bounded by `limit`.
+> - **`_acquire_activity_view` + `acquired` kind** (`app/routes/pages.py`): registered in
+>   `_ACTIVITY_META` (layout `acquired`), `_ACTIVITY_ACTIVE_NAV`, `_ACTIVITY_BREADCRUMB`, and
+>   `_activity_rows` (result_url → the run's gallery `import_images_run`). Product cell shows
+>   the first label + a muted **"+N more"** line (survives the column's ellipsis truncation);
+>   source names de-duped + humanized (`_ACQUIRE_SOURCE_LABELS`). The `activity_all` response
+>   **relaxes img-src CSP** (`_IMPORT_GALLERY_CSP`) for `kind == "acquired"` only, so the
+>   **hotlinked CDN thumbnails** load — same model as the gallery (no bytes stored).
+> - **`acquired_table` macro** (`_dash_tables.html`) reuses the 5-column product grid
+>   (`dash-cols-product has-score`) — image count fills the right-aligned numeric slot, so
+>   **no new CSS**. `activity_all.html` gained an `acquired` layout branch.
+> - **Verified live** in the browser preview (seeded a run, then cleaned it up): empty state,
+>   populated row (Source "Walmart, Amazon", "+1 more", count 3), row-click → gallery, CSP
+>   relaxed (thumbnails fetched, no app/JS errors). Columns are Image · Date · Source ·
+>   Product · Images (no Brand/Score — acquire runs have neither).
+>
+> ### Watch / next-ups
+> - **Scope kept tight:** NOT added to the Dashboard month-scoped tables or the "View All
+>   Content Activity" roll-up — easy follow-ups (`list_acquire_activity` takes `since`, so a
+>   dashboard table is mostly a template + card away).
+> - Thumbnails hotlink external CDN URLs (no bytes stored); a rotted URL falls back to the
+>   placeholder tile. If that becomes common, cache a thumbnail at acquire time.
+> - **Pre-production watch-item** (see `docs/roadmap.md`): move the Acquire ZIP download +
+>   upscale to a background worker job before real users — currently synchronous in the web
+>   request.
+>
+> ### Commits this session
+> `7df1d15` View Acquired Images History · + this docs commit. (Earlier today, by the user:
+> `docs: pre-production roadmap` seeding `docs/roadmap.md`.) **Pushed to `main`.**
+>
+> _(Session 21's block follows.)_
 
 > ## ⭐ Next session — START HERE (session 21, 2026-10-11)
 >
