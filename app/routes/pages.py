@@ -1555,32 +1555,25 @@ def pdp_copy():
         form_urls = request.form.getlist("urls")
         csv_file = request.files.get("csv")
         accepted, rejected = pdp.collect_items(form_urls, csv_file)
-        brand = pdp.clean_brand(request.form.get("brand"))
 
-        # Brand is required on copy creation — it anchors the generated copy, so we
-        # ask for it rather than scraping. Enforce at the boundary, not only via the
-        # browser's `required` (a direct POST bypasses client-side validation).
-        error = None
         if not accepted:
-            error = "No valid item URLs were provided."
-        elif not brand:
-            error = "Enter a brand for these products."
-        if error:
             return (
                 render_template(
                     "app/pdp_copy.html",
                     breadcrumb="Copy Content Studio · Product Detail Page Copy Content Creation",
                     active_nav="pdp-copy",
                     max_items=pdp.MAX_ITEMS,
-                    error=error,
-                    brand_value=request.form.get("brand", ""),  # keep what they typed
+                    error="No valid item URLs were provided.",
                     **_portfolio_pick_context(),
                 ),
                 400,
             )
 
+        # Brand isn't collected at the copy intake: every item here is fetched, and
+        # the worker reads the brand from the PDP (copy_jobs.save_current_copy's
+        # COALESCE fill), so the user doesn't type it.
         items = [
-            {"url": url, "item": pdp.item_number_from_url(url), "brand": brand}
+            {"url": url, "item": pdp.item_number_from_url(url)}
             for url in accepted
         ]
         ids = copy_jobs.enqueue_copy_items(get_db(), g.user["id"], items)

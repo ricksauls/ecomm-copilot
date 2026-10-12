@@ -230,13 +230,13 @@ def test_import_add_delete_flow_via_routes(client, auth):
     assert b"Choose from your managed items" in copy.data
 
 
-def test_copy_intake_requires_a_brand(client, auth):
-    # Brand is now required on Product Copy — a valid URL with no brand is a 400,
-    # enforced server-side (not only by the browser's `required`).
+def test_copy_intake_does_not_require_a_brand(client, auth):
+    # Product Copy no longer collects a brand — the URL is fetched and the worker
+    # reads the brand from the PDP — so a URL with no brand enqueues and redirects.
     auth.register(email="copybrand@example.com", password="password123")
     resp = client.post("/app/pdp-copy", data={"urls": "https://www.walmart.com/ip/10294528"})
-    assert resp.status_code == 400
-    assert b"brand" in resp.data.lower()
+    assert resp.status_code == 302
+    assert resp.headers["Location"].endswith("/app/pdp-copy/results")
 
 
 def test_template_download_has_expected_headers(client, auth):
