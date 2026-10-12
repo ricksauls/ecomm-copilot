@@ -73,17 +73,30 @@ built PDP Image Set.)_
 >   DB confirmed each recipient's thread is unread-for-recipient with an admin first message.
 >   Seeded test threads + the temp admin account were deleted afterward (`app.db` is gitignored).
 >
-> ### Follow-up (same session) — Contact Us hidden for admins
+> ### Follow-up (same session) — Contact Us hidden for admins + unread badge placement
 > Admins have the Messages inbox, so the user-side **Contact Us** rail item is now hidden for them
 > (`{% if not is_admin %}` in `_rail.html`). The unread indicator didn't disappear — the red count
-> badge **moved onto the Admin → Messages** item: `rail_group` grew an optional `badges` map
-> (slug → count) and the admin block passes `{'admin-messages': admin_msg_unread_count}`.
+> badge **rides on the Admin rail**: `rail_group` grew an optional `badges` map (slug → count) for
+> the **Messages sub-item** and a group-level `badge` for the **"Admin" header itself**.
 > `.nav-sub-item` is now a flex row (label + right-aligned badge) with a sub-item `.nav-count`
 > alert style in `workspace.css`. Regular users are unchanged (Contact Us still shows, with its
-> own badge). Tests: `test_admin_nav_visibility` asserts `/app/contact` is absent for admins /
-> present for users; `test_admin_messages_nav_shows_unread_badge` asserts the alert badge appears
-> only when the inbox has unread. **584 tests, `ruff` clean.** Verified live (admin: no Contact Us,
-> red "1" on Messages, topbar "1 new message"; user: Contact Us present, no Admin group).
+> own badge).
+>
+> **Bug fix (user-reported):** the first pass put the badge only on the **Messages sub-item**,
+> which is **hidden while the Admin group is collapsed** — the default on every page except
+> `/admin/*` — so admins saw no at-a-glance indicator. Fixed by also rendering the count on the
+> **collapsed "Admin" group header** (`rail-group-badge`); CSS hides the header badge once the
+> group is `[open]` so the sub-item badge takes over and it's never shown twice. (The topbar
+> "N new messages" indicator was always there too, but the rail badge is the expected signal.)
+> Note: **template auto-reload is off in the dev server** — restart the preview (`preview_stop` +
+> `preview_start`) after editing a template, or edits won't show.
+>
+> Tests: `test_admin_nav_visibility` asserts `/app/contact` is absent for admins / present for
+> users; `test_admin_messages_nav_shows_unread_badge` asserts the alert badge **and** the
+> `rail-group-badge` header badge appear only when the inbox has unread. **584 tests, `ruff`
+> clean.** Verified live (admin: no Contact Us; collapsed → red "1" on the "Admin" header;
+> expanded → "1" on Messages, header badge hidden; topbar "1 new message"; user: Contact Us
+> present, no Admin group).
 >
 > ### To deploy
 > The **first commit (Compose) is already pushed** to `main`. The **Contact-Us-hidden follow-up is
