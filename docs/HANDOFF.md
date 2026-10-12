@@ -1,6 +1,9 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-10-12 (session 26 — **Seasonal Content Campaigns** (new Creative
+_Last updated: 2026-10-12 (session 27 — **Nav redesign** (menu cleanup): flatter rail,
+feature-named labels, and each content tool is now a workspace with a **Create New / History**
+tab (the five "View … History" rail twins removed). **Shipped + live** (PR #30). Session 26 —
+**Seasonal Content Campaigns** (new Creative
 Content Studio feature), **shipped + live**: create a campaign (season/theme + planning dates),
 add products by Walmart/Amazon URL, and the pipeline composites **each product's MAIN image**
 onto a fresh **AI-generated seasonal backdrop**, automatically (no image-picking step). Create-
@@ -48,6 +51,47 @@ fills its box, and an **AI "straighten"** that de-angles the product for feature
 quality set to **medium**. Droplet now on gpt-image-1 + PhotoRoom. Session 16 — callout layout/halos/
 blur, per-card Regenerate, Lifestyle logo. Session 15 — all 4 image types generate. Session 13 —
 built PDP Image Set.)_
+
+> ## ⭐ Next session — START HERE (session 27 — Nav redesign, 2026-10-12)
+>
+> **✅ SHIPPED + DEPLOYED to production.** `main` at `1d66e1a` (PR #30, squash-merged); CI +
+> Deploy both green; verified live (ecomm-copilot.com 200; served `workspace.css` has the new
+> `.ws-tabs` rules and no old tree-line CSS). **644 tests, `ruff` clean. No migration, no new env.**
+>
+> ### What shipped — menu cleanup (navigation vs. actions)
+> The rail had grown to 4 collapsible groups + 11 sub-items, with a "View … History" twin
+> shadowing every tool. The redesign **separates navigation from actions**: the rail routes to a
+> workspace; inside it, a tab bar switches **Create New / History**.
+> - **Rail (`app/templates/app/_rail.html`):** Dashboard · **Content Scoring** (standalone leaf,
+>   single workspace) · **Copy Studio** → Product Copy · **Creative Studio** → Product Image
+>   Import / Product Image Set Creator / Seasonal Campaigns · **Insights** (CI — unchanged) ·
+>   Contact Us · Admin. Labels now **name the feature, not the action**; the **tree-connector
+>   lines are gone** (flat indent). All five history sub-items removed.
+> - **Workspace tabs (`app/templates/app/_workspace_tabs.html`):** a reusable `workspace_tabs`
+>   macro (Create New / History) included on each tool's create template + its history template.
+>   A history page keeps its **workspace** rail item highlighted (`_ACTIVITY_ACTIVE_NAV` now maps
+>   each content kind to the tool slug; seasonal history uses `_SEASONAL_NAV`); breadcrumbs use
+>   the `<workspace> · History` form. The active tab gets a 2px `--accent` (Electric Blue) underline.
+> - **Routes (`app/routes/pages.py`):** `activity_all` passes a `workspace` tab context for the
+>   four content kinds (`_activity_workspace`); **CI kinds get none**, so no tab bar on CI history.
+>   **Removed** the orphaned combined roll-up `content_activity` route + `content_activity.html`
+>   (it was unlinked from the rail; the per-tool History tab replaces it).
+> - **Label renames (requested mid-session):** PDP Copy Creator → **Product Copy**; Image Import →
+>   **Product Image Import**; PDP Image Creator → **Product Image Set Creator** (rail + breadcrumbs).
+> - **Tests:** replaced the two `content_activity` tests with rail-structure / route-gone-404 /
+>   workspace-tab assertions (`tests/test_pages.py`). Verified live in the preview end-to-end (rail,
+>   tab switching with the rail staying on the workspace, seasonal's own history route, CI untouched,
+>   no console errors).
+>
+> ### Deliberately NOT touched / easy follow-ups
+> - **Insights / Competitive Intelligence stays as-is** (user is still reworking it) — give CI the
+>   same workspace-tab treatment later.
+> - **Page `<h1>` headings keep their long form** (e.g. "Score Product Detail Page(s)", "Acquire
+>   Product Images From An Existing Site") — this was a *menu* cleanup; shorten the headings to
+>   match the new rail labels if wanted.
+> - **Pre-production watch-item still open** (`docs/roadmap.md`): Acquire ZIP → worker job.
+>
+> _(The session-26 Seasonal block follows.)_
 
 > ## ⭐ Next session — START HERE (session 26 — Seasonal Content Campaigns, 2026-10-12)
 >
