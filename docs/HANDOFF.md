@@ -1,6 +1,11 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-10-11 (session 25 — **Admin Compose message**: admins can now *start*
+_Last updated: 2026-10-11 (session 25 — **Admin-provisioned accounts**: admins can now
+**create** users from User Management (email + role + a temporary password); the account is
+flagged `must_change_password`, so at first sign-in a **forced change-password gate**
+(`before_request`) blocks the app until they set their own password. Public self-service signup
+is unchanged (kept intentionally for a future pay-as-you-go tier alongside admin-managed
+enterprise accounts). Earlier this session — **Admin Compose message**: admins can now *start*
 conversations, not just reply. A **Compose** button on the Messages inbox opens a screen with a
 recipient checklist (Select all + live count) and a subject/body; sending **fans out to one
 private thread per recipient** (announcement category, admin-authored opening message, unread
@@ -35,6 +40,57 @@ fills its box, and an **AI "straighten"** that de-angles the product for feature
 quality set to **medium**. Droplet now on gpt-image-1 + PhotoRoom. Session 16 — callout layout/halos/
 blur, per-card Regenerate, Lifestyle logo. Session 15 — all 4 image types generate. Session 13 —
 built PDP Image Set.)_
+
+> ## ⭐ Next session — START HERE (session 25c — Admin-provisioned accounts, 2026-10-11)
+>
+> **Staged locally — NOT yet committed/pushed.** 597 tests, `ruff` clean. **One new migration:
+> `users.must_change_password`** (additive, auto-ALTER on web+worker restart; existing rows
+> default 0). **No new `.env`.** Verified live end-to-end in the preview (seeded + cleaned up).
+>
+> ### What shipped — admins can create users (with a temp password + forced reset)
+> The user chose: **admin sets an initial password**, the account is **forced to change it at
+> first sign-in**, and **public self-service signup stays on** (future pay-as-you-go tier
+> alongside admin-managed enterprise accounts).
+> - **`users.must_change_password`** column (`db.py` `_SCHEMA` + additive `_migrate` ALTER). 0 for
+>   self-service/SSO; 1 for admin-provisioned until they reset.
+> - **`users.admin_create_user(email, password, role, *, must_change_password=True)`** — admin
+>   path (distinct from self-service `create_local_user`): admin picks role, sets a temp password,
+>   flag defaults on. **`users.set_password(user_id, password)`** — hashes + clears the flag; used
+>   by the change-password flow. `list_users` now also selects `must_change_password`.
+> - **Forced-change gate** (`security.require_password_change`, registered as a `before_request`
+>   after `load_current_user`): when the signed-in user has the flag set, every request outside
+>   `_PW_CHANGE_ALLOWED_ENDPOINTS` (`pages.change_password`, `auth.signout`, `static`) redirects to
+>   the change-password page — so the admin's temp password can only ever be *changed*, never used
+>   to roam. Extracted `security.validate_password` (shared by signup / provisioning / change).
+> - **Routes** (`pages.py`): `POST /admin/users` (`admin_add_user`, admin-guarded; validates
+>   email+password+role, flashes dup/weak/bad-role) and `GET|POST /account/password`
+>   (`change_password`, login-required; `forced` tailors the copy; mismatch is rejected).
+> - **UI**: "Add a user" form card on `admin_users.html` (email + role select + temp password +
+>   flash block) and a **"Password pending"** pill on provisioned rows that haven't reset yet; new
+>   `change_password.html`; `.pending-pill` style in `workspace.css`.
+> - **Tests (+13 → 597)**: `tests/test_user_provisioning.py` — provisioning (role, flag, pending
+>   pill), dup/weak/bad-role rejection, non-admin 403, the forced-change redirect, flag-clears +
+>   **temp password invalidated** after reset, mismatch keeps the flag, forced user can still sign
+>   out, change-password needs login, and regressions that self-service accounts are **not** gated.
+> - **Verified live**: provisioned `qa-newhire` (role USER, "Password pending" pill, flash); signed
+>   in with the temp password → bounced to "Set your password"; set a new one → landed on the
+>   Dashboard (gate released; DB flag 0); no console errors.
+>
+> ### To deploy
+> **Not pushed yet** — review the diff, commit code + docs, push to `main` (CI → auto-deploy). The
+> `must_change_password` ALTER runs automatically on web + worker restart. Existing users
+> (including the two real admins) default to 0, so no one is unexpectedly gated.
+>
+> ### Watch / next-ups
+> - **No email is sent** — the admin shares the temp password out-of-band. A set-password **invite
+>   link** (token flow, no admin-known password) was offered and deferred; it's the natural next
+>   step if you want admins to never see the password.
+> - No password-complexity rule beyond the 8-char minimum (shared `validate_password`); add a
+>   strength check there if desired. No rate-limit on the change-password POST.
+> - `/account/password` has no rail nav entry (reached via the forced gate, or directly) — add a
+>   link under the account chip if you want self-service password change discoverable.
+>
+> _(The session-25 Compose + Contact-Us blocks follow.)_
 
 > ## ⭐ Next session — START HERE (session 25, 2026-10-11)
 >
