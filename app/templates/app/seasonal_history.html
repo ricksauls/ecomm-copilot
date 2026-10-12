@@ -1,5 +1,6 @@
 {% extends "app/base.html" %}
 {% import "app/_workspace_tabs.html" as ws %}
+{% import "app/_dash_tables.html" as t %}
 {% block title %}Seasonal Campaign History — DISCOtech{% endblock %}
 
 {% block head_extra %}
@@ -17,27 +18,14 @@
 </div>
 {{ ws.workspace_tabs('history', url_for('pages.seasonal_home'), url_for('pages.seasonal_history')) }}
 
-{% if campaigns %}
-<div class="seasonal-campaign-list">
-  {% for c in campaigns %}
-  <a class="card card-pad seasonal-campaign-card" href="{{ url_for('pages.seasonal_campaign', cid=c['id']) }}">
-    <div class="seasonal-campaign-head">
-      <span class="seasonal-campaign-name">{{ c['name'] }}</span>
-      <span class="seasonal-campaign-theme">{{ theme_label(c['theme']) }}</span>
-    </div>
-    <div class="seasonal-campaign-meta">
-      {{ c['product_count'] }} product(s) · {{ c['image_count'] }} seasonal image(s)
-      · created {{ c['created_at'][:10] }}
-    </div>
-    <div class="seasonal-campaign-dates">
-      {% if c['launch_date'] %}Launch {{ c['launch_date'] }}{% endif %}
-      {% if c['expiration_date'] %} · Expires {{ c['expiration_date'] }}{% endif %}
-    </div>
-  </a>
-  {% endfor %}
+<div class="dash-tables">
+  {{ t.campaign_table('Finished campaigns', '', campaigns,
+       'No finished campaigns yet — start one from the Create New tab.',
+       theme_label, searchable=true) }}
 </div>
-{% else %}
-<p class="empty-note">No finished campaigns yet. Start one from
-  <a href="{{ url_for('pages.seasonal_home') }}">Seasonal Content Campaigns</a>.</p>
-{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{# Sortable columns + per-table search, same as the other History tables. #}
+<script src="{{ static_url('js/dashboard.js') }}"></script>
 {% endblock %}
