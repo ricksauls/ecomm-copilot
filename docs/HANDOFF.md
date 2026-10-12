@@ -1,6 +1,20 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-10-12 (session 28 — **Seasonal seasons + auto-dates, History-tab
+_Last updated: 2026-10-12 (session 29 — **Portfolio Management** (new feature): a per-user,
+durable catalog of managed products (CSV import / single-add / delete, deduped by Walmart item #),
+reached from a new **"Portfolio Management"** rail leaf below Insights. The catalog surfaces on the
+**Content Scoring** and **Product Copy** intakes as **Step 1 "Choose from your managed items"** — a
+filterable (brand / item # / URL) checkbox pick-list **ahead of** manual URL entry and CSV upload;
+checkboxes post as `urls` so the existing `collect_items` handles them unchanged. New table
+`portfolio_items` (UNIQUE `(user_id, dedupe_key)` enforces skip-on-duplicate); new `app/portfolio.py`
+store + `app/static/js/portfolio.js` filter + `_portfolio_pick.html` macro. Dashboard "Products
+managed"/brands now UNION the portfolio. **Also this session: Brand is now REQUIRED everywhere it's
+entered** (Product Copy, Portfolio add + CSV, Image Set Creator) with server-side enforcement — per
+the user "Brand should not be optional anywhere." **And: a "Download a template" link on every CSV
+upload screen** (Scoring, Copy, Acquire Images, Seasonal, Portfolio) via a shared helper + per-screen
+routes. **679 tests (26 new), ruff clean, no new env.** **BUILT LOCALLY — NOT yet committed/pushed/
+deployed** (`main` still `114b96b`). See the START HERE block.
+Session 28 — **Seasonal seasons + auto-dates, History-tab
 renames, rail cleanup**: added 7 seasons to Seasonal (New Year's, Valentine's Day, Memorial
 Day, Father's Day, 4th of July, Labor Day, Thanksgiving) with **auto-defaulted launch /
 expiration / reminder dates** (holiday −30d / +1d / 3 business days before launch; floating
@@ -63,6 +77,101 @@ fills its box, and an **AI "straighten"** that de-angles the product for feature
 quality set to **medium**. Droplet now on gpt-image-1 + PhotoRoom. Session 16 — callout layout/halos/
 blur, per-card Regenerate, Lifestyle logo. Session 15 — all 4 image types generate. Session 13 —
 built PDP Image Set.)_
+
+> ## ⭐ Next session — START HERE (session 29 — Portfolio Management, 2026-10-12)
+>
+> **⚠️ BUILT LOCALLY — NOT yet committed, pushed, or deployed.** All work is on the working
+> tree only (`main` still at `114b96b`). **667 tests pass (14 new), `ruff` clean.** New table
+> `portfolio_items` is created by `CREATE TABLE IF NOT EXISTS` in `_SCHEMA` (no `_migrate` ALTER
+> needed — it's a brand-new table; `ensure_schema` creates it on both web + worker startup). **No
+> new env vars.** Next session should branch, open a PR, and deploy per the usual flow.
+>
+> ### What was built — Portfolio Management (new feature)
+> A per-user, durable catalog of managed products that feeds the Content Scoring / Product Copy
+> intakes as the **first** item-selection method, ahead of manual URL entry and CSV upload.
+> - **New nav leaf "Portfolio Management"** (`app/templates/app/_rail.html`) directly **below
+>   Insights** — a standalone `rail-leaf` (single workspace, matching the Content Scoring / Product
+>   Copy convention), new briefcase `portfolio` icon, `active_nav="portfolio"`.
+> - **DB (`app/db.py`):** `portfolio_items` table — `user_id, brand, walmart_url, item_id,
+>   amazon_url, dedupe_key, created_at, updated_at`. **UNIQUE index on `(user_id, dedupe_key)`**
+>   enforces "skip items already in the portfolio" at the DB (`INSERT OR IGNORE` counts the new
+>   rows). `dedupe_key` = Walmart item number when the URL has one, else the lowercased URL.
+> - **Store module (`app/portfolio.py`):** `parse_csv` (header-named columns, case/space-lenient;
+>   **content-based header detection** — a first row containing any valid URL is treated as data,
+>   not a header, so positional CSVs and header'd CSVs both work; returns `(rows, invalid_count)`),
+>   `import_rows` (skip-dupes, returns `{added, skipped}`), `add_item`, `delete_item` (owner-scoped,
+>   IDOR guard), `list_items`, `distinct_brands`. Reuses `app.pdp` for URL/brand validation + item
+>   parsing.
+> - **Routes (`app/routes/pages.py`):** `GET /app/portfolio` (home), `POST /app/portfolio/import`
+>   (CSV, flashes added/skipped/invalid summary), `POST /app/portfolio/add` (single item),
+>   `POST /app/portfolio/delete/<id>`, `GET /app/portfolio/template.csv` (downloadable template w/
+>   the 3 headers + one example row). Helper `_portfolio_pick_context()` feeds the pick-list to the
+>   scoring/copy GET + error renders.
+> - **Scoring + Copy intakes** now have **Step 1 "Choose from your managed items"** (filterable
+>   checkbox list) → *or* → Step 2 manual URLs → *or* → Step 3 CSV. The pick-list is a shared macro
+>   **`app/templates/app/_portfolio_pick.html`**; checkboxes post as `name="urls"` so the existing
+>   `pdp.collect_items` handles them with **zero** changes to the scoring/copy POST logic.
+> - **Client-side filter (`app/static/js/portfolio.js`):** generic filter over any
+>   `[data-portfolio-filter]` container (brand `<select>` exact-match + free-text search over item #
+>   / URL), used by **both** the portfolio table and the scoring/copy pick-lists. CSP-safe external
+>   file; pure progressive enhancement.
+> - **Dashboard KPIs (`app/jobs.py`):** `count_managed_products` + `count_managed_brands` now
+>   **UNION in `portfolio_items`** — "Products managed" / the brands subtitle now include portfolio
+>   items (deduped by item id / brand). *(Decision confirmed with the user this session.)*
+> - **CSS:** `.pf-*` block appended to `workspace.css`. **Tests:** `tests/test_portfolio.py` (13) +
+>   1 added to `test_jobs`-style coverage; parse/import/dedupe/add/delete/routes/template all green.
+> - **Verified live in the preview browser:** add-item, filter (count narrows), pick-list renders on
+>   both intakes, and a checked portfolio item submitted → landed on the scoring results page as a
+>   queued item. Test rows were cleaned out of the dev `app.db` afterward.
+>
+> ### Brand is now REQUIRED everywhere it's entered (same session, user request)
+> "Brand should not be optional anywhere." Every brand-entry field is now required, with
+> **server-side enforcement** at each boundary (not only the browser's `required`):
+> - **Product Copy intake** (`pdp_copy.html` + `pdp_copy()`): label "(required)", `required` attr,
+>   value re-populated on error; POST rejects a blank brand with "Enter a brand for these products."
+>   (400). *(Note: the worker's COALESCE "fill brand from PDP where blank" still exists as a
+>   defensive fallback but the intake no longer allows blank.)*
+> - **Portfolio single-add** (`portfolio.html` + `portfolio.add_item`): required; `add_item` returns
+>   `(False, "Enter a brand for this item.")` when blank (checked before the URL).
+> - **Portfolio CSV import** (`portfolio.parse_csv`): a row missing a brand is counted **invalid**
+>   (dropped), same as a missing URL; import flash + empty-file message updated accordingly.
+> - **Image Set Creator** (`pdp_image_set.html` + `imageset_intake`): Brand required; the
+>   name/category check is now "Product name, brand, and category are required."
+> - New `.field-required` CSS (accent-tinted "(required)" tag, counterpart to `.field-optional`).
+> - **NOT touched:** CI group "Brand name" fields were already `required` (different concept —
+>   tracked competitor brands). The `portfolio_items.brand` / `scored_items.brand` /
+>   `copy_items.brand` DB columns stay nullable (legacy rows + defensive); enforcement is at the
+>   entry boundary.
+> - Tests: `test_copy.py` intake POSTs gained a brand; `test_imageset_prefill.py` POST gained a
+>   brand; new `test_portfolio` cases (CSV requires brand, add_item rejects blank, copy intake 400).
+>   **669 tests, ruff clean.**
+>
+> ### CSV template downloads on every upload screen (same session, user request)
+> "For any screen that has the ability to accept a csv upload, let's provide the ability to download
+> a template." Added a **"Download a template"** link under the CSV drop zone on **all five** upload
+> screens, each serving a correctly-shaped starter CSV:
+> - Shared helper `_csv_template_response(filename, header, rows)` in `pages.py` (portfolio_template
+>   refactored onto it). All URL-upload screens parse via `pdp.urls_from_csv` (any cell with an
+>   http(s) URL; header ignored), so each template is a one-column URL file with matching examples.
+> - Routes: `pdp_scoring_template` (`/app/pdp-scoring/template.csv`), `pdp_copy_template`,
+>   `import_images_template` (`/app/import-images/template.csv`), `seasonal_template`
+>   (`/app/seasonal/template.csv`); plus the existing `portfolio_template`. All `@login_required`.
+> - Links added under `#csv-filename` in `pdp_scoring.html`, `pdp_copy.html`, `import_images.html`,
+>   `seasonal_campaign.html` (portfolio already had one). New `.csv-template-line` CSS.
+> - Headers: Scoring/Copy = "Walmart Item URL"; Acquire Images = "Product or Image URL" (Walmart
+>   product + direct image example); Seasonal = "Product URL" (Walmart + Amazon examples); Portfolio
+>   = the 3-column Brand/Walmart/Amazon file.
+> - Tests: `tests/test_csv_templates.py` (parametrized over all 5 routes — content-type, filename,
+>   header, example URL, and login-required). **679 tests, ruff clean.**
+>
+> ### Follow-ups / not done
+> - Not committed/pushed/deployed (see warning above).
+> - Pick-list has no "select all visible" affordance yet (filter + individual checkboxes only).
+> - Portfolio items carry no product **title** (CSV has only brand + URLs); "Item" filtering is by
+>   item number / URL. Could enrich titles from `scored_items`/`copy_items` later.
+> - The session-26 open item is STILL open (flat-surface composite quality, blocked on PhotoRoom).
+>
+> _(The session-28 Seasonal block follows.)_
 
 > ## ⭐ Next session — START HERE (session 28 — Seasonal dates + nav polish, 2026-10-12)
 >

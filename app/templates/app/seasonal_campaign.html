@@ -76,6 +76,10 @@
         <input type="file" id="csv" name="csv" accept=".csv,text/csv" class="csv-input-hidden" />
       </label>
       <p id="csv-filename" class="csv-filename" hidden></p>
+      <p class="csv-template-line">
+        Not sure of the format?
+        <a href="{{ url_for('pages.seasonal_template') }}">Download a template</a>.
+      </p>
     </div>
     <button type="submit" class="wbtn wbtn-primary">Add products</button>
   </form>

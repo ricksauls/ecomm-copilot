@@ -1,0 +1,54 @@
+{# Portfolio pick-list: the first way to choose items on the Content Scoring and
+   Product Copy intakes — a filterable checkbox list of the user's managed
+   products, rendered ahead of manual URL entry and CSV upload.
+
+   Each checked box submits its Walmart URL under name="urls", the same field the
+   manual rows use, so the existing server-side collect_items() handles the
+   selection with no special-casing. The filter (brand + item #/URL search) is
+   client-side via portfolio.js, keyed on the data-* attributes here.
+
+   `items` is the user's portfolio rows; `brands` their distinct brands. #}
+{% macro portfolio_pick(items, brands) -%}
+<div class="form-section" data-portfolio-filter>
+  <div class="section-head">
+    <span class="step">1</span>
+    <label class="field-label">Choose from your managed items</label>
+  </div>
+
+  {% if items %}
+  <div class="pf-filter-bar">
+    <select class="ci-input" data-filter-brand aria-label="Filter by brand">
+      <option value="">All brands</option>
+      {% for b in brands %}
+      <option value="{{ b | lower }}">{{ b }}</option>
+      {% endfor %}
+    </select>
+    <input type="search" class="ci-input grow" data-filter-search
+           placeholder="Filter by item # or URL…" aria-label="Filter managed items" />
+  </div>
+
+  <div class="pf-pick-list">
+    {% for it in items %}
+    <label class="pf-pick-row" data-portfolio-row
+           data-brand="{{ (it.brand or '') | lower }}"
+           data-item="{{ it.item_id or '' }}"
+           data-url="{{ it.walmart_url | lower }}">
+      <input type="checkbox" name="urls" value="{{ it.walmart_url }}" class="pf-pick-check" />
+      <span class="pf-pick-meta">
+        <span class="pf-pick-brand">{{ it.brand or 'Unbranded' }}</span>
+        {% if it.item_id %}<span class="pf-pick-item">#{{ it.item_id }}</span>{% endif %}
+        <span class="pf-pick-url">{{ it.walmart_url }}</span>
+      </span>
+    </label>
+    {% endfor %}
+    <p class="pf-empty-filtered results-count" hidden>No items match that filter.</p>
+  </div>
+  {% else %}
+  <p class="brand-hint">
+    You haven't added any managed items yet.
+    <a href="{{ url_for('pages.portfolio_home') }}">Set up your portfolio</a>
+    to pick from them here, or add URLs manually below.
+  </p>
+  {% endif %}
+</div>
+{%- endmacro %}

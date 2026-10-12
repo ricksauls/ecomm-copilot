@@ -25,7 +25,7 @@ def test_copy_intake_renders(client, auth):
     assert b"Get Current Copy Content" in resp.data
     # CSV cap mirrors app.pdp.MAX_ITEMS (100).
     assert b"up to 100" in resp.data
-    # The copy intake keeps the optional brand field.
+    # The copy intake has the (now required) brand field.
     assert b'name="brand"' in resp.data
 
 
@@ -46,7 +46,7 @@ def test_copy_intake_enqueues_and_redirects(client, auth):
     auth.register()
     resp = client.post(
         "/app/pdp-copy",
-        data={"urls": "https://www.walmart.com/ip/10294528"},
+        data={"urls": "https://www.walmart.com/ip/10294528", "brand": "Test"},
     )
     # Redirects to the results page on success.
     assert resp.status_code == 302
@@ -66,7 +66,7 @@ def test_copy_intake_rejects_empty(client, auth):
 
 def test_copy_status_json(client, auth):
     auth.register()
-    client.post("/app/pdp-copy", data={"urls": "https://www.walmart.com/ip/1"})
+    client.post("/app/pdp-copy", data={"urls": "https://www.walmart.com/ip/1", "brand": "Test"})
     resp = client.get("/app/pdp-copy/status")
     data = resp.get_json()
     assert data["pending"] is True
@@ -76,7 +76,7 @@ def test_copy_status_json(client, auth):
 
 def test_generate_advances_fetched_items(client, auth, app):
     auth.register()
-    client.post("/app/pdp-copy", data={"urls": "https://www.walmart.com/ip/1"})
+    client.post("/app/pdp-copy", data={"urls": "https://www.walmart.com/ip/1", "brand": "Test"})
     # Simulate the worker having fetched the current copy.
     with app.app_context():
         db = get_db()
@@ -94,7 +94,7 @@ def test_generate_advances_fetched_items(client, auth, app):
 
 def test_copy_results_pdf_download(client, auth, app):
     auth.register()
-    client.post("/app/pdp-copy", data={"urls": "https://www.walmart.com/ip/1"})
+    client.post("/app/pdp-copy", data={"urls": "https://www.walmart.com/ip/1", "brand": "Test"})
     # Simulate a completed item (current + new copy + scores).
     with app.app_context():
         db = get_db()
@@ -119,7 +119,7 @@ def test_copy_results_pdf_download(client, auth, app):
 
 def test_copy_results_shows_download_only_when_done(client, auth, app):
     auth.register()
-    client.post("/app/pdp-copy", data={"urls": "https://www.walmart.com/ip/1"})
+    client.post("/app/pdp-copy", data={"urls": "https://www.walmart.com/ip/1", "brand": "Test"})
     # Still fetching -> no Download PDF button yet.
     assert b"Download PDF" not in client.get("/app/pdp-copy/results").data
     with app.app_context():
@@ -228,7 +228,7 @@ def test_copy_results_shows_progress_while_pending(client, auth):
     # in-progress text, a progress bar (0 of 1 so far) with a time estimate, and no
     # flashing class (parity with the Content Scores screen).
     auth.register()
-    client.post("/app/pdp-copy", data={"urls": "https://www.walmart.com/ip/1"})
+    client.post("/app/pdp-copy", data={"urls": "https://www.walmart.com/ip/1", "brand": "Test"})
     resp = client.get("/app/pdp-copy/results")
     assert b"about 1 minute per 5 items" in resp.data
     assert b'role="progressbar"' in resp.data
@@ -239,7 +239,7 @@ def test_copy_results_shows_progress_while_pending(client, auth):
 
 def test_copy_export_buttons_appear_only_when_done(client, auth, app):
     auth.register()
-    client.post("/app/pdp-copy", data={"urls": "https://www.walmart.com/ip/1"})
+    client.post("/app/pdp-copy", data={"urls": "https://www.walmart.com/ip/1", "brand": "Test"})
     before = client.get("/app/pdp-copy/results").data
     assert b"Download CSV" not in before
     with app.app_context():
@@ -265,7 +265,7 @@ def test_copy_exports_contain_new_copy(client, auth, app):
     from openpyxl import load_workbook
 
     auth.register()
-    client.post("/app/pdp-copy", data={"urls": "https://www.walmart.com/ip/10294528"})
+    client.post("/app/pdp-copy", data={"urls": "https://www.walmart.com/ip/10294528", "brand": "Test"})
     with app.app_context():
         db = get_db()
         row = db.execute("SELECT id FROM copy_items ORDER BY id DESC LIMIT 1").fetchone()

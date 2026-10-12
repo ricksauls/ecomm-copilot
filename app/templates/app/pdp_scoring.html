@@ -1,5 +1,6 @@
 {% extends "app/base.html" %}
 {% import "app/_workspace_tabs.html" as ws %}
+{% import "app/_portfolio_pick.html" as pf %}
 {% block title %}Product Detail Page Content Scoring — DISCOtech{% endblock %}
 
 {% block pane_content %}
@@ -19,9 +20,14 @@
         class="pdp-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
 
+    {# Step 1 — pick from the user's managed portfolio (filterable). #}
+    {{ pf.portfolio_pick(portfolio_items, portfolio_brands) }}
+
+    <div class="form-divider"><span>or</span></div>
+
     <div class="form-section">
       <div class="section-head">
-        <span class="step">1</span>
+        <span class="step">2</span>
         <label class="field-label">Add item URLs</label>
       </div>
 
@@ -48,7 +54,7 @@
 
     <div class="form-section">
       <div class="section-head">
-        <span class="step">2</span>
+        <span class="step">3</span>
         <label class="field-label" for="csv">Upload a CSV</label>
       </div>
 
@@ -66,6 +72,10 @@
         <input type="file" id="csv" name="csv" accept=".csv,text/csv" class="csv-input-hidden" />
       </label>
       <p id="csv-filename" class="csv-filename" hidden></p>
+      <p class="csv-template-line">
+        Not sure of the format?
+        <a href="{{ url_for('pages.pdp_scoring_template') }}">Download a template</a>.
+      </p>
     </div>
 
     <button type="submit" class="wbtn wbtn-primary wbtn-lg">Score Items</button>
@@ -97,4 +107,5 @@
 
 {% block scripts %}
 <script src="{{ static_url('js/intake.js') }}"></script>
+<script src="{{ static_url('js/portfolio.js') }}"></script>
 {% endblock %}
