@@ -28,8 +28,11 @@
 
 {# --- Collapsible group: icon + title + (+/-) over tree-connected children.
    `badges` optionally maps a child slug -> a count; a truthy count renders a
-   red alert badge on that child (e.g. unread messages on the admin inbox). --- #}
-{% macro rail_group(key, title, items, active, badges={}) -%}
+   red alert badge on that child (e.g. unread messages on the admin inbox).
+   `badge` is a group-level count shown on the header itself — it stays visible
+   when the group is collapsed (CSS hides it once open, since the child badge
+   then carries the count). --- #}
+{% macro rail_group(key, title, items, active, badges={}, badge=0) -%}
 {% set slugs = items | map('first') | list %}
 <details class="rail-group" data-group="{{ key }}"{% if active in slugs %} open{% endif %}>
   <summary class="rail-group-head">
@@ -37,6 +40,7 @@
     {# `title` is a trusted static label and may include an explicit <br> to
        control wrapping (e.g. keep "…Content" and "Studio" on separate lines). #}
     <span class="rail-main-label">{{ title | safe }}</span>
+    {% if badge %}<span class="nav-count nav-count-alert rail-group-badge">{{ badge }}</span>{% endif %}
     <span class="rail-toggle" aria-hidden="true"></span>
   </summary>
   <div class="rail-children">
@@ -123,10 +127,12 @@
     ('admin-users', 'User Management', url_for('pages.admin_users')),
     ('admin-messages', 'Messages', url_for('pages.admin_messages')),
   ] %}
-  {# Unread-inbox count rides on the Messages item (admins have no Contact Us). #}
-  {% set admin_badges = {'admin-messages': admin_msg_unread_count | default(0)} %}
+  {# Unread-inbox count rides on the Messages item when the group is open, and on
+     the "Admin" header itself when it's collapsed (admins have no Contact Us). #}
+  {% set admin_unread = admin_msg_unread_count | default(0) %}
   <div class="rail-nav rail-menu">
-    {{ rail_group('admin', 'Admin', admin_items, active_nav, admin_badges) }}
+    {{ rail_group('admin', 'Admin', admin_items, active_nav,
+                  {'admin-messages': admin_unread}, admin_unread) }}
   </div>
   {% endif %}
 

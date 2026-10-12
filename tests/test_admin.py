@@ -137,14 +137,19 @@ def test_admin_nav_visibility(client, auth, app):
 
 def test_admin_messages_nav_shows_unread_badge(client, auth, app):
     # With Contact Us hidden for admins, the unread indicator rides on the
-    # Admin -> Messages rail item (red alert badge) when the inbox has unread.
+    # Admin rail: the "Admin" group header carries the badge (so it's visible
+    # even while the group is collapsed — the default on other pages), and the
+    # Messages sub-item carries it when the group is expanded.
     _as_admin(app)
     auth.register(email=_ADMIN, password=_PW)
     assert b"nav-count-alert" not in client.get("/app").data  # nothing unread yet
     with app.app_context():
         uid = create_local_user("cust@example.com", _PW)
         messages.create_thread(get_db(), uid, "Help", "question", "hi")
-    assert b"nav-count-alert" in client.get("/app").data
+    dash = client.get("/app").data
+    assert b"nav-count-alert" in dash
+    # The header-level badge is what keeps the indicator visible when collapsed.
+    assert b"rail-group-badge" in dash
 
 
 def test_removed_admin_screens_are_gone(client, auth, app):

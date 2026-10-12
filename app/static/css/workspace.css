@@ -202,7 +202,9 @@ body.workspace {
   flex: 1 1 auto;
   min-width: 0;
 }
-.nav-sub-item .nav-count {        /* unread badge on a sub-item (e.g. Messages) */
+/* Unread badge on a sub-item (e.g. Messages) or on a collapsed group header. */
+.nav-sub-item .nav-count,
+.rail-group-head .nav-count {
   flex-shrink: 0;
   min-width: 18px;
   padding: 0 6px;
@@ -212,7 +214,11 @@ body.workspace {
   line-height: 16px;
   text-align: center;
 }
-.nav-sub-item .nav-count.nav-count-alert { background: var(--signal-red); color: #ffffff; }
+.nav-sub-item .nav-count.nav-count-alert,
+.rail-group-head .nav-count.nav-count-alert { background: var(--signal-red); color: #ffffff; }
+/* Once the group is expanded its children carry the count, so drop the header
+   badge to avoid showing it twice. */
+.rail-group[open] .rail-group-head .rail-group-badge { display: none; }
 .nav-sub-item::after {            /* rounded elbow: down from the top, curve in */
   content: "";
   position: absolute;
