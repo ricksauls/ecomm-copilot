@@ -99,29 +99,49 @@ def _acquired_image(db, uid, cid, pid):
                                     full_url="https://cdn/a.jpg", thumb_url="https://cdn/a_t.jpg")
 
 
-def test_process_image_generates_final_2000(app, tmp_path, monkeypatch):
+def test_edit_mode_generates_final_2000_no_cutout(app, tmp_path, monkeypatch):
+    # Default render mode is 'edit' — the model places the product, so there is no
+    # separate cutout artifact. Produces a ready 2000px final + thumbnail.
     monkeypatch.setenv("MEDIA_DIR", str(tmp_path))
+    monkeypatch.delenv("SEASONAL_RENDER_MODE", raising=False)
     with app.app_context():
         db = get_db()
         uid = create_local_user("seag-d@example.com", "password123")
         cid, pid = _campaign_with_product(db, uid)
         iid = _acquired_image(db, uid, cid, pid)
-        # Stub the full-res download (no network): returns our product PNG.
         monkeypatch.setattr(sources, "download_image",
                             lambda url: (_product_png(), "png", 400, 640))
-        image = store.get_image(db, iid, uid)
-        campaign = store.get_campaign(db, cid, uid)
-        generate.process_image(db, image, campaign)
-
+        generate.process_image(db, store.get_image(db, iid, uid),
+                               store.get_campaign(db, cid, uid))
         done = store.get_image(db, iid, uid)
         assert done["gen_status"] == store.GEN_READY
-        assert done["final_path"] and done["thumb_path"] and done["cutout_path"]
-        # The composited final is the full 2000px square canvas.
+        assert done["final_path"] and done["thumb_path"]
+        assert done["cutout_path"] is None  # edit mode does no background removal
         from app.seasonal import storage
         final = Image.open(io.BytesIO(storage.load(done["final_path"])))
         assert final.size == (CANVAS_SIZE, CANVAS_SIZE)
-        # The campaign rolled up to ready.
         assert store.get_campaign(db, cid, uid)["status"] == store.CAMPAIGN_READY
+
+
+def test_composite_mode_generates_final_2000_with_cutout(app, tmp_path, monkeypatch):
+    # The composite fallback cuts the product out, so a cutout artifact is stored.
+    monkeypatch.setenv("MEDIA_DIR", str(tmp_path))
+    monkeypatch.setenv("SEASONAL_RENDER_MODE", "composite")
+    with app.app_context():
+        db = get_db()
+        uid = create_local_user("seag-d2@example.com", "password123")
+        cid, pid = _campaign_with_product(db, uid)
+        iid = _acquired_image(db, uid, cid, pid)
+        monkeypatch.setattr(sources, "download_image",
+                            lambda url: (_product_png(), "png", 400, 640))
+        generate.process_image(db, store.get_image(db, iid, uid),
+                               store.get_campaign(db, cid, uid))
+        done = store.get_image(db, iid, uid)
+        assert done["gen_status"] == store.GEN_READY
+        assert done["final_path"] and done["thumb_path"] and done["cutout_path"]
+        from app.seasonal import storage
+        final = Image.open(io.BytesIO(storage.load(done["final_path"])))
+        assert final.size == (CANVAS_SIZE, CANVAS_SIZE)
 
 
 def test_process_image_download_failure_raises_generation_error(app, tmp_path, monkeypatch):
@@ -146,8 +166,11 @@ def test_process_image_download_failure_raises_generation_error(app, tmp_path, m
             raise AssertionError("expected GenerationError on a blocked download")
 
 
-def test_process_image_custom_theme_uses_user_scene(app, tmp_path, monkeypatch):
+def test_edit_mode_prompt_uses_custom_scene_and_preserves_product(app, tmp_path, monkeypatch):
+    # In edit mode the product image is sent to edit_image with a prompt that carries
+    # the custom scene AND a product-preservation instruction.
     monkeypatch.setenv("MEDIA_DIR", str(tmp_path))
+    monkeypatch.delenv("SEASONAL_RENDER_MODE", raising=False)
     with app.app_context():
         db = get_db()
         uid = create_local_user("seag-f@example.com", "password123")
@@ -156,16 +179,19 @@ def test_process_image_custom_theme_uses_user_scene(app, tmp_path, monkeypatch):
         iid = _acquired_image(db, uid, cid, pid)
         monkeypatch.setattr(sources, "download_image",
                             lambda url: (_product_png(), "png", 400, 640))
-        # Capture the prompt the image provider receives.
         captured = {}
         from app.imageset.providers import image_generation as igp
-        real = igp.MockImageGenerationProvider.generate_image
+        real = igp.MockImageGenerationProvider.edit_image
 
-        def _spy(self, *, prompt, **kw):
+        def _spy(self, *, prompt, image, **kw):
             captured["prompt"] = prompt
-            return real(self, prompt=prompt, **kw)
+            captured["image"] = image
+            return real(self, prompt=prompt, image=image, **kw)
 
-        monkeypatch.setattr(igp.MockImageGenerationProvider, "generate_image", _spy)
+        monkeypatch.setattr(igp.MockImageGenerationProvider, "edit_image", _spy)
         generate.process_image(db, store.get_image(db, iid, uid),
                                store.get_campaign(db, cid, uid))
         assert "marigolds" in captured["prompt"]
+        # The real product image is handed to the model, with a preservation rule.
+        assert captured["image"]
+        assert "exactly as shown" in captured["prompt"].lower()

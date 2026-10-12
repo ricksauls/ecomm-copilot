@@ -109,7 +109,7 @@ def resolve_scene(theme: str, custom_prompt: str | None = None) -> str:
 
 
 def build_seasonal_prompt(theme: str, custom_prompt: str | None = None) -> str:
-    """Assemble the image-model prompt for a campaign's seasonal backdrop.
+    """Assemble the backdrop prompt for the COMPOSITE render path.
 
     Wraps the theme's scene brief in the lifestyle scaffolding (resting surface
     pinned to :data:`GROUND_LINE`, depth of field, single coherent light), so the
@@ -121,4 +121,39 @@ def build_seasonal_prompt(theme: str, custom_prompt: str | None = None) -> str:
         category="seasonal lifestyle product photography",
         scene_description=resolve_scene(theme, custom_prompt),
         ground_line=GROUND_LINE,
+    )
+
+
+def build_seasonal_edit_prompt(theme: str, custom_prompt: str | None = None) -> str:
+    """Assemble the prompt for the AI-EDIT render path (model places the product).
+
+    Unlike the composite prompt (which generates an *empty* backdrop), this is sent
+    to the image model's edit endpoint together with the real product image: the
+    model places the actual product into a seasonal scene it builds around it, so
+    placement, perspective, contact shadow and relighting are the model's job — no
+    fixed ground line to mismatch. The product-preservation block is deliberately
+    forceful because the edit endpoint regenerates pixels and we need the label/text
+    to survive.
+    """
+    scene = resolve_scene(theme, custom_prompt)
+    return (
+        "Place the provided product into a photorealistic seasonal lifestyle scene — "
+        "a professional eCommerce marketing image.\n\n"
+        "CRITICAL — keep the product EXACTLY as provided:\n"
+        "- Preserve its shape, proportions, colors, materials, and finish unchanged.\n"
+        "- Reproduce every label, logo, word, number, and graphic on the packaging "
+        "exactly as shown — do not reword, restyle, translate, blur, add, or remove any "
+        "text or branding, and do not invent new text.\n"
+        "- Show a single instance of the product; do not add or duplicate products.\n\n"
+        f"Scene to build around it:\n{scene}\n\n"
+        "Placement and realism:\n"
+        "- Stand the product upright, fully visible and roughly centered, resting "
+        "naturally on a believable surface in the scene at correct perspective and scale.\n"
+        "- Ground it convincingly: a real contact shadow (and a soft reflection on a "
+        "glossy surface) consistent with the scene's main light direction.\n"
+        "- Relight the product so its lighting and color temperature match the scene, "
+        "while keeping every label fully legible.\n"
+        "- Keep the background softly out of focus so the product is the sharp subject.\n\n"
+        "Do not add people, hands, captions, watermarks, borders, or any logos other than "
+        "the product's own."
     )
