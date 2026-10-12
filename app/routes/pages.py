@@ -52,6 +52,10 @@ from app.imageset import store as imageset_store
 from app.imageset.providers.background_removal import BackgroundRemovalError
 from app.imgimport import sources as import_sources
 from app.imgimport import store as import_store
+from app.seasonal import jobs as seasonal_jobs
+from app.seasonal import storage as seasonal_storage
+from app.seasonal import store as seasonal_store
+from app.seasonal import themes as seasonal_themes
 from app.security import (
     admin_required,
     login_required,
@@ -487,11 +491,16 @@ def dashboard():
         "ci_snapshot": _activity_rows(db, uid, "ci-snapshot", month_start),
         "ci_monitoring": _activity_rows(db, uid, "ci-monitoring", month_start),
     }
+    # Seasonal campaign planning nudges (launch/expiration/reminder dates coming up
+    # or overdue). Nothing publishes automatically, so these are reminders to act.
+    seasonal_reminders = seasonal_store.dashboard_reminders(
+        db, uid, date.today().isoformat())
     return render_template(
         "app/dashboard.html",
         breadcrumb="Dashboard",
         active_nav="dashboard",
         activity=activity,
+        seasonal_reminders=seasonal_reminders,
         **view_model,
     )
 
@@ -2924,6 +2933,363 @@ def import_download_zip(run_id):
     logger.info("Import ZIP: %d image(s) run=%s user_id=%s", written, run_id, uid)
     return send_file(buf, mimetype="application/zip", as_attachment=True,
                      download_name=zip_name, max_age=0)
+
+
+# ── Seasonal Content Campaigns ───────────────────────────────────────────────
+# Create seasonal creative in bulk: a campaign (season/theme + planning dates) →
+# products added by URL (acquire gallery) → the user picks images → each chosen
+# image is composited onto a fresh AI seasonal backdrop. Create-and-download only.
+# Reuses the import acquire resolver + the image-set compositor/providers.
+
+_SEASONAL_NAV = "seasonal"
+_SEASONAL_HISTORY_NAV = "history-seasonal"
+_SEASONAL_BREADCRUMB = "Creative Content Studio · Seasonal Content Campaigns"
+_SEASONAL_NAME_MAX = 120
+_SEASONAL_CUSTOM_MAX = 600
+# The detail page hotlinks external CDN thumbnails (the acquired gallery) AND serves
+# our own generated finals same-origin, so it needs the same relaxed img-src as the
+# Import gallery (images only; scripts/styles/fonts stay 'self'). See _IMPORT_GALLERY_CSP.
+_SEASONAL_GALLERY_CSP = _IMPORT_GALLERY_CSP
+
+
+def _parse_campaign_date(value: str | None) -> tuple[str | None, bool]:
+    """Parse a form date into an ISO ``YYYY-MM-DD`` string. Returns ``(value, ok)``.
+
+    Blank is valid and yields ``(None, True)`` — dates are optional planning
+    metadata. A malformed date yields ``(None, False)`` so the caller can reject the
+    form. ``date.fromisoformat`` accepts exactly the ``<input type=date>`` format.
+    """
+    from datetime import date
+
+    text = (value or "").strip()
+    if not text:
+        return None, True
+    try:
+        return date.fromisoformat(text).isoformat(), True
+    except ValueError:
+        return None, False
+
+
+def _seasonal_campaign_or_404(cid: int):
+    """Fetch a campaign owned by the current user, or 404 (IDOR guard)."""
+    campaign = seasonal_store.get_campaign(get_db(), cid, g.user["id"])
+    if campaign is None:
+        abort(404)
+    return campaign
+
+
+def _seasonal_detail_view(db, cid: int, uid: int) -> list[dict]:
+    """Shape a campaign's products (each with its acquired/generated images) for the UI.
+
+    One dict per product in submission order, each carrying its image list. An image
+    carries both the hotlinked source thumbnail (for the acquired gallery) and, once
+    generated, the same-origin URLs for its final + thumbnail.
+    """
+    images_by_product: dict[int, list[dict]] = {}
+    for im in seasonal_store.images_for_campaign(db, cid, uid):
+        images_by_product.setdefault(im["product_id"], []).append({
+            "id": im["id"],
+            "gen_status": im["gen_status"],
+            "ready": im["gen_status"] == seasonal_store.GEN_READY,
+            "failed": im["gen_status"] == seasonal_store.GEN_FAILED,
+            "pending": im["gen_status"] in (seasonal_store.GEN_QUEUED,
+                                            seasonal_store.GEN_GENERATING),
+            "kept": bool(im["kept"]),
+            "error": im["error"],
+            # Main source image (hotlinked external CDN thumbnail + full URL).
+            "source_thumb_url": im["thumb_url"] or im["full_url"],
+            # Generated outputs, served same-origin (only meaningful once ready).
+            "final_url": url_for("pages.seasonal_image_file", cid=cid, iid=im["id"]),
+            "thumb_url": url_for("pages.seasonal_image_file", cid=cid, iid=im["id"], thumb=1),
+            "download_url": url_for("pages.seasonal_image_download", cid=cid, iid=im["id"]),
+        })
+    products = []
+    for p in seasonal_store.products_for_campaign(db, cid, uid):
+        products.append({
+            "id": p["id"],
+            "source_url": p["source_url"],
+            "source_type": p["source_type"],
+            "label": p["label"],
+            "status": p["status"],
+            "error": p["error"],
+            "images": images_by_product.get(p["id"], []),
+        })
+    return products
+
+
+@bp.route("/app/seasonal", methods=["GET", "POST"])
+@login_required
+def seasonal_home():
+    """Seasonal campaigns home: list existing campaigns + the new-campaign form.
+
+    A POST validates the name/theme/dates, creates a draft campaign, and redirects
+    to its detail page (where products are added). The campaign create never does
+    any external work, so it returns immediately.
+    """
+    db, uid = get_db(), g.user["id"]
+    if request.method == "POST":
+        name = (request.form.get("name") or "").strip()[:_SEASONAL_NAME_MAX]
+        theme = (request.form.get("theme") or "").strip()
+        custom_prompt = (request.form.get("custom_prompt") or "").strip()[:_SEASONAL_CUSTOM_MAX]
+        launch, launch_ok = _parse_campaign_date(request.form.get("launch_date"))
+        expire, expire_ok = _parse_campaign_date(request.form.get("expiration_date"))
+        remind, remind_ok = _parse_campaign_date(request.form.get("reminder_date"))
+
+        error = None
+        if not name:
+            error = "Give the campaign a name."
+        elif not seasonal_themes.is_valid_theme(theme):
+            error = "Choose a season/theme for the campaign."
+        elif not (launch_ok and expire_ok and remind_ok):
+            error = "One of the dates isn't a valid calendar date."
+        if error is not None:
+            flash(error, "error")
+            return (render_template(
+                "app/seasonal_home.html", breadcrumb=_SEASONAL_BREADCRUMB,
+                active_nav=_SEASONAL_NAV, themes=seasonal_themes.theme_choices(),
+                campaigns=seasonal_store.list_campaigns(db, uid), form=request.form,
+            ), 400)
+
+        cid = seasonal_store.create_campaign(
+            db, user_id=uid, name=name, theme=theme, custom_prompt=custom_prompt,
+            launch_date=launch, expiration_date=expire, reminder_date=remind)
+        logger.info("Seasonal campaign created id=%s theme=%s user_id=%s", cid, theme, uid)
+        return redirect(url_for("pages.seasonal_campaign", cid=cid))
+
+    logger.info("Serving Seasonal Campaigns home user_id=%s", uid)
+    return render_template(
+        "app/seasonal_home.html", breadcrumb=_SEASONAL_BREADCRUMB,
+        active_nav=_SEASONAL_NAV, themes=seasonal_themes.theme_choices(),
+        campaigns=seasonal_store.list_campaigns(db, uid), form={},
+    )
+
+
+@bp.route("/app/seasonal/history")
+@login_required
+def seasonal_history():
+    """History of campaigns that produced at least one seasonal image (ready only)."""
+    db, uid = get_db(), g.user["id"]
+    campaigns = seasonal_store.list_campaigns(db, uid, ready_only=True)
+    logger.info("Serving Seasonal Campaign history user_id=%s (%d)", uid, len(campaigns))
+    return render_template(
+        "app/seasonal_history.html",
+        breadcrumb="Creative Content Studio · View Seasonal Campaign History",
+        active_nav=_SEASONAL_HISTORY_NAV, campaigns=campaigns,
+        theme_label=seasonal_themes.theme_label,
+    )
+
+
+@bp.route("/app/seasonal/<int:cid>")
+@login_required
+def seasonal_campaign(cid):
+    """Campaign detail: add products, pick acquired images, generate, review, download."""
+    campaign = _seasonal_campaign_or_404(cid)
+    db, uid = get_db(), g.user["id"]
+    products = _seasonal_detail_view(db, cid, uid)
+    pending = seasonal_store.has_pending_work(db, cid)
+    ready_count = sum(1 for p in products for im in p["images"] if im["ready"] and im["kept"])
+    resp = make_response(render_template(
+        "app/seasonal_campaign.html", breadcrumb=_SEASONAL_BREADCRUMB,
+        active_nav=_SEASONAL_NAV, campaign=campaign, products=products, pending=pending,
+        ready_count=ready_count, theme_label=seasonal_themes.theme_label(campaign["theme"]),
+        max_items=pdp.MAX_ITEMS,
+    ))
+    resp.headers["Content-Security-Policy"] = _SEASONAL_GALLERY_CSP
+    return resp
+
+
+@bp.route("/app/seasonal/<int:cid>/products", methods=["POST"])
+@login_required
+def seasonal_add_products(cid):
+    """Add product URLs (textarea and/or CSV) to a campaign; the worker acquires each."""
+    _seasonal_campaign_or_404(cid)
+    db, uid = get_db(), g.user["id"]
+    accepted, rejected = _collect_import_urls(request.form.get("urls", ""),
+                                              request.files.get("csv"))
+    if not accepted:
+        flash("No valid product or image URLs were provided.", "error")
+        return redirect(url_for("pages.seasonal_campaign", cid=cid))
+    for url in accepted:
+        seasonal_store.add_product(db, campaign_id=cid, user_id=uid, source_url=url,
+                                   source_type=import_sources.classify(url))
+    msg = (f"Added {len(accepted)} product(s). Acquiring each main image and "
+           "applying the seasonal treatment…")
+    if rejected:
+        msg += f" ({len(rejected)} entry(ies) weren't valid URLs and were skipped.)"
+    flash(msg, "ok")
+    logger.info("Seasonal campaign=%s added %d product(s), %d rejected, user_id=%s",
+                cid, len(accepted), len(rejected), uid)
+    return redirect(url_for("pages.seasonal_campaign", cid=cid))
+
+
+@bp.route("/app/seasonal/<int:cid>/image/<int:iid>/regenerate", methods=["POST"])
+@login_required
+def seasonal_regenerate_image(cid, iid):
+    """Re-queue one image for a fresh seasonal backdrop (idempotent re-enqueue)."""
+    _seasonal_campaign_or_404(cid)
+    db, uid = get_db(), g.user["id"]
+    image = seasonal_store.get_image(db, iid, uid)
+    if image is None or image["campaign_id"] != cid:
+        abort(404)
+    seasonal_jobs.enqueue_image_job(db, user_id=uid, campaign_id=cid, image_id=iid)
+    flash("Regenerating that image…", "ok")
+    logger.info("Seasonal regenerate campaign=%s image=%s user_id=%s", cid, iid, uid)
+    return redirect(url_for("pages.seasonal_campaign", cid=cid))
+
+
+@bp.route("/app/seasonal/<int:cid>/image/<int:iid>/discard", methods=["POST"])
+@login_required
+def seasonal_discard_image(cid, iid):
+    """Toggle whether a generated image is kept in the set."""
+    _seasonal_campaign_or_404(cid)
+    db, uid = get_db(), g.user["id"]
+    image = seasonal_store.get_image(db, iid, uid)
+    if image is None or image["campaign_id"] != cid:
+        abort(404)
+    seasonal_store.set_image_kept(db, iid, uid, not image["kept"])
+    return redirect(url_for("pages.seasonal_campaign", cid=cid))
+
+
+@bp.route("/app/seasonal/<int:cid>/edit", methods=["POST"])
+@login_required
+def seasonal_edit(cid):
+    """Edit a campaign's name and planning dates (dates can be set or cleared)."""
+    _seasonal_campaign_or_404(cid)
+    db, uid = get_db(), g.user["id"]
+    name = (request.form.get("name") or "").strip()[:_SEASONAL_NAME_MAX]
+    launch, launch_ok = _parse_campaign_date(request.form.get("launch_date"))
+    expire, expire_ok = _parse_campaign_date(request.form.get("expiration_date"))
+    remind, remind_ok = _parse_campaign_date(request.form.get("reminder_date"))
+    if not name:
+        flash("The campaign needs a name.", "error")
+    elif not (launch_ok and expire_ok and remind_ok):
+        flash("One of the dates isn't a valid calendar date.", "error")
+    else:
+        seasonal_store.update_campaign(db, cid, uid, name=name, launch_date=launch,
+                                       expiration_date=expire, reminder_date=remind,
+                                       clear_dates=True)
+        flash("Campaign updated.", "ok")
+    return redirect(url_for("pages.seasonal_campaign", cid=cid))
+
+
+@bp.route("/app/seasonal/<int:cid>/delete", methods=["POST"])
+@login_required
+def seasonal_delete(cid):
+    """Delete a campaign and its products/images (cascade). IDOR-scoped."""
+    _seasonal_campaign_or_404(cid)
+    db, uid = get_db(), g.user["id"]
+    seasonal_store.delete_campaign(db, cid, uid)
+    flash("Campaign deleted.", "ok")
+    return redirect(url_for("pages.seasonal_home"))
+
+
+@bp.route("/app/seasonal/<int:cid>/status")
+@login_required
+def seasonal_status(cid):
+    """JSON campaign/product/image status for the detail-page poller."""
+    _seasonal_campaign_or_404(cid)
+    db, uid = get_db(), g.user["id"]
+    return jsonify({
+        "pending": seasonal_store.has_pending_work(db, cid),
+        "products": _seasonal_detail_view(db, cid, uid),
+    })
+
+
+@bp.route("/app/seasonal/<int:cid>/image/<int:iid>/image")
+@login_required
+def seasonal_image_file(cid, iid):
+    """Serve a generated image's final (or its thumbnail via ?thumb=1) inline.
+
+    Same-origin PNG, so it loads under the default CSP img-src 'self'. IDOR-guarded:
+    the image must belong to a campaign the user owns.
+    """
+    _seasonal_campaign_or_404(cid)
+    image = seasonal_store.get_image(get_db(), iid, g.user["id"])
+    if image is None or image["campaign_id"] != cid:
+        abort(404)
+    rel = image["thumb_path"] if request.args.get("thumb") else image["final_path"]
+    path = seasonal_storage.abs_path(rel)
+    if not path or not os.path.isfile(path):
+        abort(404)
+    from flask import send_file
+    return send_file(path, mimetype="image/png", as_attachment=False,
+                     download_name=f"seasonal-{iid}.png", max_age=0)
+
+
+def _seasonal_download_stem(product, index: int) -> str:
+    """Per-image download stem: ``<title-slug>-<product-id>-<n>`` (reuses import helpers)."""
+    parts = [p for p in (_import_slug(product["label"] if product else None),
+                         _import_product_id(product) if product else None) if p]
+    base = "-".join(parts) if parts else "seasonal"
+    return f"{base}-{index}"
+
+
+@bp.route("/app/seasonal/<int:cid>/image/<int:iid>/download")
+@login_required
+def seasonal_image_download(cid, iid):
+    """Download one generated seasonal image (the final PNG)."""
+    _seasonal_campaign_or_404(cid)
+    db, uid = get_db(), g.user["id"]
+    image = seasonal_store.get_image(db, iid, uid)
+    if image is None or image["campaign_id"] != cid or image["gen_status"] != seasonal_store.GEN_READY:
+        abort(404)
+    path = seasonal_storage.abs_path(image["final_path"])
+    if not path or not os.path.isfile(path):
+        abort(404)
+    product = seasonal_store.get_product(db, image["product_id"], uid)
+    index = seasonal_store.image_index_in_product(db, image["product_id"], iid)
+    from flask import send_file
+    return send_file(path, mimetype="image/png", as_attachment=True,
+                     download_name=f"{_seasonal_download_stem(product, index)}-seasonal.png",
+                     max_age=0)
+
+
+@bp.route("/app/seasonal/<int:cid>/download.zip")
+@login_required
+def seasonal_download_zip(cid):
+    """Bundle the campaign's kept, ready seasonal images into a ZIP (per-product folders).
+
+    A GET form submits the checked image ids as ``ids`` with ``scope=selected``; an
+    empty selection then reads as "nothing selected" (not "everything"). A bare hit
+    with no ``scope`` bundles every kept, ready image. Images that fail to read are
+    skipped rather than failing the whole ZIP.
+    """
+    import io
+    import zipfile
+
+    from flask import send_file
+
+    _seasonal_campaign_or_404(cid)
+    db, uid = get_db(), g.user["id"]
+    images = seasonal_store.ready_images_for_campaign(db, cid, uid)
+    if request.args.get("scope") == "selected":
+        wanted = {i for i in request.args.getlist("ids", type=int)}
+        images = [im for im in images if im["id"] in wanted]
+        if not images:
+            abort(404, description="No images selected.")
+
+    products = {p["id"]: p for p in seasonal_store.products_for_campaign(db, cid, uid)}
+    counters: dict[int, int] = {}
+    buf = io.BytesIO()
+    written = 0
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for im in images:  # ordered by product then id → stable per-product numbering
+            data = seasonal_storage.load(im["final_path"])
+            if not data:
+                logger.warning("Seasonal ZIP: skipped image=%s (missing file)", im["id"])
+                continue
+            product = products.get(im["product_id"])
+            counters[im["product_id"]] = counters.get(im["product_id"], 0) + 1
+            folder = _import_zip_folder(product) if product else f"product-{im['product_id']}"
+            arc = f"{folder}/{_seasonal_download_stem(product, counters[im['product_id']])}-seasonal.png"
+            zf.writestr(arc, data)
+            written += 1
+    if not written:
+        abort(404, description="Couldn't bundle any of the selected images.")
+    buf.seek(0)
+    logger.info("Seasonal ZIP: %d image(s) campaign=%s user_id=%s", written, cid, uid)
+    return send_file(buf, mimetype="application/zip", as_attachment=True,
+                     download_name=f"seasonal-campaign-{cid}.zip", max_age=0)
 
 
 # ── Account: change password ─────────────────────────────────────────────────

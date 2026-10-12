@@ -43,6 +43,9 @@ from app.imageset import plan as imageset_plan  # noqa: E402
 from app.imageset import store as imageset_store  # noqa: E402
 from app.imgimport import acquire as import_acquire  # noqa: E402
 from app.imgimport import store as import_store  # noqa: E402
+from app.seasonal import generate as seasonal_generate  # noqa: E402
+from app.seasonal import jobs as seasonal_jobs  # noqa: E402
+from app.seasonal import store as seasonal_store  # noqa: E402
 from app.fetch import FetchBlocked, FetchError, fetch_main_image_url, fetch_pdp  # noqa: E402
 from app.scoring import PdpRecord, result_to_dict, score_pdp  # noqa: E402
 
@@ -716,6 +719,92 @@ def process_import_one(conn: sqlite3.Connection, item: sqlite3.Row) -> None:
     import_acquire.process_item(conn, item)
 
 
+def process_seasonal_product_one(conn: sqlite3.Connection, product: sqlite3.Row) -> None:
+    """Acquire one claimed seasonal-campaign product (resolve its URL → gallery).
+
+    Grouped with the other browser work: a Walmart/Amazon source scrapes the page
+    (a direct image URL is a plain resolution). :func:`seasonal_generate.process_product`
+    never raises and settles the product itself, so the worker just delegates.
+    """
+    seasonal_generate.process_product(conn, product)
+
+
+def process_seasonal_one(conn: sqlite3.Connection, row: sqlite3.Row) -> None:
+    """Process one claimed seasonal GENERATE job: build the image, mark it done.
+
+    Like the image-set generation path these are provider HTTP calls + local
+    compositing — no browser. Loads the image + campaign (scoped to the job's user),
+    runs the seasonal pipeline, and marks the job done. Any failure marks both the
+    job and the image failed so the gallery can offer a retry, and never raises (a
+    bad image must not kill the worker).
+    """
+    row_id = row["id"]
+    uid, cid, iid = row["user_id"], row["campaign_id"], row["image_id"]
+    try:
+        image = seasonal_store.get_image(conn, iid, uid)
+        campaign = seasonal_store.get_campaign(conn, cid, uid)
+        if image is None or campaign is None:
+            # The image/campaign was deleted after the job was queued — nothing to do.
+            seasonal_jobs.mark_failed(conn, row_id, "The image or campaign no longer exists.")
+            return
+        seasonal_generate.process_image(conn, image, campaign)
+        seasonal_jobs.mark_done(conn, row_id)
+        log.info("Generated seasonal image job id=%s campaign=%s image=%s", row_id, cid, iid)
+    except seasonal_generate.GenerationError as e:
+        log.warning("Seasonal job id=%s failed campaign=%s image=%s: %s", row_id, cid, iid, e)
+        seasonal_jobs.mark_failed(conn, row_id, str(e))
+        seasonal_store.update_image(conn, iid, gen_status=seasonal_store.GEN_FAILED,
+                                    error=str(e)[:500])
+    except Exception as e:  # noqa: BLE001 - a bad image must not kill the worker
+        log.exception("Unexpected error generating seasonal image job id=%s", row_id)
+        seasonal_jobs.mark_failed(conn, row_id, f"Unexpected error: {e}")
+        seasonal_store.update_image(conn, iid, gen_status=seasonal_store.GEN_FAILED,
+                                    error=f"Unexpected error: {e}"[:500])
+
+
+def drain_seasonal_jobs() -> int:
+    """Process every queued seasonal GENERATE job concurrently; return the count.
+
+    Same single-process thread pool as :func:`drain_imageset_jobs` (bounded by
+    ``SCORING_CONCURRENCY``), no Walmart-politeness pause — generation is provider
+    HTTP + local Pillow compositing. Runs only when the heavier queues are idle, so
+    it never competes with them for the memory budget.
+    """
+    processed = 0
+    counter_lock = threading.Lock()
+
+    def claim_loop(stagger: float) -> None:
+        nonlocal processed
+        conn = connect(ensure=False)
+        try:
+            if stagger:
+                time.sleep(stagger)
+            while True:
+                row = seasonal_jobs.claim_next_job(conn)
+                if row is None:
+                    return  # queue drained — this thread is done
+                process_seasonal_one(conn, row)
+                with counter_lock:
+                    processed += 1
+        finally:
+            conn.close()
+
+    threads = [
+        threading.Thread(
+            target=claim_loop,
+            args=(random.uniform(*SUBMIT_STAGGER_S) * i,),
+            name=f"seasonal-{i}",
+            daemon=True,
+        )
+        for i in range(SCORING_CONCURRENCY)
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    return processed
+
+
 def main() -> None:
     """Claim-and-process loop. Runs until the process is stopped.
 
@@ -740,14 +829,18 @@ def main() -> None:
     reclaimed_fetches = imageset_store.reclaim_orphaned_fetches(conn)
     reclaimed_plans = imageset_store.reclaim_orphaned_plans(conn)
     reclaimed_imports = import_store.reclaim_orphaned_items(conn)
+    reclaimed_seasonal_products = seasonal_store.reclaim_orphaned_products(conn)
+    reclaimed_seasonal_jobs = seasonal_jobs.reclaim_orphaned_jobs(conn)
     if (reclaimed_items or reclaimed_copy or reclaimed_runs or reclaimed_images
-            or reclaimed_sets or reclaimed_fetches or reclaimed_plans or reclaimed_imports):
+            or reclaimed_sets or reclaimed_fetches or reclaimed_plans or reclaimed_imports
+            or reclaimed_seasonal_products or reclaimed_seasonal_jobs):
         log.warning(
             "Startup: reclaimed %d scoring item(s), %d copy item(s), %d CI run(s), "
             "%d image job(s), %d image-set job(s), %d image-set prefill(s), %d plan(s), "
-            "%d import item(s)",
+            "%d import item(s), %d seasonal product(s), %d seasonal job(s)",
             reclaimed_items, reclaimed_copy, reclaimed_runs, reclaimed_images,
             reclaimed_sets, reclaimed_fetches, reclaimed_plans, reclaimed_imports,
+            reclaimed_seasonal_products, reclaimed_seasonal_jobs,
         )
     while True:
         # Scoring first and concurrently: drain the whole queue with the thread
@@ -791,6 +884,15 @@ def main() -> None:
                 process_import_one(conn, import_item)
                 continue
 
+        # Seasonal-campaign product acquisition next — same browser work as Import
+        # (a Walmart/Amazon source scrapes the page). One product per loop so
+        # multiple campaigns/products are naturally paced.
+        if seasonal_store.has_claimable_product(conn):
+            seasonal_product = seasonal_store.claim_next_product(conn)
+            if seasonal_product is not None:
+                process_seasonal_product_one(conn, seasonal_product)
+                continue
+
         # Image fixes next — the lightest work (provider HTTP calls, no browser),
         # so clear them before the serial CI sweep. Runs only when scoring/copy are
         # idle, so it never competes with them for RAM.
@@ -805,6 +907,14 @@ def main() -> None:
         if imageset_jobs.has_claimable_jobs(conn):
             n = drain_imageset_jobs()
             log.info("Image-set wave complete — processed %d asset(s)", n)
+            continue
+
+        # Seasonal-campaign generation next — also light (provider HTTP + local
+        # compositing, no browser). Drained before the serial CI sweep, only when
+        # the heavier queues are idle so it never competes with them for RAM.
+        if seasonal_jobs.has_claimable_jobs(conn):
+            n = drain_seasonal_jobs()
+            log.info("Seasonal wave complete — processed %d image(s)", n)
             continue
 
         ci_run = ci_jobs.claim_next_run(conn)

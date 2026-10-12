@@ -1,6 +1,11 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-10-11 (session 25 — **Admin-provisioned accounts**: admins can now
+_Last updated: 2026-10-11 (session 26 — **Seasonal Content Campaigns** (new Creative
+Content Studio feature): create a campaign (season/theme + planning dates), add products
+by Walmart/Amazon URL, and the pipeline composites **each product's MAIN image** onto a
+fresh **AI-generated seasonal backdrop**, automatically (no image-picking step). Create-and-
+download only (no publish), like PDP Image Set. On a branch/PR — see the START HERE block.
+Session 25 — **Admin-provisioned accounts**: admins can now
 **create** users from User Management (email + role + a temporary password); the account is
 flagged `must_change_password`, so at first sign-in a **forced change-password gate**
 (`before_request`) blocks the app until they set their own password. Public self-service signup
@@ -40,6 +45,73 @@ fills its box, and an **AI "straighten"** that de-angles the product for feature
 quality set to **medium**. Droplet now on gpt-image-1 + PhotoRoom. Session 16 — callout layout/halos/
 blur, per-card Regenerate, Lifestyle logo. Session 15 — all 4 image types generate. Session 13 —
 built PDP Image Set.)_
+
+> ## ⭐ Next session — START HERE (session 26 — Seasonal Content Campaigns, 2026-10-11)
+>
+> **On a feature branch + PR — NOT yet merged.** Branch `feature/seasonal-campaigns`,
+> **PR #25** (https://github.com/ricksauls/ecomm-copilot/pull/25). 636 tests, `ruff` clean.
+> **Additive schema (4 new tables), no new `.env`.** Verified live in the preview (home,
+> create, add-product/acquire state, dashboard reminder all render; no console errors).
+>
+> ### What shipped — Seasonal Content Campaigns (Creative Content Studio)
+> Bulk seasonal creative. A **campaign** pairs a season/theme with optional planning dates;
+> the user adds **products by URL** (reusing the Acquire-by-URL resolver), and the pipeline
+> takes **each product's MAIN image** (the first image the resolver returns — `app.fetch`
+> already treats `image_urls[0]` as the main) and composites it onto a **fresh AI-generated
+> seasonal backdrop** (reusing the image-set compositor + providers), **automatically on
+> acquire — no image-picking step** (user decision: main-image-only; non-main gallery shots
+> like infographics/lifestyle don't cut out cleanly). **Create-and-download only** — no
+> marketplace publish (user's choice), like PDP Image Set. Backdrop: **one fresh backdrop
+> per product**; grounded **lifestyle** placement (shadow + soft focus).
+> - **Themes** (`app/seasonal/themes.py`): Christmas, Halloween, Back to School, Summer,
+>   Mother's Day, + **Custom** (free-text scene). `build_seasonal_prompt` wraps the theme
+>   scene in the image-set lifestyle scaffolding so the product grounds on the surface.
+> - **Schema** (4 new tables in `db.py` `_SCHEMA`, so `CREATE TABLE IF NOT EXISTS` covers
+>   existing DBs — **no `_migrate` entry**): `seasonal_campaigns`, `seasonal_products`
+>   (acquire queue — status doubles as the queue, like `import_items`), `seasonal_images`
+>   (**one per product** — its main image + the generated seasonal output; auto-`queued`),
+>   `seasonal_jobs` (generate queue, `UNIQUE(image_id)`). Bytes on disk under `MEDIA_DIR/seasonal/`.
+> - **`app/seasonal/`**: `storage` (path-traversal guarded), `store` (IDOR-scoped CRUD +
+>   acquire queue + status rollups + `dashboard_reminders`), `jobs` (generate queue, mirrors
+>   `imageset/jobs`), `generate` (`process_product` = acquire; `process_image` = download →
+>   cutout → backdrop → composite; per-unit failure isolation).
+> - **worker.py**: two new drains (`process_seasonal_product_one` acquire;
+>   `drain_seasonal_jobs` generate) + startup orphan-reclaim, wired into the main loop.
+> - **Routes/UI** (`pages.py`): `/app/seasonal` home (create + list), `/app/seasonal/<id>`
+>   detail (add products → auto-seasonalize each main image, review, regenerate/discard,
+>   per-image + ZIP download, edit dates, delete), `/app/seasonal/history`
+>   (ready-only), `/status` poller, same-origin image serving. New templates
+>   `seasonal_home/campaign/history.html` + `static/js/seasonal_campaign.js`. Two rail items
+>   under Creative Content Studio. **Dashboard widget**: "launching soon / expiring soon /
+>   overdue" reminders from the campaign dates (`store.dashboard_reminders`).
+> - **Tests (+39 → 636)**: `tests/test_seasonal_{themes,store,generate,pages}.py` — themes +
+>   prompt, store + both queues + reminders, both pipelines end-to-end against the offline
+>   mock providers, route guards/flows. `ruff` clean.
+>
+> ### To deploy
+> **Review + merge PR #25** (CI → auto-deploy on `main`). The 4 tables auto-create on web +
+> worker restart (additive; existing rows unaffected). **No new env vars.** The generation
+> pipeline uses the **same image/background providers the PDP Image Set tool already uses**
+> (OpenAI gpt-image + PhotoRoom on the droplet); with none configured it falls back to the
+> offline mock providers. The **acquire phase is worker-only** and needs the Oxylabs
+> residential proxy already live for Walmart/Amazon pages (direct image URLs don't).
+>
+> ### Watch / next-ups
+> - **Main-image-only** (user decision): only each product's main image (`refs[0]`) is
+>   seasonalized, automatically on acquire — the gallery-select step was removed. If a product's
+>   main shot isn't ideal, there's no per-image override (regenerate re-rolls the backdrop, not
+>   the source). A "pick a different source image" option is a later lift if wanted.
+> - **No per-product brand/group grouping**: products are added per-URL (label + SKU derived
+>   from the URL); the original "choose a brand / product group" selection collapsed into
+>   "add URLs → auto-seasonalize the main image." A real product catalog is a later lift.
+> - The campaign detail page hotlinks external CDN thumbnails (acquired gallery), so it sets
+>   the same relaxed per-page CSP as the Import gallery (`_SEASONAL_GALLERY_CSP` = `_IMPORT_GALLERY_CSP`).
+> - On-disk artifacts under `MEDIA_DIR/seasonal/<id>/` are **not** swept when a campaign is
+>   deleted (DB rows cascade; files linger) — add a cleanup sweep if disk grows.
+> - No "download selected subset" ZIP in the UI yet (route supports `scope=selected`; the UI
+>   uses Download-all + per-image). Easy to add a selection form later.
+>
+> _(The session-25 Admin-provisioned-accounts block follows.)_
 
 > ## ⭐ Next session — START HERE (session 25c — Admin-provisioned accounts, 2026-10-11)
 >
