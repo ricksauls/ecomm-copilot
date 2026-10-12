@@ -26,8 +26,10 @@
 {%- endif -%}
 {%- endmacro %}
 
-{# --- Collapsible group: icon + title + (+/-) over tree-connected children. --- #}
-{% macro rail_group(key, title, items, active) -%}
+{# --- Collapsible group: icon + title + (+/-) over tree-connected children.
+   `badges` optionally maps a child slug -> a count; a truthy count renders a
+   red alert badge on that child (e.g. unread messages on the admin inbox). --- #}
+{% macro rail_group(key, title, items, active, badges={}) -%}
 {% set slugs = items | map('first') | list %}
 <details class="rail-group" data-group="{{ key }}"{% if active in slugs %} open{% endif %}>
   <summary class="rail-group-head">
@@ -39,7 +41,11 @@
   </summary>
   <div class="rail-children">
     {% for slug, label, href in items %}
-    <a href="{{ href }}" class="nav-sub-item{{ ' active' if active == slug else '' }}">{{ label }}</a>
+    {% set badge = badges.get(slug) %}
+    <a href="{{ href }}" class="nav-sub-item{{ ' active' if active == slug else '' }}">
+      <span class="nav-sub-label">{{ label }}</span>
+      {% if badge %}<span class="nav-count nav-count-alert">{{ badge }}</span>{% endif %}
+    </a>
     {% endfor %}
   </div>
 </details>
@@ -90,7 +96,9 @@
     {{ rail_group('reporting', 'Insights', reporting_items, active_nav) }}
 
     {# Contact Us — standalone link with a muted hint at what the channel is for;
-       the badge shows unread admin replies. #}
+       the badge shows unread admin replies. Hidden for admins: they use the
+       Admin → Messages inbox (which carries its own unread badge) instead. #}
+    {% if not is_admin %}
     <a href="{{ url_for('pages.contact_home') }}"
        class="rail-leaf rail-leaf-spaced rail-leaf-stacked{{ ' active' if active_nav == 'contact' else '' }}">
       <span class="rail-ico">{{ rail_icon('contact') }}</span>
@@ -100,6 +108,7 @@
       </span>
       {% if msg_unread_count %}<span class="nav-count nav-count-alert">{{ msg_unread_count }}</span>{% endif %}
     </a>
+    {% endif %}
   </div>
 
   <div class="rail-spacer"></div>
@@ -114,8 +123,10 @@
     ('admin-users', 'User Management', url_for('pages.admin_users')),
     ('admin-messages', 'Messages', url_for('pages.admin_messages')),
   ] %}
+  {# Unread-inbox count rides on the Messages item (admins have no Contact Us). #}
+  {% set admin_badges = {'admin-messages': admin_msg_unread_count | default(0)} %}
   <div class="rail-nav rail-menu">
-    {{ rail_group('admin', 'Admin', admin_items, active_nav) }}
+    {{ rail_group('admin', 'Admin', admin_items, active_nav, admin_badges) }}
   </div>
   {% endif %}
 

@@ -6,7 +6,7 @@ non-admins and the unauthenticated, regardless of whether the nav is shown.
 
 import pytest
 
-from app import ci_config, ci_jobs, copy_jobs, jobs, users
+from app import ci_config, ci_jobs, copy_jobs, jobs, messages, users
 from app.db import get_db
 from app.users import (
     count_created_since,
@@ -123,12 +123,28 @@ def test_admin_nav_visibility(client, auth, app):
     assert b"/admin/copy" not in dash
     assert b"/admin/ci-snapshots" not in dash
     assert b"/admin/ci-monitoring" not in dash
+    # Admins use the Messages inbox, so the user-side Contact Us link is hidden.
+    assert b"/app/contact" not in dash
 
     auth.logout()
     auth.register(email="regular@example.com", password=_PW)
     regular = client.get("/app").data
     assert b"/admin/users" not in regular
     assert b"/admin/messages" not in regular
+    # Regular users keep the Contact Us channel.
+    assert b"/app/contact" in regular
+
+
+def test_admin_messages_nav_shows_unread_badge(client, auth, app):
+    # With Contact Us hidden for admins, the unread indicator rides on the
+    # Admin -> Messages rail item (red alert badge) when the inbox has unread.
+    _as_admin(app)
+    auth.register(email=_ADMIN, password=_PW)
+    assert b"nav-count-alert" not in client.get("/app").data  # nothing unread yet
+    with app.app_context():
+        uid = create_local_user("cust@example.com", _PW)
+        messages.create_thread(get_db(), uid, "Help", "question", "hi")
+    assert b"nav-count-alert" in client.get("/app").data
 
 
 def test_removed_admin_screens_are_gone(client, auth, app):
