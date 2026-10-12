@@ -9,7 +9,7 @@
     <p class="subtitle">Add the Walmart items you want scored, or upload a CSV of them.</p>
   </div>
 </div>
-{{ ws.workspace_tabs('create', url_for('pages.pdp_scoring'), url_for('pages.activity_all', kind='scored')) }}
+{{ ws.workspace_tabs('create', url_for('pages.pdp_scoring'), url_for('pages.activity_all', kind='scored'), 'History - Content Scored') }}
 
 {% if error %}
 <div class="form-error" role="alert">{{ error }}</div>

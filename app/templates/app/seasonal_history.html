@@ -12,15 +12,15 @@
 <div class="page-header">
   <div>
     <h1>Seasonal Campaign History</h1>
-    <p class="subtitle">Campaigns that have produced at least one seasonal image. Open one to
-      review, regenerate, or download its creative.</p>
+    <p class="subtitle">All your campaigns — drafts in progress and finished ones alike.
+      Open one to add products, review, regenerate, or download its creative.</p>
   </div>
 </div>
-{{ ws.workspace_tabs('history', url_for('pages.seasonal_home'), url_for('pages.seasonal_history')) }}
+{{ ws.workspace_tabs('history', url_for('pages.seasonal_home'), url_for('pages.seasonal_history'), 'History - Seasonal Campaigns Created') }}
 
 <div class="dash-tables">
-  {{ t.campaign_table('Finished campaigns', '', campaigns,
-       'No finished campaigns yet — start one from the Create New tab.',
+  {{ t.campaign_table('All campaigns', '', campaigns,
+       'No campaigns yet — start one from the Create New tab.',
        theme_label, searchable=true) }}
 </div>
 {% endblock %}

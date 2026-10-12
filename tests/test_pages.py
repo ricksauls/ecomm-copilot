@@ -397,11 +397,14 @@ def test_rail_routes_workspaces_not_separate_histories(client, auth):
     auth.register()
     rail = client.get("/app").data
 
-    # Workspaces are present under their shortened feature labels.
+    # Workspaces are present under their shortened feature labels. Content Scoring
+    # and Copy Studio are single-workspace leaves (the product-copy tool is reached
+    # straight off "Copy Studio", no "Product Copy" child); Creative Studio keeps
+    # its three children.
     assert b"Content Scoring" in rail
     assert b"Copy Studio" in rail
     assert b"Creative Studio" in rail
-    for label in (b"Product Copy", b"Product Image Import",
+    for label in (b"Product Image Import",
                   b"Product Image Set Creator", b"Seasonal Campaigns"):
         assert label in rail
 
@@ -422,6 +425,40 @@ def test_workspace_has_create_and_history_tabs(client, auth):
     assert b"ws-tabs" in page
     assert b"Create New" in page and b"History" in page
     assert b"/app/activity/scored" in page  # the History tab's href
+
+
+# The History tab is named after what each workspace produces, on both the
+# Create-New view and the History view. Keep the two in sync (a mismatch would
+# show two different names for the same tab as the user switches).
+_WORKSPACE_HISTORY_LABELS = {
+    "/app/pdp-scoring": b"History - Content Scored",
+    "/app/pdp-copy": b"History - Copy Created",
+    "/app/import-images": b"History - Images Acquired",
+    "/app/pdp-image-set": b"History - Image Sets Created",
+    "/app/seasonal": b"History - Seasonal Campaigns Created",
+}
+_ACTIVITY_HISTORY_LABELS = {
+    "/app/activity/scored": b"History - Content Scored",
+    "/app/activity/copy": b"History - Copy Created",
+    "/app/activity/acquired": b"History - Images Acquired",
+    "/app/activity/images": b"History - Image Sets Created",
+}
+
+
+def test_create_views_render_named_history_labels(client, auth):
+    auth.register()
+    for url, label in _WORKSPACE_HISTORY_LABELS.items():
+        resp = client.get(url)
+        assert resp.status_code == 200, url
+        assert label in resp.data, url
+
+
+def test_history_views_render_named_history_labels(client, auth):
+    auth.register()
+    for url, label in _ACTIVITY_HISTORY_LABELS.items():
+        resp = client.get(url)
+        assert resp.status_code == 200, url
+        assert label in resp.data, url
 
 
 def test_ci_activity_shows_both_ci_tables_all_time(client, auth, app):

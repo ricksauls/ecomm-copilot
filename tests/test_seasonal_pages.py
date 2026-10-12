@@ -179,12 +179,26 @@ def test_delete_campaign(client, auth, app):
         assert store.get_campaign(get_db(), cid, uid) is None
 
 
-def test_history_shows_only_ready_campaigns(client, auth, app):
+def test_create_tab_has_no_inline_campaign_list(client, auth, app):
+    # The Create-New tab no longer carries an inline campaign list (it moved to
+    # History); creating a campaign must not make one appear there.
+    _make_campaign(client, auth, app, "sp-nolist@example.com")
+    resp = client.get("/app/seasonal")
+    assert resp.status_code == 200
+    assert b"Your campaigns" not in resp.data
+    assert b"History - Seasonal Campaigns Created" in resp.data  # the renamed tab
+
+
+def test_history_lists_all_campaigns_including_drafts(client, auth, app):
+    # History is now the single campaign list (the Create-New inline list was
+    # removed), so a draft campaign with no ready image must still be listed.
     cid, uid = _make_campaign(client, auth, app, "sp-hist@example.com")
-    # A draft campaign (no ready image) must not appear in history.
     resp = client.get("/app/seasonal/history")
     assert resp.status_code == 200
-    assert b"No finished campaigns yet" in resp.data
+    assert b"No campaigns yet" not in resp.data
+    assert f"/app/seasonal/{cid}".encode() in resp.data  # row links to the campaign
+    assert b"Draft" in resp.data                          # draft status pill
+    # Once it produces a ready image it's still listed, now flagged Ready.
     with app.app_context():
         db = get_db()
         pid = store.add_product(db, campaign_id=cid, user_id=uid,
@@ -194,5 +208,5 @@ def test_history_shows_only_ready_campaigns(client, auth, app):
         store.update_image(db, iid, gen_status=store.GEN_READY, final_path="seasonal/1/final/1.png")
         store.recompute_campaign_status(db, cid)
     resp = client.get("/app/seasonal/history")
-    assert b"No finished campaigns yet" not in resp.data
-    assert b"C" in resp.data  # the campaign name
+    assert f"/app/seasonal/{cid}".encode() in resp.data
+    assert b"Ready" in resp.data                          # ready status pill
