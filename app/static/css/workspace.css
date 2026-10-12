@@ -750,6 +750,20 @@ button.briefing-default:hover {
   margin: 8px 0 14px;
 }
 
+/* In-design stub for the reworked Insights sections (see insights_placeholder.html). */
+.insights-placeholder .label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.insights-placeholder p {
+  font-size: 13px;
+  color: var(--mid-gray);
+  margin: 8px 0 0;
+}
+
 /* Stack the three cards and unstack the header on narrow viewports. */
 @media (max-width: 900px) {
   .briefing-cards {
@@ -759,6 +773,164 @@ button.briefing-default:hover {
     flex-direction: column;
     align-items: flex-start;
   }
+}
+
+/* --- Opportunities ---
+   Ranked, deep-linked actions below the three cards. Deliberately LONG ROWS (not
+   cards): icon · title+detail · proportion meter · CTA, in one full-width grid
+   row. The whole row is the link into the workflow that closes the gap. */
+.opportunities {
+  margin-top: 28px;
+}
+.opp-eyebrow {
+  margin: 0 0 12px;
+}
+.opp-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.opp-row {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) 140px auto;
+  align-items: center;
+  gap: 18px;
+  padding: 16px 20px;
+  background: var(--surface);
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-card);
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+.opp-row:hover {
+  border-color: var(--mid-gray);
+  box-shadow: 0 1px 4px rgba(11, 18, 32, 0.08);
+}
+/* Leading glyph, tinted by the workflow the gap routes to. */
+.opp-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--placeholder);
+  color: var(--accent);
+}
+.opp-icon svg {
+  width: 20px;
+  height: 20px;
+}
+.opp-competitive .opp-icon {
+  color: var(--black);
+}
+.opp-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0; /* let the detail text ellipsize rather than stretch the row */
+}
+.opp-title {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--black);
+}
+.opp-detail {
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--mid-gray);
+}
+/* Proportion meter (content gaps): a scaled SVG bar (fill = share already strong)
+   over a caption. Fixed column so every row's indicator and caption line up. */
+.opp-meter-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.opp-bar {
+  width: 100%;
+  height: 8px;
+  display: block;
+}
+.opp-bar-track {
+  fill: var(--placeholder);
+}
+.opp-bar-fill {
+  fill: var(--signal-green); /* the healthy share — higher reads as better */
+}
+
+/* Trend sparkline (competitive gap): a scaled SVG line (lead rate over the last few
+   periods) over a state caption. Direction colors the stroke — up is the good
+   outcome, so green is improvement, red a decline, grey flat/single-point. */
+.opp-spark-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.opp-spark {
+  width: 100%;
+  height: 28px;
+  display: block;
+  overflow: visible; /* let the end dot's radius show at the edge */
+}
+.opp-spark-line {
+  fill: none;
+  stroke: var(--mid-gray);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.opp-spark-dot {
+  fill: var(--mid-gray);
+}
+.opp-spark.spark-up .opp-spark-line,
+.opp-spark.spark-up .opp-spark-dot {
+  stroke: var(--signal-green);
+  fill: var(--signal-green);
+}
+.opp-spark.spark-up .opp-spark-line { fill: none; }
+.opp-spark.spark-down .opp-spark-line,
+.opp-spark.spark-down .opp-spark-dot {
+  stroke: var(--signal-red);
+  fill: var(--signal-red);
+}
+.opp-spark.spark-down .opp-spark-line { fill: none; }
+.opp-bar-caption {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--mid-gray);
+  letter-spacing: 0.02em;
+}
+.opp-cta {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  white-space: nowrap;
+}
+.opp-empty p {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--mid-gray);
+  margin: 0;
+}
+
+/* Narrow viewports: drop the CTA (the whole row is still the link) and let the
+   meter sit under the text so the row never overflows. */
+@media (max-width: 760px) {
+  .opp-row {
+    grid-template-columns: 40px minmax(0, 1fr);
+    grid-template-areas:
+      "icon body"
+      "meter meter";
+    row-gap: 12px;
+  }
+  .opp-icon { grid-area: icon; }
+  .opp-body { grid-area: body; }
+  .opp-meter-wrap,
+  .opp-spark-wrap { grid-area: meter; }
+  .opp-cta { display: none; }
 }
 
 /* --- Main row: table + sidebar --- */

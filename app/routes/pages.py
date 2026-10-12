@@ -515,6 +515,130 @@ def _readiness_trend(db, uid, brands, period):
     return values, dates
 
 
+# The dashboard surfaces at most this many opportunities — it's a briefing, not a
+# backlog. Rows are ranked by how many products/keywords each gap affects.
+OPPORTUNITIES_LIMIT = 5
+
+# Sparkline canvas (viewBox units) + inset. Shared by _sparkline so the template's
+# <svg viewBox> matches the coordinates we compute here.
+_SPARK_W, _SPARK_H, _SPARK_PAD = 120, 28, 4
+
+
+def _sparkline(values: list[float]) -> dict | None:
+    """Build an inline-SVG sparkline spec from a numeric series (oldest→newest).
+
+    Auto-scales to the series' own min/max so the *shape* of the trend is visible
+    even when values sit in a narrow band (a flat series renders as a centered flat
+    line). Direction (``dir``) compares last vs. first so the template can color the
+    line — up is the good outcome for the lead-rate series it plots on the
+    competitive Opportunity. Returns ``None`` for an empty series so the row can fall
+    back to its caption alone; a single point renders as just the end dot (``single``).
+
+    Coordinates are in the :data:`_SPARK_W` × :data:`_SPARK_H` viewBox.
+    """
+    if not values:
+        return None
+    n = len(values)
+    lo, hi = min(values), max(values)
+    span = (hi - lo) or 1  # avoid /0 on a flat series; it draws down the mid-line
+    inner_w, inner_h = _SPARK_W - 2 * _SPARK_PAD, _SPARK_H - 2 * _SPARK_PAD
+
+    def xy(i: int, v: float) -> tuple[float, float]:
+        x = _SPARK_PAD if n == 1 else _SPARK_PAD + inner_w * i / (n - 1)
+        # Invert y (SVG origin is top-left); a flat series lands on the mid-line.
+        y = (_SPARK_H / 2 if hi == lo
+             else _SPARK_H - _SPARK_PAD - inner_h * (v - lo) / span)
+        return round(x, 1), round(y, 1)
+
+    pts = [xy(i, v) for i, v in enumerate(values)]
+    last = pts[-1]
+    delta = values[-1] - values[0]
+    return {
+        "points": " ".join(f"{x},{y}" for x, y in pts),
+        "dot": {"x": last[0], "y": last[1]},
+        "single": n == 1,
+        "dir": "up" if delta > 0 else "down" if delta < 0 else "flat",
+    }
+
+
+def _opportunities(db, uid, gid, period, mine_brands, has_data) -> list[dict]:
+    """Rank the brand's top content + competitive gaps into deep-linked actions.
+
+    Two sources, both scoped to the selected brand:
+
+    * **Content gaps** — products whose latest score flags an image or a copy
+      weakness (:func:`jobs.readiness_breakdown`), each pointing at the workflow
+      that fixes it (image tools / Product Copy).
+    * **Competitive gap** — tracked keywords a competitor currently leads on the
+      page-1 shelf (:func:`ci_analysis.monitoring_keyword_leadership`), pointing at
+      the Daily Monitoring detail.
+
+    Each row carries a proportion ``meter`` (how much is already in good shape) as a
+    lightweight chart indicator. Rows are sorted by affected-unit count (most first)
+    and capped at :data:`OPPORTUNITIES_LIMIT` so the list stays a briefing.
+    """
+    opps: list[dict] = []
+
+    # ── Content gaps: image vs. copy weaknesses on the brand's scored products ──
+    # These show a proportion METER (share of products already strong) rather than a
+    # trend — a point-in-time "how much is left to fix" read.
+    content = jobs.readiness_breakdown(db, uid, mine_brands)
+    scored = content["scored_count"]
+    if scored:
+        img_gap = content["image_gap_count"]
+        if img_gap:
+            opps.append({
+                "key": "images", "icon": "images", "impact": img_gap,
+                "title": f"Improve images on {img_gap} product{_s(img_gap)}",
+                "detail": (f"{img_gap} of {scored} scored product{_s(scored)} "
+                           + ("has" if img_gap == 1 else "have")
+                           + " imagery below target. Stronger PDP images lift conversion."),
+                "meter": {"filled": scored - img_gap, "total": scored,
+                          "caption": f"{scored - img_gap}/{scored} strong"},
+                "cta_label": "Create image sets →",
+                "cta_url": url_for("pages.imageset_intake"),
+            })
+        copy_gap = content["copy_gap_count"]
+        if copy_gap:
+            opps.append({
+                "key": "copy", "icon": "copy", "impact": copy_gap,
+                "title": f"Strengthen copy on {copy_gap} product{_s(copy_gap)}",
+                "detail": (f"{copy_gap} of {scored} scored product{_s(scored)} "
+                           + ("has" if copy_gap == 1 else "have")
+                           + " a title, bullets, or description that needs work."),
+                "meter": {"filled": scored - copy_gap, "total": scored,
+                          "caption": f"{scored - copy_gap}/{scored} strong"},
+                "cta_label": "Open Product Copy →",
+                "cta_url": url_for("pages.pdp_copy"),
+            })
+
+    # ── Competitive gap: keywords a competitor currently leads ──────────────────
+    # Reuses the (otherwise-unsurfaced) keyword-leadership metric: a "lost" keyword
+    # is one whose top page-1 shelf share belongs to a competitor, not to us. Its
+    # ``trend`` is the lead-rate series we draw as the row's sparkline.
+    if has_data:
+        lead = ci_analysis.monitoring_keyword_leadership(db, gid, period)
+        lost = lead["competitor_lead_count"]
+        measured = lead["keyword_count"]
+        if lost:
+            opps.append({
+                "key": "competitive", "icon": "competitive", "impact": lost,
+                "title": f"Win back {lost} keyword{_s(lost)}",
+                "detail": (f"A competitor leads the page-1 shelf on {lost} of {measured} "
+                           f"tracked keyword{_s(measured)}. Close the gap to take the top slot."),
+                "caption": f"{lead['lead_count']}/{measured} led",
+                "spark": _sparkline(lead["trend"]),
+                "cta_label": "See the gaps →",
+                "cta_url": url_for("pages.ci_view", group_id=gid, period=period),
+            })
+
+    # Most-affected first; a stable tie-break on key keeps ordering deterministic.
+    opps.sort(key=lambda o: (-o["impact"], o["key"]))
+    logger.info("Opportunities user_id=%s group_id=%s period=%s built=%d shown=%d",
+                uid, gid, period, len(opps), min(len(opps), OPPORTUNITIES_LIMIT))
+    return opps[:OPPORTUNITIES_LIMIT]
+
+
 def _performance_briefing(db, uid) -> dict:
     """Build the three-card performance briefing for the dashboard.
 
@@ -675,6 +799,7 @@ def _performance_briefing(db, uid) -> dict:
                      "enabled": p in available, "selected": p == period}
                     for p in ci_analysis.PERIODS],
         "cards": [discoverability, conversion, competition],
+        "opportunities": _opportunities(db, uid, gid, period, mine_brands, has_data),
     }
 
 
@@ -727,6 +852,38 @@ def set_default_brand():
         abort(404)
     users.set_default_ci_group(uid, group_id)
     return redirect(url_for("pages.dashboard", group_id=group_id))
+
+
+# Insights sections that are being redesigned: the rail links to them today, but
+# the screens themselves land in a later session. The allow-list keys double as the
+# URL slug and the active-nav suffix; the values are the page titles.
+_INSIGHTS_PLACEHOLDERS = {
+    "disco-conv": "Discoverability & Conversion",
+    "competitive": "Competitive Intelligence",
+}
+
+
+@bp.route("/app/insights/<section>")
+@login_required
+def insights_placeholder(section):
+    """Lightweight stub for an Insights section still in design.
+
+    The two new Insights rail leaves route here so the menu is usable without a
+    dead link; the real views are built later. ``section`` must be in the
+    allow-list — an unknown slug 404s rather than rendering an arbitrary title
+    (guards against a forged path driving the page heading).
+    """
+    title = _INSIGHTS_PLACEHOLDERS.get(section)
+    if title is None:
+        logger.warning("Rejected unknown Insights placeholder section=%s", section)
+        abort(404)
+    logger.info("Serving Insights placeholder section=%s", section)
+    return render_template(
+        "app/insights_placeholder.html",
+        breadcrumb=title,
+        active_nav=f"insights-{section}",
+        section_title=title,
+    )
 
 
 @bp.route("/app/activity/<kind>")

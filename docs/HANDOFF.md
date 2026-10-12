@@ -1,6 +1,29 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-10-12 (session 30 — **Dashboard redesign, Phase 1: the three performance cards**.
+_Last updated: 2026-10-12 (session 31 — **Dashboard Opportunities list + Insights rail rework**.
+On `feature/dashboard-opportunities`, opened as a PR → `main` (CI → auto-deploy). **701 tests, ruff clean.
+No migration, no new env.** **(1) Opportunities list (new):** a ranked, deep-linked action list below the
+three cards, scoped to the selected brand, built in `_opportunities()` (`pages.py`) and added to
+`_performance_briefing`'s return. Two sources: **content gaps** from scoring — split by dimension into an
+**image** gap (imagery < 80 → *Create image sets* → `imageset_intake`) and a **copy** gap (title/key_features/
+description < 80 → *Open Product Copy* → `pdp_copy`), via the new **`jobs.readiness_breakdown()`** (latest-per-
+item, parses `result_json` dimensions; `IMAGE_DIMENSIONS`/`COPY_DIMENSIONS`); and a **competitive** gap —
+keywords a competitor leads (reuses the previously-reserved `ci_analysis.monitoring_keyword_leadership`'s
+`competitor_lead_count` → *See the gaps* → `ci_view`). Ranked by affected-unit count, capped at
+`OPPORTUNITIES_LIMIT=5`; empty → an "all caught up" note. **(2) Row indicators (per user choice):** content
+rows show a **proportion meter** (`opp_meter`, share already strong); the competitive row shows a **trend
+sparkline** (`opp_spark` + `_sparkline()`, lead-rate over the last `TREND_PERIODS`, **direction-colored**:
+green up / red down / grey flat — colors by *trend*, not current level). All inline SVG, no JS, CSP-clean.
+Long rows (icon · title+detail · indicator · CTA), whole row is the link. **(3) Insights rail rework:** two
+NEW leaves under Insights — **"Discoverability & Conversion"** and **"Competitive Intelligence"** — both route
+to an in-design stub (`pages.insights_placeholder`, `/app/insights/<section>`, allow-list guarded → 404 on an
+unknown slug; `insights_placeholder.html`). The three prior Insights leaves (One-Time Snapshot, Daily
+Monitoring, View All CI Activity) are **HIDDEN** (commented out in `_rail.html`) — routes still live and the
+cards' "Dig it" links still reach `ci_view`. **Next: design the two Insights section pages**, and consider a
+per-product drill-down from the opportunity rows (`readiness_breakdown` already returns `image_items`/
+`copy_items`). The prior session-30 summary follows._
+
+_Session 30 — (session 30 — **Dashboard redesign, Phase 1: the three performance cards**.
 Committed on `feature/dashboard-performance-cards`, deploying to production via PR → `main` (CI → auto-deploy).
 **694 tests, ruff clean. One additive migration (`users.default_ci_group_id`), no new env.** The dashboard
 is now a **per-brand performance briefing**: a simplified **Portfolio** header (brand + product counts only —
@@ -107,6 +130,62 @@ quality set to **medium**. Droplet now on gpt-image-1 + PhotoRoom. Session 16 �
 blur, per-card Regenerate, Lifestyle logo. Session 15 — all 4 image types generate. Session 13 —
 built PDP Image Set.)_
 
+> ## ⭐ Next session — START HERE (session 31 — Opportunities list + Insights rail, 2026-10-12)
+>
+> **Dashboard Opportunities list + Insights rail rework.** On `feature/dashboard-opportunities`, opened as a
+> PR → `main`. **701 tests, ruff clean. No migration, no new env.** The top preamble is the authoritative
+> summary; this adds build detail.
+>
+> ### Opportunities list (below the three cards)
+> `_opportunities(db, uid, gid, period, mine_brands, has_data)` in `pages.py` returns a ranked list added to
+> `_performance_briefing`'s dict as `opportunities`. `dashboard.html` renders it below `.briefing-cards`.
+> Each row is a **whole-row link** into the workflow that closes the gap: icon · title + detail · indicator ·
+> CTA. Ranked by `impact` (affected-unit count), capped at `OPPORTUNITIES_LIMIT = 5`. No gaps → an
+> "all caught up" note (not an empty void).
+>
+> **Sources (both scoped to the selected brand):**
+> - **Content gaps** — `jobs.readiness_breakdown(db, uid, brands)`: latest score per product, parses
+>   `result_json` `dimensions`, buckets a weak dimension (< `READINESS_STRONG_MIN` = 80, and `available`) as
+>   an **image** gap (`IMAGE_DIMENSIONS` = {imagery}) or a **copy** gap (`COPY_DIMENSIONS` = {title,
+>   key_features, description}). Returns `{scored_count, image_gap_count, copy_gap_count, image_items,
+>   copy_items}` (the `*_items` are `{item_id, title}`, capped at `_OPP_ITEMS_CAP`, for a future drill-down).
+>   → "Improve images on N products" (`imageset_intake`) / "Strengthen copy on N products" (`pdp_copy`).
+> - **Competitive gap** — `ci_analysis.monitoring_keyword_leadership(...)["competitor_lead_count"]` (the
+>   otherwise-reserved metric, now used): keywords whose top page-1 shelf share is a competitor's.
+>   → "Win back N keywords" (`ci_view`).
+>
+> ### Row indicators (the user chose a mix)
+> - **Content rows → proportion meter** (`opp_meter` macro): a scaled SVG bar, fill = share already strong
+>   (`scored − gap` / `scored`), caption like "3/6 strong". `.opp-bar-fill` = `--signal-green`.
+> - **Competitive row → trend sparkline** (`opp_spark` macro + `_sparkline()`): the lead-rate series over the
+>   last `TREND_PERIODS`, auto-scaled to its own min/max. **`dir` colors the stroke by TREND direction**
+>   (green up / red down / grey flat or single-point) — note this colors by *movement*, not current level, so
+>   a row can read "5/6 strong" with a red line if it dipped. Single-point → just the end dot; empty series →
+>   caption alone. `_SPARK_W/H/PAD` constants; coords precomputed in Python so the template stays logic-light.
+> - Both are inline SVG (no JS, CSP `style-src`-safe — no inline styles). Narrow viewport (≤760px): CTA hides,
+>   indicator drops below the text (grid-areas).
+>
+> ### Insights rail rework (`_rail.html`)
+> Two NEW leaves under the Insights group: **"Discoverability & Conversion"** and **"Competitive
+> Intelligence"**, both → `pages.insights_placeholder(section)` (`/app/insights/<section>`). The route's
+> `_INSIGHTS_PLACEHOLDERS` allow-list (`disco-conv`, `competitive`) is the only valid input — unknown slug
+> 404s; it renders `insights_placeholder.html` (an "In design" stub) with `active_nav="insights-<section>"`.
+> The three prior leaves (One-Time Snapshot, Daily Monitoring, View All CI Activity) are **HIDDEN** — commented
+> out in `_rail.html`, trivially restorable. Their **routes still exist** (the dashboard cards' "Dig it" links
+> still reach `ci_view`; `ci_activity`/`activity_all` remain tested) — just unlinked from the rail.
+>
+> ### Verified
+> Full suite green (701), ruff clean. Driven live in a throwaway-seeded `/app` (6 weeks of history): the three
+> cards, the two content meters (3/6, 5/6 strong), the competitive sparkline (green rising 1/2 led), the
+> reworked Insights menu, and the "In design" placeholder all render; no console errors.
+>
+> ### Next session
+> - **Design the two Insights section pages** (replace the stubs): Discoverability & Conversion, and
+>   Competitive Intelligence. Decide whether the old snapshot/monitoring/activity screens fold into these.
+> - Consider a **per-product drill-down** from the opportunity rows (`readiness_breakdown` already returns
+>   `image_items`/`copy_items`).
+> - Still open from session 30: whether to re-link the orphaned `activity_all` "View All" screens anywhere.
+>
 > ## ⭐ Next session — START HERE (session 30 — Dashboard redesign Phase 1, 2026-10-12)
 >
 > **Dashboard redesign, Phase 1 — the three performance cards + header/selector cleanup.** The top
