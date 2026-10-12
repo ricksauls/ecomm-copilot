@@ -97,6 +97,26 @@ def test_product_claim_is_atomic(app):
         assert store.has_claimable_product(db) is False
 
 
+def test_requeue_product_only_when_failed_and_idor_scoped(app):
+    with app.app_context():
+        db = get_db()
+        uid = create_local_user("sea-rq@example.com", "password123")
+        other = create_local_user("sea-rq2@example.com", "password123")
+        cid = _campaign(db, uid)
+        pid = _product(db, cid, uid)
+        # A queued (not failed) product is not re-queued.
+        assert store.requeue_product(db, pid, uid) is False
+        # Fail it, then retry.
+        store.set_product_status(db, pid, store.PRODUCT_ERROR, error="Walmart blocked")
+        # IDOR: another user can't retry it.
+        assert store.requeue_product(db, pid, other) is False
+        assert store.get_product(db, pid, uid)["status"] == store.PRODUCT_ERROR
+        # Owner retries → back to queued, error cleared.
+        assert store.requeue_product(db, pid, uid) is True
+        row = store.get_product(db, pid, uid)
+        assert row["status"] == store.PRODUCT_QUEUED and row["error"] is None
+
+
 def test_reclaim_orphaned_products(app):
     with app.app_context():
         db = get_db()

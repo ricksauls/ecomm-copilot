@@ -223,6 +223,27 @@ def set_product_status(conn: sqlite3.Connection, product_id: int, status: str, *
     conn.commit()
 
 
+def requeue_product(conn: sqlite3.Connection, product_id: int, user_id: int) -> bool:
+    """Re-queue a *failed* product for another acquire attempt (IDOR-scoped).
+
+    Only a product currently in ``error`` is reset to ``queued`` (clearing the
+    error), so the worker picks it up again — this backs the "Retry" button on a
+    product whose acquire was blocked (e.g. Walmart bot-detection). Guarded on the
+    error state so a double-click or a retry on an in-flight/succeeded product is a
+    harmless no-op (never re-acquires a product that already produced an image).
+    Returns True when a row was actually re-queued.
+    """
+    cur = conn.execute(
+        "UPDATE seasonal_products SET status = ?, error = NULL, updated_at = datetime('now') "
+        "WHERE id = ? AND user_id = ? AND status = ?",
+        (PRODUCT_QUEUED, product_id, user_id, PRODUCT_ERROR),
+    )
+    conn.commit()
+    if cur.rowcount:
+        logger.info("Re-queued failed seasonal product=%s user_id=%s", product_id, user_id)
+    return cur.rowcount > 0
+
+
 def has_claimable_product(conn: sqlite3.Connection) -> bool:
     """True if any product is waiting for the acquire worker (status ``queued``)."""
     return conn.execute(
