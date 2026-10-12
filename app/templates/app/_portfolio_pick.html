@@ -1,14 +1,16 @@
 {# Portfolio pick-list: the first way to choose items on the Content Scoring and
    Product Copy intakes — a filterable checkbox list of the user's managed
-   products, rendered ahead of manual URL entry and CSV upload.
+   products, rendered ahead of manual URL entry and CSV upload. Checkboxes allow
+   selecting one OR many items to run.
 
    Each checked box submits its Walmart URL under name="urls", the same field the
    manual rows use, so the existing server-side collect_items() handles the
-   selection with no special-casing. The filter (brand + item #/URL search) is
-   client-side via portfolio.js, keyed on the data-* attributes here.
+   selection with no special-casing. A single unified search (client-side via
+   portfolio.js) matches brand, item #, product title, and URL via the data-*
+   attributes here.
 
-   `items` is the user's portfolio rows; `brands` their distinct brands. #}
-{% macro portfolio_pick(items, brands) -%}
+   `items` is the user's portfolio rows (each carries a backfilled `title`). #}
+{% macro portfolio_pick(items) -%}
 <div class="form-section" data-portfolio-filter>
   <div class="section-head">
     <span class="step">1</span>
@@ -17,14 +19,9 @@
 
   {% if items %}
   <div class="pf-filter-bar">
-    <select class="ci-input" data-filter-brand aria-label="Filter by brand">
-      <option value="">All brands</option>
-      {% for b in brands %}
-      <option value="{{ b | lower }}">{{ b }}</option>
-      {% endfor %}
-    </select>
     <input type="search" class="ci-input grow" data-filter-search
-           placeholder="Filter by item # or URL…" aria-label="Filter managed items" />
+           placeholder="Search brand, item #, title, or URL…"
+           aria-label="Search managed items" />
   </div>
 
   <div class="pf-pick-list">
@@ -32,22 +29,76 @@
     <label class="pf-pick-row" data-portfolio-row
            data-brand="{{ (it.brand or '') | lower }}"
            data-item="{{ it.item_id or '' }}"
+           data-title="{{ (it.title or '') | lower }}"
            data-url="{{ it.walmart_url | lower }}">
       <input type="checkbox" name="urls" value="{{ it.walmart_url }}" class="pf-pick-check" />
       <span class="pf-pick-meta">
         <span class="pf-pick-brand">{{ it.brand or 'Unbranded' }}</span>
         {% if it.item_id %}<span class="pf-pick-item">#{{ it.item_id }}</span>{% endif %}
+        {% if it.title %}<span class="pf-pick-title">{{ it.title }}</span>{% endif %}
         <span class="pf-pick-url">{{ it.walmart_url }}</span>
       </span>
     </label>
     {% endfor %}
-    <p class="pf-empty-filtered results-count" hidden>No items match that filter.</p>
+    <p class="pf-empty-filtered results-count" hidden>No items match that search.</p>
   </div>
   {% else %}
   <p class="brand-hint">
     You haven't added any managed items yet.
     <a href="{{ url_for('pages.portfolio_home') }}">Set up your portfolio</a>
     to pick from them here, or add URLs manually below.
+  </p>
+  {% endif %}
+</div>
+{%- endmacro %}
+
+{# Single-select variant for the Image Set Creator: the user must pick exactly ONE
+   managed item (radios, not checkboxes). The inputs carry a `form="{{ form_id }}"`
+   attribute so they submit with the main intake form even though this picker is
+   rendered in its own card above it. `selected` (a Walmart URL) pre-checks a row —
+   used to keep the choice after a validation re-render or a prefill round-trip.
+   `required` is set only when there are items to choose (an empty portfolio can't
+   satisfy it; the server enforces the requirement regardless). #}
+{% macro portfolio_pick_single(items, form_id, selected=None) -%}
+<div class="form-section" data-portfolio-filter>
+  <div class="section-head">
+    <span class="step">1</span>
+    <label class="field-label">Choose a managed item</label>
+  </div>
+
+  {% if items %}
+  <p class="brand-hint">Pick the product this image set is for — one of your managed items.</p>
+  <div class="pf-filter-bar">
+    <input type="search" class="ci-input grow" data-filter-search
+           placeholder="Search brand, item #, title, or URL…"
+           aria-label="Search managed items" />
+  </div>
+
+  <div class="pf-pick-list">
+    {% for it in items %}
+    <label class="pf-pick-row" data-portfolio-row
+           data-brand="{{ (it.brand or '') | lower }}"
+           data-item="{{ it.item_id or '' }}"
+           data-title="{{ (it.title or '') | lower }}"
+           data-url="{{ it.walmart_url | lower }}">
+      <input type="radio" name="managed_url" value="{{ it.walmart_url }}"
+             form="{{ form_id }}" class="pf-pick-check"
+             {% if selected == it.walmart_url %}checked{% endif %} required />
+      <span class="pf-pick-meta">
+        <span class="pf-pick-brand">{{ it.brand or 'Unbranded' }}</span>
+        {% if it.item_id %}<span class="pf-pick-item">#{{ it.item_id }}</span>{% endif %}
+        {% if it.title %}<span class="pf-pick-title">{{ it.title }}</span>{% endif %}
+        <span class="pf-pick-url">{{ it.walmart_url }}</span>
+      </span>
+    </label>
+    {% endfor %}
+    <p class="pf-empty-filtered results-count" hidden>No items match that search.</p>
+  </div>
+  {% else %}
+  <p class="brand-hint">
+    You haven't added any managed items yet.
+    <a href="{{ url_for('pages.portfolio_home') }}">Set up your portfolio</a>
+    first — an image set is created for one of your managed products.
   </p>
   {% endif %}
 </div>

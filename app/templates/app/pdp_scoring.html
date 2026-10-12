@@ -21,7 +21,7 @@
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
 
     {# Step 1 — pick from the user's managed portfolio (filterable). #}
-    {{ pf.portfolio_pick(portfolio_items, portfolio_brands) }}
+    {{ pf.portfolio_pick(portfolio_items) }}
 
     <div class="form-divider"><span>or</span></div>
 

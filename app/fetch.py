@@ -506,6 +506,19 @@ def fetch_main_image_url(url: str, item_id: str | None = None, *,
     return urls[0] if urls else None
 
 
+def fetch_title(url: str, item_id: str | None = None, *, timeout_ms: int = 35000) -> str:
+    """Return a Walmart product's title (name), or '' when the page yields none.
+
+    The leanest cousin of :func:`fetch_pdp`, used to backfill portfolio item names
+    so the managed-items pick-lists are searchable by product title. Only reads the
+    product name — no scoring parse, no image work. Same browser/bot-detection path
+    (headed, background-only): raises :class:`FetchBlocked` / :class:`FetchError`.
+    """
+    logger.info("Fetching product title url=%s item_id=%s", url, item_id)
+    data = _load_pdp_data(url, timeout_ms)
+    return ((data.get("product") or {}).get("name") or "").strip()
+
+
 def fetch_all_image_urls(url: str, *, timeout_ms: int = 35000,
                          use_proxy: bool = False) -> tuple[str, list[str]]:
     """Return ``(product_title, [all gallery image URLs])`` for a Walmart PDP.

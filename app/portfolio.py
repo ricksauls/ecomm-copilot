@@ -226,14 +226,74 @@ def list_items(conn: sqlite3.Connection, user_id: int) -> list[sqlite3.Row]:
     """All of the user's managed products, newest first.
 
     Carries the columns the screen and the scoring/copy pick-lists need: the
-    Walmart URL (the value submitted to a run), the parsed item number and brand
-    (both filterable), and the optional Amazon link.
+    Walmart URL (the value submitted to a run), the parsed item number, brand, the
+    optional Amazon link, and the backfilled product title — all four of brand /
+    item # / URL / title are searchable in the unified filter.
     """
     return conn.execute(
-        "SELECT id, brand, walmart_url, item_id, amazon_url, created_at "
+        "SELECT id, brand, walmart_url, item_id, amazon_url, title, created_at "
         "FROM portfolio_items WHERE user_id = ? ORDER BY id DESC",
         (user_id,),
     ).fetchall()
+
+
+# --- Title backfill queue (worker fetches the product name per item) ---------
+# Status lifecycle on portfolio_items.title_status: queued -> fetching -> done|error.
+
+def has_claimable_title(conn: sqlite3.Connection) -> bool:
+    """True if any portfolio item is waiting for a title fetch (status 'queued')."""
+    return conn.execute(
+        "SELECT 1 FROM portfolio_items WHERE title_status = 'queued' LIMIT 1"
+    ).fetchone() is not None
+
+
+def claim_next_title(conn: sqlite3.Connection) -> sqlite3.Row | None:
+    """Atomically claim the oldest 'queued' item (-> 'fetching'), or None.
+
+    Conditional UPDATE so a concurrent claimer can't grab the same row; ties FIFO
+    by id. Mirrors the import / image-set claim pattern.
+    """
+    while True:
+        candidate = conn.execute(
+            "SELECT id FROM portfolio_items WHERE title_status = 'queued' ORDER BY id LIMIT 1"
+        ).fetchone()
+        if candidate is None:
+            return None
+        updated = conn.execute(
+            "UPDATE portfolio_items SET title_status = 'fetching', updated_at = datetime('now') "
+            "WHERE id = ? AND title_status = 'queued'",
+            (candidate["id"],),
+        )
+        conn.commit()
+        if updated.rowcount == 1:
+            return conn.execute(
+                "SELECT * FROM portfolio_items WHERE id = ?", (candidate["id"],)
+            ).fetchone()
+        # Lost the race; try the next queued row.
+
+
+def save_title(conn: sqlite3.Connection, item_id: int, title: str | None) -> None:
+    """Store a fetched product title and settle the row to 'done'."""
+    conn.execute(
+        "UPDATE portfolio_items SET title = ?, title_status = 'done', "
+        "updated_at = datetime('now') WHERE id = ?",
+        ((title or "").strip() or None, item_id),
+    )
+    conn.commit()
+
+
+def fail_title(conn: sqlite3.Connection, item_id: int) -> None:
+    """Mark a title fetch failed ('error').
+
+    Left as a terminal state (not re-queued) so a persistently blocked item doesn't
+    spin; the item is still searchable by brand / item # / URL in the meantime.
+    """
+    conn.execute(
+        "UPDATE portfolio_items SET title_status = 'error', updated_at = datetime('now') "
+        "WHERE id = ?",
+        (item_id,),
+    )
+    conn.commit()
 
 
 def distinct_brands(conn: sqlite3.Connection, user_id: int) -> list[str]:

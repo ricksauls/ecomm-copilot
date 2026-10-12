@@ -128,6 +128,12 @@ CREATE TABLE IF NOT EXISTS portfolio_items (
     item_id      TEXT,                              -- Walmart item number parsed from walmart_url, when present
     amazon_url   TEXT,                              -- optional Amazon ASIN URL
     dedupe_key   TEXT    NOT NULL,                  -- item_id when present, else LOWER(walmart_url); drives the UNIQUE
+    -- Product title, backfilled by the worker so the pick-lists are searchable by
+    -- name (the CSV/add form never supplies it). title_status is the claim queue:
+    -- queued -> fetching -> done|error. New rows start 'queued'; a blocked fetch
+    -- lands on 'error' (searchable by brand/item/URL meanwhile).
+    title        TEXT,
+    title_status TEXT    NOT NULL DEFAULT 'queued',
     created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
     updated_at   TEXT    NOT NULL DEFAULT (datetime('now'))
 );
@@ -135,6 +141,9 @@ CREATE TABLE IF NOT EXISTS portfolio_items (
 -- dedupe_key is rejected, so INSERT OR IGNORE counts the genuinely-new rows.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_portfolio_items_dedupe ON portfolio_items(user_id, dedupe_key);
 CREATE INDEX IF NOT EXISTS idx_portfolio_items_user ON portfolio_items(user_id, id);
+-- NOTE: the title-claim index (on title_status) is created in _migrate, not here —
+-- on a pre-existing DB that column is added by _migrate first, so _SCHEMA can't
+-- reference it yet (same pattern as idx_image_jobs_claim).
 
 -- One row per AI image-fix (upscale / white-background) requested from the
 -- scoring results page. The web app inserts rows as 'queued'; the background
@@ -782,6 +791,25 @@ def _migrate(conn: sqlite3.Connection) -> None:
             "ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0"
         )
         logger.info("Migrated users: added 'must_change_password' column")
+
+    # portfolio_items.title / title_status: the worker backfills the product name so
+    # the managed-items pick-lists are searchable by name. Added after the table
+    # shipped; the DEFAULT 'queued' on the ALTER also enqueues existing rows for a
+    # title backfill. Fresh DBs get both (and the claim index) from _SCHEMA.
+    pf_cols = {row[1] for row in conn.execute("PRAGMA table_info(portfolio_items)")}
+    if pf_cols and "title" not in pf_cols:
+        conn.execute("ALTER TABLE portfolio_items ADD COLUMN title TEXT")
+        logger.info("Migrated portfolio_items: added 'title' column")
+    if pf_cols and "title_status" not in pf_cols:
+        conn.execute(
+            "ALTER TABLE portfolio_items ADD COLUMN title_status TEXT NOT NULL DEFAULT 'queued'"
+        )
+        logger.info("Migrated portfolio_items: added 'title_status' column")
+    if pf_cols:
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_portfolio_title_claim "
+            "ON portfolio_items(title_status, id)"
+        )
 
 
 def ensure_schema(conn: sqlite3.Connection) -> None:

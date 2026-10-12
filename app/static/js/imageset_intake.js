@@ -77,4 +77,25 @@
   }
   wireFilename("photo", "photo-filename");
   wireFilename("logo", "logo-filename");
+
+  // --- Managed-item selection -> prefill URL -------------------------------
+  // Picking a managed item fills the "Prefill From A Product URL" box with that
+  // item's URL, so the user can hit "Fetch details" to prefill from it. The box
+  // stays editable, and this only acts when the field is empty or still holds the
+  // autofill prefix (never clobbers a URL the user typed themselves).
+  var URL_PREFIX = "https://www.walmart.com/ip/";
+  var urlInput = document.getElementById("url");
+  if (urlInput) {
+    document.querySelectorAll('input[name="managed_url"]').forEach(function (radio) {
+      radio.addEventListener("change", function () {
+        if (!radio.checked) {
+          return;
+        }
+        var current = urlInput.value.trim();
+        if (current === "" || current === URL_PREFIX) {
+          urlInput.value = radio.value;
+        }
+      });
+    });
+  }
 })();

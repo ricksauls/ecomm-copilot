@@ -1,5 +1,7 @@
 {% extends "app/base.html" %}
 {% import "app/_workspace_tabs.html" as ws %}
+{# Aliased `pfpick` (not `pf`): `pf` is already the prefill-values dict in this page. #}
+{% import "app/_portfolio_pick.html" as pfpick %}
 {% block title %}Product Detail Page Image Set Creation — DISCOtech{% endblock %}
 
 {# Value prefers a re-rendered form (validation error), else the prefill dict. #}
@@ -32,6 +34,15 @@
   </div>
 {% else %}
 
+  {# --- Choose a managed item (required) ------------------------------------ #}
+  {# Selected URL to pre-check: the just-submitted value on a validation re-render,
+     else the draft's product URL (set here or by a prefill of the same item). #}
+  {% set managed_selected = (form.get('managed_url') if form else None)
+        or (project['source_url'] if project and project['source_url'] else None) %}
+  <div class="card pdp-card">
+    {{ pfpick.portfolio_pick_single(portfolio_items, 'imageset-main-form', managed_selected) }}
+  </div>
+
   {# --- Prefill from a product URL ------------------------------------------ #}
   <div class="card pdp-card imageset-url-card">
     <form method="post" action="{{ url_for('pages.imageset_fetch') }}" class="imageset-url-form">
@@ -50,13 +61,13 @@
 
   {# --- Main intake form ---------------------------------------------------- #}
   <div class="card pdp-card">
-    <form method="post" action="{{ url_for('pages.imageset_intake') }}" enctype="multipart/form-data"
-          class="pdp-form imageset-form">
+    <form id="imageset-main-form" method="post" action="{{ url_for('pages.imageset_intake') }}"
+          enctype="multipart/form-data" class="pdp-form imageset-form">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
       {% if project %}<input type="hidden" name="project_id" value="{{ project['id'] }}" />{% endif %}
 
       <div class="form-section">
-        <div class="section-head"><span class="step">1</span><label class="field-label">Product Details</label></div>
+        <div class="section-head"><span class="step">2</span><label class="field-label">Product Details</label></div>
         <p class="brand-hint">These come from the product URL when you prefill — edit them freely.</p>
         <div class="field-grid">
           <div class="field">
@@ -65,9 +76,9 @@
                    required value="{{ v('name') }}" placeholder="e.g. Original Red Pepper Sauce" />
           </div>
           <div class="field">
-            <label class="field-sublabel" for="brand">Brand <span class="field-required">(required)</span></label>
+            <label class="field-sublabel" for="brand">Brand <span class="field-optional">(optional)</span></label>
             <input type="text" id="brand" name="brand" class="text-input" maxlength="120"
-                   required value="{{ v('brand') }}" placeholder="e.g. Tabasco" />
+                   value="{{ v('brand') }}" placeholder="e.g. Tabasco" />
           </div>
         </div>
         <div class="field">
@@ -78,7 +89,7 @@
       </div>
 
       <div class="form-section">
-        <div class="section-head"><span class="step">2</span><label class="field-label">Key Features</label></div>
+        <div class="section-head"><span class="step">3</span><label class="field-label">Key Features</label></div>
         <label class="field-sublabel imageset-features-label">Potential Feature:Benefit content to use on the Feature Images</label>
         {% set ft = form.getlist('feature_title') if form else [] %}
         {% set fd = form.getlist('feature_desc') if form else [] %}
@@ -110,7 +121,7 @@
       </div>
 
       <div class="form-section">
-        <div class="section-head"><span class="step">3</span><label class="field-label">Details To Complete</label></div>
+        <div class="section-head"><span class="step">4</span><label class="field-label">Details To Complete</label></div>
         <p class="brand-hint">These aren’t on the product page — add them to sharpen the generated images.</p>
         <div class="field-grid">
           <div class="field">
@@ -182,7 +193,7 @@
       </div>
 
       <div class="form-section">
-        <div class="section-head"><span class="step">4</span><label class="field-label">Product Photo</label></div>
+        <div class="section-head"><span class="step">5</span><label class="field-label">Product Photo</label></div>
         {% if has_image %}
           <div class="imageset-photo-preview">
             {# Plain (non-checkerboard) frame: this is the ORIGINAL photo, not a
@@ -214,7 +225,7 @@
       </div>
 
       <div class="form-section">
-        <div class="section-head"><span class="step">5</span><label class="field-label">Brand Logo (optional)</label></div>
+        <div class="section-head"><span class="step">6</span><label class="field-label">Brand Logo (optional)</label></div>
         {% if has_logo %}
           <p class="brand-hint">A brand logo is set — it appears in the top-left corner of your
             Lifestyle images. Upload a new file below to replace it.</p>
@@ -235,6 +246,7 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="{{ static_url('js/portfolio.js') }}"></script>
 <script src="{{ static_url('js/imageset_intake.js') }}"></script>
 <script src="{{ static_url('js/imageset_fetch.js') }}"></script>
 {% endblock %}

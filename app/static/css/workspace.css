@@ -3232,6 +3232,15 @@ textarea.text-input { resize: vertical; line-height: 1.5; }
 }
 .pf-pick-brand { font-weight: 600; color: var(--black); }
 .pf-pick-item { color: var(--mid-gray); font-variant-numeric: tabular-nums; }
+/* Backfilled product title — the primary human-readable label; sits between the
+   item # and the URL. Truncates so a long name never breaks the row layout. */
+.pf-pick-title {
+  color: var(--black);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
 .pf-pick-url {
   color: var(--cool-gray);
   overflow: hidden;
