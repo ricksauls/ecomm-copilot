@@ -1,4 +1,5 @@
 {% extends "app/base.html" %}
+{% import "app/_workspace_tabs.html" as ws %}
 {% block title %}Product Detail Page Image Set Creation — DISCOtech{% endblock %}
 
 {# Value prefers a re-rendered form (validation error), else the prefill dict. #}
@@ -13,6 +14,7 @@
       generate a set of marketplace images grounded in the facts you confirm. Nothing is invented.</p>
   </div>
 </div>
+{{ ws.workspace_tabs('create', url_for('pages.imageset_intake'), url_for('pages.activity_all', kind='images')) }}
 
 {% if error %}
 <div class="form-error" role="alert">{{ error }}</div>
