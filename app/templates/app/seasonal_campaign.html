@@ -1,4 +1,5 @@
 {% extends "app/base.html" %}
+{% import "app/_portfolio_pick.html" as pf %}
 {% block title %}{{ campaign['name'] }} — Seasonal Campaign — DISCOtech{% endblock %}
 
 {% block head_extra %}
@@ -62,9 +63,16 @@
   <form method="post" action="{{ url_for('pages.seasonal_add_products', cid=campaign['id']) }}"
         enctype="multipart/form-data" class="pdp-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+
+    {# Step 1 — pick from the user's managed portfolio (checkboxes post as "urls",
+       joined with the manual textarea below by the route). #}
+    {{ pf.portfolio_pick(portfolio_items) }}
+
+    <div class="form-divider"><span>or</span></div>
+
     <div class="form-section">
       <div class="section-head">
-        <span class="step">+</span>
+        <span class="step">2</span>
         <label class="field-label" for="urls">Add products by URL</label>
       </div>
       <textarea id="urls" name="urls" class="text-input" rows="4"
@@ -171,5 +179,6 @@
 
 {% block scripts %}
 <script src="{{ static_url('js/intake.js') }}"></script>
+<script src="{{ static_url('js/portfolio.js') }}"></script>
 <script src="{{ static_url('js/seasonal_campaign.js') }}"></script>
 {% endblock %}

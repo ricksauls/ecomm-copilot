@@ -99,6 +99,21 @@ def test_add_products_queues_acquire(client, auth, app):
         assert {p["source_type"] for p in products} == {"walmart", "amazon_pdp"}
 
 
+def test_add_products_from_managed_items_picker(client, auth, app):
+    # The managed-items picker posts one "urls" value per checked item (same field
+    # as the manual textarea); the route joins every value, so a multi-select adds
+    # each product.
+    cid, uid = _make_campaign(client, auth, app, "sp-pick@example.com")
+    resp = client.post(f"/app/seasonal/{cid}/products", data={
+        "urls": ["https://www.walmart.com/ip/10294528",
+                 "https://www.walmart.com/ip/555123"],
+    })
+    assert resp.status_code == 302
+    with app.app_context():
+        products = store.products_for_campaign(get_db(), cid, uid)
+        assert len(products) == 2
+
+
 def test_retry_product_requeues_failed_acquire(client, auth, app):
     cid, uid = _make_campaign(client, auth, app, "sp-retry@example.com")
     with app.app_context():
