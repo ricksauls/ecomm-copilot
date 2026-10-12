@@ -65,22 +65,18 @@
     <div class="tagline">Your eCommerce CoPilot.</div>
   </div>
 
-  {# Group item lists — `(slug, label, href)`; `#` is a not-yet-built page. #}
-  {% set scoring_items = [
-    ('pdp-scoring', 'Score Product Detail Page(s)', url_for('pages.pdp_scoring')),
-    ('history-scored', 'View Scoring History', url_for('pages.activity_all', kind='scored')),
-  ] %}
+  {# Group item lists — `(slug, label, href)`. History no longer lives in the
+     rail: each tool is a workspace with a Create New / History tab (see
+     `_workspace_tabs.html`), so the rail only routes to the workspace itself.
+     Labels name the feature (not the action). Content Scoring has a single
+     workspace, so it's a standalone leaf below (no group). #}
   {% set copy_items = [
-    ('pdp-copy', 'Product Detail Page Copy Content Creation', url_for('pages.pdp_copy')),
-    ('history-copy', 'View Copy Content Creation History', url_for('pages.activity_all', kind='copy')),
+    ('pdp-copy', 'PDP Copy Creator', url_for('pages.pdp_copy')),
   ] %}
   {% set creative_items = [
-    ('import-images', 'Acquire Product Images From An Existing Site', url_for('pages.import_images_intake')),
-    ('history-acquired', 'View Acquired Images History', url_for('pages.activity_all', kind='acquired')),
-    ('pdp-image-set', 'Product Detail Page Image Set Creation', url_for('pages.imageset_intake')),
-    ('history-images', 'View Creative Content Creation History', url_for('pages.activity_all', kind='images')),
-    ('seasonal', 'Seasonal Content Campaigns', url_for('pages.seasonal_home')),
-    ('history-seasonal', 'View Seasonal Campaign History', url_for('pages.seasonal_history')),
+    ('import-images', 'Image Import', url_for('pages.import_images_intake')),
+    ('pdp-image-set', 'PDP Image Creator', url_for('pages.imageset_intake')),
+    ('seasonal', 'Seasonal Campaigns', url_for('pages.seasonal_home')),
   ] %}
   {% set reporting_items = [
     ('ci-snapshot', 'One-Time Snapshot', url_for('pages.ci_snapshot_home')),
@@ -96,9 +92,16 @@
       <span class="rail-main-label">Dashboard</span>
     </a>
 
-    {{ rail_group('scoring', 'Product Content Scoring', scoring_items, active_nav) }}
-    {{ rail_group('copy', 'Copy Content<br>Studio', copy_items, active_nav) }}
-    {{ rail_group('creative', 'Creative Content Studio', creative_items, active_nav) }}
+    {# Content Scoring — single workspace, so a standalone leaf (its history is a
+       tab inside the tool, reached from the scoring page). #}
+    <a href="{{ url_for('pages.pdp_scoring') }}"
+       class="rail-leaf{{ ' active' if active_nav == 'pdp-scoring' else '' }}">
+      <span class="rail-ico">{{ rail_icon('scoring') }}</span>
+      <span class="rail-main-label">Content Scoring</span>
+    </a>
+
+    {{ rail_group('copy', 'Copy Studio', copy_items, active_nav) }}
+    {{ rail_group('creative', 'Creative Studio', creative_items, active_nav) }}
     {{ rail_group('reporting', 'Insights', reporting_items, active_nav) }}
 
     {# Contact Us — standalone link with a muted hint at what the channel is for;

@@ -1,10 +1,13 @@
 {% extends "app/base.html" %}
 {% import "app/_dash_tables.html" as t %}
+{% import "app/_workspace_tabs.html" as ws %}
 {% block title %}{{ title }} — DISCOtech{% endblock %}
 
 {% block pane_content %}
 {# View All: the full, all-time history for one dashboard activity (the dashboard
-   shows only the current month). One table, uncapped, page-scrolled. #}
+   shows only the current month). One table, uncapped, page-scrolled. For content
+   workspaces this is the "History" tab; CI kinds pass no `workspace` and show no
+   tab bar. #}
 <div class="page-header">
   <div>
     <h1>{{ title }}</h1>
@@ -14,6 +17,7 @@
     <a href="{{ url_for('pages.dashboard') }}" class="wbtn wbtn-secondary">← Dashboard</a>
   </div>
 </div>
+{% if workspace %}{{ ws.workspace_tabs('history', workspace.create_href, workspace.history_href) }}{% endif %}
 
 <div class="dash-tables">
   {% if layout == 'product' %}

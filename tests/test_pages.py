@@ -383,46 +383,45 @@ def test_row_click_opens_whole_run(client, auth, app):
     assert b"Other Run Item" not in resp.data
 
 
-def test_content_activity_shows_all_three_tables_all_time(client, auth, app):
-    # The View Content Activity screen has the three Content Studio tables, all-time
-    # (a prior-month scored item appears here even though the dashboard hides it),
-    # with clickable rows and the nav link present.
-    from app import jobs
-    from app.db import get_db
-
+def test_content_activity_route_removed(client, auth):
+    # The combined "View All Content Activity" roll-up was retired in the nav
+    # redesign (history now lives inside each tool's workspace); the route 404s.
     auth.register(email="ca@example.com")
-    with app.app_context():
-        db = get_db()
-        uid = db.execute("SELECT id FROM users WHERE email = ?", ("ca@example.com",)).fetchone()["id"]
-        ids = jobs.enqueue_items(db, uid, [{"url": "https://www.walmart.com/ip/808", "item": "808"}])
-        jobs.save_result(db, ids[0], 91, {"overall": 91}, "Old Content Item")
-        db.execute("UPDATE scored_items SET created_at = '2020-03-01 00:00:00' WHERE id = ?", (ids[0],))
-        db.commit()
-        sid = ids[0]
+    assert client.get("/app/content-activity").status_code == 404
 
-    resp = client.get("/app/content-activity")
-    assert resp.status_code == 200
-    assert b"View All Content Activity" in resp.data
-    assert b"Products Scored" in resp.data
-    assert b"Copy Created" in resp.data
-    assert b"Image Sets Created" in resp.data
-    # All-time: the prior-month item shows, and its row links to the run's results.
-    assert b"Old Content Item" in resp.data
-    assert f"/app/pdp-scoring/item/{sid}".encode() in resp.data
 
-    # The rail no longer carries the combined "View All Content Activity" link —
-    # it was replaced by per-category history items under each Studio group. The
-    # page itself is still reachable by URL; the rail now links the per-category
-    # histories (scoring/copy/creative) instead.
+def test_rail_routes_workspaces_not_separate_histories(client, auth):
+    # After the redesign the rail routes to each workspace by its feature name and
+    # carries NO separate "View … History" items — history is a tab inside the
+    # tool (see test_workspace_has_create_and_history_tabs). CI is unchanged.
+    auth.register()
     rail = client.get("/app").data
-    assert b"/app/activity/scored" in rail  # View Scoring History
-    assert b"/app/activity/copy" in rail  # View Copy Content Creation History
-    assert b"/app/activity/images" in rail  # View Creative Content Creation History
+
+    # Workspaces are present under their shortened feature labels.
+    assert b"Content Scoring" in rail
+    assert b"Copy Studio" in rail
+    assert b"Creative Studio" in rail
+    for label in (b"PDP Copy Creator", b"Image Import", b"PDP Image Creator",
+                  b"Seasonal Campaigns"):
+        assert label in rail
+
+    # The old action-worded labels and the per-category history twins are gone.
+    for gone in (b"View Scoring History", b"View Copy Content Creation History",
+                 b"View Creative Content Creation History",
+                 b"View Acquired Images History", b"View Seasonal Campaign History",
+                 b"Product Content Scoring", b"Copy Content Studio",
+                 b"Creative Content Studio"):
+        assert gone not in rail
 
 
-def test_content_activity_requires_login(client):
-    resp = client.get("/app/content-activity")
-    assert resp.status_code in (301, 302)
+def test_workspace_has_create_and_history_tabs(client, auth):
+    # Each content tool renders the Create New / History workspace tab bar, with
+    # the History tab linking to that tool's activity view.
+    auth.register()
+    page = client.get("/app/pdp-scoring").data
+    assert b"ws-tabs" in page
+    assert b"Create New" in page and b"History" in page
+    assert b"/app/activity/scored" in page  # the History tab's href
 
 
 def test_ci_activity_shows_both_ci_tables_all_time(client, auth, app):

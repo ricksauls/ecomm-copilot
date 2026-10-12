@@ -1,4 +1,5 @@
 {% extends "app/base.html" %}
+{% import "app/_workspace_tabs.html" as ws %}
 {% block title %}Seasonal Campaign History — DISCOtech{% endblock %}
 
 {% block head_extra %}
@@ -13,10 +14,8 @@
     <p class="subtitle">Campaigns that have produced at least one seasonal image. Open one to
       review, regenerate, or download its creative.</p>
   </div>
-  <div class="page-header-actions">
-    <a class="wbtn wbtn-secondary" href="{{ url_for('pages.seasonal_home') }}">New campaign</a>
-  </div>
 </div>
+{{ ws.workspace_tabs('history', url_for('pages.seasonal_home'), url_for('pages.seasonal_history')) }}
 
 {% if campaigns %}
 <div class="seasonal-campaign-list">

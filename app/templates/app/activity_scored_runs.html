@@ -1,10 +1,12 @@
 {% extends "app/base.html" %}
 {% import "app/_dash_tables.html" as t %}
+{% import "app/_workspace_tabs.html" as ws %}
 {% block title %}{{ title }} — DISCOtech{% endblock %}
 
 {% block pane_content %}
-{# View Scoring History: the full, all-time scored history grouped by run (one row
-   per scoring action; each lists up to three of its items + "And N more…"). #}
+{# The Content Scoring workspace's "History" tab: the full, all-time scored
+   history grouped by run (one row per scoring action; each lists up to three of
+   its items + "And N more…"). #}
 <div class="page-header">
   <div>
     <h1>{{ title }}</h1>
@@ -14,6 +16,7 @@
     <a href="{{ url_for('pages.dashboard') }}" class="wbtn wbtn-secondary">← Dashboard</a>
   </div>
 </div>
+{% if workspace %}{{ ws.workspace_tabs('history', workspace.create_href, workspace.history_href) }}{% endif %}
 
 <div class="dash-tables">
   {{ t.scored_runs_table(title, "All records", runs, empty, searchable=true) }}

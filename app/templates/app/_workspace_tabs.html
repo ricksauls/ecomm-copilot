@@ -1,0 +1,20 @@
+{# Workspace tab bar: switches between a tool's "Create New" view and its
+   "History" view. Each content tool is now a workspace with these two tabs
+   (navigation to the workspace lives in the rail; the Create/History choice
+   lives here, inside the workspace), replacing the old separate "View …
+   History" rail items.
+
+   `active` is 'create' or 'history'; `create_href` / `history_href` are the two
+   view URLs. `history_label` lets a workspace name its history tab (default
+   "History"). Plain links — works with JS off; the active tab is non-clickable
+   visually via styling only. #}
+{% macro workspace_tabs(active, create_href, history_href, history_label='History') -%}
+<nav class="ws-tabs" aria-label="Workspace views">
+  <a href="{{ create_href }}"
+     class="ws-tab{{ ' active' if active == 'create' else '' }}"
+     {{ 'aria-current="page"' if active == 'create' else '' }}>Create New</a>
+  <a href="{{ history_href }}"
+     class="ws-tab{{ ' active' if active == 'history' else '' }}"
+     {{ 'aria-current="page"' if active == 'history' else '' }}>{{ history_label }}</a>
+</nav>
+{%- endmacro %}

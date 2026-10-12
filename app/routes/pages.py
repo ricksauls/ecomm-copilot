@@ -303,26 +303,55 @@ _ACTIVITY_META = {
 # History" etc. light up); the CI histories map to the Reporting section's
 # "View All Competitive Intelligence Activity" item. Unknown kinds never reach
 # here (activity_all 404s first), so a plain dict is sufficient.
+# History now lives inside each tool's workspace (Create New / History tabs), so
+# a history page keeps the *workspace* rail item highlighted rather than its own
+# nav slug. CI history is unchanged (CI is not yet on the workspace model).
 _ACTIVITY_ACTIVE_NAV = {
-    "scored": "history-scored",
-    "copy": "history-copy",
-    "images": "history-images",
-    "acquired": "history-acquired",
+    "scored": "pdp-scoring",
+    "copy": "pdp-copy",
+    "images": "pdp-image-set",
+    "acquired": "import-images",
     "ci-snapshot": "ci-activity",
     "ci-monitoring": "ci-activity",
 }
 
-# Topbar breadcrumb per activity kind, in the rail's "<main group> · <sub-item>"
-# form. The three content histories use their own history sub-item; the CI
-# histories (reached from the dashboard) use the closest Insights flow.
+# Topbar breadcrumb per activity kind, in the "<workspace> · History" form (the
+# content histories are the History tab of their workspace). The CI histories
+# (reached from the dashboard) use the closest Insights flow.
 _ACTIVITY_BREADCRUMB = {
-    "scored": "Product Content Scoring · View Scoring History",
-    "copy": "Copy Content Studio · View Copy Content Creation History",
-    "images": "Creative Content Studio · View Creative Content Creation History",
-    "acquired": "Creative Content Studio · View Acquired Images History",
+    "scored": "Content Scoring · History",
+    "copy": "PDP Copy Creator · History",
+    "images": "PDP Image Creator · History",
+    "acquired": "Image Import · History",
     "ci-snapshot": "Insights · One-Time Snapshot",
     "ci-monitoring": "Insights · Daily Monitoring",
 }
+
+# For the content workspaces, a history page also renders the workspace tab bar.
+# Maps the activity `kind` to its paired Create-New endpoint; the History href is
+# always ``activity_all`` for that kind. CI kinds are absent (no workspace bar).
+_ACTIVITY_WORKSPACE_CREATE = {
+    "scored": "pages.pdp_scoring",
+    "copy": "pages.pdp_copy",
+    "images": "pages.imageset_intake",
+    "acquired": "pages.import_images_intake",
+}
+
+
+def _activity_workspace(kind):
+    """Build the workspace-tab context for a history page, or None for CI kinds.
+
+    Returns a dict of the two tab hrefs so the shared ``activity_all.html`` /
+    ``activity_scored_runs.html`` can render the Create New / History bar only on
+    content workspaces.
+    """
+    create_endpoint = _ACTIVITY_WORKSPACE_CREATE.get(kind)
+    if create_endpoint is None:
+        return None
+    return {
+        "create_href": url_for(create_endpoint),
+        "history_href": url_for("pages.activity_all", kind=kind),
+    }
 
 
 def _activity_rows(db, uid, kind, since):
@@ -530,6 +559,7 @@ def activity_all(kind):
             "app/activity_scored_runs.html",
             breadcrumb=_ACTIVITY_BREADCRUMB.get(kind),
             active_nav=_ACTIVITY_ACTIVE_NAV.get(kind, "dashboard"),
+            workspace=_activity_workspace(kind),
             title="Brands/Products Scored",
             runs=runs,
             empty="Nothing scored yet.",
@@ -541,6 +571,7 @@ def activity_all(kind):
         "app/activity_all.html",
         breadcrumb=_ACTIVITY_BREADCRUMB.get(kind, "Dashboard · " + title),
         active_nav=_ACTIVITY_ACTIVE_NAV.get(kind, "dashboard"),
+        workspace=_activity_workspace(kind),
         title=title,
         layout=layout,
         with_score=with_score,
@@ -553,29 +584,6 @@ def activity_all(kind):
     if kind == "acquired":
         resp.headers["Content-Security-Policy"] = _IMPORT_GALLERY_CSP
     return resp
-
-
-@bp.route("/app/content-activity")
-@login_required
-def content_activity():
-    """View All Content Activity: all-time PDP scoring / copy / image-set activity.
-
-    The dashboard's Content Studio tables show only the current month; this shows
-    the full history for all three in one place, using the same dashboard-style
-    tables (collapsible, sortable, 10-row cap, row-click opens the run's results).
-    Not month-scoped — ``since=None``.
-    """
-    db = get_db()
-    uid = g.user["id"]
-    logger.info("Serving View All Content Activity user_id=%s", uid)
-    return render_template(
-        "app/content_activity.html",
-        breadcrumb="Dashboard · View All Content Activity",
-        active_nav="content-activity",
-        scored=_activity_rows(db, uid, "scored", since=None),
-        copy=_activity_rows(db, uid, "copy", since=None),
-        images=_activity_rows(db, uid, "images", since=None),
-    )
 
 
 @bp.route("/app/competitive-intel/activity")
@@ -2941,9 +2949,11 @@ def import_download_zip(run_id):
 # image is composited onto a fresh AI seasonal backdrop. Create-and-download only.
 # Reuses the import acquire resolver + the image-set compositor/providers.
 
+# The Seasonal Campaigns workspace: one rail slug for both the Create New view
+# (home) and the History tab, so the rail stays highlighted across both.
 _SEASONAL_NAV = "seasonal"
-_SEASONAL_HISTORY_NAV = "history-seasonal"
-_SEASONAL_BREADCRUMB = "Creative Content Studio · Seasonal Content Campaigns"
+_SEASONAL_BREADCRUMB = "Creative Studio · Seasonal Campaigns"
+_SEASONAL_HISTORY_BREADCRUMB = "Seasonal Campaigns · History"
 _SEASONAL_NAME_MAX = 120
 _SEASONAL_CUSTOM_MAX = 600
 # The detail page hotlinks external CDN thumbnails (the acquired gallery) AND serves
@@ -3073,8 +3083,8 @@ def seasonal_history():
     logger.info("Serving Seasonal Campaign history user_id=%s (%d)", uid, len(campaigns))
     return render_template(
         "app/seasonal_history.html",
-        breadcrumb="Creative Content Studio · View Seasonal Campaign History",
-        active_nav=_SEASONAL_HISTORY_NAV, campaigns=campaigns,
+        breadcrumb=_SEASONAL_HISTORY_BREADCRUMB,
+        active_nav=_SEASONAL_NAV, campaigns=campaigns,
         theme_label=seasonal_themes.theme_label,
     )
 
