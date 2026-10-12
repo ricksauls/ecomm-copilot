@@ -1,0 +1,68 @@
+{% extends "app/base.html" %}
+{% block title %}Compose Message — DISCOtech{% endblock %}
+
+{% block pane_content %}
+<div class="page-header">
+  <div>
+    <h1>Compose Message</h1>
+    <p class="subtitle">
+      Send to one person or several at once. Each recipient gets a private
+      conversation — replies come back to you, never to the other recipients.
+    </p>
+  </div>
+  <a href="{{ url_for('pages.admin_messages') }}" class="wbtn wbtn-secondary">
+    Back to inbox
+  </a>
+</div>
+
+{% with flashes = get_flashed_messages(with_categories=true) %}
+  {% for category, message in flashes %}
+  <div class="ci-flash {{ category }}" role="alert">{{ message }}</div>
+  {% endfor %}
+{% endwith %}
+
+<form method="post" action="{{ url_for('pages.admin_message_send') }}"
+      class="msg-form" data-compose-form>
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+
+  <div class="card card-pad">
+    <div class="ci-section-title">Recipients</div>
+    {% if recipients %}
+    <div class="compose-recipients-head">
+      <label class="compose-check">
+        <input type="checkbox" data-select-all />
+        <span>Select all</span>
+      </label>
+      <span class="cell-muted" data-recipient-count>0 recipients selected</span>
+    </div>
+    <div class="compose-recipients">
+      {% for u in recipients %}
+      <label class="compose-check compose-recipient">
+        <input type="checkbox" name="recipient_ids" value="{{ u.id }}" data-recipient />
+        <span class="compose-recipient-email">{{ u.email }}</span>
+        <span class="role-badge role-{{ u.role }}">{{ u.role | capitalize }}</span>
+      </label>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="results-count">No users to message yet.</p>
+    {% endif %}
+  </div>
+
+  <div class="card card-pad">
+    <div class="ci-section-title">Message</div>
+    <input type="text" name="subject" class="ci-input grow" placeholder="Subject"
+           maxlength="200" required />
+    <textarea name="body" class="ci-input msg-body" rows="6" maxlength="5000"
+              placeholder="Write your message…" required></textarea>
+    <div>
+      <button type="submit" class="wbtn wbtn-primary"
+              {{ 'disabled' if not recipients else '' }}>Send Message</button>
+    </div>
+  </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ static_url('js/admin_compose.js') }}" defer></script>
+{% endblock %}

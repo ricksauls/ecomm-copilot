@@ -10,7 +10,16 @@
       unread first.
     </p>
   </div>
+  <a href="{{ url_for('pages.admin_message_new') }}" class="wbtn wbtn-primary">
+    Compose
+  </a>
 </div>
+
+{% with flashes = get_flashed_messages(with_categories=true) %}
+  {% for category, message in flashes %}
+  <div class="ci-flash {{ category }}" role="alert">{{ message }}</div>
+  {% endfor %}
+{% endwith %}
 
 <div class="card card-pad">
   {% if threads %}

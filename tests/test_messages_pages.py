@@ -103,6 +103,73 @@ def test_admin_can_close_and_reopen(client, auth, app):
         assert messages.get_thread(get_db(), tid)["status"] == "closed"
 
 
+# ── admin compose (admin starts a conversation) ──────────────────────────────
+
+def test_compose_screen_lists_users_for_admin(client, auth, app):
+    _as_admin(app)
+    with app.app_context():
+        create_local_user("target@example.com", _PW)
+    auth.register(email=_ADMIN)
+    page = client.get("/admin/messages/new")
+    assert page.status_code == 200
+    assert b"target@example.com" in page.data
+    assert b"Select all" in page.data
+
+
+def test_compose_forbidden_for_regular_user(client, auth, app):
+    _as_admin(app)
+    auth.register(email="regular@example.com")
+    assert client.get("/admin/messages/new").status_code == 403
+    assert client.post("/admin/messages/new", data={}).status_code == 403
+
+
+def test_admin_composes_to_single_recipient(client, auth, app):
+    _as_admin(app)
+    with app.app_context():
+        rid = create_local_user("one@example.com", _PW)
+    auth.register(email=_ADMIN)
+    resp = client.post("/admin/messages/new", data={
+        "recipient_ids": [str(rid)], "subject": "Welcome", "body": "Glad you're here.",
+    })
+    # One recipient drops the admin straight into the new conversation.
+    assert resp.status_code == 302
+    tid = int(resp.headers["Location"].rstrip("/").split("/")[-1])
+    with app.app_context():
+        rows = messages.list_messages(get_db(), tid)
+        assert rows[0]["sender_role"] == "admin" and rows[0]["body"] == "Glad you're here."
+        assert messages.get_thread(get_db(), tid)["user_id"] == rid
+
+
+def test_admin_broadcasts_to_multiple_recipients(client, auth, app):
+    _as_admin(app)
+    with app.app_context():
+        r1 = create_local_user("a@example.com", _PW)
+        r2 = create_local_user("b@example.com", _PW)
+    auth.register(email=_ADMIN)
+    resp = client.post("/admin/messages/new", data={
+        "recipient_ids": [str(r1), str(r2)], "subject": "News", "body": "Big update.",
+    }, follow_redirects=True)
+    assert resp.status_code == 200
+    assert b"Message sent to 2 recipients" in resp.data
+    with app.app_context():
+        # One private thread per recipient.
+        assert get_db().execute(
+            "SELECT COUNT(*) FROM message_threads").fetchone()[0] == 2
+
+
+def test_compose_with_no_recipients_reflashes_without_sending(client, auth, app):
+    _as_admin(app)
+    auth.register(email=_ADMIN)
+    resp = client.post("/admin/messages/new", data={
+        "subject": "Oops", "body": "No one selected.",
+    }, follow_redirects=True)
+    assert resp.status_code == 200
+    assert b"at least one recipient" in resp.data
+    with app.app_context():
+        assert get_db().execute(
+            "SELECT COUNT(*) FROM message_threads").fetchone()[0] == 0
+
+
 # ── notification counts in the shell ─────────────────────────────────────────
 
 def test_unread_badges_render_for_each_side(client, auth, app):

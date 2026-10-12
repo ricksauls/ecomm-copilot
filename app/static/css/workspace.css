@@ -2636,6 +2636,15 @@ body.cost-modal-open {
 .msg-body { width: 100%; resize: vertical; font-family: inherit; line-height: 1.5; }
 .msg-reply { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 16px; }
 
+/* Compose screen: the recipient picker (Select all + a scrollable checklist). */
+.compose-recipients-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 4px 0 10px; }
+.compose-recipients { display: flex; flex-direction: column; max-height: 320px; overflow-y: auto; border: 1px solid var(--border); border-radius: 10px; }
+.compose-check { display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 13.5px; }
+.compose-recipient { padding: 9px 12px; border-bottom: 1px solid var(--border); }
+.compose-recipient:last-child { border-bottom: 0; }
+.compose-recipient:hover { background: var(--surface); }
+.compose-recipient-email { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 /* Inbox rows: unread ones get a heavier subject and a leading dot. */
 .msg-link { text-decoration: none; color: var(--black); font-weight: 500; display: inline-flex; align-items: center; gap: 8px; }
 .msg-link:hover { text-decoration: underline; }

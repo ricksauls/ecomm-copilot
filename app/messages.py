@@ -19,13 +19,20 @@ import sqlite3
 logger = logging.getLogger(__name__)
 
 # Triage categories offered on the contact form (allowlist — anything else is
-# rejected rather than stored).
+# rejected rather than stored). This is the *user* allowlist only; it intentionally
+# omits "announcement" so a user can't self-file as one.
 CATEGORIES = ("question", "issue", "customization", "other")
+
+# The category stamped on admin-initiated threads (see ``broadcast_from_admin``).
+# Kept out of ``CATEGORIES`` above so it is display-only, never user-selectable.
+CATEGORY_ANNOUNCEMENT = "announcement"
+
 _CATEGORY_LABELS = {
     "question": "Question",
     "issue": "Issue",
     "customization": "Customization",
     "other": "Other",
+    CATEGORY_ANNOUNCEMENT: "Announcement",
 }
 
 MAX_SUBJECT_LEN = 200
@@ -83,6 +90,72 @@ def create_thread(conn: sqlite3.Connection, user_id: int, subject: str,
     conn.commit()
     logger.info("Message thread opened id=%s user_id=%s category=%s", thread_id, user_id, category)
     return thread_id
+
+
+def broadcast_from_admin(conn: sqlite3.Connection, recipient_ids: list[int],
+                         admin_id: int, subject: str, body: str) -> list[int]:
+    """Fan one admin-written message out to a private thread per recipient.
+
+    Admins compose *to* users (the inbox otherwise only lets them reply). We keep
+    the single-owner / IDOR model intact by giving each recipient their own thread
+    rather than inventing a multi-owner "group" thread: a broadcast to N people is
+    N private 1:1 conversations, so each recipient's later replies stay visible only
+    to them and the admins — never to the other recipients.
+
+    The opening message is from the **admin** side, so (mirroring ``create_thread``
+    for the user case) it lands *read* for the admin and *unread* for the recipient,
+    lighting their notification badge. All threads are created in one transaction so
+    a partial fan-out can't leave some recipients messaged and others silently not.
+
+    Returns the new thread ids (in validated-recipient order). Raises
+    :class:`MessageError` on empty/oversized text or an unknown recipient.
+    """
+    subject = _clean(subject, max_len=MAX_SUBJECT_LEN, field="Subject")
+    body = _clean(body, max_len=MAX_BODY_LEN, field="Message")
+
+    # De-dupe while preserving order (a double-checked box must not send twice).
+    seen: set[int] = set()
+    ids = [rid for rid in recipient_ids if not (rid in seen or seen.add(rid))]
+    if not ids:
+        raise MessageError("Pick at least one recipient.")
+
+    # Confirm every recipient still exists before writing anything — avoids a FK
+    # failure mid-loop and a confusing partial send. Parameterized IN-list.
+    placeholders = ",".join("?" * len(ids))
+    found = {
+        row[0]
+        for row in conn.execute(
+            f"SELECT id FROM users WHERE id IN ({placeholders})", ids
+        ).fetchall()
+    }
+    if len(found) != len(ids):
+        raise MessageError("One or more selected recipients no longer exist.")
+
+    thread_ids: list[int] = []
+    for rid in ids:
+        cur = conn.execute(
+            "INSERT INTO message_threads (user_id, subject, category) VALUES (?, ?, ?)",
+            (rid, subject, CATEGORY_ANNOUNCEMENT),
+        )
+        thread_id = int(cur.lastrowid)
+        msg = conn.execute(
+            "INSERT INTO messages (thread_id, sender_id, sender_role, body) VALUES (?, ?, ?, ?)",
+            (thread_id, admin_id, ROLE_ADMIN, body),
+        )
+        # The admin has, by definition, read their own opening message; the
+        # recipient has not — leaving user_last_read_msg_id at 0 keeps it unread.
+        conn.execute(
+            "UPDATE message_threads SET admin_last_read_msg_id = ? WHERE id = ?",
+            (int(msg.lastrowid), thread_id),
+        )
+        thread_ids.append(thread_id)
+
+    conn.commit()
+    logger.info(
+        "Admin broadcast: admin_id=%s recipients=%d threads=%s",
+        admin_id, len(thread_ids), thread_ids,
+    )
+    return thread_ids
 
 
 def post_reply(conn: sqlite3.Connection, thread_id: int, sender_id: int,

@@ -2972,6 +2972,55 @@ def admin_messages():
     )
 
 
+@bp.route("/admin/messages/new")
+@admin_required
+def admin_message_new():
+    """Compose screen: pick one or more recipients and write a single message.
+
+    Sending fans the message out to one private thread per recipient (see
+    ``messages.broadcast_from_admin``).
+    """
+    logger.info("Admin compose view: admin_user_id=%s", g.user["id"])
+    return render_template(
+        "app/admin_message_new.html",
+        breadcrumb="Admin · Messages",
+        active_nav="admin-messages",
+        recipients=users.list_users(),
+    )
+
+
+@bp.route("/admin/messages/new", methods=["POST"])
+@admin_required
+def admin_message_send():
+    """Fan a composed message out to the selected recipients."""
+    db = get_db()
+    # Checkbox values arrive as strings; keep only well-formed ids and let the
+    # messages layer reject an empty set or an id that no longer exists.
+    recipient_ids: list[int] = []
+    for raw in request.form.getlist("recipient_ids"):
+        try:
+            recipient_ids.append(int(raw))
+        except (TypeError, ValueError):
+            continue
+    try:
+        thread_ids = messages.broadcast_from_admin(
+            db, recipient_ids, g.user["id"],
+            request.form.get("subject", ""), request.form.get("body", ""),
+        )
+    except messages.MessageError as e:
+        flash(str(e), "error")
+        return redirect(url_for("pages.admin_message_new"))
+
+    count = len(thread_ids)
+    logger.info("Admin composed message: admin_user_id=%s recipients=%d", g.user["id"], count)
+    if count == 1:
+        # Single recipient: drop straight into the conversation we just started.
+        flash("Message sent.", "ok")
+        return redirect(url_for("pages.admin_message_thread", thread_id=thread_ids[0]))
+    flash(f"Message sent to {count} recipients.", "ok")
+    return redirect(url_for("pages.admin_messages"))
+
+
 @bp.route("/admin/messages/<int:thread_id>")
 @admin_required
 def admin_message_thread(thread_id):

@@ -112,3 +112,91 @@ def test_create_thread_validation(app, subject, category, body):
         uid = create_local_user("v@example.com", "password123")
         with pytest.raises(MessageError):
             messages.create_thread(db, uid, subject, category, body)
+
+
+# ── admin-initiated broadcast (admin composes TO users) ──────────────────────
+
+def test_broadcast_creates_one_private_thread_per_recipient(app):
+    with app.app_context():
+        db = get_db()
+        admin = create_local_user("admin@example.com", "password123")
+        r1 = create_local_user("r1@example.com", "password123")
+        r2 = create_local_user("r2@example.com", "password123")
+        tids = messages.broadcast_from_admin(
+            db, [r1, r2], admin, "Scheduled maintenance", "We'll be down Sunday.")
+        assert len(tids) == 2
+        # Each thread belongs to its recipient, opens with an admin message, and
+        # carries the announcement category.
+        owners = []
+        for tid in tids:
+            thread = messages.get_thread(db, tid)
+            owners.append(thread["user_id"])
+            assert thread["category"] == messages.CATEGORY_ANNOUNCEMENT
+            msgs = messages.list_messages(db, tid)
+            assert len(msgs) == 1 and msgs[0]["sender_role"] == "admin"
+            assert msgs[0]["body"] == "We'll be down Sunday."
+        assert set(owners) == {r1, r2}
+        # Unread for each recipient, read for the admin side (they wrote it).
+        assert messages.count_unread_for_user(db, r1) == 1
+        assert messages.count_unread_for_user(db, r2) == 1
+        assert messages.count_unread_for_admin(db) == 0
+
+
+def test_broadcast_to_single_recipient(app):
+    with app.app_context():
+        db = get_db()
+        admin = create_local_user("admin@example.com", "password123")
+        r1 = create_local_user("r1@example.com", "password123")
+        tids = messages.broadcast_from_admin(db, [r1], admin, "Hi", "Just you.")
+        assert len(tids) == 1
+        assert messages.count_unread_for_user(db, r1) == 1
+
+
+def test_broadcast_dedupes_repeated_recipients(app):
+    # A doubled id (e.g. a mangled form post) must not send twice.
+    with app.app_context():
+        db = get_db()
+        admin = create_local_user("admin@example.com", "password123")
+        r1 = create_local_user("r1@example.com", "password123")
+        tids = messages.broadcast_from_admin(db, [r1, r1, r1], admin, "S", "B")
+        assert len(tids) == 1
+
+
+def test_recipient_reply_stays_private_to_their_thread(app):
+    # The whole point of per-recipient fan-out: one recipient's reply reaches the
+    # admin but never the other recipients' threads.
+    with app.app_context():
+        db = get_db()
+        admin = create_local_user("admin@example.com", "password123")
+        r1 = create_local_user("r1@example.com", "password123")
+        r2 = create_local_user("r2@example.com", "password123")
+        t1, t2 = messages.broadcast_from_admin(db, [r1, r2], admin, "S", "B")
+        messages.mark_read(db, t1, "admin")
+        messages.mark_read(db, t2, "admin")
+        messages.post_reply(db, t1, r1, "user", "Thanks!")
+        assert messages.count_unread_for_admin(db) == 1          # only r1's thread
+        assert len(messages.list_messages(db, t2)) == 1          # r2 untouched
+
+
+@pytest.mark.parametrize("recipients,subject,body", [
+    ([], "subj", "body"),                   # no recipients
+    ([1], "", "body"),                      # empty subject
+    ([1], "subj", ""),                      # empty body
+])
+def test_broadcast_validation(app, recipients, subject, body):
+    with app.app_context():
+        db = get_db()
+        admin = create_local_user("admin@example.com", "password123")
+        with pytest.raises(MessageError):
+            messages.broadcast_from_admin(db, recipients, admin, subject, body)
+
+
+def test_broadcast_rejects_unknown_recipient(app):
+    with app.app_context():
+        db = get_db()
+        admin = create_local_user("admin@example.com", "password123")
+        r1 = create_local_user("r1@example.com", "password123")
+        with pytest.raises(MessageError):
+            messages.broadcast_from_admin(db, [r1, 999999], admin, "S", "B")
+        # Nothing was written (one transaction, all-or-nothing).
+        assert db.execute("SELECT COUNT(*) FROM message_threads").fetchone()[0] == 0
