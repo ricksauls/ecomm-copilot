@@ -1,0 +1,44 @@
+{% extends "app/base.html" %}
+{% block title %}Seasonal Campaign History — DISCOtech{% endblock %}
+
+{% block head_extra %}
+  {# The cards show same-origin generated thumbnails, so the default CSP img-src
+     'self' is fine — no relaxed CSP needed here (unlike the live detail page). #}
+{% endblock %}
+
+{% block pane_content %}
+<div class="page-header">
+  <div>
+    <h1>Seasonal Campaign History</h1>
+    <p class="subtitle">Campaigns that have produced at least one seasonal image. Open one to
+      review, regenerate, or download its creative.</p>
+  </div>
+  <div class="page-header-actions">
+    <a class="wbtn wbtn-secondary" href="{{ url_for('pages.seasonal_home') }}">New campaign</a>
+  </div>
+</div>
+
+{% if campaigns %}
+<div class="seasonal-campaign-list">
+  {% for c in campaigns %}
+  <a class="card card-pad seasonal-campaign-card" href="{{ url_for('pages.seasonal_campaign', cid=c['id']) }}">
+    <div class="seasonal-campaign-head">
+      <span class="seasonal-campaign-name">{{ c['name'] }}</span>
+      <span class="seasonal-campaign-theme">{{ theme_label(c['theme']) }}</span>
+    </div>
+    <div class="seasonal-campaign-meta">
+      {{ c['product_count'] }} product(s) · {{ c['image_count'] }} seasonal image(s)
+      · created {{ c['created_at'][:10] }}
+    </div>
+    <div class="seasonal-campaign-dates">
+      {% if c['launch_date'] %}Launch {{ c['launch_date'] }}{% endif %}
+      {% if c['expiration_date'] %} · Expires {{ c['expiration_date'] }}{% endif %}
+    </div>
+  </a>
+  {% endfor %}
+</div>
+{% else %}
+<p class="empty-note">No finished campaigns yet. Start one from
+  <a href="{{ url_for('pages.seasonal_home') }}">Seasonal Content Campaigns</a>.</p>
+{% endif %}
+{% endblock %}

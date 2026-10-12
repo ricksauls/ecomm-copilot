@@ -1,0 +1,105 @@
+{% extends "app/base.html" %}
+{% block title %}Seasonal Content Campaigns — DISCOtech{% endblock %}
+
+{% block pane_content %}
+<div class="page-header">
+  <div>
+    <h1>Seasonal Content Campaigns</h1>
+    <p class="subtitle">Dress your product photography for the season. Start a campaign,
+      add products by URL, pick the images you want, and we composite each onto a fresh
+      AI-generated seasonal backdrop — ready to review and download.</p>
+  </div>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% for category, message in messages %}
+  <div class="ci-flash {{ category }}" role="alert">{{ message }}</div>
+  {% endfor %}
+{% endwith %}
+
+{# ── Start a new campaign ─────────────────────────────────────────────── #}
+<div class="card pdp-card">
+  <form method="post" action="{{ url_for('pages.seasonal_home') }}" class="pdp-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+
+    <div class="form-section">
+      <div class="section-head">
+        <span class="step">1</span>
+        <label class="field-label" for="name">Campaign name</label>
+      </div>
+      <input type="text" id="name" name="name" class="text-input" maxlength="120"
+             placeholder="e.g. Holiday 2026 — Hot Sauce Line" value="{{ form.get('name', '') }}" />
+    </div>
+
+    <div class="form-section">
+      <div class="section-head">
+        <span class="step">2</span>
+        <label class="field-label" for="theme">Season / theme</label>
+      </div>
+      <select id="theme" name="theme" class="text-input">
+        {% for t in themes %}
+        <option value="{{ t.slug }}"{{ ' selected' if form.get('theme') == t.slug else '' }}>{{ t.label }}</option>
+        {% endfor %}
+      </select>
+      <p class="field-hint">Pick a season, or choose <strong>Custom</strong> and describe the
+        scene below. The product itself is never altered — only the backdrop is generated.</p>
+      <textarea id="custom_prompt" name="custom_prompt" class="text-input" rows="3"
+                maxlength="600"
+                placeholder="Custom scene (only used when the theme is Custom), e.g. 'A rustic Thanksgiving table with autumn leaves and soft candlelight'">{{ form.get('custom_prompt', '') }}</textarea>
+    </div>
+
+    <div class="form-section">
+      <div class="section-head">
+        <span class="step">3</span>
+        <label class="field-label">Campaign dates <span class="field-hint-inline">(optional — for your planning)</span></label>
+      </div>
+      <div class="seasonal-dates">
+        <label class="seasonal-date">
+          <span>Launch</span>
+          <input type="date" name="launch_date" class="text-input" value="{{ form.get('launch_date', '') }}" />
+        </label>
+        <label class="seasonal-date">
+          <span>Expiration</span>
+          <input type="date" name="expiration_date" class="text-input" value="{{ form.get('expiration_date', '') }}" />
+        </label>
+        <label class="seasonal-date">
+          <span>Reminder</span>
+          <input type="date" name="reminder_date" class="text-input" value="{{ form.get('reminder_date', '') }}" />
+        </label>
+      </div>
+      <p class="field-hint">Nothing publishes automatically — these dates just drive the
+        dashboard’s “launching soon / expiring soon” reminders.</p>
+    </div>
+
+    <button type="submit" class="wbtn wbtn-primary wbtn-lg">Create campaign</button>
+  </form>
+</div>
+
+{# ── Existing campaigns ───────────────────────────────────────────────── #}
+<div class="page-header">
+  <div><h2>Your campaigns</h2></div>
+</div>
+{% if campaigns %}
+<div class="seasonal-campaign-list">
+  {% for c in campaigns %}
+  <a class="card card-pad seasonal-campaign-card" href="{{ url_for('pages.seasonal_campaign', cid=c['id']) }}">
+    <div class="seasonal-campaign-head">
+      <span class="seasonal-campaign-name">{{ c['name'] }}</span>
+      <span class="import-state {{ 'import-state-done' if c['status'] == 'ready' else 'import-state-working' }}">
+        {{ 'Ready' if c['status'] == 'ready' else 'Draft' }}
+      </span>
+    </div>
+    <div class="seasonal-campaign-meta">
+      {{ c['product_count'] }} product(s) · {{ c['image_count'] }} seasonal image(s)
+    </div>
+    <div class="seasonal-campaign-dates">
+      {% if c['launch_date'] %}Launch {{ c['launch_date'] }}{% endif %}
+      {% if c['expiration_date'] %} · Expires {{ c['expiration_date'] }}{% endif %}
+    </div>
+  </a>
+  {% endfor %}
+</div>
+{% else %}
+<p class="empty-note">No campaigns yet — create one above to get started.</p>
+{% endif %}
+{% endblock %}

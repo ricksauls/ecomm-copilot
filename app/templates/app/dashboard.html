@@ -38,6 +38,29 @@
   {% endfor %}
 </div>
 
+{# --- Seasonal campaign reminders ---
+   Planning nudges from the user's seasonal campaigns (launch/expiration/reminder
+   dates). Shown only when there's something upcoming or overdue; nothing publishes
+   automatically, so these are reminders to act, each linking to its campaign. #}
+{% if seasonal_reminders %}
+<div class="card card-pad seasonal-reminders">
+  <div class="label">Seasonal campaign reminders</div>
+  <ul class="seasonal-reminder-list">
+    {% for r in seasonal_reminders %}
+    <li class="seasonal-reminder seasonal-reminder-{{ r.kind }}">
+      <a href="{{ url_for('pages.seasonal_campaign', cid=r.id) }}">{{ r.name }}</a>
+      <span class="seasonal-reminder-tag">
+        {% if r.kind == 'overdue' %}Expired {{ -r.days }} day(s) ago ({{ r.date }})
+        {% elif r.kind == 'reminder' %}Reminder due{% if r.days < 0 %} ({{ -r.days }} day(s) ago){% endif %} ({{ r.date }})
+        {% elif r.kind == 'expiring_soon' %}Expires in {{ r.days }} day(s) ({{ r.date }})
+        {% else %}Launches in {{ r.days }} day(s) ({{ r.date }}){% endif %}
+      </span>
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
 {# --- "This month" activity tables ---
    Five month-scoped tables (PDP scored/copy/image-sets, then CI snapshot/
    monitoring). Each is capped at 10 rows and carries a "View all" link to its

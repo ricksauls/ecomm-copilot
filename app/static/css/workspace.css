@@ -3059,3 +3059,67 @@ textarea.text-input { resize: vertical; line-height: 1.5; }
   border: 1px solid var(--accent);
   border-radius: var(--radius-chip);
 }
+
+/* ── Seasonal Content Campaigns ──────────────────────────────────────────────
+   Reuses the Import gallery primitives (.import-grid/.import-item/.import-thumb*)
+   for the product/image grid; these rules cover only the seasonal-specific chrome:
+   the campaign cards, the planning-date fields, and the per-image result badges. */
+
+/* Campaign date inputs — a responsive row of labeled date pickers. */
+.seasonal-dates { display: flex; flex-wrap: wrap; gap: 14px; }
+.seasonal-date { display: flex; flex-direction: column; gap: 4px; font-size: 12px;
+  color: var(--mid-gray); }
+.seasonal-date .text-input { min-width: 160px; }
+.field-hint-inline { font-weight: 400; color: var(--mid-gray); font-size: 12px; }
+
+/* Campaign list cards (home + history). */
+.seasonal-campaign-list { display: grid; gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+.seasonal-campaign-card { display: flex; flex-direction: column; gap: 6px;
+  text-decoration: none; color: inherit; }
+.seasonal-campaign-card:hover { border-color: var(--black); }
+.seasonal-campaign-head { display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; }
+.seasonal-campaign-name { font-weight: 600; color: var(--black); }
+.seasonal-campaign-theme { font-size: 12px; color: var(--accent); }
+.seasonal-campaign-meta { font-size: 13px; color: var(--mid-gray); }
+.seasonal-campaign-dates { font-size: 12px; color: var(--mid-gray); }
+
+/* Collapsible details/dates panel on the detail page. */
+.seasonal-meta summary { cursor: pointer; font-weight: 600; color: var(--black); }
+.seasonal-edit-form { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
+.seasonal-delete-form { margin-top: 12px; }
+
+/* The product/image grid reuses .import-grid; add a little breathing room. */
+.seasonal-grid { display: flex; flex-direction: column; gap: 14px; }
+
+/* Per-image result chrome. */
+.seasonal-thumb-actions { display: flex; gap: 10px; margin-top: 4px; }
+.seasonal-badge { font-size: 11px; color: var(--mid-gray); }
+.seasonal-badge-ready { color: var(--accent); font-weight: 600; }
+
+/* A lightweight text-button for inline per-image actions (Regenerate / Discard). */
+.wbtn-link { background: none; border: none; padding: 0; cursor: pointer;
+  font-size: 11.5px; color: var(--accent); text-decoration: underline; }
+.wbtn-link:hover { color: var(--black); }
+
+/* Destructive action button (delete campaign). */
+.wbtn-danger { background: var(--surface); color: var(--signal-red);
+  border-color: var(--control-border); }
+.wbtn-danger:hover { border-color: var(--signal-red); }
+
+/* Seasonal campaign reminders on the dashboard. */
+.seasonal-reminders { margin-bottom: 18px; }
+.seasonal-reminder-list { list-style: none; margin: 10px 0 0; padding: 0;
+  display: flex; flex-direction: column; gap: 8px; }
+.seasonal-reminder { display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; padding: 8px 12px; border-left: 3px solid var(--control-border);
+  background: var(--canvas); border-radius: 4px; }
+.seasonal-reminder a { font-weight: 600; color: var(--black); text-decoration: none; }
+.seasonal-reminder a:hover { color: var(--accent); }
+.seasonal-reminder-tag { font-size: 12px; color: var(--mid-gray); white-space: nowrap; }
+.seasonal-reminder-overdue { border-left-color: var(--signal-red); }
+.seasonal-reminder-overdue .seasonal-reminder-tag { color: var(--signal-red); }
+.seasonal-reminder-reminder { border-left-color: var(--signal-red); }
+.seasonal-reminder-expiring_soon { border-left-color: var(--accent); }
+.seasonal-reminder-launching_soon { border-left-color: var(--accent); }

@@ -464,6 +464,118 @@ CREATE TABLE IF NOT EXISTS import_assets (
 );
 CREATE INDEX IF NOT EXISTS idx_import_assets_run ON import_assets(run_id, id);
 CREATE INDEX IF NOT EXISTS idx_import_assets_item ON import_assets(item_id);
+
+-- ── Seasonal Content Campaigns ──────────────────────────────────────────────
+-- Create seasonal creative in bulk: the user starts a campaign (a season/theme +
+-- optional planning dates), adds products by Walmart/Amazon URL, picks images from
+-- the acquired gallery, and the pipeline composites each chosen image onto a fresh
+-- AI-generated seasonal backdrop. Create-and-download only (no marketplace publish,
+-- like the PDP Image Set tool). Reuses two existing engines: the Acquire-by-URL
+-- resolver (app.imgimport.sources) for the gallery, and the image-set compositor +
+-- image-generation provider (app.imageset) for the seasonal treatment.
+--
+-- Two async phases, each a worker queue (single process, conditional-UPDATE claim):
+--   A) ACQUIRE  — seasonal_products.status (queued->processing->done|error): the
+--      worker resolves one product URL to its gallery, inserting seasonal_images.
+--   B) GENERATE — seasonal_jobs (one per selected image): the worker downloads the
+--      full-res image, cuts it out, generates the seasonal backdrop, composites,
+--      and writes the final. Decoupled so the user reviews/selects between phases.
+-- Every top-level row carries user_id for ownership/IDOR checks; children cascade.
+-- Image bytes live on disk under MEDIA_DIR/seasonal/, never in the DB (same split
+-- as the image-set and enhanced-image caches) — rows store only paths + status.
+
+CREATE TABLE IF NOT EXISTS seasonal_campaigns (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id          INTEGER NOT NULL REFERENCES users(id),
+    name             TEXT    NOT NULL,
+    -- Theme slug from app.seasonal.themes.THEMES (christmas|halloween|…|custom).
+    -- 'custom' pairs with a free-text custom_prompt describing the desired scene.
+    theme            TEXT    NOT NULL,
+    custom_prompt    TEXT    NOT NULL DEFAULT '',
+    -- Planning metadata only — nothing publishes on these dates. They drive the
+    -- dashboard's "launching soon / expiring soon / overdue" surfacing. ISO dates
+    -- (YYYY-MM-DD) or NULL when the user leaves them blank.
+    launch_date      TEXT,
+    expiration_date  TEXT,
+    reminder_date    TEXT,
+    -- 'draft' until the campaign has produced at least one ready image, then
+    -- 'ready'. Backs the history list's "committed run" filter (see the content
+    -- histories, which gate on a real artifact existing).
+    status           TEXT    NOT NULL DEFAULT 'draft',
+    created_at       TEXT    NOT NULL DEFAULT (datetime('now')),
+    updated_at       TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_seasonal_campaigns_user ON seasonal_campaigns(user_id, id);
+
+-- One row per product URL added to a campaign. The status column doubles as the
+-- ACQUIRE worker queue (queued->processing->done|error), mirroring import_items:
+-- the worker resolves the URL to its image gallery (seasonal_images) and settles
+-- the row. label is the product title captured during resolution.
+CREATE TABLE IF NOT EXISTS seasonal_products (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    campaign_id  INTEGER NOT NULL REFERENCES seasonal_campaigns(id) ON DELETE CASCADE,
+    user_id      INTEGER NOT NULL REFERENCES users(id),
+    source_url   TEXT    NOT NULL,
+    source_type  TEXT    NOT NULL DEFAULT 'unknown',  -- walmart|amazon_pdp|image|unknown
+    label        TEXT,                                 -- product title when known
+    status       TEXT    NOT NULL DEFAULT 'queued',    -- queued|processing|done|error
+    error        TEXT,
+    created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+    updated_at   TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_seasonal_products_claim ON seasonal_products(status, id);
+CREATE INDEX IF NOT EXISTS idx_seasonal_products_campaign ON seasonal_products(campaign_id, id);
+
+-- One row per acquired gallery image AND its seasonal treatment. Starts life as a
+-- hotlinked gallery thumbnail ('acquired'); when the user selects it and runs the
+-- campaign, gen_status advances through the generation queue and the output paths
+-- fill in. full_url is the full-resolution source (fetched on generate, never at
+-- acquire time); thumb_url is the lighter URL the gallery hotlinks.
+CREATE TABLE IF NOT EXISTS seasonal_images (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id   INTEGER NOT NULL REFERENCES seasonal_products(id) ON DELETE CASCADE,
+    campaign_id  INTEGER NOT NULL REFERENCES seasonal_campaigns(id) ON DELETE CASCADE,
+    user_id      INTEGER NOT NULL REFERENCES users(id),
+    full_url     TEXT    NOT NULL,                     -- full-res source image URL
+    thumb_url    TEXT,                                 -- lighter URL hotlinked in the gallery
+    width        INTEGER,
+    height       INTEGER,
+    -- 1 when the user ticked this image to receive the seasonal treatment.
+    selected     INTEGER NOT NULL DEFAULT 0,
+    -- acquired (gallery only) -> queued -> generating -> ready (plus failed).
+    gen_status   TEXT    NOT NULL DEFAULT 'acquired',
+    original_path TEXT,          -- downloaded full-res source (rel to MEDIA_DIR)
+    cutout_path  TEXT,           -- transparent-PNG product cutout (rel to MEDIA_DIR)
+    scene_path   TEXT,           -- raw AI seasonal backdrop before compositing
+    final_path   TEXT,           -- composited seasonal image (rel to MEDIA_DIR)
+    thumb_path   TEXT,           -- gallery thumbnail of the final (rel to MEDIA_DIR)
+    -- 1 = keep in the set, 0 = discarded by the user (parallels imageset_assets.kept).
+    kept         INTEGER NOT NULL DEFAULT 1,
+    error        TEXT,
+    created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+    updated_at   TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_seasonal_images_product ON seasonal_images(product_id, id);
+CREATE INDEX IF NOT EXISTS idx_seasonal_images_campaign ON seasonal_images(campaign_id, id);
+
+-- Worker queue for the GENERATE phase, mirroring imageset_jobs (single process,
+-- single phase: queued->processing->done|error). One job per image —
+-- UNIQUE(image_id) makes re-enqueue idempotent, so re-running a campaign or a
+-- single image never stacks duplicate provider calls.
+CREATE TABLE IF NOT EXISTS seasonal_jobs (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id      INTEGER NOT NULL REFERENCES users(id),
+    campaign_id  INTEGER NOT NULL REFERENCES seasonal_campaigns(id) ON DELETE CASCADE,
+    image_id     INTEGER NOT NULL REFERENCES seasonal_images(id) ON DELETE CASCADE,
+    status       TEXT    NOT NULL DEFAULT 'queued',    -- queued|processing|done|error
+    priority     INTEGER NOT NULL DEFAULT 0,
+    error        TEXT,
+    created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+    updated_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(image_id)
+);
+CREATE INDEX IF NOT EXISTS idx_seasonal_jobs_claim ON seasonal_jobs(status, priority DESC, id);
+CREATE INDEX IF NOT EXISTS idx_seasonal_jobs_campaign ON seasonal_jobs(campaign_id);
 """
 
 

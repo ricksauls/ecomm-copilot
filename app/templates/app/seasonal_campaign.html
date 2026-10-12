@@ -1,0 +1,182 @@
+{% extends "app/base.html" %}
+{% block title %}{{ campaign['name'] }} — Seasonal Campaign — DISCOtech{% endblock %}
+
+{% block head_extra %}
+  {# No-JS fallback: refresh while products are acquiring or images are generating.
+     The poller (seasonal_campaign.js) takes over and reloads only on change. #}
+  {% if pending %}<noscript><meta http-equiv="refresh" content="6" /></noscript>{% endif %}
+{% endblock %}
+
+{% block pane_content %}
+<div class="page-header">
+  <div>
+    <h1>{{ campaign['name'] }}</h1>
+    <p class="subtitle">{{ theme_label }} · {{ ready_count }} seasonal image(s) ready</p>
+  </div>
+  <div class="page-header-actions">
+    {% if ready_count %}
+    <a class="wbtn wbtn-primary"
+       href="{{ url_for('pages.seasonal_download_zip', cid=campaign['id']) }}">
+      Download all ({{ ready_count }})</a>
+    {% endif %}
+    <a class="wbtn wbtn-secondary" href="{{ url_for('pages.seasonal_home') }}">All campaigns</a>
+  </div>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% for category, message in messages %}
+  <div class="ci-flash {{ category }}" role="alert">{{ message }}</div>
+  {% endfor %}
+{% endwith %}
+
+{# ── Planning dates (editable) ────────────────────────────────────────── #}
+<details class="card card-pad seasonal-meta">
+  <summary>Campaign details &amp; dates</summary>
+  <form method="post" action="{{ url_for('pages.seasonal_edit', cid=campaign['id']) }}"
+        class="seasonal-edit-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+    <label class="seasonal-date">
+      <span>Name</span>
+      <input type="text" name="name" class="text-input" maxlength="120" value="{{ campaign['name'] }}" />
+    </label>
+    <div class="seasonal-dates">
+      <label class="seasonal-date"><span>Launch</span>
+        <input type="date" name="launch_date" class="text-input" value="{{ campaign['launch_date'] or '' }}" /></label>
+      <label class="seasonal-date"><span>Expiration</span>
+        <input type="date" name="expiration_date" class="text-input" value="{{ campaign['expiration_date'] or '' }}" /></label>
+      <label class="seasonal-date"><span>Reminder</span>
+        <input type="date" name="reminder_date" class="text-input" value="{{ campaign['reminder_date'] or '' }}" /></label>
+    </div>
+    <button type="submit" class="wbtn wbtn-secondary">Save details</button>
+  </form>
+  <form method="post" action="{{ url_for('pages.seasonal_delete', cid=campaign['id']) }}"
+        class="seasonal-delete-form"
+        onsubmit="return confirm('Delete this campaign and all its images? This cannot be undone.');">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+    <button type="submit" class="wbtn wbtn-danger">Delete campaign</button>
+  </form>
+</details>
+
+{# ── Add products ─────────────────────────────────────────────────────── #}
+<div class="card pdp-card">
+  <form method="post" action="{{ url_for('pages.seasonal_add_products', cid=campaign['id']) }}"
+        enctype="multipart/form-data" class="pdp-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+    <div class="form-section">
+      <div class="section-head">
+        <span class="step">+</span>
+        <label class="field-label" for="urls">Add products by URL</label>
+      </div>
+      <textarea id="urls" name="urls" class="text-input" rows="4"
+                placeholder="One Walmart or Amazon product URL per line (or a direct image URL)">{{ '' }}</textarea>
+      <p class="field-hint">Up to {{ max_items }} per batch. We acquire each product’s image
+        gallery; you then pick which images get the seasonal treatment.</p>
+      <label id="csv-drop" class="csv-drop" for="csv">
+        <span class="csv-drop-text">…or drag a CSV of URLs here, or <span class="link">browse</span></span>
+        <input type="file" id="csv" name="csv" accept=".csv,text/csv" class="csv-input-hidden" />
+      </label>
+      <p id="csv-filename" class="csv-filename" hidden></p>
+    </div>
+    <button type="submit" class="wbtn wbtn-primary">Add products</button>
+  </form>
+</div>
+
+{# ── Hidden generate form: checkboxes below associate via form="seasonal-generate" ── #}
+<form id="seasonal-generate" method="post"
+      action="{{ url_for('pages.seasonal_generate_selected', cid=campaign['id']) }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+</form>
+
+{% if products %}
+<div class="page-header">
+  <div><h2>Products &amp; images</h2></div>
+  <div class="page-header-actions">
+    <button type="submit" form="seasonal-generate" class="wbtn wbtn-primary">
+      Apply seasonal treatment to selected (<span class="seasonal-sel-count">0</span>)</button>
+  </div>
+</div>
+
+<div class="seasonal-grid"
+     data-status-url="{{ url_for('pages.seasonal_status', cid=campaign['id']) }}"
+     data-pending="{{ '1' if pending else '0' }}">
+  {% for product in products %}
+  <div class="import-item card" data-product-id="{{ product.id }}" data-status="{{ product.status }}">
+    <div class="import-item-head">
+      <div class="import-item-titles">
+        <span class="import-item-label">{{ product.label or 'Product' }}</span>
+        <a class="import-item-url" href="{{ product.source_url }}" target="_blank" rel="noopener noreferrer">{{ product.source_url }}</a>
+      </div>
+      {% if product.status in ('queued', 'processing') %}
+        <span class="import-state import-state-working"><span class="spinner" aria-hidden="true"></span>Acquiring…</span>
+      {% elif product.status == 'error' %}
+        <span class="import-state import-state-failed" title="{{ product.error or '' }}">Couldn’t acquire</span>
+      {% else %}
+        <span class="import-state import-state-done">{{ product.images | length }} image(s)</span>
+      {% endif %}
+    </div>
+
+    {% if product.status == 'error' %}
+      <p class="import-item-error">{{ product.error }}</p>
+    {% elif product.images %}
+      <div class="import-thumbs">
+        {% for im in product.images %}
+        <div class="import-thumb seasonal-thumb" data-image-id="{{ im.id }}" data-gen="{{ im.gen_status }}">
+          {% if im.ready %}
+            {# Generated seasonal image — show the result, served same-origin. #}
+            <a href="{{ im.final_url }}" target="_blank" rel="noopener noreferrer">
+              <img src="{{ im.thumb_url }}" alt="Seasonal treatment" loading="lazy" />
+            </a>
+            <div class="import-thumb-foot">
+              <span class="seasonal-badge seasonal-badge-ready">Seasonal</span>
+              <a class="wbtn wbtn-secondary wbtn-sm" href="{{ im.download_url }}">Download</a>
+            </div>
+            <div class="seasonal-thumb-actions">
+              <form method="post" action="{{ url_for('pages.seasonal_regenerate_image', cid=campaign['id'], iid=im.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+                <button type="submit" class="wbtn-link">Regenerate</button>
+              </form>
+              <form method="post" action="{{ url_for('pages.seasonal_discard_image', cid=campaign['id'], iid=im.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+                <button type="submit" class="wbtn-link">{{ 'Restore' if not im.kept else 'Discard' }}</button>
+              </form>
+            </div>
+          {% elif im.pending %}
+            {# Queued or generating — show the source with a working badge. #}
+            <img src="{{ im.source_thumb_url }}" alt="" loading="lazy" referrerpolicy="no-referrer" />
+            <div class="import-thumb-foot">
+              <span class="import-state import-state-working"><span class="spinner" aria-hidden="true"></span>Generating…</span>
+            </div>
+          {% else %}
+            {# Acquired (not yet generated) or failed — selectable for generation. #}
+            <label class="import-check" title="Apply the seasonal treatment to this image">
+              <input type="checkbox" name="image_ids" value="{{ im.id }}" form="seasonal-generate"
+                     {{ 'checked' if im.selected else '' }} />
+            </label>
+            <img src="{{ im.source_thumb_url }}" alt="" loading="lazy" referrerpolicy="no-referrer" />
+            <div class="import-thumb-foot">
+              {% if im.failed %}
+                <span class="import-state import-state-failed" title="{{ im.error or '' }}">Failed — reselect to retry</span>
+              {% else %}
+                <span class="seasonal-badge">Source</span>
+              {% endif %}
+            </div>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    {% elif product.status not in ('queued', 'processing') %}
+      <p class="import-item-error">No images found for this product.</p>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<p class="empty-note">No products yet — add one or more product URLs above and we’ll acquire
+  their images for you to choose from.</p>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ static_url('js/intake.js') }}"></script>
+<script src="{{ static_url('js/seasonal_campaign.js') }}"></script>
+{% endblock %}
