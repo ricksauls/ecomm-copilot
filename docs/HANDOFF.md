@@ -1,6 +1,9 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-10-11 (session 22 — **View Acquired Images History**: a dedicated history
+_Last updated: 2026-10-11 (session 23 — **User Management + roles**: replaced the email-only
+admin model with a DB `role` column (admin|user), a User Management screen to manage it, and
+ADMIN_EMAILS kept as break-glass (grants admin at startup + signup). Session 22 —
+**View Acquired Images History**: a dedicated history
 screen for Acquire Product Images runs (separate from the image-set history), under Creative
 Content Studio. Session 21 — **Acquire Product Images**: Amazon verified working
 live; added **product-based download filenames** (title slug + ASIN/Walmart item #, ZIP foldered
@@ -20,6 +23,58 @@ fills its box, and an **AI "straighten"** that de-angles the product for feature
 quality set to **medium**. Droplet now on gpt-image-1 + PhotoRoom. Session 16 — callout layout/halos/
 blur, per-card Regenerate, Lifestyle logo. Session 15 — all 4 image types generate. Session 13 —
 built PDP Image Set.)_
+
+> ## ⭐ Next session — START HERE (session 23, 2026-10-11)
+>
+> **Shipped + pushed: `main` at `56e2d80` (code) + this docs commit; CI → auto-deploy.**
+> 571 tests, `ruff` clean. **One new migration: `users.role`** (additive, auto-ALTER on
+> web+worker restart). **No new `.env`** — reuses the existing `ADMIN_EMAILS`.
+>
+> ### ⚠️ Deploy behavior (auth change — read before/after deploy)
+> On restart the migration adds `users.role` (all existing users default to `'user'`), then
+> the **startup bootstrap** (`users.apply_admin_allowlist`, called from `db.init_db`) reads the
+> droplet's existing `ADMIN_EMAILS` (`ricksauls@cox.net`, `ricksauls1@gmail.com`) and
+> **re-promotes those two accounts to admin** — so admin access survives the deploy with **no
+> manual step**. If somehow locked out: add your email to `ADMIN_EMAILS` + restart (break-glass).
+>
+> ### What shipped this session — User Management + DB-backed roles
+> Replaced the **email-only** admin model (`is_admin` used to check `ADMIN_EMAILS` live) with a
+> **DB `role` column** managed from a new **User Management** screen. The user chose: roles are
+> **Admin** / **User**; `ADMIN_EMAILS` stays as **break-glass** that grants admin **at startup
+> and at signup** (NOT a live check — so a UI demotion sticks); scope is **roles + delete only**
+> (no suspend / no signup-approval gate — both offered, both deferred).
+> - **`db.py`**: `users.role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('user','admin'))` in
+>   `_SCHEMA` + an additive `_migrate` ALTER (verified on a populated table: existing rows →
+>   'user', CHECK enforced). `init_db` now calls `users.apply_admin_allowlist(conn, ADMIN_EMAILS)`
+>   after `ensure_schema` (local import avoids a db<->users cycle).
+> - **`users.py`**: `ROLE_ADMIN`/`ROLE_USER`/`VALID_ROLES`; `_role_for_new_email` so
+>   `create_local_user` + `get_or_create_sso_user` set role from the allowlist **at creation**;
+>   `set_role` (validates against VALID_ROLES), `count_admins`, `apply_admin_allowlist(conn,emails)`
+>   (idempotent, raw conn), and `list_users` now carries `role`.
+> - **`security.py`**: `is_admin(user)` reads `user["role"] == ROLE_ADMIN` (DB, server-side only).
+> - **`routes/pages.py`**: `/admin/users` is now **User Management** (passes `admin_count`); new
+>   **`POST /admin/users/<id>/role`** with a **last-admin lockout guard** (can't demote the last
+>   admin); `admin_delete_user` gained the same last-admin guard alongside the existing
+>   self-delete block. All POST + CSRF + `admin_required`, and every role change is audit-logged.
+> - **UI**: `admin_users.html` = Role badge column + Make Admin / Make User + "Last admin" guard
+>   text; rail Admin section gains **User Management** (`_rail.html`); `role-badge` + `btn-role`
+>   styles in `workspace.css`.
+> - **Verified live** (preview): promote flips USER→ADMIN, subtitle "1 admin"→"2 admins", the
+>   sole-admin row shows "Last admin" (no demote/delete) and releases to "Make User" once a 2nd
+>   admin exists; self-row never shows Delete. Then cleaned up the preview accounts.
+>
+> ### Watch / next-ups
+> - **Deferred (offered, not built):** enable/disable (suspend) accounts via an `is_active`
+>   column + login block; a **signup-approval gate** (new signups land 'pending' — fits the
+>   "Request access" signup copy). Either is an easy follow-up.
+> - The last-admin **delete** guard is defensive/near-unreachable (deleting a non-self admin
+>   implies ≥2 admins; self-delete is already blocked) — kept for defense in depth.
+> - Pre-production watch-item still open (`docs/roadmap.md`): Acquire ZIP → worker job.
+>
+> ### Commits this session
+> `56e2d80` User Management + DB-backed roles · + this docs commit. **Pushed to `main`.**
+>
+> _(Session 22's block follows.)_
 
 > ## ⭐ Next session — START HERE (session 22, 2026-10-11)
 >
