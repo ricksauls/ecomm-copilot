@@ -1,27 +1,36 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-10-12 (session 31 — **Dashboard Opportunities list + Insights rail rework**.
-On `feature/dashboard-opportunities`, opened as a PR → `main` (CI → auto-deploy). **701 tests, ruff clean.
-No migration, no new env.** **(1) Opportunities list (new):** a ranked, deep-linked action list below the
-three cards, scoped to the selected brand, built in `_opportunities()` (`pages.py`) and added to
-`_performance_briefing`'s return. Two sources: **content gaps** from scoring — split by dimension into an
-**image** gap (imagery < 80 → *Create image sets* → `imageset_intake`) and a **copy** gap (title/key_features/
-description < 80 → *Open Product Copy* → `pdp_copy`), via the new **`jobs.readiness_breakdown()`** (latest-per-
-item, parses `result_json` dimensions; `IMAGE_DIMENSIONS`/`COPY_DIMENSIONS`); and a **competitive** gap —
-keywords a competitor leads (reuses the previously-reserved `ci_analysis.monitoring_keyword_leadership`'s
-`competitor_lead_count` → *See the gaps* → `ci_view`). Ranked by affected-unit count, capped at
-`OPPORTUNITIES_LIMIT=5`; empty → an "all caught up" note. **(2) Row indicators (per user choice):** content
-rows show a **proportion meter** (`opp_meter`, share already strong); the competitive row shows a **trend
-sparkline** (`opp_spark` + `_sparkline()`, lead-rate over the last `TREND_PERIODS`, **direction-colored**:
-green up / red down / grey flat — colors by *trend*, not current level). All inline SVG, no JS, CSP-clean.
-Long rows (icon · title+detail · indicator · CTA), whole row is the link. **(3) Insights rail rework:** two
-NEW leaves under Insights — **"Discoverability & Conversion"** and **"Competitive Intelligence"** — both route
-to an in-design stub (`pages.insights_placeholder`, `/app/insights/<section>`, allow-list guarded → 404 on an
-unknown slug; `insights_placeholder.html`). The three prior Insights leaves (One-Time Snapshot, Daily
-Monitoring, View All CI Activity) are **HIDDEN** (commented out in `_rail.html`) — routes still live and the
-cards' "Dig it" links still reach `ci_view`. **Next: design the two Insights section pages**, and consider a
-per-product drill-down from the opportunity rows (`readiness_breakdown` already returns `image_items`/
-`copy_items`). The prior session-30 summary follows._
+_Last updated: 2026-10-12 (session 31 — **Dashboard: Opportunities list, Insights rail rework, CSP
+selector fix, header redesign — ALL SHIPPED + LIVE across 3 PRs (#40, #41, #42), `main` at `133fe66`.**
+No migration, no new env. Also seeded **3 months of tagged demo data** onto prod (see below).
+**(1) Opportunities list (#40):** a ranked, deep-linked action list below the three cards, scoped to the
+selected brand, built in `_opportunities()` (`pages.py`), added to `_performance_briefing`'s return. Two
+sources: **content gaps** from scoring — split into an **image** gap (imagery < 80 → *Create image sets* →
+`imageset_intake`) and a **copy** gap (title/key_features/description < 80 → *Open Product Copy* → `pdp_copy`),
+via new **`jobs.readiness_breakdown()`** (latest-per-item, parses `result_json` dimensions;
+`IMAGE_DIMENSIONS`/`COPY_DIMENSIONS`); and a **competitive** gap — keywords a competitor leads (reuses the
+previously-reserved `ci_analysis.monitoring_keyword_leadership`'s `competitor_lead_count` → *See the gaps* →
+`ci_view`). Ranked by affected-unit count, capped `OPPORTUNITIES_LIMIT=5`; empty → "all caught up". **Row
+indicators (user chose a MIX):** content rows = **proportion meter** (`opp_meter`); competitive row = **trend
+sparkline** (`opp_spark` + `_sparkline()`, lead-rate over `TREND_PERIODS`, **direction-colored** green-up/
+red-down/grey-flat — by *trend*, not current level). All inline SVG, no JS. **(2) Insights rail rework (#40):**
+two NEW leaves — **"Discoverability & Conversion"** + **"Competitive Intelligence"** → in-design stub
+(`pages.insights_placeholder`, `/app/insights/<section>`, allow-list → 404 on unknown slug;
+`insights_placeholder.html`). The 3 prior Insights leaves (One-Time Snapshot, Daily Monitoring, View All CI
+Activity) are **HIDDEN** (commented in `_rail.html`) — routes still live, cards' "Dig it" still reach `ci_view`.
+**(3) CSP brand-selector fix (#41) — was a LIVE BUG:** the selector used an inline
+`onchange="this.form.submit()"`, blocked by the app's CSP (`script-src 'self'`), so **brand switching did
+nothing in prod** (stuck on the default brand). Fixed with an external file **`app/static/js/briefing.js`**
+(loaded via the `scripts` block) + a no-JS **"Go"** submit button fallback. ⚠️ **LESSON: no inline `on*`
+handlers anywhere — CSP blocks them; use an external JS file.** (`style-src` DOES allow `unsafe-inline`, so
+inline styles are fine; inline scripts/handlers are not.) **(4) Header redesign (#42):** filled the empty
+top/right — the **brand selector + period toggle moved UP into the Portfolio header** (`dash-header`), and the
+old stacked "Your Summary / {brand}" block collapsed to a slim **brand · period** context line
+(`.briefing-context`) above the cards, shifting everything up. (A portfolio-wide stat strip was prototyped and
+then **removed per user feedback** — only the header/layout change remains.) **703 tests, ruff clean.**
+**Next: design the two Insights section pages** (replace the stubs); consider a per-product drill-down from the
+opportunity rows (`readiness_breakdown` already returns `image_items`/`copy_items`). The prior session-30
+summary follows._
 
 _Session 30 — (session 30 — **Dashboard redesign, Phase 1: the three performance cards**.
 Committed on `feature/dashboard-performance-cards`, deploying to production via PR → `main` (CI → auto-deploy).
@@ -130,11 +139,12 @@ quality set to **medium**. Droplet now on gpt-image-1 + PhotoRoom. Session 16 �
 blur, per-card Regenerate, Lifestyle logo. Session 15 — all 4 image types generate. Session 13 —
 built PDP Image Set.)_
 
-> ## ⭐ Next session — START HERE (session 31 — Opportunities list + Insights rail, 2026-10-12)
+> ## ⭐ Next session — START HERE (session 31 — Opportunities list, Insights rail, CSP fix, header, 2026-10-12)
 >
-> **Dashboard Opportunities list + Insights rail rework.** On `feature/dashboard-opportunities`, opened as a
-> PR → `main`. **701 tests, ruff clean. No migration, no new env.** The top preamble is the authoritative
-> summary; this adds build detail.
+> **Four dashboard changes, ALL SHIPPED + LIVE across 3 PRs (#40, #41, #42), `main` at `133fe66`.**
+> **703 tests, ruff clean. No migration, no new env.** The top preamble is the authoritative summary; this
+> adds build detail. Order built: Opportunities + Insights rail (#40), then the CSP selector fix (#41), then
+> the header redesign (#42), plus a prod demo-data seed.
 >
 > ### Opportunities list (below the three cards)
 > `_opportunities(db, uid, gid, period, mine_brands, has_data)` in `pages.py` returns a ranked list added to
@@ -174,10 +184,42 @@ built PDP Image Set.)_
 > out in `_rail.html`, trivially restorable. Their **routes still exist** (the dashboard cards' "Dig it" links
 > still reach `ci_view`; `ci_activity`/`activity_all` remain tested) — just unlinked from the rail.
 >
+> ### CSP brand-selector fix (#41) — this was a live production bug
+> The brand `<select>` used an inline `onchange="this.form.submit()"`. The app's CSP is `script-src 'self'`
+> (no `unsafe-inline`; set in `app/__init__.py`'s `after_request`), so the inline handler was **blocked in
+> prod** — the dropdown silently did nothing and the dashboard was stuck on the default brand. Fixed by moving
+> the auto-submit to an external file **`app/static/js/briefing.js`** (loaded via dashboard.html's
+> `{% block scripts %}`) plus a no-JS **"Go"** submit button (`.briefing-go`) as a fallback — progressive
+> enhancement, works with or without JS. ⚠️ **RULE: never use inline `on*` handlers anywhere in this app —
+> CSP blocks them. Put JS in an external `static/js/*.js` file.** (Inline *styles* are fine — `style-src`
+> allows `unsafe-inline` — which is why the Opportunity SVGs' approach was OK.) Regression test
+> `test_dashboard_brand_selector_is_csp_safe` asserts no inline `onchange` + the external script + the fallback.
+>
+> ### Header redesign (#42)
+> Filled the empty top/right of the dashboard and shifted content up. The brand selector + period toggle moved
+> UP into the Portfolio header (`.dash-header`, a flex row: title left, controls right). The old stacked
+> `<h2 class="briefing-brand">` "Your Summary" block became a slim **brand · period** line
+> (`.briefing-context`) above the cards. A portfolio-wide **stat strip was prototyped then REMOVED per user
+> feedback** — so `_portfolio_summary()` and `jobs.portfolio_readiness()` were added and then deleted; only the
+> header/layout change remains. `portfolio` passed to the template is back to just `{brands, products}`.
+>
+> ### Prod demo data (tagged, wipeable)
+> Seeded ~3 months of history for **5 brands (Tabasco, Listerine, Off, Ritz, Hellmann's)** onto **prod under
+> `ricksauls1@gmail.com`** so the dashboard shows multiple brands + full trends (the user's real account only
+> had one monitoring brand). Mixed trends (improving/declining/flat), 3 opportunities each, WoW/MoM/QoQ periods.
+> **Everything is tagged for safe removal:** CI groups prefixed `[DEMO] `, `scored_items.batch_id='DEMO_SEED'`,
+> `portfolio_items.dedupe_key LIKE 'demoseed-%'`. The seed script `seed_demo.py` (kept in this session's
+> scratchpad, removed from the droplet) is idempotent and has a `--wipe` mode that deletes ONLY the tagged demo
+> rows — the real `Tabasco Original Hot Sauce` group and all real data are untouched. **A prod DB backup was
+> taken first: `app.db.bak-20261012-193106` on the droplet.** To wipe later: re-copy the script and run it with
+> `--wipe`. NOTE: the dropdown shows **two "Tabasco"** entries (real + `[DEMO] Tabasco`) — both have a Tabasco
+> mine brand. Droplet venv is `venv/` (not `.venv/`); DB at `/home/deploy/apps/ecomm-copilot/app.db`.
+>
 > ### Verified
-> Full suite green (701), ruff clean. Driven live in a throwaway-seeded `/app` (6 weeks of history): the three
-> cards, the two content meters (3/6, 5/6 strong), the competitive sparkline (green rising 1/2 led), the
-> reworked Insights menu, and the "In design" placeholder all render; no console errors.
+> Full suite green (703), ruff clean. Each change driven live in a throwaway-seeded `/app`: the three cards,
+> content meters + competitive sparkline, reworked Insights menu, the "In design" stub, **brand switching under
+> enforced CSP** (navigates on change, no console errors), and the merged header (controls top-right, cards
+> shifted up).
 >
 > ### Next session
 > - **Design the two Insights section pages** (replace the stubs): Discoverability & Conversion, and
