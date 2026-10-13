@@ -374,25 +374,6 @@ def test_readiness_breakdown_latest_score_and_unmeasured_dimension(app):
         assert b["copy_gap_count"] == 0
 
 
-def test_portfolio_readiness_averages_latest_across_all_brands(app):
-    # The dashboard summary strip's "Avg readiness" spans every brand (unlike the
-    # per-brand readiness_score): latest score per product, all brands pooled.
-    with app.app_context():
-        db = get_db()
-        uid = create_local_user("pf@example.com", "password123")
-        _score(db, uid, "1", "Tabasco", 60, "2026-01-01 00:00:00")
-        _score(db, uid, "1", "Tabasco", 90, "2026-03-01 00:00:00")  # re-score → latest wins
-        _score(db, uid, "2", "Listerine", 70, "2026-03-01 00:00:00")  # <80 → needs attention
-        _score(db, uid, "3", "Off", 80, "2026-03-01 00:00:00")
-        db.commit()
-        pr = jobs.portfolio_readiness(db, uid)
-        assert pr == {"avg": 80, "scored_count": 3, "needs_attention_count": 1}  # (90+70+80)/3
-
-        # No scored products → empty result (strip shows a dash).
-        other = create_local_user("pf2@example.com", "password123")
-        assert jobs.portfolio_readiness(db, other)["avg"] is None
-
-
 def test_readiness_score_as_of_sees_only_scores_up_to_that_moment(app):
     # The card derives its period delta by asking for readiness "as of" a past
     # date — the latest score on or before it.

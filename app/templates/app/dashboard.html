@@ -93,34 +93,6 @@
   {% endif %}
 </div>
 
-{# --- Portfolio summary strip ---
-   At-a-glance stats across ALL brands (_portfolio_summary): fills the header band
-   and frames the per-brand cards below (portfolio overview → selected-brand detail). #}
-<div class="pf-stats">
-  <div class="pf-stat">
-    <span class="pf-stat-value">{{ portfolio.brands }}</span>
-    <span class="pf-stat-label">Brand{{ 's' if portfolio.brands != 1 }}</span>
-  </div>
-  <div class="pf-stat">
-    <span class="pf-stat-value">{{ portfolio.products }}</span>
-    <span class="pf-stat-label">Product{{ 's' if portfolio.products != 1 }}</span>
-  </div>
-  <div class="pf-stat">
-    <span class="pf-stat-value">
-      {%- if portfolio.readiness is not none %}{{ portfolio.readiness }}<span class="pf-stat-unit">/100</span>{% else %}—{% endif -%}
-    </span>
-    <span class="pf-stat-label">Avg readiness</span>
-  </div>
-  <div class="pf-stat">
-    <span class="pf-stat-value{{ ' pf-stat-alert' if portfolio.losing_shelf }}">{{ portfolio.losing_shelf }}</span>
-    <span class="pf-stat-label">Losing shelf</span>
-  </div>
-  <div class="pf-stat">
-    <span class="pf-stat-value">{{ portfolio.open_opps }}</span>
-    <span class="pf-stat-label">Open opportunit{{ 'y' if portfolio.open_opps == 1 else 'ies' }}</span>
-  </div>
-</div>
-
 {# --- Performance briefing ---
    The three cards (Discoverability / Conversion / Competition): a per-brand
    "how are we doing" read, scoped to one monitoring CI group over one completed

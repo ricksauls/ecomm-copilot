@@ -590,57 +590,11 @@ body.workspace {
    one dominant metric, a trend-delta pill, a short narrative, and an Explore
    deep-link. Visually weightier than the KPI count cards — this is the headline
    read, so it sits above and apart from the counts below. */
-/* Dashboard header: Portfolio title + lifted-up brand/period controls. Tighter
-   bottom margin than a plain page-header since the summary strip follows. */
+/* Dashboard header: Portfolio title + lifted-up brand/period controls on one row,
+   so the cards sit directly beneath (no separate low controls row). */
 .dash-header {
-  margin-bottom: 14px;
+  margin-bottom: 20px;
   align-items: flex-start;
-}
-
-/* --- Portfolio summary strip ---
-   One card split into stat cells (portfolio-wide numbers), sitting above the
-   per-brand cards. Cells divide with a hairline and wrap on narrow viewports. */
-.pf-stats {
-  display: flex;
-  flex-wrap: wrap;
-  background: var(--surface);
-  border: 1px solid var(--control-border);
-  border-radius: var(--radius-card);
-  margin-bottom: 22px;
-}
-.pf-stat {
-  flex: 1 1 0;
-  min-width: 128px;
-  padding: 15px 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  border-left: 1px solid var(--placeholder);
-}
-.pf-stat:first-child {
-  border-left: none;
-}
-.pf-stat-value {
-  font-size: 26px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  line-height: 1;
-  color: var(--black);
-}
-.pf-stat-unit {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--mid-gray);
-}
-.pf-stat-value.pf-stat-alert {
-  color: var(--signal-red); /* a non-zero "losing shelf" count reads as a warning */
-}
-.pf-stat-label {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--cool-gray);
 }
 
 /* Slim "which brand/window" label above the cards (controls moved to the header). */
