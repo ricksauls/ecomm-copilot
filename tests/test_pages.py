@@ -1290,6 +1290,31 @@ def test_sparkline_spec_scales_and_signs_direction():
     assert ys == {str(_SPARK_H / 2)}
 
 
+def test_dashboard_renders_portfolio_summary_strip(client, auth, app):
+    # The top summary strip shows portfolio-wide stats above the per-brand cards.
+    from app import ci_config
+    from app.db import get_db
+
+    auth.register(email="strip@example.com")
+    with app.app_context():
+        db = get_db()
+        uid = db.execute("SELECT id FROM users WHERE email = ?", ("strip@example.com",)).fetchone()[0]
+        gid = ci_config.create_group(db, uid, "Hot Sauce", mode="monitoring")
+        ci_config.add_brand(db, gid, uid, "Tabasco", "mine")
+        db.execute("INSERT INTO scored_items (user_id, item_id, url, brand, overall) "
+                   "VALUES (?,?,?,?,?)", (uid, "1", "u", "Tabasco", 85))
+        db.commit()
+
+    body = client.get("/app").data
+    assert b"pf-stats" in body
+    assert b"Avg readiness" in body
+    assert b"Losing shelf" in body
+    assert b"Open opportunit" in body     # "opportunity"/"opportunities"
+    # The controls moved into the header, and the old stacked "Your Summary" h2 block
+    # is replaced by the slim context line.
+    assert b"briefing-context" in body
+
+
 def test_dashboard_brand_selector_is_csp_safe(client, auth, app):
     # Regression: the brand selector must NOT use an inline onchange handler — the
     # app's CSP is `script-src 'self'`, which blocks inline scripts, so an inline

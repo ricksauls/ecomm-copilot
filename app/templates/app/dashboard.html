@@ -48,12 +48,76 @@
 {%- endmacro %}
 
 {% block pane_content %}
-{# --- Page header --- #}
-<div class="page-header">
+{# --- Page header: Portfolio title + brand/period controls (lifted up here so the
+   summary strip and cards sit directly beneath, filling the old top whitespace). --- #}
+<div class="page-header dash-header">
   <div>
     <h1>Portfolio</h1>
     <p class="subtitle">{{ portfolio.brands }} brand{{ 's' if portfolio.brands != 1 }} ·
        {{ portfolio.products }} product{{ 's' if portfolio.products != 1 }}</p>
+  </div>
+  {% if briefing.available %}
+  {# Brand selector + set-default + period toggle. Auto-submits via briefing.js
+     (CSP forbids inline scripts); the Go button is the no-JS fallback. #}
+  <div class="briefing-controls">
+    <form method="get" action="{{ url_for('pages.dashboard') }}" class="briefing-brand-form">
+      <input type="hidden" name="period" value="{{ briefing.period }}">
+      <select name="group_id" class="briefing-select" aria-label="Brand">
+        {% for opt in briefing.groups %}
+        <option value="{{ opt.id }}" {{ 'selected' if opt.selected }}>{{ opt.label }}</option>
+        {% endfor %}
+      </select>
+      <button type="submit" class="briefing-go">Go</button>
+    </form>
+    {% if briefing.is_default %}
+      <span class="briefing-default is-default" title="Loads by default">★ Default</span>
+    {% else %}
+      <form method="post" action="{{ url_for('pages.set_default_brand') }}" class="briefing-default-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+        <input type="hidden" name="group_id" value="{{ briefing.selected_group_id }}">
+        <button type="submit" class="briefing-default">☆ Set as default</button>
+      </form>
+    {% endif %}
+    <div class="briefing-periods" role="group" aria-label="Reporting period">
+      {% for p in briefing.periods %}
+        {% if p.enabled %}
+          <a class="briefing-period {{ 'is-active' if p.selected }}"
+             href="{{ url_for('pages.dashboard', group_id=briefing.selected_group_id, period=p.key) }}"
+          >{{ p.label }}</a>
+        {% else %}
+          <span class="briefing-period is-disabled" title="No data yet">{{ p.label }}</span>
+        {% endif %}
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+{# --- Portfolio summary strip ---
+   At-a-glance stats across ALL brands (_portfolio_summary): fills the header band
+   and frames the per-brand cards below (portfolio overview → selected-brand detail). #}
+<div class="pf-stats">
+  <div class="pf-stat">
+    <span class="pf-stat-value">{{ portfolio.brands }}</span>
+    <span class="pf-stat-label">Brand{{ 's' if portfolio.brands != 1 }}</span>
+  </div>
+  <div class="pf-stat">
+    <span class="pf-stat-value">{{ portfolio.products }}</span>
+    <span class="pf-stat-label">Product{{ 's' if portfolio.products != 1 }}</span>
+  </div>
+  <div class="pf-stat">
+    <span class="pf-stat-value">
+      {%- if portfolio.readiness is not none %}{{ portfolio.readiness }}<span class="pf-stat-unit">/100</span>{% else %}—{% endif -%}
+    </span>
+    <span class="pf-stat-label">Avg readiness</span>
+  </div>
+  <div class="pf-stat">
+    <span class="pf-stat-value{{ ' pf-stat-alert' if portfolio.losing_shelf }}">{{ portfolio.losing_shelf }}</span>
+    <span class="pf-stat-label">Losing shelf</span>
+  </div>
+  <div class="pf-stat">
+    <span class="pf-stat-value">{{ portfolio.open_opps }}</span>
+    <span class="pf-stat-label">Open opportunit{{ 'y' if portfolio.open_opps == 1 else 'ies' }}</span>
   </div>
 </div>
 
@@ -74,57 +138,12 @@
   </div>
 {% else %}
   <section class="briefing">
-    <div class="briefing-header">
-      <div>
-        <p class="label eyebrow">Your Summary</p>
-        <h2 class="briefing-brand">{{ briefing.brand_label }}</h2>
-        {% if briefing.period_label %}
-          <p class="subtitle">{{ briefing.period_label }}</p>
-        {% endif %}
-      </div>
-      <div class="briefing-controls">
-        {# Brand selector: each option is one monitoring group, labeled by its own
-           brand. Always shown (even with a single brand) so the default can be set.
-           Auto-submits on change; period rides along so switching brand keeps the
-           chosen window. #}
-        {# Auto-submits on change via briefing.js. The CSP forbids inline scripts, so
-           the handler lives in that external file; the Go button is the no-JS
-           fallback (JS hides it) so brand switching works either way. #}
-        <form method="get" action="{{ url_for('pages.dashboard') }}" class="briefing-brand-form">
-          <input type="hidden" name="period" value="{{ briefing.period }}">
-          <select name="group_id" class="briefing-select" aria-label="Brand">
-            {% for opt in briefing.groups %}
-            <option value="{{ opt.id }}" {{ 'selected' if opt.selected }}>{{ opt.label }}</option>
-            {% endfor %}
-          </select>
-          <button type="submit" class="briefing-go">Go</button>
-        </form>
-        {# Default brand: the one loaded when no brand is in the URL. A star tag when
-           the current brand already is the default; otherwise a one-click save. #}
-        {% if briefing.is_default %}
-          <span class="briefing-default is-default" title="Loads by default">★ Default</span>
-        {% else %}
-          <form method="post" action="{{ url_for('pages.set_default_brand') }}"
-                class="briefing-default-form">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-            <input type="hidden" name="group_id" value="{{ briefing.selected_group_id }}">
-            <button type="submit" class="briefing-default">☆ Set as default</button>
-          </form>
-        {% endif %}
-        {# Period toggle: only periods with completed-period data are clickable. #}
-        <div class="briefing-periods" role="group" aria-label="Reporting period">
-          {% for p in briefing.periods %}
-            {% if p.enabled %}
-              <a class="briefing-period {{ 'is-active' if p.selected }}"
-                 href="{{ url_for('pages.dashboard', group_id=briefing.selected_group_id, period=p.key) }}"
-              >{{ p.label }}</a>
-            {% else %}
-              <span class="briefing-period is-disabled" title="No data yet">{{ p.label }}</span>
-            {% endif %}
-          {% endfor %}
-        </div>
-      </div>
-    </div>
+    {# Which brand + window the cards below are scoped to. The selector/period
+       controls now live up in the page header, so this is just a quiet label. #}
+    <p class="briefing-context">
+      <span class="label eyebrow">Your summary</span>
+      <strong class="briefing-context-brand">{{ briefing.brand_label }}</strong>{% if briefing.period_label %}<span class="briefing-context-period"> · {{ briefing.period_label }}</span>{% endif %}
+    </p>
 
     <div class="briefing-cards">
       {% for c in briefing.cards %}

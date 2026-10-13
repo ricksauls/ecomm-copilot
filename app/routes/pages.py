@@ -639,6 +639,48 @@ def _opportunities(db, uid, gid, period, mine_brands, has_data) -> list[dict]:
     return opps[:OPPORTUNITIES_LIMIT]
 
 
+def _portfolio_summary(db, uid) -> dict:
+    """Portfolio-level stats across ALL the user's brands — the dashboard top strip.
+
+    A small set of at-a-glance numbers that sit above the per-brand cards and frame
+    the whole portfolio: how many brands/products are managed, overall content
+    readiness, how many monitored brands are currently losing shelf share, and the
+    total number of open opportunities across every monitored brand.
+
+    The last two require a pass over the user's monitoring groups (each reuses the
+    same aggregations the cards/opportunities use), so this is heavier than the plain
+    counts — acceptable for the handful of groups a user has; revisit with caching if
+    a user accumulates many monitored brands.
+    """
+    readiness = jobs.portfolio_readiness(db, uid)
+    groups = ci_config.list_groups(db, uid, mode="monitoring")
+    losing_shelf = 0
+    open_opps = 0
+    for grp in groups:
+        gid = grp["id"]
+        mine = [b["name"] for b in ci_config.list_brands(db, gid, uid) if b["type"] == "mine"]
+        periods = ci_analysis.available_periods(db, gid)
+        period = periods[0] if periods else ci_analysis.DEFAULT_PERIOD
+        has_data = bool(periods)
+        if has_data:
+            shelf = ci_analysis.monitoring_tracked_shelf_share(db, gid, period)
+            if shelf["delta"] is not None and shelf["delta"] < 0:
+                losing_shelf += 1
+        open_opps += len(_opportunities(db, uid, gid, period, mine, has_data))
+
+    logger.info("Portfolio summary user_id=%s brands=%d monitored=%d losing=%d open_opps=%d",
+                uid, jobs.count_managed_brands(db, uid), len(groups), losing_shelf, open_opps)
+    return {
+        "brands": jobs.count_managed_brands(db, uid),
+        "products": jobs.count_managed_products(db, uid),
+        "monitored": len(groups),
+        "readiness": readiness["avg"],
+        "needs_attention": readiness["needs_attention_count"],
+        "losing_shelf": losing_shelf,
+        "open_opps": open_opps,
+    }
+
+
 def _performance_briefing(db, uid) -> dict:
     """Build the three-card performance briefing for the dashboard.
 
@@ -819,11 +861,9 @@ def dashboard():
     db = get_db()
     uid = g.user["id"]
 
-    # Portfolio header: distinct brands · distinct products the user has worked on.
-    portfolio = {
-        "brands": jobs.count_managed_brands(db, uid),
-        "products": jobs.count_managed_products(db, uid),
-    }
+    # Portfolio header + top summary strip: brand/product counts plus portfolio-wide
+    # readiness, monitored-brands-losing-shelf, and total open opportunities.
+    portfolio = _portfolio_summary(db, uid)
     briefing = _performance_briefing(db, uid)
     return render_template(
         "app/dashboard.html",

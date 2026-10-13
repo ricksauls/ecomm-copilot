@@ -306,6 +306,34 @@ def readiness_score(conn: sqlite3.Connection, user_id: int, brands: list[str],
     return {"avg": avg, "scored_count": len(scores), "needs_attention_count": needs_attention}
 
 
+def portfolio_readiness(conn: sqlite3.Connection, user_id: int) -> dict:
+    """Content Readiness across ALL of a user's scored products (every brand).
+
+    The portfolio-overview counterpart to :func:`readiness_score` (which scopes to
+    one brand): the average of each product's latest overall score over everything
+    the user has scored, for the dashboard's top summary strip. Same latest-per-item
+    rule as :func:`readiness_score`.
+
+    Returns ``{avg, scored_count, needs_attention_count}`` — ``avg`` is ``None`` when
+    the user has no scored products.
+    """
+    rows = conn.execute(
+        "SELECT overall FROM ("
+        "  SELECT overall, ROW_NUMBER() OVER ("
+        "    PARTITION BY item_id ORDER BY created_at DESC, id DESC) AS rn "
+        "  FROM scored_items "
+        "  WHERE user_id = ? AND item_id IS NOT NULL AND item_id != '' AND overall IS NOT NULL"
+        ") WHERE rn = 1",
+        (user_id,),
+    ).fetchall()
+    if not rows:
+        return {"avg": None, "scored_count": 0, "needs_attention_count": 0}
+    scores = [r["overall"] for r in rows]
+    needs = sum(1 for s in scores if s < READINESS_STRONG_MIN)
+    return {"avg": round(sum(scores) / len(scores)), "scored_count": len(scores),
+            "needs_attention_count": needs}
+
+
 def count_managed_products(conn: sqlite3.Connection, user_id: int,
                            since: str | None = None) -> int:
     """Distinct products a user has worked on — the dashboard "Products managed" KPI.
