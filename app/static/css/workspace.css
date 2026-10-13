@@ -590,6 +590,37 @@ body.workspace {
    one dominant metric, a trend-delta pill, a short narrative, and an Explore
    deep-link. Visually weightier than the KPI count cards — this is the headline
    read, so it sits above and apart from the counts below. */
+/* Dashboard header: Portfolio title + lifted-up brand/period controls on one row,
+   so the cards sit directly beneath (no separate low controls row). */
+.dash-header {
+  margin-bottom: 20px;
+  align-items: flex-start;
+}
+
+/* Slim "which brand/window" label above the cards (controls moved to the header). */
+.briefing-context {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  margin: 0 0 12px;
+  font-size: 13px;
+}
+.briefing-context .eyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--cool-gray);
+}
+.briefing-context-brand {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--black);
+}
+.briefing-context-period {
+  color: var(--mid-gray);
+}
+
 .briefing {
   margin-bottom: 26px;
 }

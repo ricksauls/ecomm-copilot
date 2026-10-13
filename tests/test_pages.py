@@ -1290,6 +1290,28 @@ def test_sparkline_spec_scales_and_signs_direction():
     assert ys == {str(_SPARK_H / 2)}
 
 
+def test_dashboard_header_lifts_controls_and_uses_context_line(client, auth, app):
+    # The brand/period controls live in the page header (not a separate low row),
+    # and the old stacked "Your Summary" block is now a slim brand·period context
+    # line above the cards.
+    from app import ci_config
+    from app.db import get_db
+
+    auth.register(email="hdr@example.com")
+    with app.app_context():
+        db = get_db()
+        uid = db.execute("SELECT id FROM users WHERE email = ?", ("hdr@example.com",)).fetchone()[0]
+        gid = ci_config.create_group(db, uid, "Hot Sauce", mode="monitoring")
+        ci_config.add_brand(db, gid, uid, "Tabasco", "mine")
+        db.commit()
+
+    body = client.get("/app").data
+    assert b"dash-header" in body         # merged header
+    assert b"briefing-select" in body     # the brand selector renders in the header
+    assert b"briefing-context" in body       # slim brand/period line replaces the old block
+    assert b'class="briefing-brand"' not in body  # old stacked "Your Summary" heading is gone
+
+
 def test_dashboard_brand_selector_is_csp_safe(client, auth, app):
     # Regression: the brand selector must NOT use an inline onchange handler — the
     # app's CSP is `script-src 'self'`, which blocks inline scripts, so an inline
