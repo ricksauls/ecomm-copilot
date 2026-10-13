@@ -1290,6 +1290,29 @@ def test_sparkline_spec_scales_and_signs_direction():
     assert ys == {str(_SPARK_H / 2)}
 
 
+def test_dashboard_brand_selector_is_csp_safe(client, auth, app):
+    # Regression: the brand selector must NOT use an inline onchange handler — the
+    # app's CSP is `script-src 'self'`, which blocks inline scripts, so an inline
+    # handler silently fails in production (the dropdown can't switch brands). It
+    # auto-submits via the external briefing.js, with a no-JS submit button fallback.
+    from app import ci_config
+    from app.db import get_db
+
+    auth.register(email="csp@example.com")
+    with app.app_context():
+        db = get_db()
+        uid = db.execute("SELECT id FROM users WHERE email = ?", ("csp@example.com",)).fetchone()[0]
+        gid = ci_config.create_group(db, uid, "Hot Sauce", mode="monitoring")
+        ci_config.add_brand(db, gid, uid, "Tabasco", "mine")
+        db.commit()
+
+    body = client.get("/app").data
+    assert b"briefing-select" in body       # the selector renders (a group exists)
+    assert b"onchange" not in body          # no inline handler (CSP would block it)
+    assert b"js/briefing.js" in body        # auto-submit comes from the external file
+    assert b"briefing-go" in body           # no-JS submit fallback is present
+
+
 def test_insights_placeholder_renders_and_guards_section(client, auth):
     # The two new Insights rail leaves link to in-design stubs; an unknown section
     # 404s rather than rendering an arbitrary heading.
