@@ -87,14 +87,17 @@
            brand. Always shown (even with a single brand) so the default can be set.
            Auto-submits on change; period rides along so switching brand keeps the
            chosen window. #}
+        {# Auto-submits on change via briefing.js. The CSP forbids inline scripts, so
+           the handler lives in that external file; the Go button is the no-JS
+           fallback (JS hides it) so brand switching works either way. #}
         <form method="get" action="{{ url_for('pages.dashboard') }}" class="briefing-brand-form">
           <input type="hidden" name="period" value="{{ briefing.period }}">
-          <select name="group_id" class="briefing-select" onchange="this.form.submit()"
-                  aria-label="Brand">
+          <select name="group_id" class="briefing-select" aria-label="Brand">
             {% for opt in briefing.groups %}
             <option value="{{ opt.id }}" {{ 'selected' if opt.selected }}>{{ opt.label }}</option>
             {% endfor %}
           </select>
+          <button type="submit" class="briefing-go">Go</button>
         </form>
         {# Default brand: the one loaded when no brand is in the URL. A star tag when
            the current brand already is the default; otherwise a one-click save. #}
@@ -177,4 +180,9 @@
     </div>
   </section>
 {% endif %}
+{% endblock %}
+
+{# CSP-safe auto-submit for the brand selector (see briefing.js). #}
+{% block scripts %}
+<script src="{{ static_url('js/briefing.js') }}" defer></script>
 {% endblock %}
