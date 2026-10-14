@@ -1335,16 +1335,14 @@ def test_dashboard_brand_selector_is_csp_safe(client, auth, app):
     assert b"briefing-go" in body           # no-JS submit fallback is present
 
 
-def test_insights_placeholder_renders_and_guards_section(client, auth):
-    # Opportunities is still an in-design stub; an unknown section 404s rather than
-    # rendering an arbitrary heading. (Performance is now a real view — see the
-    # test_performance_* tests below.)
+def test_insights_opportunities_no_monitoring_group_shows_setup(client, auth):
+    # Both Insights leaves are real views now (Performance + Opportunities); the old
+    # /app/insights/<section> stub is gone. Without a monitoring brand, Opportunities
+    # prompts the user to set tracking up.
     auth.register()
-    opp = client.get("/app/insights/opportunities")
-    assert opp.status_code == 200
-    assert b"Opportunities" in opp.data
-    assert b"In design" in opp.data
-
+    body = client.get("/app/insights/opportunities").data
+    assert b"No monitoring brand yet" in body
+    # The removed stub slug no longer resolves.
     assert client.get("/app/insights/bogus").status_code == 404
 
 
@@ -1598,3 +1596,88 @@ def test_performance_readiness_tab_offered_and_dashboard_links_to_it(client, aut
     assert b"Content Readiness" in client.get(f"/app/insights/performance?group_id={gid}").data
     # The dashboard's Conversion card "Dig it" opens the readiness tab.
     assert b"tab=readiness" in client.get(f"/app?group_id={gid}").data
+# ── Opportunities Insights screen ────────────────────────────────────────────
+
+def _seed_opportunities(app, email):
+    """Give ``email`` a monitoring brand with an image gap, a copy gap, and one
+    competitor-led keyword, so the Opportunities page has all three sections.
+    Returns the monitoring group id."""
+    import json as _json
+
+    from app import ci_analysis, ci_config, ci_jobs
+    from app.db import get_db
+    with app.app_context():
+        db = get_db()
+        uid = db.execute("SELECT id FROM users WHERE email = ?", (email,)).fetchone()[0]
+        gid = ci_config.create_group(db, uid, "Hot Sauce", mode="monitoring")
+        mine = ci_config.add_brand(db, gid, uid, "Tabasco", "mine")
+        comp = ci_config.add_brand(db, gid, uid, "Frank's", "competitor")
+        kw_win = ci_config.add_keyword(db, gid, uid, "hot sauce")
+        kw_lose = ci_config.add_keyword(db, gid, uid, "wing sauce")
+        rid = ci_jobs.enqueue_run(db, gid, run_type="monitoring")
+        day = ci_analysis.period_bounds("wow", 0)[0]
+        # "hot sauce": we lead; "wing sauce": a competitor leads -> a competitive gap.
+        for kid, mine_ct, comp_ct in ((kw_win, 8, 2), (kw_lose, 2, 8)):
+            for brand, ct in ((mine, mine_ct), (comp, comp_ct)):
+                db.execute(
+                    "INSERT INTO ci_share_of_search (run_id, group_id, keyword_id, date, slot, "
+                    "brand_id, organic_count, sponsored_count, total_count) VALUES (?,?,?,?,?,?,?,?,?)",
+                    (rid, gid, kid, day, None, brand, ct, 0, ct))
+
+        def score(item_id, title, dims):
+            db.execute(
+                "INSERT INTO scored_items (user_id, item_id, url, title, brand, overall, result_json) "
+                "VALUES (?,?,?,?,?,?,?)",
+                (uid, item_id, "u", title, "Tabasco", 60,
+                 _json.dumps({"overall": 60, "dimensions":
+                              [{"key": k, "label": k, "score": s, "available": True} for k, s in dims]})))
+        score("111", "Tabasco Habanero Sauce", [("imagery", 45), ("title", 95)])   # image gap
+        score("222", "Tabasco Sriracha Sauce", [("imagery", 100), ("description", 48)])  # copy gap
+        db.commit()
+        return gid
+
+
+def test_opportunities_renders_grouped_gaps(client, auth, app):
+    auth.register(email="oppins@example.com")
+    gid = _seed_opportunities(app, "oppins@example.com")
+    body = client.get(f"/app/insights/opportunities?group_id={gid}").data
+    # Three groups, with the actual affected items and their fix links.
+    assert b"Images" in body and b"Copy" in body and b"Competitive" in body
+    assert b"Tabasco Habanero Sauce" in body and b"Imagery 45" in body
+    assert b"Tabasco Sriracha Sauce" in body
+    assert b"wing sauce" in body and b"Frank" in body     # competitor-led keyword
+    assert b"Create image set" in body
+    assert b"Open Product Copy" in body
+    assert b"See the gap" in body
+    # Per-item fix links carry the prefill ?url= for the product.
+    assert b"url=" in body
+
+
+def test_opportunities_is_csp_safe(client, auth, app):
+    auth.register(email="oppcsp@example.com")
+    gid = _seed_opportunities(app, "oppcsp@example.com")
+    body = client.get(f"/app/insights/opportunities?group_id={gid}").data
+    assert b"js/performance.js" in body    # external controls JS
+    assert b"onchange" not in body
+
+
+def test_opportunities_group_idor_falls_back(client, auth, app):
+    # User A owns the brand; user B requesting it by id sees their own (empty) state.
+    auth.register(email="oppa@example.com")
+    gid = _seed_opportunities(app, "oppa@example.com")
+    auth.logout()
+    auth.register(email="oppb@example.com")
+    body = client.get(f"/app/insights/opportunities?group_id={gid}").data
+    assert b"Tabasco Habanero Sauce" not in body
+    assert b"No monitoring brand yet" in body
+
+
+def test_opportunities_prefill_deep_links_into_fix_workflow(client, auth, app):
+    # A ?url= deep-link prefills the fix workflow's first URL field; a forged
+    # non-Walmart url falls back to the bare prefix (never seeds the junk value).
+    auth.register(email="opppf@example.com")
+    _seed_opportunities(app, "opppf@example.com")
+    good = client.get("/app/pdp-copy?url=https://www.walmart.com/ip/222").data
+    assert b"https://www.walmart.com/ip/222" in good
+    forged = client.get("/app/pdp-copy?url=https://evil.example/x").data
+    assert b"evil.example" not in forged

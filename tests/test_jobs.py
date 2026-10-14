@@ -424,3 +424,24 @@ def test_readiness_item_returns_dimensions_and_respects_as_of(app):
         earlier = jobs.readiness_item(db, uid, "1", as_of="2026-02-01 00:00:00")
         assert earlier["overall"] == 40
         assert jobs.readiness_item(db, uid, "999") is None
+def test_readiness_breakdown_carries_weak_dimension_scores(app):
+    # The Opportunities page shows how far below target each product is, so the
+    # breakdown now carries the weak dimensions' scores (worst-first for copy).
+    with app.app_context():
+        db = get_db()
+        uid = create_local_user("breakdown3@example.com", "password123")
+        _score_detailed(db, uid, "1", "Tabasco", 60,
+                        [("imagery", 45), ("title", 95)], "2026-03-01 00:00:00",
+                        title="Habanero Sauce")
+        _score_detailed(db, uid, "2", "Tabasco", 50,
+                        [("imagery", 100), ("title", 55), ("description", 40)],
+                        "2026-03-01 00:00:00", title="Sriracha Sauce")
+        db.commit()
+
+        b = jobs.readiness_breakdown(db, uid, ["Tabasco"])
+        img = {i["item_id"]: i for i in b["image_items"]}
+        assert img["1"]["score"] == 45
+        assert img["1"]["title"] == "Habanero Sauce"
+        cp = {i["item_id"]: i for i in b["copy_items"]}
+        # Both weak copy dimensions, worst score first.
+        assert [w["score"] for w in cp["2"]["weak"]] == [40, 55]

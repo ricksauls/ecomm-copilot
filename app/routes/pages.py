@@ -860,35 +860,116 @@ def set_default_brand():
     return redirect(url_for("pages.dashboard", group_id=group_id))
 
 
-# Insights sections still being designed: the rail links to them, but the screen
-# lands in a later session. (Performance is now a real view — see
-# insights_performance below — so only Opportunities remains a stub.) The allow-list
-# key doubles as the URL slug and the active-nav suffix; the value is the page title.
-_INSIGHTS_PLACEHOLDERS = {
-    "opportunities": "Opportunities",
-}
+# ── Opportunities (Insights) ─────────────────────────────────────────────────
+# A worklist of where the selected brand can improve, grouped by the fix that
+# closes each gap: Images + Copy (from content scoring, per product) and
+# Competitive (keywords a competitor leads on the page-1 shelf). Each row
+# deep-links into the workflow that fixes it, prefilled with the item where the
+# workflow supports it. Brand/period selection mirrors the dashboard briefing.
 
 
-@bp.route("/app/insights/<section>")
-@login_required
-def insights_placeholder(section):
-    """Lightweight stub for an Insights section still in design.
+def _opp_product(item, score_label, score, fix_url) -> dict:
+    """Shape one content-gap product row (shared by the image + copy sections)."""
+    return {"item_id": item["item_id"], "title": item["title"],
+            "score_label": score_label, "score": score, "fix_url": fix_url}
 
-    The Opportunities rail leaf routes here so the menu is usable without a dead
-    link; its real view is built later. ``section`` must be in the allow-list — an
-    unknown slug 404s rather than rendering an arbitrary title (guards against a
-    forged path driving the page heading).
+
+def _opportunities_insights(db, uid) -> dict:
+    """Assemble the Opportunities screen for the current request.
+
+    Brand (monitoring CI group) + period selection follows the dashboard briefing
+    (``?group_id=`` → saved default → newest; validated ``?period=``). Three gap
+    groups, all scoped to the selected brand: Images and Copy from the brand's latest
+    content scores (:func:`jobs.readiness_breakdown`), Competitive from the keywords a
+    competitor leads (:func:`ci_analysis.monitoring_keyword_leaders`).
     """
-    title = _INSIGHTS_PLACEHOLDERS.get(section)
-    if title is None:
-        logger.warning("Rejected unknown Insights placeholder section=%s", section)
-        abort(404)
-    logger.info("Serving Insights placeholder section=%s", section)
+    groups = ci_config.list_groups(db, uid, mode="monitoring")
+    if not groups:
+        return {"available": False, "setup_url": url_for("pages.ci_monitoring_home")}
+
+    group_id = request.args.get("group_id", type=int)
+    selected = ci_config.get_group(db, group_id, uid) if group_id is not None else None
+    if selected is not None and selected["mode"] != "monitoring":
+        selected = None
+    default_id = g.user["default_ci_group_id"]
+    if selected is None and default_id is not None:
+        saved = ci_config.get_group(db, default_id, uid)
+        if saved is not None and saved["mode"] == "monitoring":
+            selected = saved
+    if selected is None:
+        selected = groups[0]
+    gid = selected["id"]
+    is_default = default_id == gid
+
+    available = ci_analysis.available_periods(db, gid)
+    requested = request.args.get("period")
+    period = (requested if requested in available
+              else (available[0] if available else ci_analysis.DEFAULT_PERIOD))
+    has_data = bool(available)
+
+    mine_brands = [b["name"] for b in ci_config.list_brands(db, gid, uid) if b["type"] == "mine"]
+
+    # ── Content gaps (image + copy), per product, from the latest scores ──────
+    content = jobs.readiness_breakdown(db, uid, mine_brands)
+    images = [
+        _opp_product(it, "Imagery", it["score"],
+                     url_for("pages.imageset_intake", url=f"{pdp.WALMART_IP_PREFIX}{it['item_id']}"))
+        for it in content["image_items"]
+    ]
+    copy = [
+        {"item_id": it["item_id"], "title": it["title"],
+         "weak": it["weak"],  # [{label, score}] worst-first
+         "fix_url": url_for("pages.pdp_copy", url=f"{pdp.WALMART_IP_PREFIX}{it['item_id']}")}
+        for it in content["copy_items"]
+    ]
+
+    # ── Competitive gaps: keywords a competitor leads → the shelf detail view ──
+    competitive = []
+    if has_data:
+        shelf_url = url_for("pages.insights_performance", group_id=gid, period=period, tab="shelf")
+        competitive = [
+            {**row, "fix_url": shelf_url}
+            for row in ci_analysis.monitoring_keyword_leaders(db, gid, period)
+        ]
+
+    total = len(images) + len(copy) + len(competitive)
+    logger.info("Opportunities insights user_id=%s group_id=%s period=%s images=%d copy=%d comp=%d",
+                uid, gid, period, len(images), len(copy), len(competitive))
+
+    return {
+        "available": True,
+        "has_data": has_data,
+        "is_default": is_default,
+        "brand_label": _group_brand_label(db, uid, gid, selected["name"]),
+        "selected_group_id": gid,
+        "period": period,
+        "period_label": ci_analysis.period_label(period) if has_data else None,
+        "groups": [{"id": grp["id"],
+                    "label": _group_brand_label(db, uid, grp["id"], grp["name"]),
+                    "selected": grp["id"] == gid} for grp in groups],
+        "periods": [{"key": p, "label": ci_analysis.PERIOD_LABELS[p],
+                     "enabled": p in available, "selected": p == period}
+                    for p in ci_analysis.PERIODS],
+        "images": images,
+        "copy": copy,
+        "competitive": competitive,
+        "total": total,
+    }
+
+
+@bp.route("/app/insights/opportunities")
+@login_required
+def insights_opportunities():
+    """Opportunities Insights screen — image, copy and competitive gaps for the
+    selected brand, each deep-linked to its fix. Assembled in
+    :func:`_opportunities_insights`."""
+    db = get_db()
+    data = _opportunities_insights(db, g.user["id"])
     return render_template(
-        "app/insights_placeholder.html",
-        breadcrumb=title,
-        active_nav=f"insights-{section}",
-        section_title=title,
+        "app/insights_opportunities.html",
+        breadcrumb="Opportunities",
+        active_nav="insights-opportunities",
+        **data,
     )
 
 
@@ -1274,6 +1355,20 @@ def ci_activity():
         snapshot=_activity_rows(db, uid, "ci-snapshot", since=None),
         monitoring=_activity_rows(db, uid, "ci-monitoring", since=None),
     )
+
+
+def _prefill_url_or_prefix() -> str:
+    """The first URL field's prefill value for an intake GET.
+
+    When a deep-link passes ``?url=`` with a valid Walmart item URL (e.g. an
+    Opportunities row pointing at the product that needs work), prefill the whole
+    URL; otherwise fall back to the bare autofill prefix. Validating the item number
+    keeps a forged ``?url=`` from seeding the field with an arbitrary string.
+    """
+    raw = request.args.get("url")
+    if raw and pdp.item_number_from_url(raw):
+        return raw
+    return pdp.WALMART_IP_PREFIX
 
 
 def _portfolio_pick_context() -> dict:
@@ -2242,7 +2337,9 @@ def pdp_copy():
         breadcrumb="Copy Content Studio · Product Detail Page Copy Content Creation",
         active_nav="pdp-copy",
         max_items=pdp.MAX_ITEMS,
-        url_prefix=pdp.WALMART_IP_PREFIX,
+        # A deep-link (e.g. the Opportunities page) may prefill the first URL field
+        # with a specific product; otherwise just the autofill prefix.
+        url_prefix=_prefill_url_or_prefix(),
         **_portfolio_pick_context(),
     )
 
@@ -3122,7 +3219,9 @@ def imageset_intake():
     background removal inline so the user lands on the cutout-approval gate.
     """
     if request.method != "POST":
-        return render_template("app/pdp_image_set.html", **_imageset_intake_context())
+        # A deep-link (e.g. an Opportunities image gap) may prefill the product URL.
+        return render_template("app/pdp_image_set.html",
+                               **_imageset_intake_context(url_prefix=_prefill_url_or_prefix()))
 
     db, uid, form = get_db(), g.user["id"], request.form
     fields = _parse_intake_fields(form)

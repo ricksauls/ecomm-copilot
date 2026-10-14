@@ -777,6 +777,39 @@ def monitoring_keyword_leadership(conn, group_id, period, today=None) -> dict:
     return {**cur, "delta": delta, "trend": trend_values, "trend_dates": trend_dates}
 
 
+def monitoring_keyword_leaders(conn, group_id, period, today=None) -> list[dict]:
+    """Per-keyword competitive gaps for the last completed period: the keywords whose
+    page-1 shelf a *competitor* leads, with the leader's and the user's share.
+
+    Companion to :func:`monitoring_keyword_leadership` (which returns only counts) for
+    the Opportunities page. The leader is the top-share brand on the keyword (same rule
+    as `_keyword_leadership_range`); only competitor-led keywords are returned — those
+    are the gaps. Sorted biggest-gap-first (leader share minus the user's share). A
+    keyword the user or the untracked "Other" bucket leads is not a gap and is omitted.
+    """
+    rows = _share_by_keyword_range(conn, group_id, *period_bounds(period, 0, today))
+    by_kw: dict = defaultdict(list)
+    for r in rows:
+        by_kw[r["keyword"]].append(r)
+
+    out = []
+    for keyword, kw_rows in by_kw.items():
+        leader = kw_rows[0]  # rows arrive top-share first within each keyword
+        if leader["type"] != "competitor":
+            continue
+        mine = next((x for x in kw_rows if x["type"] == "mine"), None)
+        mine_share = mine["total_share"] if mine else 0.0
+        out.append({
+            "keyword": keyword,
+            "leader_name": leader["brand_name"],
+            "leader_share": leader["total_share"],
+            "mine_share": mine_share,
+            "gap": round(leader["total_share"] - mine_share, 1),
+        })
+    out.sort(key=lambda o: o["gap"], reverse=True)
+    return out
+
+
 # ── Brand Advertising Presence (headline + sponsored-video ad sightings) ─────────
 
 def _shape_brand_ads(rows: list, brand_meta: dict) -> list[dict]:

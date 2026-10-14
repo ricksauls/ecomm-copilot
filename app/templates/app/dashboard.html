@@ -147,7 +147,11 @@
        how much of that dimension is already strong. No open gaps = an "all caught
        up" note rather than an empty void. Built in _opportunities(). #}
     <div class="opportunities">
-      <p class="label eyebrow opp-eyebrow">Opportunities</p>
+      <div class="opp-eyebrow-row">
+        <p class="label eyebrow opp-eyebrow">Opportunities</p>
+        {# The dashboard shows the top few; the Insights page is the full worklist. #}
+        <a class="opp-seeall" href="{{ url_for('pages.insights_opportunities', group_id=briefing.selected_group_id, period=briefing.period) }}">See all →</a>
+      </div>
       {% if briefing.opportunities %}
         <div class="opp-list">
           {% for o in briefing.opportunities %}
