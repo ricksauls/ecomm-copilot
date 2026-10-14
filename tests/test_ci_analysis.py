@@ -465,3 +465,124 @@ def test_tracked_shelf_share_counts_only_owned_tracked_skus(app):
         assert mss["share"] == 20.0
         assert mss["delta"] == 10.0            # 20% now vs 10% the prior week
         assert mss["trend"] == [10.0, 20.0]    # prior week -> current week
+
+
+# ── Item-level performance (the Performance Insights screen) ──────────────────
+
+def test_mine_items_lists_active_mine_products_only(app):
+    with app.app_context():
+        db = get_db()
+        _, gid, mine, comp, _, kid, rid = _setup(db)  # mine tracks 10294528
+        _track(db, gid, mine, "t2")
+        _track(db, gid, comp, "f2")  # competitor's tracked SKU -> excluded
+        db.commit()
+        ids = {it["item_id"] for it in ci_analysis.mine_items(db, gid)}
+        assert ids == {"10294528", "t2"}
+
+
+def test_monitoring_item_avg_rank_per_sku_delta_trend(app):
+    with app.app_context():
+        db = get_db()
+        _, gid, mine, comp, _, kid, rid = _setup(db)  # tracks 10294528
+        _track(db, gid, mine, "t2")
+        _track(db, gid, mine, "t3")  # tracked, no results -> appears with None rank
+        _track(db, gid, comp, "f2")  # competitor -> excluded
+        T = date(2026, 8, 26)
+        # Last completed week (Aug 17–23).
+        _result(db, rid, gid, kid, "2026-08-18", 4, "10294528", mine)
+        _result(db, rid, gid, kid, "2026-08-20", 6, "10294528", mine)  # avg 5.0
+        _result(db, rid, gid, kid, "2026-08-19", 3, "t2", mine)         # avg 3.0
+        _result(db, rid, gid, kid, "2026-08-19", 2, "f2", comp)         # excluded (competitor)
+        # Prior week (Aug 10–16).
+        _result(db, rid, gid, kid, "2026-08-12", 8, "10294528", mine)
+        db.commit()
+
+        rows = ci_analysis.monitoring_item_avg_rank(db, gid, "wow", today=T)
+        by = {r["item_id"]: r for r in rows}
+        assert set(by) == {"10294528", "t2", "t3"}  # competitor item excluded
+        assert by["10294528"]["avg_position"] == 5.0
+        assert by["10294528"]["delta"] == 3.0            # prior 8.0 - current 5.0
+        assert by["10294528"]["trend"] == [8.0, 5.0]
+        assert by["t2"]["avg_position"] == 3.0
+        assert by["t2"]["delta"] is None                 # no prior week
+        assert by["t3"]["avg_position"] is None          # tracked but never on page 1
+        # Ranked items sort best-first; the unranked item sorts last.
+        assert rows[0]["item_id"] == "t2"
+        assert rows[-1]["item_id"] == "t3"
+
+
+def test_monitoring_item_shelf_share_per_sku(app):
+    with app.app_context():
+        db = get_db()
+        _, gid, mine, comp, _, kid, rid = _setup(db)  # tracks 10294528
+        _track(db, gid, mine, "t2")
+        _track(db, gid, mine, "t3")  # no slots -> 0% (red/absent)
+        T = date(2026, 8, 26)
+        # Last week: item1 3 slots, t2 1 slot, competitor 2 slots, untracked 1 -> total 7.
+        for d, pos in (("2026-08-18", 1), ("2026-08-19", 2), ("2026-08-20", 3)):
+            _result(db, rid, gid, kid, d, pos, "10294528", mine)
+        _result(db, rid, gid, kid, "2026-08-18", 4, "t2", mine)
+        _result(db, rid, gid, kid, "2026-08-18", 5, "f1", comp)
+        _result(db, rid, gid, kid, "2026-08-19", 6, "f1", comp)
+        _result(db, rid, gid, kid, "2026-08-20", 7, "o1", None)
+        db.commit()
+
+        rows = ci_analysis.monitoring_item_shelf_share(db, gid, "wow", today=T)
+        by = {r["item_id"]: r for r in rows}
+        assert by["10294528"]["slots"] == 3
+        assert by["10294528"]["total_slots"] == 7
+        assert by["10294528"]["share"] == 42.9      # 3/7
+        assert by["t2"]["share"] == 14.3            # 1/7
+        assert by["t3"]["slots"] == 0 and by["t3"]["share"] == 0.0
+
+
+def test_item_rank_by_keyword_includes_all_tracked_keywords(app):
+    with app.app_context():
+        db = get_db()
+        uid, gid, mine, comp, _, kid, rid = _setup(db)
+        ci_config.add_keyword(db, gid, uid, "pepper sauce")  # item doesn't rank here
+        T = date(2026, 8, 26)
+        _result(db, rid, gid, kid, "2026-08-18", 4, "10294528", mine)
+        _result(db, rid, gid, kid, "2026-08-20", 6, "10294528", mine)  # "hot sauce" avg 5.0
+        db.commit()
+
+        by = {r["keyword"]: r["avg_ranking"]
+              for r in ci_analysis.item_rank_by_keyword(db, gid, "10294528", "wow", today=T)}
+        assert by["hot sauce"] == 5.0
+        assert by["pepper sauce"] is None            # not ranked -> None (shown red)
+
+
+def test_item_share_by_keyword_is_item_slots_over_keyword_slots(app):
+    with app.app_context():
+        db = get_db()
+        _, gid, mine, comp, _, kid, rid = _setup(db)
+        T = date(2026, 8, 26)
+        # On "hot sauce": item holds 2 of the keyword's 4 page-1 slots.
+        _result(db, rid, gid, kid, "2026-08-18", 1, "10294528", mine)
+        _result(db, rid, gid, kid, "2026-08-19", 2, "10294528", mine)
+        _result(db, rid, gid, kid, "2026-08-18", 3, "f1", comp)
+        _result(db, rid, gid, kid, "2026-08-19", 4, "o1", None)
+        db.commit()
+
+        by = {r["keyword"]: r
+              for r in ci_analysis.item_share_by_keyword(db, gid, "10294528", "wow", today=T)}
+        assert by["hot sauce"]["slots"] == 2
+        assert by["hot sauce"]["total"] == 4
+        assert by["hot sauce"]["share"] == 50.0
+
+
+def test_mine_avg_rank_headline_delta_and_trend(app):
+    with app.app_context():
+        db = get_db()
+        _, gid, mine, comp, _, kid, rid = _setup(db)
+        T = date(2026, 8, 26)
+        _result(db, rid, gid, kid, "2026-08-18", 4, "10294528", mine)
+        _result(db, rid, gid, kid, "2026-08-20", 6, "10294528", mine)  # this week avg 5.0
+        _result(db, rid, gid, kid, "2026-08-12", 8, "10294528", mine)  # prior 8.0
+        db.commit()
+
+        head = ci_analysis.mine_avg_rank(db, gid, "wow", today=T)
+        assert head["avg"] == 5.0
+        assert head["delta"] == 3.0                  # prior 8.0 - current 5.0 (improved)
+        assert head["trend"] == [8.0, 5.0]
+        assert head["trend_dates"] == ["Aug 10–16", "Aug 17–23"]

@@ -1,6 +1,36 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-10-12 (session 31 — **Dashboard: Opportunities list, Insights rail rework, CSP
+_Last updated: 2026-10-14 (session 32 — **Insights: Performance screen built — two tabs (Search Rank,
+Share of Digital Shelf) over one monitoring brand + period, with item-level drill-down. On branch
+`feature/insights-performance` (PR open), 717 tests, ruff clean, NO migration, NO new env.**
+First, the two Insights rail leaves were **renamed** per the user: `performance` ("Performance") +
+`opportunities` ("Opportunities") replace the old "Discoverability & Conversion" / "Competitive
+Intelligence" stubs. **Opportunities stays an in-design stub**; **Performance is now a real view**
+(`insights_performance`, `/app/insights/performance`). **Design was locked via a styled HTML preview
+artifact** the user iterated on (near-black trend line per `ci_charts.js`, green/red only — no amber,
+Brand→Item rescope-in-place). **Feasibility win:** item-level rank/share needed NO re-scrape — every
+page-1 result already carries `ci_search_results.item_id`, matched to tracked `ci_products`. **New
+analytics** (`app/ci_analysis.py`, all GROUP BY item_id, mine-brand + active only, LEFT-JOIN so absent
+items still show): `mine_items`, `mine_avg_rank` (rank headline), `monitoring_item_avg_rank`,
+`monitoring_item_shelf_share` (per-SKU tables + drilled KPI/trend), `item_rank_by_keyword`,
+`item_share_by_keyword` (drilled keyword table). Brand-view keyword tables reuse existing
+`monitoring_rank_by_keyword` / `monitoring_share_by_keyword` (mine rows). **Route** `_performance_insights`
+mirrors the dashboard briefing's brand/period selection (`?group_id=` → saved default → newest; validated
+`?period=`); `?tab=rank|shelf` + `?item=` are server-rendered, deep-linkable, IDOR/allow-list-guarded (a
+forged item or unowned group falls back, never leaks). **green/red rule:** green = on page 1 / holds slots,
+red = not ranked / 0 slots (absent). **Template** `insights_performance.html` + a Performance CSS section in
+`workspace.css` (reuses `.ws-tabs`, `.ci-select`, `.ci-periods`, tokens — light-only). **Trend chart** is a
+new dependency-free SVG renderer in **`app/static/js/performance.js`** (near-black line, area fill, rank
+y-axis inverted + "lower is better"); the same file auto-submits Brand/Item selects (CSP-safe, external —
+NO inline `on*`; Go button = no-JS fallback) and makes Tracked-Product rows drill on click. **Dashboard
+"Dig it" deep-links re-pointed:** Discoverability card → Performance `?tab=rank`, Competition → `?tab=shelf`
+(folds the orphaned `ci_view` in; `ci_view` route still exists, still reached by the competitive
+Opportunity). **Verified live** (seeded dev data under `railtest@localhost.test`, group 24): both tabs,
+item drill on both tabs, charts, no console/CSP errors. **DEFERRED: a 3rd "Content Readiness" tab** (the
+dashboard's Conversion pillar) — tab bar shows only the two for now. **Next: design + build the Opportunities
+Insights page** (still a stub), and/or the Content Readiness tab. The prior session-31 summary follows._
+
+_Session 31 — (session 31 — **Dashboard: Opportunities list, Insights rail rework, CSP
 selector fix, header redesign — ALL SHIPPED + LIVE across 3 PRs (#40, #41, #42), `main` at `133fe66`.**
 No migration, no new env. Also seeded **3 months of tagged demo data** onto prod (see below).
 **(1) Opportunities list (#40):** a ranked, deep-linked action list below the three cards, scoped to the
@@ -139,6 +169,45 @@ quality set to **medium**. Droplet now on gpt-image-1 + PhotoRoom. Session 16 �
 blur, per-card Regenerate, Lifestyle logo. Session 15 — all 4 image types generate. Session 13 —
 built PDP Image Set.)_
 
+> ## ⭐ Next session — START HERE (session 32 — Performance Insights screen, 2026-10-14)
+>
+> **Built the Performance Insights screen on branch `feature/insights-performance` (PR open).**
+> **717 tests, ruff clean. NO migration, NO new env.** The top preamble is the authoritative summary; this
+> adds the where-to-continue detail.
+>
+> ### What shipped (on the branch)
+> - **Rail rename:** the two Insights leaves are now **Performance** + **Opportunities** (`_rail.html`).
+>   Opportunities still routes to the in-design stub (`insights_placeholder`, allow-list now just
+>   `{"opportunities"}`); **Performance is a real view** (`insights_performance`).
+> - **Item-level analytics** (`app/ci_analysis.py`, new section at the end): `mine_items`, `mine_avg_rank`,
+>   `monitoring_item_avg_rank`, `monitoring_item_shelf_share`, `item_rank_by_keyword`, `item_share_by_keyword`.
+>   All GROUP BY `ci_search_results.item_id`, scope to the group's **active 'mine'** products, LEFT-JOIN from
+>   `ci_products` so a tracked SKU with no page-1 slot still appears (rank `None` / share `0`). **No new data
+>   needed** — `item_id` was already on every result row.
+> - **Route** `_performance_insights` + `_perf_rank_tab` / `_perf_shelf_tab` + helpers (`_rank_cell`,
+>   `_share_cell`, `_perf_delta`, `_perf_trend`) in `pages.py`. Brand/period selection copied from
+>   `_performance_briefing`. `?tab=rank|shelf` + `?item=` (validated; forged → all-items; unowned group →
+>   fallback). Only the active tab's data is built (tabs are full page loads).
+> - **Template** `app/templates/app/insights_performance.html`; **CSS** a "Performance Insights" section
+>   appended to `workspace.css`; **JS** `app/static/js/performance.js` (trend renderer + CSP-safe control
+>   auto-submit + row-click drill). ⚠️ **CSP rule still in force: no inline `on*` — external JS only.**
+> - **Dashboard "Dig it" deep-links re-pointed** to Performance (Discoverability→`?tab=rank`,
+>   Competition→`?tab=shelf`). `ci_view` still exists (unlinked from rail, still hit by the competitive
+>   Opportunity row).
+> - **green/red rule (locked with user):** green = ranks on page 1 / holds slots; red = not ranked / 0 slots.
+>   **No amber token.** Trend line is near-black (the `ci_charts.js` "mine" convention), NOT blue.
+>
+> ### To finish / next
+> - **Merge the PR** (CI → auto-deploy to prod). Dev was seeded under `railtest@localhost.test` (group 24)
+>   for the live check — that's local dev data, harmless to leave or delete.
+> - **Design + build the Opportunities Insights page** (still the stub) — the other renamed leaf.
+> - **The deferred 3rd tab: "Content Readiness"** (the dashboard's Conversion pillar) — the tab bar shows
+>   only Search Rank + Share of Digital Shelf today. `jobs.readiness_score` / `readiness_breakdown` already exist.
+> - A **styled HTML preview artifact** drove the design this session (near-black line, green/red, Brand→Item
+>   rescope) — reuse that approach for the Opportunities page.
+>
+> ---
+>
 > ## ⭐ Next session — START HERE (session 31 — Opportunities list, Insights rail, CSP fix, header, 2026-10-12)
 >
 > **Four dashboard changes, ALL SHIPPED + LIVE across 3 PRs (#40, #41, #42), `main` at `133fe66`.**

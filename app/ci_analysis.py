@@ -861,3 +861,185 @@ def monitoring_placement_map(conn, group_id, period, avg_ranks, today=None) -> d
     """Placement grid for the period's overall average ranking (page + PDF share it)."""
     start, end = period_bounds(period, 0, today)
     return build_rank_placement_map(avg_ranks, _page1_depth_range(conn, group_id, start, end))
+
+
+# ── Item-level performance (the Performance Insights screen) ──────────────────
+# The dashboard cards and the monitoring_* functions above aggregate to the brand.
+# The Performance screen also drills to a single tracked SKU, so the functions here
+# mirror the brand-level aggregations but GROUP BY item_id, joined to ci_products
+# for the display name. Scope is always the group's own ('mine') ACTIVE products —
+# a competitor's tracked SKUs and unauthorized third-party listings are excluded.
+#
+# All three per-item listings LEFT JOIN from ci_products, so a tracked item with no
+# page-1 slot in the window still appears (rank ``None`` / share ``0`` → the screen
+# colors it as "not on page 1"), rather than silently vanishing from the table.
+
+
+def mine_items(conn, group_id) -> list[dict]:
+    """Active tracked SKUs under the group's 'mine' brand(s): ``{item_id, name}``.
+
+    Powers the Performance screen's Item selector and validates a drill request —
+    an ``?item=`` not in this list falls back to the all-items (brand) view.
+    """
+    rows = conn.execute(
+        "SELECT p.walmart_item_id AS item_id, p.name AS name "
+        "FROM ci_products p JOIN ci_brands b ON b.id = p.brand_id "
+        "WHERE p.group_id = ? AND p.active = 1 AND b.type = 'mine' "
+        "ORDER BY p.name COLLATE NOCASE",
+        (group_id,),
+    ).fetchall()
+    return [{"item_id": r["item_id"], "name": r["name"]} for r in rows]
+
+
+def mine_avg_rank(conn, group_id, period, today=None) -> dict:
+    """Combined tracked-item average search rank (all 'mine' brands) — the Search
+    Rank tab's headline: current value, delta, and a trend over the last periods.
+
+    Averages the per-brand two-stage figures across the group's mine brands (one is
+    the common case). Delta is ``prior − current`` so positive means the rank
+    *improved* (moved up). Periods with no mine ranking are skipped in the trend so
+    the line doesn't dip to a misleading zero.
+    """
+    def mine_avg(rows):
+        vals = [r["avg_position"] for r in rows
+                if r["type"] == "mine" and r["avg_position"] is not None]
+        return round(sum(vals) / len(vals), 1) if vals else None
+
+    cur = mine_avg(_avg_rank_by_brand_range(conn, group_id, *period_bounds(period, 0, today)))
+    prior = mine_avg(_avg_rank_by_brand_range(conn, group_id, *period_bounds(period, 1, today)))
+    delta = round(prior - cur, 1) if cur is not None and prior is not None else None
+
+    values, dates = [], []
+    for i in range(TREND_PERIODS - 1, -1, -1):
+        v = mine_avg(_avg_rank_by_brand_range(conn, group_id, *period_bounds(period, i, today)))
+        if v is None:
+            continue
+        values.append(v)
+        dates.append(period_label(period, i, today))
+    return {"avg": cur, "delta": delta, "trend": values, "trend_dates": dates}
+
+
+def _item_avg_rank_range(conn, group_id, start, end) -> list[dict]:
+    """Per tracked-SKU average page-1 position over a date range (``None`` if the
+    item held no page-1 slot). Two-stage average (per keyword, then across keywords)
+    so a single item's figure reconciles with the brand-level aggregation."""
+    rows = conn.execute(
+        "SELECT p.walmart_item_id AS item_id, p.name AS name, "
+        "  AVG(per_kw.avg_pos) AS overall_avg "
+        "FROM ci_products p JOIN ci_brands b ON b.id = p.brand_id "
+        "LEFT JOIN (SELECT item_id, keyword_id, AVG(position) AS avg_pos "
+        "           FROM ci_search_results "
+        "           WHERE group_id = ? AND scraped_at >= ? AND scraped_at <= ? "
+        "           GROUP BY item_id, keyword_id) per_kw "
+        "  ON per_kw.item_id = p.walmart_item_id "
+        "WHERE p.group_id = ? AND p.active = 1 AND b.type = 'mine' "
+        "GROUP BY p.walmart_item_id "
+        "ORDER BY overall_avg IS NULL, overall_avg, p.name COLLATE NOCASE",
+        (group_id, start, end, group_id),
+    ).fetchall()
+    return [{"item_id": r["item_id"], "name": r["name"],
+             "avg_position": round(r["overall_avg"], 1) if r["overall_avg"] is not None else None}
+            for r in rows]
+
+
+def monitoring_item_avg_rank(conn, group_id, period, today=None) -> list[dict]:
+    """Per-SKU average search rank for the last completed period, with delta + trend.
+
+    Feeds the Search Rank tab's Tracked Products table and, filtered to one item, the
+    drilled item view's headline and trend. Delta is ``prior − current`` (positive =
+    improved); absent items carry ``None`` rank and are kept in the list.
+    """
+    cur = _item_avg_rank_range(conn, group_id, *period_bounds(period, 0, today))
+    prior = {r["item_id"]: r
+             for r in _item_avg_rank_range(conn, group_id, *period_bounds(period, 1, today))}
+    trend = _period_trend(conn, group_id, period, today, key_fn=lambda r: r["item_id"],
+                          val_fn=lambda r: r["avg_position"], range_fn=_item_avg_rank_range)
+    out = []
+    for r in cur:
+        p = prior.get(r["item_id"])
+        delta = (round(p["avg_position"] - r["avg_position"], 1)
+                 if p and p["avg_position"] is not None and r["avg_position"] is not None else None)
+        t = trend.get(r["item_id"], {"dates": [], "values": []})
+        out.append({**r, "delta": delta, "trend": t["values"], "trend_dates": t["dates"]})
+    return out
+
+
+def _item_shelf_share_range(conn, group_id, start, end) -> list[dict]:
+    """Per tracked-SKU page-1 shelf share over a date range: the item's page-1 slots
+    ÷ ALL page-1 slots scraped in the window. Absent items return ``slots = 0`` (a
+    real 0% share), so the LEFT JOIN keeps them in the listing."""
+    total = conn.execute(
+        "SELECT COUNT(*) FROM ci_search_results "
+        "WHERE group_id = ? AND scraped_at >= ? AND scraped_at <= ?",
+        (group_id, start, end),
+    ).fetchone()[0]
+    rows = conn.execute(
+        "SELECT p.walmart_item_id AS item_id, p.name AS name, COUNT(sr.id) AS slots "
+        "FROM ci_products p JOIN ci_brands b ON b.id = p.brand_id "
+        "LEFT JOIN ci_search_results sr "
+        "  ON sr.item_id = p.walmart_item_id AND sr.group_id = p.group_id "
+        "  AND sr.scraped_at >= ? AND sr.scraped_at <= ? "
+        "WHERE p.group_id = ? AND p.active = 1 AND b.type = 'mine' "
+        "GROUP BY p.walmart_item_id "
+        "ORDER BY slots DESC, p.name COLLATE NOCASE",
+        (start, end, group_id),
+    ).fetchall()
+    return [{"item_id": r["item_id"], "name": r["name"], "slots": r["slots"],
+             "total_slots": total, "share": _pct(r["slots"], total)} for r in rows]
+
+
+def monitoring_item_shelf_share(conn, group_id, period, today=None) -> list[dict]:
+    """Per-SKU page-1 shelf share for the last completed period, with delta + trend.
+
+    Feeds the Share of Digital Shelf tab's Tracked Products table and, filtered to one
+    item, the drilled headline and trend. Delta is current − prior share (pts).
+    """
+    cur = _item_shelf_share_range(conn, group_id, *period_bounds(period, 0, today))
+    prior = {r["item_id"]: r
+             for r in _item_shelf_share_range(conn, group_id, *period_bounds(period, 1, today))}
+    trend = _period_trend(conn, group_id, period, today, key_fn=lambda r: r["item_id"],
+                          val_fn=lambda r: r["share"], range_fn=_item_shelf_share_range)
+    out = []
+    for r in cur:
+        p = prior.get(r["item_id"])
+        delta = round(r["share"] - p["share"], 1) if p else None
+        t = trend.get(r["item_id"], {"dates": [], "values": []})
+        out.append({**r, "delta": delta, "trend": t["values"], "trend_dates": t["dates"]})
+    return out
+
+
+def item_rank_by_keyword(conn, group_id, item_id, period, today=None) -> list[dict]:
+    """One item's average page-1 rank per tracked keyword for the last completed
+    period (``avg_ranking`` is ``None`` on keywords the item doesn't rank for). Drives
+    the drilled item view's Keyword Performance table on the Search Rank tab."""
+    start, end = period_bounds(period, 0, today)
+    rows = conn.execute(
+        "SELECT k.keyword AS keyword, "
+        "  (SELECT AVG(sr.position) FROM ci_search_results sr "
+        "   WHERE sr.group_id = k.group_id AND sr.keyword_id = k.id AND sr.item_id = ? "
+        "   AND sr.scraped_at >= ? AND sr.scraped_at <= ?) AS avg_pos "
+        "FROM ci_keywords k WHERE k.group_id = ? ORDER BY k.keyword COLLATE NOCASE",
+        (item_id, start, end, group_id),
+    ).fetchall()
+    return [{"keyword": r["keyword"],
+             "avg_ranking": round(r["avg_pos"], 1) if r["avg_pos"] is not None else None}
+            for r in rows]
+
+
+def item_share_by_keyword(conn, group_id, item_id, period, today=None) -> list[dict]:
+    """One item's share of a keyword's page-1 slots (its slots ÷ all page-1 slots on
+    that keyword) for the last completed period. Drives the drilled item view's
+    Keyword Performance table on the Share of Digital Shelf tab."""
+    start, end = period_bounds(period, 0, today)
+    rows = conn.execute(
+        "SELECT k.keyword AS keyword, "
+        "  (SELECT COUNT(*) FROM ci_search_results sr WHERE sr.group_id = k.group_id "
+        "   AND sr.keyword_id = k.id AND sr.item_id = ? "
+        "   AND sr.scraped_at >= ? AND sr.scraped_at <= ?) AS slots, "
+        "  (SELECT COUNT(*) FROM ci_search_results sr WHERE sr.group_id = k.group_id "
+        "   AND sr.keyword_id = k.id AND sr.scraped_at >= ? AND sr.scraped_at <= ?) AS total "
+        "FROM ci_keywords k WHERE k.group_id = ? ORDER BY k.keyword COLLATE NOCASE",
+        (item_id, start, end, start, end, group_id),
+    ).fetchall()
+    return [{"keyword": r["keyword"], "slots": r["slots"], "total": r["total"],
+             "share": _pct(r["slots"], r["total"])} for r in rows]

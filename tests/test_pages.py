@@ -1336,17 +1336,14 @@ def test_dashboard_brand_selector_is_csp_safe(client, auth, app):
 
 
 def test_insights_placeholder_renders_and_guards_section(client, auth):
-    # The two new Insights rail leaves link to in-design stubs; an unknown section
-    # 404s rather than rendering an arbitrary heading.
+    # Opportunities is still an in-design stub; an unknown section 404s rather than
+    # rendering an arbitrary heading. (Performance is now a real view — see the
+    # test_performance_* tests below.)
     auth.register()
-    disco = client.get("/app/insights/disco-conv")
-    assert disco.status_code == 200
-    assert b"Discoverability &amp; Conversion" in disco.data
-    assert b"In design" in disco.data
-
-    comp = client.get("/app/insights/competitive")
-    assert comp.status_code == 200
-    assert b"Competitive Intelligence" in comp.data
+    opp = client.get("/app/insights/opportunities")
+    assert opp.status_code == 200
+    assert b"Opportunities" in opp.data
+    assert b"In design" in opp.data
 
     assert client.get("/app/insights/bogus").status_code == 404
 
@@ -1356,8 +1353,8 @@ def test_rail_shows_new_insights_items_and_hides_old(client, auth):
     # hidden from the rail (their routes still exist, just unlinked here).
     auth.register()
     body = client.get("/app").data
-    assert b"Discoverability &amp; Conversion" in body
-    assert b"Competitive Intelligence" in body
+    assert b"Performance" in body
+    assert b"Opportunities" in body
     # The old rail label was unique to that leaf, so its absence proves it's hidden.
     assert b"View All Competitive Intelligence Activity" not in body
 
@@ -1443,3 +1440,108 @@ def test_dashboard_opportunities_empty_state_when_all_strong(client, auth, app):
     body = client.get("/app").data
     assert b"opp-row" not in body
     assert b"No open opportunities" in body
+
+
+# ── Performance Insights screen ──────────────────────────────────────────────
+
+def _seed_performance(app, email):
+    """Give ``email`` a monitoring brand with two tracked SKUs and one completed
+    week of page-1 results, so the Performance screen has data to render. Returns
+    the monitoring group id."""
+    from app import ci_analysis, ci_config, ci_jobs
+    from app.db import get_db
+    with app.app_context():
+        db = get_db()
+        uid = db.execute("SELECT id FROM users WHERE email = ?", (email,)).fetchone()[0]
+        gid = ci_config.create_group(db, uid, "Hot Sauce", mode="monitoring")
+        mine = ci_config.add_brand(db, gid, uid, "Tabasco", "mine")
+        ci_config.add_brand(db, gid, uid, "Frank's", "competitor")
+        kid = ci_config.add_keyword(db, gid, uid, "hot sauce")
+        for item, name in (("111", "Tabasco Original Sauce"), ("222", "Tabasco Green Pepper Sauce")):
+            db.execute(
+                "INSERT INTO ci_products (group_id, brand_id, name, walmart_item_id, walmart_url) "
+                "VALUES (?,?,?,?,?)", (gid, mine, name, item, f"https://www.walmart.com/ip/x/{item}"))
+        rid = ci_jobs.enqueue_run(db, gid, run_type="monitoring")
+        day0 = ci_analysis.period_bounds("wow", 0)[0]
+        for pos, item in ((3, "111"), (5, "222")):
+            db.execute(
+                "INSERT INTO ci_search_results (run_id, group_id, keyword_id, scraped_at, position, "
+                "position_type, item_id, brand_id, is_new_sku) VALUES (?,?,?,?,?,?,?,?,0)",
+                (rid, gid, kid, day0, pos, "organic", item, mine))
+        db.commit()
+        return gid
+
+
+def test_performance_rank_tab_renders(client, auth, app):
+    auth.register(email="perf@example.com")
+    _seed_performance(app, "perf@example.com")
+    body = client.get("/app/insights/performance").data
+    assert b"Average Search Rank" in body
+    assert b"Tabasco Green Pepper Sauce" in body   # a tracked product row
+    assert b"Tracked Keywords" in body
+    assert b"hot sauce" in body
+    assert b"data-perf-trend" in body
+
+
+def test_performance_is_csp_safe(client, auth, app):
+    # The controls auto-submit via an external file, not an inline handler (CSP
+    # blocks inline scripts); the Go button is the no-JS fallback.
+    auth.register(email="perfcsp@example.com")
+    _seed_performance(app, "perfcsp@example.com")
+    body = client.get("/app/insights/performance").data
+    assert b"js/performance.js" in body
+    assert b"onchange" not in body
+    assert b"perf-go" in body
+
+
+def test_performance_shelf_tab(client, auth, app):
+    auth.register(email="perfshelf@example.com")
+    _seed_performance(app, "perfshelf@example.com")
+    body = client.get("/app/insights/performance?tab=shelf").data
+    assert b"Share of Page 1" in body
+    assert b"Shelf Share" in body       # the products column label on the shelf tab
+
+
+def test_performance_unknown_tab_falls_back_to_rank(client, auth, app):
+    auth.register(email="perftab@example.com")
+    _seed_performance(app, "perftab@example.com")
+    body = client.get("/app/insights/performance?tab=bogus").data
+    assert b"Average Search Rank" in body     # defaulted to the Search Rank tab
+
+
+def test_performance_item_drilldown_rescopes(client, auth, app):
+    auth.register(email="perfdrill@example.com")
+    gid = _seed_performance(app, "perfdrill@example.com")
+    body = client.get(f"/app/insights/performance?group_id={gid}&item=222").data
+    assert b"Keyword Performance" in body          # drilled view's single table
+    assert b"All items" in body                    # back chip
+    assert b"Tabasco Green Pepper Sauce" in body   # the drilled item in the bar
+    assert b"Tracked Products" not in body         # products table is gone when drilled
+
+
+def test_performance_forged_item_falls_back_to_all_items(client, auth, app):
+    # An ?item= that isn't one of the brand's SKUs never drills — it falls back to
+    # the all-items (brand) view, so a forged id can't reach another user's data.
+    auth.register(email="perfforge@example.com")
+    gid = _seed_performance(app, "perfforge@example.com")
+    body = client.get(f"/app/insights/performance?group_id={gid}&item=999999").data
+    assert b"Tracked Products" in body
+    assert b"Keyword Performance" not in body
+
+
+def test_performance_group_idor_falls_back_to_own_view(client, auth, app):
+    # User A owns a monitoring group; user B requesting it by id is not the owner, so
+    # B sees their own (empty) state — never A's brand/products.
+    auth.register(email="perfowner@example.com")
+    gid = _seed_performance(app, "perfowner@example.com")
+    auth.logout()
+    auth.register(email="perfother@example.com")
+    body = client.get(f"/app/insights/performance?group_id={gid}").data
+    assert b"Tabasco Green Pepper Sauce" not in body   # A's data never leaks to B
+    assert b"No monitoring brand yet" in body          # B has none of their own
+
+
+def test_performance_no_monitoring_group_shows_setup(client, auth):
+    auth.register(email="perfnone@example.com")
+    body = client.get("/app/insights/performance").data
+    assert b"No monitoring brand yet" in body
