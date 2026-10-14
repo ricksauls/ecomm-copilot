@@ -1,0 +1,182 @@
+{% extends "app/base.html" %}
+{% block title %}Performance — DISCOtech{% endblock %}
+
+{# Performance Insights: two tabs (Search Rank, Share of Digital Shelf) over one
+   monitoring brand + period, with drill-down to a single tracked item. Tabs and
+   the drill are plain links (?tab=, ?item=) so each state is a deep-linkable URL;
+   only the trend line is drawn client-side (performance.js). Assembled in
+   _performance_insights(); this template stays presentation-only. #}
+
+{% block pane_content %}
+<div class="page-header perf-header">
+  <div>
+    <div class="label eyebrow">Insights</div>
+    <h1>Performance</h1>
+    <p class="subtitle">How your tracked brands and items are performing over time.</p>
+  </div>
+
+  {% if available %}
+  {# Brand + Item selectors auto-submit via performance.js (CSP forbids inline
+     handlers); the Go button is the no-JS fallback. Period is a set of links. #}
+  <div class="perf-controls">
+    <form method="get" action="{{ url_for('pages.insights_performance') }}" class="perf-controls-form">
+      <input type="hidden" name="tab" value="{{ tab }}">
+      <input type="hidden" name="period" value="{{ period }}">
+      <label class="control-field">
+        <span class="field-label">Brand</span>
+        <select name="group_id" class="ci-select perf-brand" aria-label="Brand">
+          {% for o in groups %}
+          <option value="{{ o.id }}" {{ 'selected' if o.selected }}>{{ o.label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="control-field">
+        <span class="field-label">Item</span>
+        <select name="item" class="ci-select perf-item" aria-label="Item">
+          <option value="all" {{ 'selected' if not item }}>All items</option>
+          {% for it in items %}
+          <option value="{{ it.item_id }}" {{ 'selected' if it.selected }}>{{ it.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <button type="submit" class="wbtn wbtn-secondary perf-go">Go</button>
+    </form>
+
+    {% if has_data %}
+    <div class="control-field">
+      <span class="field-label">Period</span>
+      <div class="ci-periods" role="group" aria-label="Reporting period">
+        {% for p in periods %}
+          {% if p.enabled %}
+          <a class="{{ 'active' if p.selected }}"
+             href="{{ url_for('pages.insights_performance', group_id=selected_group_id, item=(item or 'all'), tab=tab, period=p.key) }}">{{ p.label }}</a>
+          {% else %}
+          <span class="disabled" title="No completed {{ p.label | lower }} of data yet">{{ p.label }}</span>
+          {% endif %}
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+
+{% if not available %}
+  <div class="card card-pad ci-empty">
+    No monitoring brand yet. Set one up under
+    <a href="{{ setup_url }}">Daily Monitoring</a> to see performance here.
+  </div>
+{% else %}
+
+  {# Tabs — each is a deep-linkable URL that keeps the current brand/item/period. #}
+  <div class="ws-tabs" role="tablist">
+    {% for t in tabs %}
+    <a class="ws-tab {{ 'active' if t == tab }}" role="tab"
+       href="{{ url_for('pages.insights_performance', group_id=selected_group_id, item=(item or 'all'), period=period, tab=t) }}">{{ tab_labels[t] }}</a>
+    {% endfor %}
+  </div>
+
+  {# Context line (brand view) or drill bar (item view). #}
+  {% if item %}
+  <div class="drill-bar">
+    <a class="back-chip" href="{{ url_for('pages.insights_performance', group_id=selected_group_id, tab=tab, period=period, item='all') }}">&larr; All items</a>
+    <span class="drill-item"><span class="label eyebrow">Item</span> {{ item_name }}</span>
+    <span class="drill-scope">{{ brand_label }}{% if period_label %} · {{ period_label }}{% endif %}</span>
+  </div>
+  {% else %}
+  <p class="briefing-context perf-context">
+    <span class="label eyebrow">Brand</span>
+    <strong class="briefing-context-brand">{{ brand_label }}</strong>{% if period_label %}<span class="briefing-context-period"> · {{ period_label }}</span>{% endif %}
+  </p>
+  {% endif %}
+
+  {% if not has_data %}
+  <div class="card card-pad ci-empty">
+    No completed period with data yet. Monitoring aggregates over a full completed
+    week, month, quarter or year — the period buttons switch on as each one fills in.
+    Check back once the first period wraps up.
+  </div>
+  {% else %}
+
+  {# Headline KPI + trend chart. #}
+  <div class="perf-top">
+    <div class="card card-pad kpi-tile">
+      <div class="label">{{ headline.label }}</div>
+      <div class="kpi-metric">{{ headline.metric }}</div>
+      {% if headline.delta.display %}
+      <div class="kpi-delta {{ headline.delta.dir }}">{{ headline.delta.display }}</div>
+      {% endif %}
+      <div class="kpi-foot">{{ headline.foot }}</div>
+    </div>
+    <div class="card card-pad chart-card">
+      <h2 class="chart-title">{{ tab_labels[tab] }} Trend</h2>
+      <span class="chart-legend"><span class="sw"></span> {{ trend_legend }}</span>
+      <div class="chart-wrap">
+        <div class="perf-trend" data-perf-trend data-series='{{ trend | tojson }}'></div>
+      </div>
+    </div>
+  </div>
+
+  {% if item %}
+    {# Drilled item view: one keyword-performance table. #}
+    <div class="perf-tables single">
+      <div class="card tbl-card">
+        <div class="tbl-head">Keyword Performance<div class="sub">{{ item_kw_sub }}</div></div>
+        <table class="dash perf-dash">
+          <thead><tr><th>#</th><th>Keyword</th><th class="col-right">{{ item_kw_label }}</th></tr></thead>
+          <tbody>
+            {% for r in item_kw %}
+            <tr><td class="col-num">{{ loop.index }}</td><td>{{ r.keyword }}</td>
+              <td class="col-metric {{ r.cls }}">{{ r.display }}</td></tr>
+            {% else %}
+            <tr><td colspan="3" class="perf-empty-cell">No keyword data for this item yet.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  {% else %}
+    {# Brand view: Tracked Products (drillable) + Tracked Keywords. #}
+    <div class="perf-tables">
+      <div class="card tbl-card">
+        <div class="tbl-head">Tracked Products<div class="sub">Click an item to drill in</div></div>
+        <table class="dash perf-dash">
+          <thead><tr><th>#</th><th>Product</th><th class="col-right">{{ products_label }}</th></tr></thead>
+          <tbody>
+            {% for r in products %}
+            {% set drill = url_for('pages.insights_performance', group_id=selected_group_id, tab=tab, period=period, item=r.item_id) %}
+            <tr class="row-drill" data-href="{{ drill }}">
+              <td class="col-num">{{ loop.index }}</td>
+              <td><a class="perf-drill-link" href="{{ drill }}">{{ r.name }}</a></td>
+              <td class="col-metric {{ r.cls }}">{{ r.display }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="3" class="perf-empty-cell">No tracked products for this brand yet.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="card tbl-card">
+        <div class="tbl-head">Tracked Keywords</div>
+        <table class="dash perf-dash">
+          <thead><tr><th>#</th><th>Keyword</th><th class="col-right">{{ keywords_label }}</th></tr></thead>
+          <tbody>
+            {% for r in keywords %}
+            <tr><td class="col-num">{{ loop.index }}</td><td>{{ r.keyword }}</td>
+              <td class="col-metric {{ r.cls }}">{{ r.display }}</td></tr>
+            {% else %}
+            <tr><td colspan="3" class="perf-empty-cell">No keyword data for this brand yet.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  {% endif %}
+
+  {% endif %}{# has_data #}
+{% endif %}{# available #}
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ static_url('js/performance.js') }}" defer></script>
+{% endblock %}

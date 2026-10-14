@@ -681,7 +681,10 @@ def _performance_briefing(db, uid) -> dict:
     logger.info("Performance briefing user_id=%s group_id=%s period=%s has_data=%s mine_brands=%d",
                 uid, gid, period, has_data, len(mine_brands))
 
-    explore_ci = url_for("pages.ci_view", group_id=gid, period=period)
+    # Each CI card's "Dig it" opens the matching Performance Insights tab (its
+    # detailed drill-down), carrying the current brand + period.
+    explore_rank = url_for("pages.insights_performance", group_id=gid, period=period, tab="rank")
+    explore_shelf = url_for("pages.insights_performance", group_id=gid, period=period, tab="shelf")
     gathering = "Gathering data — check back after the first full period."
 
     # ── Discoverability: where the brand's tracked products rank on page 1 ─────
@@ -716,16 +719,16 @@ def _performance_briefing(db, uid) -> dict:
                 "delta": d_display, "delta_dir": d_dir,
                 "headline": _headline(d_dir, "Rankings are improving.",
                                       "Rankings are slipping.", "Rankings are holding."),
-                "narrative": narrative, "explore_url": explore_ci,
+                "narrative": narrative, "explore_url": explore_rank,
             }
         else:
             # Monitoring is live but none of my tracked SKUs hold a page-1 slot yet.
             discoverability = {"key": "discoverability", "label": "Discoverability",
-                               "state": "gathering", "explore_url": explore_ci,
+                               "state": "gathering", "explore_url": explore_rank,
                                "narrative": "None of your tracked products rank on page 1 yet."}
     else:
         discoverability = {"key": "discoverability", "label": "Discoverability",
-                           "state": "gathering", "narrative": gathering, "explore_url": explore_ci}
+                           "state": "gathering", "narrative": gathering, "explore_url": explore_rank}
 
     # ── Competition: how much of the whole page-1 shelf the brand holds ────────
     # My tracked SKUs' page-1 slots ÷ ALL page-1 slots — how much of the contested
@@ -747,11 +750,11 @@ def _performance_briefing(db, uid) -> dict:
             "delta": d_display, "delta_dir": d_dir,
             "headline": _headline(d_dir, "You're winning more shelf.",
                                   "You're losing shelf share.", "Shelf share is steady."),
-            "narrative": narrative, "explore_url": explore_ci,
+            "narrative": narrative, "explore_url": explore_shelf,
         }
     else:
         competition = {"key": "competition", "label": "Competition",
-                       "state": "gathering", "narrative": gathering, "explore_url": explore_ci}
+                       "state": "gathering", "narrative": gathering, "explore_url": explore_shelf}
 
     # ── Conversion: content readiness of the brand's scored products ───────────
     # Independent of CI period data — it reads scored_items — but it borrows the
@@ -854,12 +857,12 @@ def set_default_brand():
     return redirect(url_for("pages.dashboard", group_id=group_id))
 
 
-# Insights sections that are being redesigned: the rail links to them today, but
-# the screens themselves land in a later session. The allow-list keys double as the
-# URL slug and the active-nav suffix; the values are the page titles.
+# Insights sections still being designed: the rail links to them, but the screen
+# lands in a later session. (Performance is now a real view — see
+# insights_performance below — so only Opportunities remains a stub.) The allow-list
+# key doubles as the URL slug and the active-nav suffix; the value is the page title.
 _INSIGHTS_PLACEHOLDERS = {
-    "disco-conv": "Discoverability & Conversion",
-    "competitive": "Competitive Intelligence",
+    "opportunities": "Opportunities",
 }
 
 
@@ -868,10 +871,10 @@ _INSIGHTS_PLACEHOLDERS = {
 def insights_placeholder(section):
     """Lightweight stub for an Insights section still in design.
 
-    The two new Insights rail leaves route here so the menu is usable without a
-    dead link; the real views are built later. ``section`` must be in the
-    allow-list — an unknown slug 404s rather than rendering an arbitrary title
-    (guards against a forged path driving the page heading).
+    The Opportunities rail leaf routes here so the menu is usable without a dead
+    link; its real view is built later. ``section`` must be in the allow-list — an
+    unknown slug 404s rather than rendering an arbitrary title (guards against a
+    forged path driving the page heading).
     """
     title = _INSIGHTS_PLACEHOLDERS.get(section)
     if title is None:
@@ -883,6 +886,232 @@ def insights_placeholder(section):
         breadcrumb=title,
         active_nav=f"insights-{section}",
         section_title=title,
+    )
+
+
+# ── Performance (Insights) ───────────────────────────────────────────────────
+# Two tabs over one monitoring brand + period: Search Rank and Share of Digital
+# Shelf. Both can drill from the brand (all tracked items) down to a single SKU,
+# rescoping the headline, trend chart and keyword table in place. Tabs and the
+# drill are plain ``?tab=``/``?item=`` navigation (server-rendered, deep-linkable,
+# CSP-safe); only the trend line is drawn client-side (performance.js).
+_PERF_TABS = ("rank", "shelf")
+_PERF_TAB_LABELS = {"rank": "Search Rank", "shelf": "Share of Digital Shelf"}
+
+
+def _rank_cell(avg_position) -> dict:
+    """Display + color for a search-rank value: green when the item holds a page-1
+    slot, red when it doesn't rank at all. (Every scraped position is itself a
+    page-1 slot, so ``None`` — no slot — is the only "needs attention" case.)"""
+    if avg_position is None:
+        return {"display": "Not ranked", "cls": "m-bad"}
+    return {"display": f"{avg_position:.1f}", "cls": "m-good"}
+
+
+def _share_cell(share) -> dict:
+    """Display + color for a shelf-share value: green when the item holds any page-1
+    slots, red when absent (0% share) — the user's chosen green/red rule."""
+    if not share:
+        return {"display": "0%", "cls": "m-bad"}
+    return {"display": f"{share}%", "cls": "m-good"}
+
+
+def _perf_delta(delta, unit="pts") -> dict:
+    """Template-friendly trend delta: ``{display, dir}`` (dir colors the pill; a
+    ``None`` delta yields ``display=None`` so the template omits the pill)."""
+    display, direction = _delta_pill(delta, unit)
+    return {"display": display, "dir": direction}
+
+
+def _perf_trend(values, dates, unit) -> dict:
+    """Trend series for performance.js, rendered into a data-attribute via ``tojson``.
+
+    ``unit`` is 'rank' (y-axis inverted, lower is better) or 'share' (percent).
+    """
+    return {"values": values, "dates": dates, "unit": unit}
+
+
+def _performance_insights(db, uid) -> dict:
+    """Assemble the Performance screen for the current request.
+
+    Brand (monitoring CI group) and period selection mirror the dashboard briefing
+    (:func:`_performance_briefing`): ``?group_id=`` wins, then the saved default,
+    then the newest group; ``?period=`` falls back to the first ready period. ``?tab=``
+    picks Search Rank or Share of Digital Shelf; ``?item=`` drills to one tracked SKU
+    (validated against the group's own items — a forged id falls back to all-items).
+    Only the active tab's data is built, since tabs are separate page loads.
+    """
+    groups = ci_config.list_groups(db, uid, mode="monitoring")
+    if not groups:
+        # No monitoring groups yet — nothing to report; prompt to set tracking up.
+        return {"available": False, "setup_url": url_for("pages.ci_monitoring_home")}
+
+    # Brand (CI group): explicit id → saved default → newest monitoring group.
+    group_id = request.args.get("group_id", type=int)
+    selected = ci_config.get_group(db, group_id, uid) if group_id is not None else None
+    if selected is not None and selected["mode"] != "monitoring":
+        selected = None
+    default_id = g.user["default_ci_group_id"]
+    if selected is None and default_id is not None:
+        saved = ci_config.get_group(db, default_id, uid)
+        if saved is not None and saved["mode"] == "monitoring":
+            selected = saved
+    if selected is None:
+        selected = groups[0]
+    gid = selected["id"]
+    is_default = default_id == gid
+
+    # Tab + period, both validated against allow-lists (an unknown value falls back).
+    tab = request.args.get("tab")
+    if tab not in _PERF_TABS:
+        tab = "rank"
+    available = ci_analysis.available_periods(db, gid)
+    requested = request.args.get("period")
+    period = (requested if requested in available
+              else (available[0] if available else ci_analysis.DEFAULT_PERIOD))
+    has_data = bool(available)
+
+    # Item drill: validate ?item= against the group's own tracked SKUs.
+    items = ci_analysis.mine_items(db, gid)
+    item_ids = {it["item_id"] for it in items}
+    item = request.args.get("item")
+    if item not in item_ids:  # "all", missing, or a forged id → brand (all-items) view
+        item = None
+    item_name = next((it["name"] for it in items if it["item_id"] == item), None)
+
+    logger.info("Performance insights user_id=%s group_id=%s tab=%s period=%s item=%s has_data=%s",
+                uid, gid, tab, period, item, has_data)
+
+    data = {
+        "available": True,
+        "has_data": has_data,
+        "is_default": is_default,
+        "brand_label": _group_brand_label(db, uid, gid, selected["name"]),
+        "selected_group_id": gid,
+        "period": period,
+        "period_label": ci_analysis.period_label(period) if has_data else None,
+        "tab": tab,
+        "tab_labels": _PERF_TAB_LABELS,
+        "tabs": list(_PERF_TABS),
+        "item": item,
+        "item_name": item_name,
+        "groups": [{"id": grp["id"],
+                    "label": _group_brand_label(db, uid, grp["id"], grp["name"]),
+                    "selected": grp["id"] == gid} for grp in groups],
+        "items": [{"item_id": it["item_id"], "name": it["name"],
+                   "selected": it["item_id"] == item} for it in items],
+        "periods": [{"key": p, "label": ci_analysis.PERIOD_LABELS[p],
+                     "enabled": p in available, "selected": p == period}
+                    for p in ci_analysis.PERIODS],
+    }
+
+    if not has_data:
+        return data  # template shows a "no completed period yet" note
+
+    if tab == "rank":
+        data.update(_perf_rank_tab(db, uid, gid, period, item))
+    else:
+        data.update(_perf_shelf_tab(db, uid, gid, period, item))
+    return data
+
+
+def _perf_rank_tab(db, uid, gid, period, item) -> dict:
+    """Search Rank tab data — brand view (all items) or one drilled SKU."""
+    if item is None:
+        head = ci_analysis.mine_avg_rank(db, gid, period)
+        kw = [{"keyword": r["keyword"], **_rank_cell(r["avg_ranking"])}
+              for r in ci_analysis.monitoring_rank_by_keyword(db, gid, period)
+              if r["type"] == "mine"]
+        products = [{"item_id": r["item_id"], "name": r["name"], **_rank_cell(r["avg_position"])}
+                    for r in ci_analysis.monitoring_item_avg_rank(db, gid, period)]
+        return {
+            "headline": {
+                "label": "Average Search Rank",
+                "metric": f"#{head['avg']}" if head["avg"] is not None else "—",
+                "delta": _perf_delta(head["delta"], unit="spots"),
+                "foot": "Avg page-1 position across tracked items · lower is better",
+            },
+            "trend": _perf_trend(head["trend"], head["trend_dates"], "rank"),
+            "trend_legend": "Average search rank (all tracked items)",
+            "products": products,
+            "products_label": "Avg Rank",
+            "keywords": kw,
+            "keywords_label": "Your Rank",
+        }
+    # Drilled: pick the item's row from the per-item list for the headline + trend.
+    row = next((r for r in ci_analysis.monitoring_item_avg_rank(db, gid, period)
+                if r["item_id"] == item), None)
+    kw = [{"keyword": r["keyword"], **_rank_cell(r["avg_ranking"])}
+          for r in ci_analysis.item_rank_by_keyword(db, gid, item, period)]
+    return {
+        "headline": {
+            "label": "This Item · Average Search Rank",
+            "metric": f"#{row['avg_position']}" if row and row["avg_position"] is not None else "—",
+            "delta": _perf_delta(row["delta"] if row else None, unit="spots"),
+            "foot": "This item's avg page-1 position · lower is better",
+        },
+        "trend": _perf_trend(row["trend"] if row else [], row["trend_dates"] if row else [], "rank"),
+        "trend_legend": "This item's search rank",
+        "item_kw": kw,
+        "item_kw_label": "Item Rank",
+        "item_kw_sub": "Where this item ranks on each tracked keyword",
+    }
+
+
+def _perf_shelf_tab(db, uid, gid, period, item) -> dict:
+    """Share of Digital Shelf tab data — brand view (all items) or one drilled SKU."""
+    if item is None:
+        head = ci_analysis.monitoring_tracked_shelf_share(db, gid, period)
+        kw = [{"keyword": r["keyword"], **_share_cell(r["total_share"])}
+              for r in ci_analysis.monitoring_share_by_keyword(db, gid, period)
+              if r["type"] == "mine"]
+        products = [{"item_id": r["item_id"], "name": r["name"], **_share_cell(r["share"])}
+                    for r in ci_analysis.monitoring_item_shelf_share(db, gid, period)]
+        return {
+            "headline": {
+                "label": "Share of Page 1",
+                "metric": f"{head['share']}%",
+                "delta": _perf_delta(head["delta"], unit="pts"),
+                "foot": "Your slots ÷ all page-1 slots across tracked keywords",
+            },
+            "trend": _perf_trend(head["trend"], head["trend_dates"], "share"),
+            "trend_legend": "Share of page-1 slots",
+            "products": products,
+            "products_label": "Shelf Share",
+            "keywords": kw,
+            "keywords_label": "Your Share",
+        }
+    row = next((r for r in ci_analysis.monitoring_item_shelf_share(db, gid, period)
+                if r["item_id"] == item), None)
+    kw = [{"keyword": r["keyword"], **_share_cell(r["share"])}
+          for r in ci_analysis.item_share_by_keyword(db, gid, item, period)]
+    return {
+        "headline": {
+            "label": "This Item · Share of Page 1",
+            "metric": f"{row['share']}%" if row else "0%",
+            "delta": _perf_delta(row["delta"] if row else None, unit="pts"),
+            "foot": "This item's slots ÷ all page-1 slots across tracked keywords",
+        },
+        "trend": _perf_trend(row["trend"] if row else [], row["trend_dates"] if row else [], "share"),
+        "trend_legend": "This item's share of page 1",
+        "item_kw": kw,
+        "item_kw_label": "Item Share",
+        "item_kw_sub": "This item's share of page 1 on each tracked keyword",
+    }
+
+
+@bp.route("/app/insights/performance")
+@login_required
+def insights_performance():
+    """Performance Insights screen: Search Rank + Share of Digital Shelf, per brand,
+    with item-level drill-down. Assembled in :func:`_performance_insights`."""
+    db = get_db()
+    data = _performance_insights(db, g.user["id"])
+    return render_template(
+        "app/insights_performance.html",
+        breadcrumb="Performance",
+        active_nav="insights-performance",
+        **data,
     )
 
 

@@ -3645,3 +3645,95 @@ textarea.text-input { resize: vertical; line-height: 1.5; }
   max-width: 100%;
 }
 .pf-empty-filtered { padding: var(--space-12); margin: 0; }
+
+/* ── Performance Insights (Search Rank / Share of Digital Shelf) ──────────────
+   A two-tab analytics screen over one monitoring brand + period, with drill-down
+   to a single tracked item. Built from the shared tokens; the trend line is drawn
+   by performance.js in the app's near-black "mine" series color. */
+
+/* Header controls: Brand + Item selectors and the period pills, right-aligned. */
+.perf-header { align-items: flex-start; }
+.perf-controls { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.perf-controls-form { display: flex; align-items: flex-end; gap: 10px; }
+.control-field { display: flex; flex-direction: column; gap: 5px; }
+.control-field .field-label {
+  font-size: 9.5px; font-weight: 600; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--cool-gray);
+}
+.perf-brand, .perf-item { min-width: 150px; max-width: 240px; }
+
+/* Context line (brand view) sits above the cards, like the dashboard's. */
+.perf-context { margin-top: 2px; }
+
+/* Drill bar (item view): back chip + the item under its brand/period scope. */
+.drill-bar { display: flex; align-items: center; gap: 12px; margin: 0 0 16px; flex-wrap: wrap; }
+.back-chip {
+  font-size: 12.5px; font-weight: 600; color: var(--black);
+  background: var(--surface); border: 1px solid var(--control-border);
+  border-radius: var(--radius-card); padding: 6px 11px; text-decoration: none;
+  transition: border-color var(--fade) var(--ease);
+}
+.back-chip:hover { border-color: var(--black); }
+.drill-item { font-size: 15px; font-weight: 700; color: var(--black); }
+.drill-item .eyebrow { margin-right: 6px; }
+.drill-scope { font-size: 13px; color: var(--mid-gray); }
+
+/* Tabs render as links here (the shared .ws-tab was authored for buttons). */
+.ws-tab { text-decoration: none; }
+
+/* Top row: headline KPI tile + trend chart. */
+.perf-top { display: grid; grid-template-columns: 280px 1fr; gap: var(--space-14); margin-bottom: var(--space-14); }
+.kpi-tile { display: flex; flex-direction: column; justify-content: center; }
+.kpi-metric {
+  font-size: 46px; font-weight: 700; letter-spacing: -0.03em; line-height: 1;
+  margin-top: 12px; font-variant-numeric: tabular-nums;
+}
+.kpi-delta { font-size: 15px; font-weight: 600; margin-top: 12px; }
+.kpi-delta.up { color: var(--signal-green); }
+.kpi-delta.down { color: var(--signal-red); }
+.kpi-delta.flat { color: var(--mid-gray); }
+.kpi-foot { font-size: 12px; color: var(--cool-gray); margin-top: 14px; }
+
+.chart-card .chart-title { font-size: 15px; font-weight: 600; margin: 0 0 4px; }
+.chart-legend {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 11.5px; color: var(--mid-gray); margin-bottom: 6px;
+}
+.chart-legend .sw { width: 11px; height: 11px; border: 1.5px solid var(--black); border-radius: 2px; }
+.chart-wrap { width: 100%; overflow-x: auto; }
+.perf-trend-svg { width: 100%; height: auto; display: block; }
+
+/* Bottom row: Tracked Products + Tracked Keywords (one table when drilled in). */
+.perf-tables { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-14); }
+.perf-tables.single { grid-template-columns: 1fr; }
+.tbl-card { padding: 0; overflow: hidden; }
+.tbl-head { padding: 16px 20px 12px; font-size: 15px; font-weight: 600; }
+.tbl-head .sub { font-size: 12.5px; font-weight: 400; color: var(--cool-gray); margin-top: 2px; }
+
+.perf-dash { width: 100%; border-collapse: collapse; font-size: 13px; }
+.perf-dash thead th {
+  text-align: left; font-size: 9.5px; font-weight: 600; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--cool-gray); background: var(--row-hover);
+  padding: 8px 20px; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
+}
+.perf-dash thead th.col-right { text-align: right; }
+.perf-dash tbody td { padding: 11px 20px; border-bottom: 1px solid var(--divider); }
+.perf-dash tbody tr:last-child td { border-bottom: 0; }
+.perf-dash tbody tr:hover { background: var(--row-hover); }
+.col-num { color: var(--cool-gray); width: 28px; font-variant-numeric: tabular-nums; }
+.col-metric { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
+.col-metric.m-good { color: var(--signal-green); }
+.col-metric.m-bad { color: var(--signal-red); }
+.perf-empty-cell { color: var(--cool-gray); }
+
+/* Tracked-product rows drill into one item (performance.js makes the row clickable;
+   the name is also a real link for no-JS / keyboard access). */
+.row-drill { cursor: pointer; }
+.perf-drill-link { color: inherit; text-decoration: none; font-weight: 500; }
+.row-drill:hover .perf-drill-link { color: var(--accent); }
+.perf-drill-link::after { content: " ›"; color: var(--cool-gray); font-weight: 700; }
+
+@media (max-width: 860px) {
+  .perf-top { grid-template-columns: 1fr; }
+  .perf-tables { grid-template-columns: 1fr; }
+}
