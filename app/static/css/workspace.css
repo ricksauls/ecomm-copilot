@@ -3724,6 +3724,7 @@ textarea.text-input { resize: vertical; line-height: 1.5; }
 .col-metric { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
 .col-metric.m-good { color: var(--signal-green); }
 .col-metric.m-bad { color: var(--signal-red); }
+.col-metric.m-muted { color: var(--cool-gray); }  /* an unmeasured dimension (n/a) */
 .perf-empty-cell { color: var(--cool-gray); }
 
 /* Tracked-product rows drill into one item (performance.js makes the row clickable;

@@ -54,6 +54,7 @@
     catch (e) { return; }
     var vals = data.values || [], dates = data.dates || [];
     var isRank = data.unit === "rank", isPct = data.unit === "share";
+    var isScore = data.unit === "score";  // content readiness, 0–100, higher better
 
     if (vals.length < 2) {
       container.innerHTML =
@@ -64,13 +65,17 @@
     var W = 760, H = 280, padL = 48, padR = 18, padT = 14, padB = 32;
     var plotW = W - padL - padR, plotH = H - padT - padB;
 
-    // Domain: rank auto-scales around its min/max (padded); share runs 0..max+headroom.
+    // Domain: rank auto-scales around its min/max (padded); score is a fixed 0–100
+    // scale; share runs 0..max+headroom.
     var lo, hi;
     var dmin = Math.min.apply(null, vals), dmax = Math.max.apply(null, vals);
     if (isRank) {
       lo = Math.max(1, Math.floor(dmin - 1));
       hi = Math.ceil(dmax + 1);
       if (hi - lo < 2) { hi = lo + 2; }
+    } else if (isScore) {
+      lo = 0;
+      hi = 100;
     } else {
       lo = 0;
       hi = Math.max(1, Math.ceil(dmax * 1.25));
@@ -83,7 +88,8 @@
     }
 
     var svg = el("svg", { viewBox: "0 0 " + W + " " + H, "class": "perf-trend-svg",
-      role: "img", "aria-label": (isRank ? "Search rank" : "Share") + " trend" });
+      role: "img",
+      "aria-label": (isRank ? "Search rank" : isScore ? "Content readiness" : "Share") + " trend" });
 
     // Gridlines + y labels.
     ticks(lo, hi, isPct).forEach(function (tv) {
@@ -119,7 +125,8 @@
       stroke: LINE, "stroke-width": 2.25 }));
 
     // y-axis title.
-    var title = isRank ? "Avg rank (lower = better)" : "Share of page 1";
+    var title = isRank ? "Avg rank (lower = better)"
+      : isScore ? "Content readiness /100" : "Share of page 1";
     var at = el("text", { x: 13, y: padT + plotH / 2, "text-anchor": "middle",
       "font-size": 10.5, fill: LABEL,
       transform: "rotate(-90 13 " + (padT + plotH / 2) + ")" });

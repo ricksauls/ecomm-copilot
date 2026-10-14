@@ -1,6 +1,29 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-10-14 (session 32 — **Insights: Performance screen built — two tabs (Search Rank,
+_Last updated: 2026-10-14 (session 34 — **Performance: added the 3rd tab, Content Readiness.** On branch
+`feature/performance-readiness-tab` (PR open, **branched from `main`**, so it does NOT include the still-open
+Opportunities PR #44), 722 tests, ruff clean, NO migration, NO new env. The Performance screen now mirrors
+all three dashboard pillars: Search Rank, Share of Digital Shelf, **Content Readiness**. **Brand view:** KPI
+`NN/100` + delta + a readiness **trend** chart + an **all-scored-products** table (worst-first, drillable) —
+the trend and full table are the new value (nothing else had them; the dashboard only shows the current number
+and Opportunities shows only the gapped items). **Item drill:** the product's overall + a **Dimension Scores**
+breakdown (imagery/title/key_features/description, green/red vs the target) + its per-item readiness trend.
+Unlike the other two tabs, readiness reads **`scored_items`** (`jobs.readiness_score`/`readiness_items`/new
+`readiness_item`), not CI data; it borrows the period for delta/trend like the dashboard Conversion card, and
+the whole Performance screen is still gated on a completed CI period (`has_data`). NEW jobs fns:
+`readiness_items` (all scored products, worst-first) + `readiness_item` (one product's dims, with `as_of` for
+the trend). Route: `_perf_readiness_tab` + `_READINESS_TARGET` (= `jobs.READINESS_STRONG_MIN`, 80) + green/red
+via `_readiness_cell`; `_PERF_TABS` gained `"readiness"`. `performance.js` gained a **`score`** chart unit
+(fixed 0–100 axis, higher better). Template branches: brand view drops the keyword table when `keywords is
+none` (readiness → products full-width); item view shows the dimension table when `item_dims is defined`.
+**Dashboard Conversion card "Dig it" now opens `?tab=readiness`** (all three cards → their Performance tabs).
+Verified live (dev-seeded `railtest@localhost.test` group 24, incl. backdated score history for the trend).
+**With this, the Insights area is complete** (Performance 3 tabs + Opportunities). ⚠️ Two Insights PRs are
+open at once — **#44 (Opportunities)** and this readiness tab — both touch `jobs.py`/`pages.py`/`dashboard.html`/
+`workspace.css` by appending; expect trivial merge conflicts, resolve by keeping both. **Next: merge both PRs.**
+The prior session-32 summary follows._
+
+_Session 32 — (session 32 — **Insights: Performance screen built — two tabs (Search Rank,
 Share of Digital Shelf) over one monitoring brand + period, with item-level drill-down. On branch
 `feature/insights-performance` (PR open), 717 tests, ruff clean, NO migration, NO new env.**
 First, the two Insights rail leaves were **renamed** per the user: `performance` ("Performance") +

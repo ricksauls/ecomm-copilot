@@ -760,7 +760,10 @@ def _performance_briefing(db, uid) -> dict:
     # Independent of CI period data — it reads scored_items — but it borrows the
     # selected period for its delta/trend so all three cards move together.
     cur = jobs.readiness_score(db, uid, mine_brands)
-    explore_scored = url_for("pages.activity_all", kind="scored")
+    # "Dig it" opens the Content Readiness Performance tab (its trend + per-product
+    # breakdown), matching how the other two cards open their Performance tabs.
+    explore_readiness = url_for("pages.insights_performance",
+                                group_id=gid, period=period, tab="readiness")
     if cur["avg"] is None:
         conversion = {"key": "conversion", "label": "Conversion", "state": "empty",
                       "empty_text": "Score this brand's products to see Content Readiness.",
@@ -784,7 +787,7 @@ def _performance_briefing(db, uid) -> dict:
             "delta": d_display, "delta_dir": d_dir,
             "headline": _headline(d_dir, "Content health is improving.",
                                   "Content health is slipping.", "Content health is steady."),
-            "narrative": narrative, "explore_url": explore_scored,
+            "narrative": narrative, "explore_url": explore_readiness,
         }
 
     return {
@@ -895,8 +898,14 @@ def insights_placeholder(section):
 # rescoping the headline, trend chart and keyword table in place. Tabs and the
 # drill are plain ``?tab=``/``?item=`` navigation (server-rendered, deep-linkable,
 # CSP-safe); only the trend line is drawn client-side (performance.js).
-_PERF_TABS = ("rank", "shelf")
-_PERF_TAB_LABELS = {"rank": "Search Rank", "shelf": "Share of Digital Shelf"}
+_PERF_TABS = ("rank", "shelf", "readiness")
+_PERF_TAB_LABELS = {"rank": "Search Rank", "shelf": "Share of Digital Shelf",
+                    "readiness": "Content Readiness"}
+
+# Content Readiness colors a score green at/above the "strong" target, red below it
+# (the same target that flags a gap in the Opportunities list). Unlike rank/shelf,
+# there's no "absent" state — every scored product has a number.
+_READINESS_TARGET = jobs.READINESS_STRONG_MIN
 
 
 def _rank_cell(avg_position) -> dict:
@@ -914,6 +923,14 @@ def _share_cell(share) -> dict:
     if not share:
         return {"display": "0%", "cls": "m-bad"}
     return {"display": f"{share}%", "cls": "m-good"}
+
+
+def _readiness_cell(score, suffix="") -> dict:
+    """Display + color for a content-readiness score: green at/above the target,
+    red below it, muted when the dimension wasn't measured (``None``)."""
+    if score is None:
+        return {"display": "n/a", "cls": "m-muted"}
+    return {"display": f"{score}{suffix}", "cls": "m-good" if score >= _READINESS_TARGET else "m-bad"}
 
 
 def _perf_delta(delta, unit="pts") -> dict:
@@ -1010,8 +1027,10 @@ def _performance_insights(db, uid) -> dict:
 
     if tab == "rank":
         data.update(_perf_rank_tab(db, uid, gid, period, item))
-    else:
+    elif tab == "shelf":
         data.update(_perf_shelf_tab(db, uid, gid, period, item))
+    else:
+        data.update(_perf_readiness_tab(db, uid, gid, period, item))
     return data
 
 
@@ -1097,6 +1116,74 @@ def _perf_shelf_tab(db, uid, gid, period, item) -> dict:
         "item_kw": kw,
         "item_kw_label": "Item Share",
         "item_kw_sub": "This item's share of page 1 on each tracked keyword",
+    }
+
+
+def _perf_readiness_tab(db, uid, gid, period, item) -> dict:
+    """Content Readiness tab data — brand view (all scored products) or one SKU.
+
+    Unlike the CI-based tabs, readiness reads the brand's latest content scores
+    (jobs.*); it borrows the selected period only for the delta/trend, mirroring the
+    dashboard's Conversion card.
+    """
+    mine_brands = [b["name"] for b in ci_config.list_brands(db, gid, uid) if b["type"] == "mine"]
+    prior_end = f"{ci_analysis.period_bounds(period, 1)[1]} 23:59:59"
+
+    if item is None:
+        cur = jobs.readiness_score(db, uid, mine_brands)
+        prior = jobs.readiness_score(db, uid, mine_brands, as_of=prior_end)
+        delta = (cur["avg"] - prior["avg"]
+                 if cur["avg"] is not None and prior["avg"] is not None else None)
+        values, dates = _readiness_trend(db, uid, mine_brands, period)
+        needs = cur["needs_attention_count"]
+        products = [{"item_id": p["item_id"], "name": p["title"] or p["item_id"],
+                     **_readiness_cell(p["score"])}
+                    for p in jobs.readiness_items(db, uid, mine_brands)]
+        return {
+            "headline": {
+                "label": "Content Readiness",
+                "metric": f"{cur['avg']}/100" if cur["avg"] is not None else "—",
+                "delta": _perf_delta(round(delta) if delta is not None else None, unit="pts"),
+                "foot": (f"Avg of each product's latest score · {needs} "
+                         f"need{'s' if needs == 1 else ''} attention"),
+            },
+            "trend": _perf_trend(values, dates, "score"),
+            "trend_legend": "Content readiness (all scored products)",
+            "products": products,
+            "products_label": "Readiness",
+            "keywords": None,  # readiness has no keyword table — products only
+        }
+
+    # Drilled: one product's overall + dimension breakdown + its score trend.
+    cur_item = jobs.readiness_item(db, uid, item)
+    prior_item = jobs.readiness_item(db, uid, item, as_of=prior_end)
+    overall = cur_item["overall"] if cur_item else None
+    prior_overall = prior_item["overall"] if prior_item else None
+    delta = overall - prior_overall if overall is not None and prior_overall is not None else None
+
+    values, dates = [], []
+    for i in range(ci_analysis.TREND_PERIODS - 1, -1, -1):
+        end = f"{ci_analysis.period_bounds(period, i)[1]} 23:59:59"
+        past = jobs.readiness_item(db, uid, item, as_of=end)
+        if past is None or past["overall"] is None:
+            continue
+        values.append(past["overall"])
+        dates.append(ci_analysis.period_label(period, i))
+
+    dims = [{"label": (d["label"] or "").replace("_", " ").title(), **_readiness_cell(d["score"])}
+            for d in (cur_item["dimensions"] if cur_item else [])]
+    return {
+        "headline": {
+            "label": "This Item · Content Readiness",
+            "metric": f"{overall}/100" if overall is not None else "—",
+            "delta": _perf_delta(delta, unit="pts"),
+            "foot": "This item's latest overall content score",
+        },
+        "trend": _perf_trend(values, dates, "score"),
+        "trend_legend": "This item's content readiness",
+        "item_dims": dims,
+        "item_dims_label": "Score",
+        "item_dims_sub": f"Each content dimension's latest score (target {_READINESS_TARGET})",
     }
 
 

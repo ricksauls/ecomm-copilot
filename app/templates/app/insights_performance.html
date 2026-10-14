@@ -118,7 +118,26 @@
   </div>
 
   {% if item %}
-    {# Drilled item view: one keyword-performance table. #}
+    {% if item_dims is defined %}
+    {# Readiness drilled: this item's content dimension scores. #}
+    <div class="perf-tables single">
+      <div class="card tbl-card">
+        <div class="tbl-head">Dimension Scores<div class="sub">{{ item_dims_sub }}</div></div>
+        <table class="dash perf-dash">
+          <thead><tr><th>#</th><th>Dimension</th><th class="col-right">{{ item_dims_label }}</th></tr></thead>
+          <tbody>
+            {% for r in item_dims %}
+            <tr><td class="col-num">{{ loop.index }}</td><td>{{ r.label }}</td>
+              <td class="col-metric {{ r.cls }}">{{ r.display }}</td></tr>
+            {% else %}
+            <tr><td colspan="3" class="perf-empty-cell">This item hasn't been scored yet.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% else %}
+    {# Rank/shelf drilled: one keyword-performance table. #}
     <div class="perf-tables single">
       <div class="card tbl-card">
         <div class="tbl-head">Keyword Performance<div class="sub">{{ item_kw_sub }}</div></div>
@@ -135,9 +154,12 @@
         </table>
       </div>
     </div>
+    {% endif %}
   {% else %}
-    {# Brand view: Tracked Products (drillable) + Tracked Keywords. #}
-    <div class="perf-tables">
+    {# Brand view: Tracked Products (drillable), plus Tracked Keywords on the
+       CI-based tabs. The Content Readiness tab has no keyword table (keywords=None),
+       so its products table runs full width. #}
+    <div class="perf-tables{{ ' single' if keywords is none }}">
       <div class="card tbl-card">
         <div class="tbl-head">Tracked Products<div class="sub">Click an item to drill in</div></div>
         <table class="dash perf-dash">
@@ -156,6 +178,7 @@
           </tbody>
         </table>
       </div>
+      {% if keywords is not none %}
       <div class="card tbl-card">
         <div class="tbl-head">Tracked Keywords</div>
         <table class="dash perf-dash">
@@ -170,6 +193,7 @@
           </tbody>
         </table>
       </div>
+      {% endif %}
     </div>
   {% endif %}
 
