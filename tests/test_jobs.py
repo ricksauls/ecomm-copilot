@@ -388,3 +388,39 @@ def test_readiness_score_as_of_sees_only_scores_up_to_that_moment(app):
                                     as_of="2026-02-01 23:59:59")["avg"] == 50
         # With no bound, the current 90 wins.
         assert jobs.readiness_score(db, uid, ["Tabasco"])["avg"] == 90
+
+
+def test_readiness_items_lists_all_products_worst_first(app):
+    # The Content Readiness tab shows every scored product (not just gapped ones),
+    # worst-first, scoped to the brand.
+    with app.app_context():
+        db = get_db()
+        uid = create_local_user("rdi@example.com", "password123")
+        _score_detailed(db, uid, "1", "Tabasco", 90, [("imagery", 90)], "2026-03-01 00:00:00", title="Strong")
+        _score_detailed(db, uid, "2", "Tabasco", 55, [("imagery", 55)], "2026-03-01 00:00:00", title="Weak")
+        _score_detailed(db, uid, "3", "Frank's", 10, [("imagery", 10)], "2026-03-01 00:00:00", title="Rival")
+        db.commit()
+
+        items = jobs.readiness_items(db, uid, ["Tabasco"])
+        assert [i["item_id"] for i in items] == ["2", "1"]  # worst-first; other brand excluded
+        assert items[0]["score"] == 55 and items[0]["title"] == "Weak"
+        assert jobs.readiness_items(db, uid, []) == []
+
+
+def test_readiness_item_returns_dimensions_and_respects_as_of(app):
+    with app.app_context():
+        db = get_db()
+        uid = create_local_user("rdi2@example.com", "password123")
+        _score_detailed(db, uid, "1", "Tabasco", 40, [("imagery", 30), ("title", 50)],
+                        "2026-01-01 00:00:00", title="X")
+        _score_detailed(db, uid, "1", "Tabasco", 85, [("imagery", 90), ("title", 80)],
+                        "2026-03-01 00:00:00", title="X")
+        db.commit()
+
+        latest = jobs.readiness_item(db, uid, "1")
+        assert latest["overall"] == 85
+        assert {d["label"]: d["score"] for d in latest["dimensions"]} == {"imagery": 90, "title": 80}
+        # as_of reads the score as it stood earlier (for the per-item trend).
+        earlier = jobs.readiness_item(db, uid, "1", as_of="2026-02-01 00:00:00")
+        assert earlier["overall"] == 40
+        assert jobs.readiness_item(db, uid, "999") is None

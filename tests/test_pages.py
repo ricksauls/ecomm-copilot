@@ -1545,3 +1545,56 @@ def test_performance_no_monitoring_group_shows_setup(client, auth):
     auth.register(email="perfnone@example.com")
     body = client.get("/app/insights/performance").data
     assert b"No monitoring brand yet" in body
+
+
+def _seed_readiness(app, email):
+    """A monitoring brand with CI data (so the Performance screen has a period) plus
+    two scored products under that brand, for the Content Readiness tab."""
+    import json as _json
+
+    from app.db import get_db
+    gid = _seed_performance(app, email)  # Tabasco mine + items 111/222 + CI results
+    with app.app_context():
+        db = get_db()
+        uid = db.execute("SELECT id FROM users WHERE email = ?", (email,)).fetchone()[0]
+
+        def score(item_id, title, overall, dims):
+            db.execute(
+                "INSERT INTO scored_items (user_id, item_id, url, title, brand, overall, result_json) "
+                "VALUES (?,?,?,?,?,?,?)",
+                (uid, item_id, "u", title, "Tabasco", overall,
+                 _json.dumps({"overall": overall, "dimensions":
+                              [{"key": k, "label": k, "score": s, "available": True} for k, s in dims]})))
+        score("111", "Tabasco Original Sauce", 90, [("imagery", 95), ("title", 88), ("description", 90)])
+        score("222", "Tabasco Green Pepper Sauce", 58, [("imagery", 45), ("title", 60), ("description", 70)])
+        db.commit()
+    return gid
+
+
+def test_performance_readiness_tab_brand_view(client, auth, app):
+    auth.register(email="rdtab@example.com")
+    gid = _seed_readiness(app, "rdtab@example.com")
+    body = client.get(f"/app/insights/performance?group_id={gid}&tab=readiness").data
+    assert b"Content Readiness" in body
+    assert b"/100" in body                          # the KPI metric
+    assert b"Tabasco Green Pepper Sauce" in body     # a scored product row
+    assert b"data-perf-trend" in body               # the readiness trend chart
+    assert b"Tracked Keywords" not in body           # readiness has no keyword table
+
+
+def test_performance_readiness_item_drilldown_shows_dimensions(client, auth, app):
+    auth.register(email="rddrill@example.com")
+    gid = _seed_readiness(app, "rddrill@example.com")
+    body = client.get(f"/app/insights/performance?group_id={gid}&tab=readiness&item=222").data
+    assert b"Dimension Scores" in body
+    assert b"Imagery" in body and b"Description" in body
+    assert b"All items" in body                       # the back chip
+
+
+def test_performance_readiness_tab_offered_and_dashboard_links_to_it(client, auth, app):
+    auth.register(email="rdbar@example.com")
+    gid = _seed_readiness(app, "rdbar@example.com")
+    # The tab bar now offers Content Readiness.
+    assert b"Content Readiness" in client.get(f"/app/insights/performance?group_id={gid}").data
+    # The dashboard's Conversion card "Dig it" opens the readiness tab.
+    assert b"tab=readiness" in client.get(f"/app?group_id={gid}").data

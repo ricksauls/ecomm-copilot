@@ -306,6 +306,65 @@ def readiness_score(conn: sqlite3.Connection, user_id: int, brands: list[str],
     return {"avg": avg, "scored_count": len(scores), "needs_attention_count": needs_attention}
 
 
+def readiness_items(conn: sqlite3.Connection, user_id: int, brands: list[str]) -> list[dict]:
+    """Every scored product for a set of brands at its latest overall score.
+
+    Feeds the Content Readiness tab's product table (all products, not just the
+    gapped ones). ``{item_id, title, score}`` per product, worst-first so the ones
+    needing work surface at the top. Same latest-per-item rule as
+    :func:`readiness_score`; an empty brand scope short-circuits.
+    """
+    wanted = [b.strip().lower() for b in brands if b and b.strip()]
+    if not wanted:
+        return []
+    placeholders = ",".join("?" for _ in wanted)
+    rows = conn.execute(
+        "SELECT item_id, title, overall FROM ("
+        "  SELECT item_id, title, overall, ROW_NUMBER() OVER ("
+        "    PARTITION BY item_id ORDER BY created_at DESC, id DESC) AS rn "
+        "  FROM scored_items "
+        "  WHERE user_id = ? AND item_id IS NOT NULL AND item_id != '' "
+        "    AND overall IS NOT NULL AND LOWER(TRIM(brand)) IN (" + placeholders + ")"
+        ") WHERE rn = 1 ORDER BY overall ASC, item_id",
+        [user_id, *wanted],
+    ).fetchall()
+    return [{"item_id": r["item_id"], "title": r["title"], "score": r["overall"]} for r in rows]
+
+
+def readiness_item(conn: sqlite3.Connection, user_id: int, item_id: str,
+                   as_of: str | None = None) -> dict | None:
+    """One product's latest scored result, for the drilled Content Readiness view.
+
+    Returns ``{title, overall, dimensions}`` (each dimension ``{label, score,
+    available}``) for the newest score on or before ``as_of`` (when given, so a
+    per-item score trend can read past periods), or ``None`` when the product has no
+    score. Scoped to the owner; the caller has already checked the item belongs to
+    the selected brand.
+    """
+    params: list = [user_id, item_id]
+    clause = ""
+    if as_of:
+        clause = " AND created_at <= ?"
+        params.append(as_of)
+    row = conn.execute(
+        "SELECT title, overall, result_json FROM scored_items "
+        "WHERE user_id = ? AND item_id = ? AND overall IS NOT NULL" + clause +
+        " ORDER BY created_at DESC, id DESC LIMIT 1",
+        params,
+    ).fetchone()
+    if row is None:
+        return None
+    try:
+        dims = json.loads(row["result_json"] or "{}").get("dimensions", [])
+    except (ValueError, TypeError):
+        # A malformed result shouldn't blank the whole view — fall back to no dims.
+        logger.warning("Unparseable scored result user_id=%s item_id=%s", user_id, item_id)
+        dims = []
+    dimensions = [{"label": d.get("label") or d.get("key"), "score": d.get("score"),
+                   "available": d.get("available", True)} for d in dims]
+    return {"title": row["title"], "overall": row["overall"], "dimensions": dimensions}
+
+
 def count_managed_products(conn: sqlite3.Connection, user_id: int,
                            since: str | None = None) -> int:
     """Distinct products a user has worked on — the dashboard "Products managed" KPI.
