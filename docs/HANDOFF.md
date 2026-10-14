@@ -1,8 +1,7 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-10-14 (session 34 — **Performance: added the 3rd tab, Content Readiness.** On branch
-`feature/performance-readiness-tab` (PR open, **branched from `main`**, so it does NOT include the still-open
-Opportunities PR #44), 722 tests, ruff clean, NO migration, NO new env. The Performance screen now mirrors
+_Last updated: 2026-10-14 (session 34 — **Performance: added the 3rd tab, Content Readiness** (PR #45, MERGED).
+722 tests, ruff clean, NO migration, NO new env. The Performance screen now mirrors
 all three dashboard pillars: Search Rank, Share of Digital Shelf, **Content Readiness**. **Brand view:** KPI
 `NN/100` + delta + a readiness **trend** chart + an **all-scored-products** table (worst-first, drillable) —
 the trend and full table are the new value (nothing else had them; the dashboard only shows the current number
@@ -18,10 +17,32 @@ via `_readiness_cell`; `_PERF_TABS` gained `"readiness"`. `performance.js` gaine
 none` (readiness → products full-width); item view shows the dimension table when `item_dims is defined`.
 **Dashboard Conversion card "Dig it" now opens `?tab=readiness`** (all three cards → their Performance tabs).
 Verified live (dev-seeded `railtest@localhost.test` group 24, incl. backdated score history for the trend).
-**With this, the Insights area is complete** (Performance 3 tabs + Opportunities). ⚠️ Two Insights PRs are
-open at once — **#44 (Opportunities)** and this readiness tab — both touch `jobs.py`/`pages.py`/`dashboard.html`/
-`workspace.css` by appending; expect trivial merge conflicts, resolve by keeping both. **Next: merge both PRs.**
-The prior session-32 summary follows._
+**With this, the Insights area is complete** (Performance 3 tabs + Opportunities). PR #45 merged to `main`; the
+Opportunities PR **#44** (which also carries the new **rail icons** for the two Insights children — Performance =
+line chart, Opportunities = target) was rebased onto it and is merging. The prior session-33 summary follows._
+
+_Session 33 — (session 33 — **Insights: Opportunities screen built — a worklist of where the
+selected brand can improve, grouped by fix type (Images, Copy, Competitive). On branch
+`feature/insights-opportunities` (PR open), 723 tests, ruff clean, NO migration, NO new env.**
+Both Insights leaves are now REAL views (Performance from session 32, Opportunities now) — the old
+`insights_placeholder` route + template are DELETED. **New view `insights_opportunities`
+(`/app/insights/opportunities`)**, brand/period selection mirroring the dashboard briefing. **Three gap
+groups, all brand-scoped:** **Images** + **Copy** come from `jobs.readiness_breakdown` (now ENRICHED to
+carry the weak-dimension scores per product — additive, existing tests unaffected); **Competitive** = keywords
+a competitor leads, via NEW `ci_analysis.monitoring_keyword_leaders` (per-keyword leader + mine/leader share +
+gap; companion to the counts-only `monitoring_keyword_leadership`). Each row deep-links into the fix
+workflow **prefilled with the product** via a new `?url=` param honored by the intakes (`_prefill_url_or_prefix`
+validates it's a real Walmart item URL; wired into `pdp_copy` + `imageset_intake` GET, overriding the autofill
+prefix). Images→`imageset_intake`, Copy→`pdp_copy`, Competitive→Performance shelf tab. **Design locked via a
+styled HTML preview artifact** (grouped-by-fix, green/red only — no amber, worst-first ordering). **Template**
+`insights_opportunities.html` + CSS section in `workspace.css` (classes namespaced **`oi-*`** to avoid
+colliding with the dashboard's `opp-*` teaser list); **reuses `performance.js`** for the CSP-safe brand-select
+auto-submit (chart/drill parts no-op). **Dashboard**: the capped top-5 Opportunities teaser now has a
+**"See all →"** link to the full page (`.opp-eyebrow-row`/`.opp-seeall`). **Empty states:** per-section
+"no gaps" + a whole-page "all caught up"; competitive section only shows with a completed period. **Verified
+live** (dev-seeded `railtest@localhost.test`, group 24): all three sections, per-item fix links, and the copy
+intake prefilled from a `?url=` deep-link; no console/CSP errors. **DEFERRED still: the 3rd "Content Readiness"
+Performance tab.** **Next: merge PR; the two Insights pages are done.** The prior session-32 summary follows._
 
 _Session 32 — (session 32 — **Insights: Performance screen built — two tabs (Search Rank,
 Share of Digital Shelf) over one monitoring brand + period, with item-level drill-down. On branch
@@ -192,6 +213,40 @@ quality set to **medium**. Droplet now on gpt-image-1 + PhotoRoom. Session 16 �
 blur, per-card Regenerate, Lifestyle logo. Session 15 — all 4 image types generate. Session 13 —
 built PDP Image Set.)_
 
+> ## ⭐ Next session — START HERE (session 33 — Opportunities Insights screen, 2026-10-14)
+>
+> **Built the Opportunities Insights screen on branch `feature/insights-opportunities` (PR open).**
+> **723 tests, ruff clean. NO migration, NO new env.** Both Insights leaves are now real views; the old
+> `insights_placeholder` route/template/test are gone.
+>
+> ### What shipped (on the branch)
+> - **Route** `insights_opportunities` + `_opportunities_insights` (`pages.py`). Brand/period selection copied
+>   from the dashboard briefing. A worklist grouped into **Images · Copy · Competitive**, each listing the
+>   actual affected products/keywords with a per-item fix link.
+> - **Data:** `jobs.readiness_breakdown` ENRICHED — `image_items` now carry `{item_id, title, score}` and
+>   `copy_items` carry `{item_id, title, weak:[{label, score}]}` (worst-first). The counts are unchanged, so
+>   the dashboard teaser (`_opportunities`) is unaffected. NEW `ci_analysis.monitoring_keyword_leaders` returns
+>   the competitor-led keywords with `{keyword, leader_name, leader_share, mine_share, gap}`.
+> - **Prefill:** NEW `_prefill_url_or_prefix()` — a `?url=<walmart item url>` deep-link prefills the first URL
+>   field of `pdp_copy` / `imageset_intake` (validated via `pdp.item_number_from_url`; a forged url falls back
+>   to the bare prefix). Images→imageset, Copy→pdp_copy, Competitive→Performance shelf tab.
+> - **Template** `insights_opportunities.html` (classes namespaced **`oi-*`** — the dashboard already owns
+>   `.opp-list/.opp-row/.opp-cta/.opp-empty`); **CSS** an Opportunities section in `workspace.css`;
+>   **reuses `performance.js`** for the CSP-safe brand auto-submit (its chart/drill code no-ops here).
+> - **Dashboard**: the capped Opportunities teaser gained a **"See all →"** link to the full page.
+> - Design locked via a styled HTML preview artifact (grouped-by-fix, green/red only, worst-first).
+>
+> ### To finish / next
+> - **Merge the PR** (CI → auto-deploy). Dev seeded under `railtest@localhost.test` (group 24): a monitoring
+>   brand + results + `ci_share_of_search` + 5 `scored_items` with image/copy gaps — local dev data, harmless.
+> - **The two Insights pages are DONE** (Performance + Opportunities). Remaining Insights idea: the deferred
+>   **3rd "Content Readiness" Performance tab** (dashboard's Conversion pillar; `jobs.readiness_score`/
+>   `readiness_breakdown` exist).
+> - Possible polish: show a one-line "why" on image/copy rows (needs surfacing a finding from the score
+>   result_json — intentionally left out of this first build to keep it lean).
+>
+> ---
+>
 > ## ⭐ Next session — START HERE (session 32 — Performance Insights screen, 2026-10-14)
 >
 > **Built the Performance Insights screen on branch `feature/insights-performance` (PR open).**

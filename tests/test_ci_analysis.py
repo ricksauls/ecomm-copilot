@@ -586,3 +586,27 @@ def test_mine_avg_rank_headline_delta_and_trend(app):
         assert head["delta"] == 3.0                  # prior 8.0 - current 5.0 (improved)
         assert head["trend"] == [8.0, 5.0]
         assert head["trend_dates"] == ["Aug 10–16", "Aug 17–23"]
+
+
+def test_monitoring_keyword_leaders_lists_only_competitor_led(app):
+    with app.app_context():
+        db = get_db()
+        uid, gid, mine, comp, _, kid, rid = _setup(db)
+        kid2 = ci_config.add_keyword(db, gid, uid, "wing sauce")
+        T = date(2026, 8, 26)
+        day = "2026-08-20"  # inside the last completed week (Aug 17–23)
+        # "hot sauce": mine leads (7 vs 3) -> not a gap.
+        _sos(db, rid, gid, kid, day, mine, 7, 0)
+        _sos(db, rid, gid, kid, day, comp, 3, 0)
+        # "wing sauce": competitor leads (2 vs 8) -> a competitive gap.
+        _sos(db, rid, gid, kid2, day, mine, 2, 0)
+        _sos(db, rid, gid, kid2, day, comp, 8, 0)
+        db.commit()
+
+        leaders = ci_analysis.monitoring_keyword_leaders(db, gid, "wow", today=T)
+        assert [row["keyword"] for row in leaders] == ["wing sauce"]  # only the gap
+        gap = leaders[0]
+        assert gap["leader_name"] == "Frank's"
+        assert gap["mine_share"] < gap["leader_share"]
+        assert gap["gap"] == round(gap["leader_share"] - gap["mine_share"], 1)
+        assert gap["gap"] > 0

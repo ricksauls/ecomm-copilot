@@ -798,19 +798,6 @@ button.briefing-default:hover {
   margin: 8px 0 14px;
 }
 
-/* In-design stub for the reworked Insights sections (see insights_placeholder.html). */
-.insights-placeholder .label {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--accent);
-}
-.insights-placeholder p {
-  font-size: 13px;
-  color: var(--mid-gray);
-  margin: 8px 0 0;
-}
 
 /* Stack the three cards and unstack the header on narrow viewports. */
 @media (max-width: 900px) {
@@ -3737,4 +3724,68 @@ textarea.text-input { resize: vertical; line-height: 1.5; }
 @media (max-width: 860px) {
   .perf-top { grid-template-columns: 1fr; }
   .perf-tables { grid-template-columns: 1fr; }
+}
+
+/* ── Opportunities Insights (worklist grouped by fix type) ────────────────────
+   Image/copy/competitive gaps for the selected brand, each row deep-linking into
+   the fix. Namespaced oi-* to stay clear of the dashboard's opp-* teaser list.
+   Shares the Performance header controls (.perf-controls / .ci-select / .ci-periods). */
+
+/* Dashboard teaser → full page link (sits beside the "Opportunities" eyebrow). */
+.opp-eyebrow-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.opp-seeall { font-size: 12.5px; font-weight: 600; color: var(--accent); text-decoration: none; white-space: nowrap; }
+.opp-seeall:hover { text-decoration: underline; }
+
+/* Summary chips (jump links to each section). */
+.oi-summary { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 24px; }
+.oi-chip {
+  display: inline-flex; align-items: baseline; gap: 7px; padding: 9px 14px;
+  border: 1px solid var(--border); border-radius: var(--radius-card);
+  background: var(--surface); color: var(--black); text-decoration: none;
+  transition: border-color var(--fade) var(--ease);
+}
+.oi-chip:hover { border-color: var(--control-border); }
+.oi-chip .n { font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.oi-chip .lbl { font-size: 12.5px; color: var(--mid-gray); }
+
+/* A gap group. */
+.oi-section { margin-bottom: 22px; }
+.oi-sec-head { display: flex; align-items: center; gap: 10px; margin: 0 0 4px; }
+.oi-sec-ico { width: 20px; height: 20px; color: var(--black); flex: none; display: inline-flex; }
+.oi-sec-ico svg { width: 100%; height: 100%; }
+.oi-sec-head h2 { font-size: 17px; font-weight: 700; letter-spacing: -0.02em; margin: 0; }
+.oi-count {
+  font-size: 12px; font-weight: 600; color: var(--cool-gray);
+  background: var(--canvas); border: 1px solid var(--border);
+  border-radius: var(--radius-chip); padding: 1px 8px;
+}
+.oi-sec-sub { font-size: 13px; color: var(--mid-gray); margin: 0 0 12px 30px; }
+
+/* Rows: name (+ optional why) · metric badges · fix CTA. */
+.oi-list { overflow: hidden; }
+.oi-row {
+  display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 16px;
+  padding: 13px 20px; border-bottom: 1px solid var(--divider);
+}
+.oi-row:last-child { border-bottom: 0; }
+.oi-row:hover { background: var(--row-hover); }
+.oi-name { font-weight: 500; min-width: 0; }
+.oi-why { font-size: 12px; color: var(--mid-gray); margin-top: 2px; }
+.oi-metrics { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.oi-badge {
+  font-size: 11.5px; font-weight: 600; font-variant-numeric: tabular-nums;
+  padding: 2px 8px; border-radius: var(--radius-chip); white-space: nowrap;
+}
+.oi-badge.bad { color: var(--signal-red); background: rgba(255, 59, 48, 0.08); }
+.oi-cta { font-size: 13px; font-weight: 600; color: var(--accent); text-decoration: none; white-space: nowrap; }
+.oi-cta:hover { text-decoration: underline; }
+
+/* Per-section empty + whole-page all-clear states. */
+.oi-empty { padding: 16px 20px; color: var(--mid-gray); font-size: 13px; }
+.oi-ok { color: var(--signal-green); font-weight: 600; }
+.oi-allclear p { margin: 0; font-size: 13.5px; color: var(--mid-gray); }
+
+@media (max-width: 760px) {
+  .oi-row { grid-template-columns: 1fr; align-items: start; gap: 8px; }
+  .oi-metrics { justify-content: flex-start; }
 }

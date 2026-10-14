@@ -208,21 +208,26 @@ def readiness_breakdown(conn: sqlite3.Connection, user_id: int,
                            user_id, r["item_id"])
             continue
         scored_count += 1
-        has_image_gap = has_copy_gap = False
+        # Capture the weak dimensions' scores too, so the Opportunities page can show
+        # how far below target each product is (the dashboard list uses only counts).
+        image_score = None
+        copy_weak: list[dict] = []
         for d in dims:
             if not d.get("available", True) or d.get("score") is None:
                 continue
             if d["score"] >= READINESS_STRONG_MIN:
                 continue
             if d.get("key") in IMAGE_DIMENSIONS:
-                has_image_gap = True
+                image_score = d["score"]  # imagery is the sole image dimension
             elif d.get("key") in COPY_DIMENSIONS:
-                has_copy_gap = True
+                copy_weak.append({"label": d.get("label") or d.get("key"), "score": d["score"]})
         item = {"item_id": r["item_id"], "title": r["title"]}
-        if has_image_gap:
-            image_items.append(item)
-        if has_copy_gap:
-            copy_items.append(item)
+        if image_score is not None:
+            image_items.append({**item, "score": image_score})
+        if copy_weak:
+            # Worst dimension first, so the row leads with the biggest problem.
+            copy_weak.sort(key=lambda w: w["score"])
+            copy_items.append({**item, "weak": copy_weak})
 
     logger.debug("Readiness breakdown user_id=%s brands=%s → scored=%d image_gap=%d copy_gap=%d",
                  user_id, wanted, scored_count, len(image_items), len(copy_items))

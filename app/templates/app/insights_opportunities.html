@@ -1,0 +1,169 @@
+{% extends "app/base.html" %}
+{% block title %}Opportunities — DISCOtech{% endblock %}
+
+{# Opportunities Insights: a worklist of where the selected brand can improve,
+   grouped by the fix that closes each gap (Images, Copy, Competitive). Each row
+   deep-links into the workflow that fixes it, prefilled with the item where
+   supported. Brand/period selection mirrors the dashboard briefing. Assembled in
+   _opportunities_insights(); this template stays presentation-only. #}
+
+{% macro gap_icon(kind) -%}
+{%- if kind == 'images' -%}
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.6"/><path d="M21 15l-5-4.5L6.5 20"/></svg>
+{%- elif kind == 'copy' -%}
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L18.5 9.5l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>
+{%- else -%}
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16"/><rect x="6" y="11.5" width="3" height="6.5" rx="0.6"/><rect x="10.5" y="7" width="3" height="11" rx="0.6"/><rect x="15" y="9.5" width="3" height="8.5" rx="0.6"/></svg>
+{%- endif -%}
+{%- endmacro %}
+
+{% block pane_content %}
+<div class="page-header perf-header">
+  <div>
+    <div class="label eyebrow">Insights</div>
+    <h1>Opportunities</h1>
+    <p class="subtitle">Where your tracked brands and items can improve — grouped by the fix that closes the gap.</p>
+  </div>
+
+  {% if available %}
+  <div class="perf-controls">
+    {# Brand auto-submits via performance.js (CSP-safe external file); Go is the no-JS fallback. #}
+    <form method="get" action="{{ url_for('pages.insights_opportunities') }}" class="perf-controls-form">
+      <input type="hidden" name="period" value="{{ period }}">
+      <label class="control-field">
+        <span class="field-label">Brand</span>
+        <select name="group_id" class="ci-select perf-brand" aria-label="Brand">
+          {% for o in groups %}
+          <option value="{{ o.id }}" {{ 'selected' if o.selected }}>{{ o.label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <button type="submit" class="wbtn wbtn-secondary perf-go">Go</button>
+    </form>
+
+    {% if has_data %}
+    <div class="control-field">
+      <span class="field-label">Period</span>
+      <div class="ci-periods" role="group" aria-label="Reporting period">
+        {% for p in periods %}
+          {% if p.enabled %}
+          <a class="{{ 'active' if p.selected }}"
+             href="{{ url_for('pages.insights_opportunities', group_id=selected_group_id, period=p.key) }}">{{ p.label }}</a>
+          {% else %}
+          <span class="disabled" title="No completed {{ p.label | lower }} of data yet">{{ p.label }}</span>
+          {% endif %}
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+
+{% if not available %}
+  <div class="card card-pad ci-empty">
+    No monitoring brand yet. Set one up under
+    <a href="{{ setup_url }}">Daily Monitoring</a> to see opportunities here.
+  </div>
+{% else %}
+
+  <p class="briefing-context perf-context">
+    <span class="label eyebrow">Brand</span>
+    <strong class="briefing-context-brand">{{ brand_label }}</strong>
+    <span class="briefing-context-period"> · {{ total }} opportunit{{ 'y' if total == 1 else 'ies' }}{% if period_label %} · {{ period_label }}{% endif %}</span>
+  </p>
+
+  {% if total == 0 %}
+    <div class="card card-pad oi-allclear">
+      <p><span class="oi-ok">All caught up.</span> No open image, copy{{ '' if not has_data else ', or competitive' }} gaps for
+         {{ brand_label }} right now.{% if not has_data %} (Competitive gaps appear once monitoring has a completed period.){% endif %}</p>
+    </div>
+  {% else %}
+
+  {# Summary chips jump to each section. #}
+  <div class="oi-summary">
+    <a class="oi-chip" href="#sec-images"><span class="n">{{ images|length }}</span><span class="lbl">Image gap{{ 's' if images|length != 1 }}</span></a>
+    <a class="oi-chip" href="#sec-copy"><span class="n">{{ copy|length }}</span><span class="lbl">Copy gap{{ 's' if copy|length != 1 }}</span></a>
+    {% if has_data %}
+    <a class="oi-chip" href="#sec-competitive"><span class="n">{{ competitive|length }}</span><span class="lbl">Competitive gap{{ 's' if competitive|length != 1 }}</span></a>
+    {% endif %}
+  </div>
+
+  {# ── Images ─────────────────────────────────────────────────────────────── #}
+  <section class="oi-section" id="sec-images">
+    <div class="oi-sec-head">
+      <span class="oi-sec-ico">{{ gap_icon('images') }}</span>
+      <h2>Images</h2><span class="oi-count">{{ images|length }} product{{ 's' if images|length != 1 }}</span>
+    </div>
+    <p class="oi-sec-sub">Imagery scored below target. Stronger PDP images lift conversion.</p>
+    {% if images %}
+    <div class="card oi-list">
+      {% for p in images %}
+      <div class="oi-row">
+        <div class="oi-name">{{ p.title or p.item_id }}</div>
+        <div class="oi-metrics"><span class="oi-badge bad">{{ p.score_label }} {{ p.score }}</span></div>
+        <a class="oi-cta" href="{{ p.fix_url }}">Create image set →</a>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="card oi-empty"><span class="oi-ok">No image gaps</span> — imagery is in good shape for this brand.</div>
+    {% endif %}
+  </section>
+
+  {# ── Copy ───────────────────────────────────────────────────────────────── #}
+  <section class="oi-section" id="sec-copy">
+    <div class="oi-sec-head">
+      <span class="oi-sec-ico">{{ gap_icon('copy') }}</span>
+      <h2>Copy</h2><span class="oi-count">{{ copy|length }} product{{ 's' if copy|length != 1 }}</span>
+    </div>
+    <p class="oi-sec-sub">Title, key features, or description scored below target.</p>
+    {% if copy %}
+    <div class="card oi-list">
+      {% for p in copy %}
+      <div class="oi-row">
+        <div class="oi-name">{{ p.title or p.item_id }}</div>
+        <div class="oi-metrics">
+          {% for w in p.weak %}<span class="oi-badge bad">{{ w.label | replace('_', ' ') | capitalize }} {{ w.score }}</span>{% endfor %}
+        </div>
+        <a class="oi-cta" href="{{ p.fix_url }}">Open Product Copy →</a>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="card oi-empty"><span class="oi-ok">No copy gaps</span> — titles, bullets and descriptions are in good shape.</div>
+    {% endif %}
+  </section>
+
+  {# ── Competitive (needs a completed monitoring period) ───────────────────── #}
+  {% if has_data %}
+  <section class="oi-section" id="sec-competitive">
+    <div class="oi-sec-head">
+      <span class="oi-sec-ico">{{ gap_icon('competitive') }}</span>
+      <h2>Competitive</h2><span class="oi-count">{{ competitive|length }} keyword{{ 's' if competitive|length != 1 }}</span>
+    </div>
+    <p class="oi-sec-sub">Keywords where a competitor leads the page-1 shelf. Close the gap to take the top slot.</p>
+    {% if competitive %}
+    <div class="card oi-list">
+      {% for c in competitive %}
+      <div class="oi-row">
+        <div><div class="oi-name">{{ c.keyword }}</div><div class="oi-why">Led by {{ c.leader_name }}</div></div>
+        <div class="oi-metrics"><span class="oi-badge bad">You {{ c.mine_share }}% · Them {{ c.leader_share }}%</span></div>
+        <a class="oi-cta" href="{{ c.fix_url }}">See the gap →</a>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="card oi-empty"><span class="oi-ok">No competitive gaps</span> — you lead or hold every tracked keyword this period.</div>
+    {% endif %}
+  </section>
+  {% endif %}
+
+  {% endif %}{# total == 0 #}
+{% endif %}{# available #}
+{% endblock %}
+
+{% block scripts %}
+{# Reused for its CSP-safe brand-select auto-submit; the chart/drill parts no-op here. #}
+<script src="{{ static_url('js/performance.js') }}" defer></script>
+{% endblock %}
