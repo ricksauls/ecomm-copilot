@@ -35,7 +35,8 @@ from zoneinfo import ZoneInfo  # noqa: E402
 
 from app import (  # noqa: E402  (after load_dotenv is intentional)
     ci_config, ci_images, ci_jobs, ci_scraper, copy_jobs, copygen, db,
-    image_enhance, image_jobs, jobs, keywords, portfolio, tracking,
+    image_enhance, image_jobs, jobs, keywords, portfolio, report, report_store,
+    tracking,
 )
 from app.imageset import generate as imageset_generate  # noqa: E402
 from app.imageset import jobs as imageset_jobs  # noqa: E402
@@ -767,6 +768,36 @@ def process_portfolio_title_one(conn: sqlite3.Connection, item: sqlite3.Row) -> 
         portfolio.fail_title(conn, item["id"])
 
 
+def process_report_one(conn: sqlite3.Connection, row: sqlite3.Row) -> None:
+    """Build one claimed scheduled report (PDF or PPTX) and settle its row.
+
+    Pure-Python work (no browser): resolve the brand's CI group, assemble the
+    report data, render the one format this row asks for, and write the file via
+    ``finish_report``. Never raises — any failure (the group was deleted, a render
+    error) marks the row ``error`` so the queue keeps draining and the user sees a
+    failed entry in History rather than a stuck "building" one.
+    """
+    try:
+        group = ci_config.get_group(conn, row["group_id"], row["user_id"])
+        if group is None:
+            # The brand's CI group was deleted between enqueue and build.
+            report_store.fail_report(conn, row["id"], "The brand for this schedule no longer exists.")
+            return
+        data = report.assemble_business_report(conn, row["user_id"], group, row["period"])
+        if row["fmt"] == "pdf":
+            from app.report_pdf import build_business_report_pdf
+            payload = build_business_report_pdf(data)
+        else:
+            from app.report_pptx import build_business_report_pptx
+            payload = build_business_report_pptx(data)
+        report_store.finish_report(conn, row["id"], payload)
+        log.info("Scheduled report built id=%s user_id=%s group_id=%s fmt=%s bytes=%d",
+                 row["id"], row["user_id"], row["group_id"], row["fmt"], len(payload))
+    except Exception as e:  # noqa: BLE001 — settle the row, keep the worker draining
+        log.exception("Scheduled report build failed id=%s", row["id"])
+        report_store.fail_report(conn, row["id"], str(e))
+
+
 def process_seasonal_product_one(conn: sqlite3.Connection, product: sqlite3.Row) -> None:
     """Acquire one claimed seasonal-campaign product (resolve its URL → gallery).
 
@@ -880,9 +911,11 @@ def main() -> None:
     reclaimed_seasonal_products = seasonal_store.reclaim_orphaned_products(conn)
     reclaimed_seasonal_jobs = seasonal_jobs.reclaim_orphaned_jobs(conn)
     reclaimed_facts = tracking.reclaim_orphaned_fact_jobs(conn)
+    reclaimed_reports = report_store.reclaim_orphaned_reports(conn)
     if (reclaimed_items or reclaimed_copy or reclaimed_runs or reclaimed_images
             or reclaimed_sets or reclaimed_fetches or reclaimed_plans or reclaimed_imports
-            or reclaimed_seasonal_products or reclaimed_seasonal_jobs or reclaimed_facts):
+            or reclaimed_seasonal_products or reclaimed_seasonal_jobs or reclaimed_facts
+            or reclaimed_reports):
         log.warning(
             "Startup: reclaimed %d scoring item(s), %d copy item(s), %d CI run(s), "
             "%d image job(s), %d image-set job(s), %d image-set prefill(s), %d plan(s), "
@@ -974,6 +1007,15 @@ def main() -> None:
         if seasonal_jobs.has_claimable_jobs(conn):
             n = drain_seasonal_jobs()
             log.info("Seasonal wave complete — processed %d image(s)", n)
+            continue
+
+        # Scheduled business reports next — light pure-Python work (assemble +
+        # render a PDF/PPTX, no browser). One per loop so a day's batch is paced,
+        # and ahead of the serial CI sweep so a report doesn't wait behind a long
+        # keyword scrape.
+        report_row = report_store.claim_next_report(conn)
+        if report_row is not None:
+            process_report_one(conn, report_row)
             continue
 
         ci_run = ci_jobs.claim_next_run(conn)

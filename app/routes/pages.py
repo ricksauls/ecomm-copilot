@@ -45,6 +45,7 @@ from app import (
     pdp,
     portfolio,
     report,
+    report_schedules,
     report_store,
     tracking,
     users,
@@ -927,6 +928,7 @@ def _report_row_view(row) -> dict:
         "period_label": row["period_label"] or row["period"],
         "fmt": row["fmt"],
         "source": row["source"],
+        "status": row["status"],  # done|queued|running|error (scheduled builds async)
         "size_kb": round((row["size_bytes"] or 0) / 1024),
         "created_at": (row["created_at"] or "")[:16],
     }
@@ -935,15 +937,29 @@ def _report_row_view(row) -> dict:
 @bp.route("/app/reports")
 @login_required
 def reports_home():
-    """Reports workspace. ``?tab=create`` (default) or ``?tab=history``."""
+    """Reports workspace. ``?tab=create`` (default), ``schedules``, or ``history``."""
     db = get_db()
     uid = g.user["id"]
     tab = request.args.get("tab")
-    if tab not in ("create", "history"):
+    if tab not in ("create", "schedules", "history"):
         tab = "create"
+    # Opening History clears the "new" badge on the rail (the user has now seen
+    # their scheduled reports).
+    if tab == "history":
+        report_store.mark_scheduled_seen(db, uid)
     selection = _report_selection(db, uid)
     history = [_report_row_view(r) for r in report_store.list_reports(db, uid)]
-    logger.info("Reports home user_id=%s tab=%s history=%d", uid, tab, len(history))
+    schedules = [_schedule_row_view(s) for s in report_schedules.list_schedules(db, uid)]
+    # ?edit=<id> on the Schedules tab pre-fills the form to edit that schedule
+    # (ownership-scoped; an unknown/forged id simply falls back to the create form).
+    editing = None
+    edit_id = request.args.get("edit", type=int)
+    if tab == "schedules" and edit_id is not None:
+        row = report_schedules.get_schedule(db, edit_id, uid)
+        if row is not None:
+            editing = _schedule_edit_view(row)
+    logger.info("Reports home user_id=%s tab=%s history=%d schedules=%d editing=%s",
+                uid, tab, len(history), len(schedules), editing["id"] if editing else None)
     return render_template(
         "app/reports_home.html",
         breadcrumb="Reports",
@@ -951,7 +967,35 @@ def reports_home():
         tab=tab,
         selection=selection,
         history=history,
+        schedules=schedules,
+        editing=editing,
+        weekday_names=list(enumerate(report_schedules.WEEKDAY_NAMES)),
+        max_day_of_month=report_schedules.MAX_DAY_OF_MONTH,
     )
+
+
+def _schedule_row_view(s) -> dict:
+    """Shape one schedule row for the Schedules tab."""
+    return {
+        "id": s["id"],
+        "brand_name": s["brand_name"],
+        "cadence_desc": report_schedules.describe(s),
+        "formats": [f.upper() for f in report_schedules.parse_formats(s["formats"])],
+        "enabled": bool(s["enabled"]),
+        "next_run": report_schedules.next_run_date(s).isoformat() if s["enabled"] else None,
+    }
+
+
+def _schedule_edit_view(s) -> dict:
+    """Shape a schedule for pre-filling the edit form (raw field values)."""
+    return {
+        "id": s["id"],
+        "group_id": s["group_id"],
+        "cadence": s["cadence"],
+        "day_of_week": s["day_of_week"],
+        "day_of_month": s["day_of_month"],
+        "formats": report_schedules.parse_formats(s["formats"]),
+    }
 
 
 @bp.route("/app/reports/generate", methods=["POST"])
@@ -1040,6 +1084,73 @@ def report_delete(report_id):
     db = get_db()
     report_store.delete_report(db, report_id, g.user["id"])
     return redirect(url_for("pages.reports_home", tab="history"))
+
+
+def _schedule_form(db, uid):
+    """Parse + validate a schedule form POST; return (group_id, kwargs) or abort.
+
+    Shared by create and update. Validates the brand (IDOR: a monitoring group the
+    user owns), the cadence/day (via report_schedules._validate, raised as a flash),
+    and the formats. Returns the group_id and the keyword args for the store call,
+    or ``None`` after flashing + the caller redirects.
+    """
+    group_id = request.form.get("group_id", type=int)
+    group = ci_config.get_group(db, group_id, uid) if group_id is not None else None
+    if group is None or group["mode"] != "monitoring":
+        logger.warning("Schedule form rejected: user_id=%s group_id=%s", uid, group_id)
+        abort(404)
+    cadence = request.form.get("cadence", "")
+    formats = request.form.getlist("formats")  # checkboxes → list of 'pdf'/'pptx'
+    return {
+        "group_id": group_id,
+        "cadence": cadence,
+        "day_of_week": request.form.get("day_of_week", type=int),
+        "day_of_month": request.form.get("day_of_month", type=int),
+        "formats": formats,
+    }
+
+
+@bp.route("/app/reports/schedules", methods=["POST"])
+@login_required
+def report_schedule_save():
+    """Create a new schedule, or update an existing one (``schedule_id`` present)."""
+    db = get_db()
+    uid = g.user["id"]
+    fields = _schedule_form(db, uid)
+    schedule_id = request.form.get("schedule_id", type=int)
+    try:
+        if schedule_id is not None:
+            # Updating: the schedule must belong to the user (IDOR).
+            if report_schedules.get_schedule(db, schedule_id, uid) is None:
+                abort(404)
+            report_schedules.update_schedule(db, schedule_id, uid, **fields)
+            flash("Schedule updated.", "ok")
+        else:
+            report_schedules.create_schedule(db, user_id=uid, **fields)
+            flash("Schedule created.", "ok")
+    except report_schedules.ScheduleError as e:
+        # Expected validation failure — show the specific reason, not a 500.
+        flash(str(e), "error")
+    return redirect(url_for("pages.reports_home", tab="schedules"))
+
+
+@bp.route("/app/reports/schedules/<int:schedule_id>/toggle", methods=["POST"])
+@login_required
+def report_schedule_toggle(schedule_id):
+    """Pause or resume a schedule (the form posts the desired ``enabled`` value)."""
+    db = get_db()
+    enabled = request.form.get("enabled") == "1"
+    report_schedules.set_enabled(db, schedule_id, g.user["id"], enabled)
+    return redirect(url_for("pages.reports_home", tab="schedules"))
+
+
+@bp.route("/app/reports/schedules/<int:schedule_id>/delete", methods=["POST"])
+@login_required
+def report_schedule_delete(schedule_id):
+    """Delete a schedule the user owns, then return to the Schedules tab."""
+    db = get_db()
+    report_schedules.delete_schedule(db, schedule_id, g.user["id"])
+    return redirect(url_for("pages.reports_home", tab="schedules"))
 
 
 # ── Opportunities (Insights) ─────────────────────────────────────────────────

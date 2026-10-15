@@ -73,46 +73,52 @@ def abspath(rel_path: str) -> str | None:
     return candidate
 
 
-def save_report(conn: sqlite3.Connection, *, user_id: int, group_id: int | None,
-                brand_label: str, period: str, period_label: str | None, fmt: str,
-                data: bytes, filename: str, source: str = "on_demand",
-                schedule_id: int | None = None) -> int:
-    """Write the report bytes to disk and insert its ``generated_reports`` row.
+def _write_report_file(user_id: int, fmt: str, data: bytes) -> str:
+    """Write ``data`` to a fresh report file; return its relative path.
 
-    Returns the new row id. The file is written first (under a server-generated
-    hex token, so two reports never collide) and only then recorded, so a row
-    always points at bytes that exist. Raises on an unknown ``fmt`` or an I/O
-    failure — the caller surfaces a safe error; a half-written file is cleaned up.
+    The file is written under a server-generated hex token so two reports never
+    collide. Raises ``ValueError`` for an unsafe path (our own inputs, but never
+    trust a path blindly) and re-raises an I/O error after cleaning up any
+    half-written file so a later download can't read a truncated deck.
     """
     if fmt not in FORMATS:
         raise ValueError(f"Unsupported report format: {fmt!r}")
-
-    token = uuid.uuid4().hex
-    rel = _rel_path(user_id, token, fmt)
-    if rel is None:  # defensive: our own inputs, but never trust a path blindly
+    rel = _rel_path(user_id, uuid.uuid4().hex, fmt)
+    if rel is None:
         raise ValueError("Could not build a safe report path")
     dest = abspath(rel)
     if dest is None:
         raise ValueError("Resolved report path escaped the media root")
-
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     try:
         with open(dest, "wb") as fh:
             fh.write(data)
     except OSError:
         logger.exception("Failed writing report file user_id=%s rel=%s", user_id, rel)
-        # Don't leave a truncated file behind to confuse a later download.
         try:
             os.remove(dest)
         except OSError:
             pass
         raise
+    return rel
 
+
+def save_report(conn: sqlite3.Connection, *, user_id: int, group_id: int | None,
+                brand_label: str, period: str, period_label: str | None, fmt: str,
+                data: bytes, filename: str, source: str = "on_demand",
+                schedule_id: int | None = None) -> int:
+    """Write the report bytes to disk and insert a ``done`` ``generated_reports`` row.
+
+    The synchronous (on-demand) path: the file is written first, then recorded, so
+    the row always points at bytes that exist. On-demand reports are born ``seen``
+    (the user just downloaded them). Returns the new row id.
+    """
+    rel = _write_report_file(user_id, fmt, data)
     cur = conn.execute(
         "INSERT INTO generated_reports "
         "(user_id, group_id, brand_label, period, period_label, fmt, source, "
-        " schedule_id, filename, rel_path, size_bytes, status) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'done')",
+        " schedule_id, filename, rel_path, size_bytes, status, seen) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'done', 1)",
         (user_id, group_id, brand_label, period, period_label, fmt, source,
          schedule_id, filename, rel, len(data)),
     )
@@ -121,6 +127,159 @@ def save_report(conn: sqlite3.Connection, *, user_id: int, group_id: int | None,
     logger.info("Saved report id=%s user_id=%s fmt=%s bytes=%d source=%s",
                 report_id, user_id, fmt, len(data), source)
     return report_id
+
+
+# ── Scheduled (async) generation ─────────────────────────────────────────────
+# A scheduled report is enqueued as a 'queued' row with no file yet; the worker
+# claims it ('running'), builds the deck, then finishes it ('done') or fails it
+# ('error'). rel_path is '' until the file exists. Mirrors the other worker queues
+# (single-process, conditional-UPDATE claim — see app.image_jobs).
+
+_PROCESSING = "running"
+
+
+def enqueue_report(conn: sqlite3.Connection, *, user_id: int, group_id: int,
+                   brand_label: str, period: str, period_label: str | None, fmt: str,
+                   filename: str, schedule_id: int | None = None) -> int:
+    """Insert a ``queued`` scheduled-report row (no file yet); return its id.
+
+    The file is written later by :func:`finish_report` once the worker builds it.
+    Scheduled reports start ``seen = 0`` so the rail shows a "new" badge until the
+    user opens History.
+    """
+    if fmt not in FORMATS:
+        raise ValueError(f"Unsupported report format: {fmt!r}")
+    cur = conn.execute(
+        "INSERT INTO generated_reports "
+        "(user_id, group_id, brand_label, period, period_label, fmt, source, "
+        " schedule_id, filename, rel_path, status, seen) "
+        "VALUES (?, ?, ?, ?, ?, ?, 'scheduled', ?, ?, '', 'queued', 0)",
+        (user_id, group_id, brand_label, period, period_label, fmt, schedule_id, filename),
+    )
+    conn.commit()
+    logger.info("Enqueued scheduled report id=%s user_id=%s group_id=%s fmt=%s",
+                cur.lastrowid, user_id, group_id, fmt)
+    return cur.lastrowid
+
+
+def claim_next_report(conn: sqlite3.Connection) -> sqlite3.Row | None:
+    """Atomically claim the oldest ``queued`` report (-> ``running``), or None.
+
+    Conditional UPDATE so a restarted worker can't double-build a row; a lost race
+    retries the next candidate. FIFO by id.
+    """
+    while True:
+        candidate = conn.execute(
+            "SELECT id FROM generated_reports WHERE status = 'queued' ORDER BY id LIMIT 1"
+        ).fetchone()
+        if candidate is None:
+            return None
+        updated = conn.execute(
+            "UPDATE generated_reports SET status = ? WHERE id = ? AND status = 'queued'",
+            (_PROCESSING, candidate["id"]),
+        )
+        conn.commit()
+        if updated.rowcount == 1:
+            return conn.execute("SELECT * FROM generated_reports WHERE id = ?",
+                                (candidate["id"],)).fetchone()
+        # Lost the race; try the next queued row.
+
+
+def finish_report(conn: sqlite3.Connection, report_id: int, data: bytes) -> None:
+    """Write a claimed report's bytes to disk and mark it ``done``."""
+    row = conn.execute("SELECT user_id, fmt FROM generated_reports WHERE id = ?",
+                       (report_id,)).fetchone()
+    if row is None:
+        logger.warning("finish_report: row %s vanished", report_id)
+        return
+    rel = _write_report_file(row["user_id"], row["fmt"], data)
+    conn.execute(
+        "UPDATE generated_reports SET status = 'done', rel_path = ?, size_bytes = ?, "
+        "error = NULL WHERE id = ?",
+        (rel, len(data), report_id),
+    )
+    conn.commit()
+    logger.info("Finished scheduled report id=%s bytes=%d", report_id, len(data))
+
+
+def fail_report(conn: sqlite3.Connection, report_id: int, error: str) -> None:
+    """Mark a claimed report ``error`` with a short message."""
+    conn.execute(
+        "UPDATE generated_reports SET status = 'error', error = ? WHERE id = ?",
+        (error[:500], report_id),
+    )
+    conn.commit()
+    logger.warning("Scheduled report id=%s failed: %s", report_id, error[:200])
+
+
+def reclaim_orphaned_reports(conn: sqlite3.Connection) -> int:
+    """Fail any report still ``running`` at worker startup (its builder died).
+
+    Single-process worker, so a ``running`` row at startup can only be orphaned —
+    the process that claimed it was killed (deploy restart / OOM) before finishing.
+    Marking it ``error`` lets the next scheduled run (or a manual rebuild) replace
+    it rather than leaving it stuck. Returns the count reclaimed.
+    """
+    updated = conn.execute(
+        "UPDATE generated_reports SET status = 'error', "
+        "error = 'Interrupted — the worker restarted while building this report.' "
+        "WHERE status = ?",
+        (_PROCESSING,),
+    )
+    conn.commit()
+    if updated.rowcount:
+        logger.warning("Reclaimed %d orphaned report(s) on startup", updated.rowcount)
+    return updated.rowcount
+
+
+# ── "New" badge + retention ──────────────────────────────────────────────────
+
+def count_unseen_scheduled(conn: sqlite3.Connection, user_id: int) -> int:
+    """How many completed scheduled reports the user hasn't opened yet (rail badge)."""
+    return conn.execute(
+        "SELECT COUNT(*) FROM generated_reports "
+        "WHERE user_id = ? AND source = 'scheduled' AND status = 'done' AND seen = 0",
+        (user_id,),
+    ).fetchone()[0]
+
+
+def mark_scheduled_seen(conn: sqlite3.Connection, user_id: int) -> None:
+    """Clear the "new" flag on a user's scheduled reports (called when they view History)."""
+    conn.execute(
+        "UPDATE generated_reports SET seen = 1 "
+        "WHERE user_id = ? AND source = 'scheduled' AND seen = 0",
+        (user_id,),
+    )
+    conn.commit()
+
+
+def prune_old_reports(conn: sqlite3.Connection, days: int = 90) -> int:
+    """Delete generated reports (row + file) older than ``days``; return the count.
+
+    Retention housekeeping for the daily enqueue run, so the media tree and the
+    History list don't grow without bound. Files are removed best-effort; a missing
+    file is not an error.
+    """
+    cutoff_rows = conn.execute(
+        "SELECT id, rel_path FROM generated_reports "
+        "WHERE created_at < datetime('now', ?)",
+        (f"-{int(days)} days",),
+    ).fetchall()
+    removed = 0
+    for row in cutoff_rows:
+        conn.execute("DELETE FROM generated_reports WHERE id = ?", (row["id"],))
+        dest = abspath(row["rel_path"]) if row["rel_path"] else None
+        if dest and os.path.isfile(dest):
+            try:
+                os.remove(dest)
+            except OSError:
+                logger.warning("Pruned report row %s but could not remove file %s",
+                               row["id"], dest)
+        removed += 1
+    conn.commit()
+    if removed:
+        logger.info("Pruned %d report(s) older than %d days", removed, days)
+    return removed
 
 
 def get_report(conn: sqlite3.Connection, report_id: int, user_id: int) -> sqlite3.Row | None:

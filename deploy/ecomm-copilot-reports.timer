@@ -1,0 +1,20 @@
+# Fires the daily scheduled-reports enqueue at 6:30 AM Central. The enqueue job
+# itself decides which schedules are due *today* (by weekday / day-of-month), so a
+# single daily timer covers both weekly and monthly cadences. The explicit
+# timezone in OnCalendar makes systemd handle CST/CDT automatically (the droplet
+# clock is UTC). Runs after the 6:00 AM monitoring sweep so the period data a
+# report summarizes is as fresh as possible.
+#
+# Install at /etc/systemd/system/ecomm-copilot-reports.timer, then
+# `systemctl enable --now ecomm-copilot-reports.timer`.
+
+[Unit]
+Description=ecomm-copilot scheduled reports — daily enqueue + retention (6:30 AM CST)
+
+[Timer]
+OnCalendar=*-*-* 06:30:00 America/Chicago
+Persistent=true
+Unit=ecomm-copilot-reports.service
+
+[Install]
+WantedBy=timers.target

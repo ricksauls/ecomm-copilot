@@ -59,6 +59,14 @@ for cadence in daily weekly; do
   install -m 644 "$APP_DIR/deploy/ecomm-copilot-track-$cadence.timer" \
     "/etc/systemd/system/ecomm-copilot-track-$cadence.timer"
 done
+
+# Scheduled-reports enqueue timer: a single daily run (6:30AM CST) that enqueues
+# the user report schedules due today and prunes expired reports. Only writes
+# queued rows + deletes old files; the worker builds the decks.
+install -m 644 "$APP_DIR/deploy/ecomm-copilot-reports.service" \
+  /etc/systemd/system/ecomm-copilot-reports.service
+install -m 644 "$APP_DIR/deploy/ecomm-copilot-reports.timer" \
+  /etc/systemd/system/ecomm-copilot-reports.timer
 systemctl daemon-reload
 
 # The worker drives headed Chrome and needs the Xvfb :99 display. Warn (don't
@@ -120,6 +128,8 @@ done
 for cadence in daily weekly; do
   systemctl enable --now "ecomm-copilot-track-$cadence.timer"
 done
+# Scheduled-reports timer (starts its oneshot service daily).
+systemctl enable --now ecomm-copilot-reports.timer
 systemctl reload nginx
 
 echo

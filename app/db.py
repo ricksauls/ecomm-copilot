@@ -685,13 +685,44 @@ CREATE TABLE IF NOT EXISTS generated_reports (
     source       TEXT    NOT NULL DEFAULT 'on_demand',  -- on_demand|scheduled
     schedule_id  INTEGER,                               -- reserved for scheduling (PR B)
     filename     TEXT    NOT NULL,                      -- download filename shown to the user
-    rel_path     TEXT    NOT NULL,                      -- path under MEDIA_DIR/reports
+    rel_path     TEXT    NOT NULL,                      -- path under MEDIA_DIR/reports ('' while queued)
     size_bytes   INTEGER,
-    status       TEXT    NOT NULL DEFAULT 'done',       -- done|error (scheduling adds queued|running)
+    status       TEXT    NOT NULL DEFAULT 'done',       -- done|error|queued|running (scheduled builds async)
+    -- 0 = unseen (a scheduled report the user hasn't opened yet → rail "new" badge);
+    -- 1 = seen. On-demand reports are born seen (the user just downloaded them).
+    seen         INTEGER NOT NULL DEFAULT 1,
     error        TEXT,
     created_at   TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_generated_reports_user ON generated_reports(user_id, id DESC);
+CREATE INDEX IF NOT EXISTS idx_generated_reports_claim ON generated_reports(status, id);
+
+-- Scheduled (cadenced) reports: a user's standing request to build a brand's deck
+-- every week or every month, delivered to the Reports → History list. A daily
+-- enqueue (app.enqueue_reports, a systemd timer) finds the schedules due today and
+-- writes queued generated_reports rows; the worker builds them. One row per schedule.
+--
+-- Cadence drives both the firing day and the reported period: weekly fires on
+-- day_of_week (0=Mon..6=Sun) and reports the last completed week; monthly fires on
+-- day_of_month (1-28, capped so every month has the day) and reports the last
+-- completed month. formats is a comma-joined subset of {pdf,pptx} (both → two files
+-- per run). last_run_on dedupes within a day (the timer may fire/retry more than
+-- once). group_id cascades: deleting the brand's CI group removes its schedules.
+CREATE TABLE IF NOT EXISTS report_schedules (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id      INTEGER NOT NULL REFERENCES users(id),
+    group_id     INTEGER NOT NULL REFERENCES ci_groups(id) ON DELETE CASCADE,
+    cadence      TEXT    NOT NULL,                      -- weekly|monthly
+    day_of_week  INTEGER,                               -- 0-6 (Mon-Sun) for weekly
+    day_of_month INTEGER,                               -- 1-28 for monthly
+    formats      TEXT    NOT NULL DEFAULT 'pdf',        -- comma-joined: pdf[,pptx]
+    enabled      INTEGER NOT NULL DEFAULT 1,
+    last_run_on  TEXT,                                  -- ISO date of the last enqueue
+    created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+    updated_at   TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_report_schedules_user ON report_schedules(user_id, id);
+CREATE INDEX IF NOT EXISTS idx_report_schedules_enabled ON report_schedules(enabled);
 """
 
 
@@ -903,6 +934,23 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_portfolio_title_claim "
             "ON portfolio_items(title_status, id)"
+        )
+
+    # generated_reports.seen — added with the report-scheduling work (PR B). A DB
+    # created by PR A has the table without this column; scheduled reports mark it 0
+    # (unseen) to drive the rail's "new" badge. Existing rows default to 1 (seen) so
+    # the badge doesn't light up for reports generated before the feature. Fresh DBs
+    # get the column + the claim index from _SCHEMA.
+    gr_cols = {row[1] for row in conn.execute("PRAGMA table_info(generated_reports)")}
+    if gr_cols and "seen" not in gr_cols:
+        conn.execute(
+            "ALTER TABLE generated_reports ADD COLUMN seen INTEGER NOT NULL DEFAULT 1"
+        )
+        logger.info("Migrated generated_reports: added 'seen' column")
+    if gr_cols:
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_generated_reports_claim "
+            "ON generated_reports(status, id)"
         )
 
 
