@@ -132,6 +132,24 @@
       <span class="rail-main-label">Dashboard</span>
     </a>
 
+    {# Portfolio Management + Competitive Tracking sit right below Dashboard: they
+       configure WHAT the app works on (the managed-items catalog and what's tracked
+       against competitors), ahead of the tools that act on it. #}
+    <a href="{{ url_for('pages.portfolio_home') }}"
+       class="rail-leaf{{ ' active' if active_nav == 'portfolio' else '' }}">
+      <span class="rail-ico">{{ rail_icon('portfolio') }}</span>
+      <span class="rail-main-label">Portfolio Management</span>
+    </a>
+
+    {# Competitive Tracking — set up your brand + products (from the portfolio)
+       against competitors on a set of keywords; the monitoring sweep feeds Insights.
+       Sits directly after Portfolio Management. #}
+    <a href="{{ url_for('pages.ci_monitoring_home') }}"
+       class="rail-leaf{{ ' active' if active_nav == 'competitive-tracking' else '' }}">
+      <span class="rail-ico">{{ rail_icon('competitive-tracking') }}</span>
+      <span class="rail-main-label">Competitive Tracking</span>
+    </a>
+
     {# Content Scoring — single workspace, so a standalone leaf (its history is a
        tab inside the tool, reached from the scoring page). #}
     <a href="{{ url_for('pages.pdp_scoring') }}"
@@ -150,24 +168,6 @@
 
     {{ rail_group('creative', 'Creative Studio', creative_items, active_nav) }}
     {{ rail_group('reporting', 'Insights', reporting_items, active_nav) }}
-
-    {# Portfolio Management — single workspace (the managed-items catalog), so a
-       standalone leaf rather than a one-child group. Sits directly below Insights. #}
-    <a href="{{ url_for('pages.portfolio_home') }}"
-       class="rail-leaf{{ ' active' if active_nav == 'portfolio' else '' }}">
-      <span class="rail-ico">{{ rail_icon('portfolio') }}</span>
-      <span class="rail-main-label">Portfolio Management</span>
-    </a>
-
-    {# Competitive Tracking — single workspace where the user sets up what to track:
-       their brand + products (from the portfolio) against competitors on a set of
-       keywords. The monitoring sweep feeds the Insights screens. Sits directly
-       below Portfolio Management (both configure what the app works on). #}
-    <a href="{{ url_for('pages.ci_monitoring_home') }}"
-       class="rail-leaf{{ ' active' if active_nav == 'competitive-tracking' else '' }}">
-      <span class="rail-ico">{{ rail_icon('competitive-tracking') }}</span>
-      <span class="rail-main-label">Competitive Tracking</span>
-    </a>
 
     {# Contact Us — standalone link with a muted hint at what the channel is for;
        the badge shows unread admin replies. Hidden for admins: they use the
