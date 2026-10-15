@@ -16,6 +16,8 @@ from app.fetch import (
     _extract_rating,
     _extract_review_count,
     _is_white_background,
+    _load_pdp_data,
+    _next_data_from_html,
     parse_product,
 )
 from app.scoring import score_pdp
@@ -289,3 +291,43 @@ def test_extract_in_stock_status_then_cart_flag():
     assert _extract_in_stock({"canAddToCart": True}) is True
     assert _extract_in_stock({"canAddToCart": False}) is False
     assert _extract_in_stock({}) is None
+
+
+# --- HTML-sourced __NEXT_DATA__ (the managed scraping API path) ---------------
+
+def _wrap_next_data(product: dict) -> str:
+    """Build page HTML carrying `product` in a __NEXT_DATA__ blob, as Walmart does."""
+    import json
+
+    blob = {"props": {"pageProps": {"initialData": {"data": {"product": product}}}}}
+    return (
+        '<html><body><script id="__NEXT_DATA__" type="application/json">'
+        + json.dumps(blob)
+        + "</script></body></html>"
+    )
+
+
+def test_next_data_from_html_returns_data_dict():
+    data = _next_data_from_html(_wrap_next_data(_PRODUCT))
+    assert data["product"]["name"] == _PRODUCT["name"]
+
+
+def test_next_data_from_html_missing_blob_raises():
+    import pytest
+
+    from app.fetch import FetchError
+
+    with pytest.raises(FetchError):
+        _next_data_from_html("<html><body>no next data here</body></html>")
+
+
+def test_load_pdp_data_uses_scraper_api_when_enabled(monkeypatch):
+    """When the API is configured, _load_pdp_data parses API HTML — no browser."""
+    from app import scraper_api
+
+    monkeypatch.setattr(scraper_api, "scraper_enabled", lambda: True)
+    monkeypatch.setattr(scraper_api, "fetch_html", lambda url, **kw: _wrap_next_data(_PRODUCT))
+
+    # No Playwright import happens: the API branch returns before the browser block.
+    data = _load_pdp_data("https://www.walmart.com/ip/10294528", 35000)
+    assert data["product"]["name"] == _PRODUCT["name"]

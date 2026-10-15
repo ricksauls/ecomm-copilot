@@ -1,6 +1,47 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-10-14 (session 38 — **Individual item tracking, build #2b (the trends UI). Branch
+_Last updated: 2026-10-15 (session 39 — **Fetch-path hardening: integrated the Oxylabs managed scraping API to
+unblock Walmart. Branch `feature/scraper-api` (PR open). 771 tests, ruff clean. NO migration; NEW env (all
+optional/gated).** Started as "validate the item-tracking commerce keys" (the session-37 ⚠️) but the live check
+on the droplet surfaced a bigger problem: **Walmart now hard-blocks every PDP fetch from the droplet with a
+"Robot or human?" press-and-hold captcha — direct AND through the Oxylabs residential proxy** (`pr.oxylabs.io:7777`;
+decoded block URL was the Tabasco PDP). It's **automation-fingerprint** detection, not just IP, so a residential
+proxy doesn't help; the worker log confirmed the same block hitting live CI sweeps. Because all three pipelines
+(PDP **scoring**, item-tracking **daily facts**, CI **image caching**) share `app/fetch.py:_load_pdp_data`, they
+were all stalled — and the commerce keys could never be validated because no page loads.
+**The user chose to harden the fetch path via a licensed managed scraping product (Web Scraper API primary,
+Web Unblocker fallback) — NOT DIY captcha/fingerprint bypass (declined; that's bot-detection evasion + a losing
+cat-and-mouse).**
+**What shipped (Phase 1, the `_load_pdp_data` path):** NEW `app/scraper_api.py` — `fetch_html(url)` POSTs the
+Oxylabs Web Scraper API realtime endpoint (`source=universal, render=html` → rendered HTML), falling back to the
+Web Unblocker proxy (`x-oxylabs-render:html`, `verify=False` scoped to that one call + warning suppressed
+locally); retry-with-backoff on transient failures only (5xx/429/network, never 4xx); block detection via
+captcha-SPECIFIC markers (not `fetch._BLOCK_MARKERS`, which false-positive on full markup); creds read from env
+ONLY (never `app.config`, never logged). `fetch.py`: NEW `_next_data_from_html()` parses the same
+`__NEXT_DATA__` `initialData.data` dict out of API HTML; `_load_pdp_data` + `render_page_html` return via the
+API when `scraper_api.scraper_enabled()`, else fall through to the existing browser UNCHANGED. Because every
+fetcher (`fetch_pdp`/`fetch_item_facts`/`fetch_main_image_url`/`fetch_title`/`fetch_all_image_urls`) routes
+through `_load_pdp_data`, the one change covers scoring + tracking + CI image cache + Amazon image-import.
+**Gated:** `OXYLABS_SCRAPER_USERNAME/PASSWORD` (+ optional `_URL`), `OXYLABS_UNBLOCKER_USERNAME/PASSWORD` (+
+optional `_SERVER`). ALL blank → `scraper_enabled()` False → browser path (local dev / CI unaffected, no account
+needed). Documented in `.env.example` + `deploy/DEPLOY.md`. **Deliberately NOT wired:** the `parse:true`
+`walmart_product` structured-JSON path into `fetch_item_facts` — its Oxylabs field names can't be verified
+without live creds and a wrong guess reintroduces the silent-None risk; everything uses HTML + our proven
+`_extract_*` instead (one fully unit-tested path; live verification then validates OUR extractors = the original
+goal). **Tests:** NEW `test_scraper_api.py` (gating / success / Unblocker fallback / block→FetchBlocked /
+all-fail→FetchError) + `test_fetch.py` (`_next_data_from_html`, `_load_pdp_data` API-routing without a browser).
+**⚠️ PENDING — needs the user:** live verification + the commerce-key validation are BLOCKED on **Oxylabs Web
+Scraper API credentials** (a separate product/auth from the residential proxy). Once set in the droplet `.env` +
+`systemctl restart ecomm-copilot ecomm-copilot-worker`: re-run `fetch_item_facts`/`fetch_pdp` on a real item (a
+validation script is ready), then flag a `portfolio_items.tracked=1`, `python -m app.enqueue_item_tracking daily`,
+run the worker once, confirm a `portfolio_item_facts` row + the `/app/portfolio/<id>/tracking` chart. **Also:**
+0/27 portfolio items are flagged tracked. **Phase 2 (deferred):** migrate the DOM-based SERP scrapers
+(`keywords.py:mine_competitor_titles`, `ci_scraper.py:scrape_keyword_page`) to the Oxylabs `walmart_search`
+source — they parse the rendered DOM (+ ad capture not in `__NEXT_DATA__`), so more work; CI runs tolerate blocks
+(run marked `done` if ≥1 keyword succeeds) meanwhile. **Phase 3 (optional):** once stable on the API, drop
+Xvfb/headed-Chrome for Walmart. The prior session-38 summary follows._
+
+_Session 38 — **Individual item tracking, build #2b (the trends UI). Branch
 `feature/item-tracking-ui`, off `feature/item-tracking` (session 37 / the pipeline). 755 tests, ruff clean. NO
 migration, NO new env.** A per-item **tracking detail page** (`/app/portfolio/<id>/tracking`,
 `portfolio_item_tracking`, IDOR-gated via `portfolio.get_item`) charts the signals the pipeline captures: a

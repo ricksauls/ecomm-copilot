@@ -117,6 +117,30 @@ if needed. The SQLite DB runs in **WAL mode** with a busy timeout (set in
 `db.tune_connection`) so the pool's threads and the web app can read/write
 concurrently without "database is locked".
 
+**Managed scraping API (unblocks Walmart).** Walmart now serves a press-and-hold
+captcha to our browser even through the residential proxy — it fingerprints the
+automation, not just the IP — which blocks scoring, item-tracking facts, and CI
+image caching. Set the Oxylabs **Web Scraper API** credentials (primary) and/or
+**Web Unblocker** (fallback) in `.env`; `app.fetch` then fetches the rendered HTML
+from the API instead of launching Chrome (see `.env.example` for the
+`OXYLABS_SCRAPER_*` / `OXYLABS_UNBLOCKER_*` block). These are a separate Oxylabs
+product from `WALMART_PROXY_*` and supersede it for page fetches. No new systemd
+units — the web + worker read the same `.env`, so set the vars and restart both:
+
+```bash
+# in /home/deploy/apps/ecomm-copilot/.env
+OXYLABS_SCRAPER_USERNAME=...
+OXYLABS_SCRAPER_PASSWORD=...
+```
+
+```bash
+sudo systemctl restart ecomm-copilot ecomm-copilot-worker
+```
+
+Leave these blank and the fetchers fall back to the local browser (the dev
+default). Note the CI **search** scrapers (`ci_scraper`/`keywords`) still use the
+browser + `WALMART_PROXY_*` for now — migrating them is a later phase.
+
 Requirements on the droplet:
 - **Playwright** (installed into the venv by `pip install -r requirements.txt`
   on deploy) plus a real Chrome — it uses `channel="chrome"`, the same system
