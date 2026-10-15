@@ -1,9 +1,34 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-10-15 (session 39 — **Fetch-path hardening: integrated the Oxylabs managed scraping API to
-unblock Walmart. Branch `feature/scraper-api` (PR open). 771 tests, ruff clean. NO migration; NEW env (all
-optional/gated).** Started as "validate the item-tracking commerce keys" (the session-37 ⚠️) but the live check
-on the droplet surfaced a bigger problem: **Walmart now hard-blocks every PDP fetch from the droplet with a
+_Last updated: 2026-10-15 (session 39 Phase 2 — **CI search scrapers migrated to the Oxylabs `walmart_search`
+parser. Branch `feature/ci-search-scraper-api` (PR open). 781 tests, ruff clean. NO migration, NO new env.**
+Follow-on to Phase 1 below (which unblocked the PDP `_load_pdp_data` path but left the CI **search** scrapers on
+the blocked browser). This migrates the two DOM-based SERP scrapers — `ci_scraper.py:scrape_keyword_page` and
+`keywords.py:mine_competitor_titles` — to Oxylabs' maintained `walmart_search` parser (`parse=true`), schema
+confirmed by a LIVE probe: each result nests `general.{title, product_id (numeric), sponsored (bool), url
+(/ip/<slug>/<num>), pos}`. **NEW `app/scraper_api.py:fetch_walmart_search(keyword)`** (POSTs `source=walmart_search
+parse=true`, returns results sorted by `general.pos`) + **`search_enabled()`** (Scraper-API-specific gate — the
+Web Unblocker returns HTML not parsed JSON, so SERP needs the Scraper API). **`ci_scraper`:** NEW
+`_cards_from_search_results()` maps results → the SAME `{name,item_id,listing_type,product_url}` cards the pure
+`build_result_rows` already consumes (reused unchanged; numeric `product_id` + `/ip/` url line up with the
+existing join keys); `scrape_keyword_page` uses the API when `search_enabled()`, else the browser.
+**`keywords`:** `mine_competitor_titles` gets the same API branch; the organic/sponsored title filter is now a
+shared `_collect_competitor_titles()` + `_serp_rows_from_search_results()` used by both paths. **Restores** CI
+rankings / share-of-shelf / paid-vs-organic / branded-keyword sponsored-PRODUCT detection through the unblocked
+API. **DEFERRED:** headline/video brand-ad CREATIVES (`ci_ad_units`) aren't in the parsed search and never filled
+from the datacenter IP, so the API path returns `ads=[]`; the `_capture_ads`/`build_ad_rows` code stays for the
+separate ad-detection effort ([[project-ecomm-ci-ad-detection]]). **Worker `process_ci_run` unchanged**
+(build_ad_rows([]) → no ad rows). **Tests:** +10 (fetch_walmart_search sort/gating/errors; `_cards_from_search_results`
+mapping + end-to-end into build_result_rows; scrape_keyword_page API routing + empty→FetchBlocked; keyword miner
+API path + organic-position counting). **NEXT:** merge PR → auto-deploy → smoke-test a live CI keyword scrape on
+the droplet (confirm `ci_search_results` populate with organic/sponsored). **Phase 1 (now MERGED+LIVE) summary
+follows.** The prior session-39 Phase 1 summary:_
+
+_Session 39 Phase 1 — **Fetch-path hardening: integrated the Oxylabs managed scraping API to
+unblock Walmart. Branch `feature/scraper-api`, PR #51 MERGED to main `9484249` + auto-deployed + VALIDATED live
+(Walmart unblocked, commerce keys confirmed, full queue→worker→DB smoke test wrote a correct portfolio_item_facts
+row; test state restored). 771 tests, ruff clean. NO migration; NEW env (all optional/gated).** The live check
+on the droplet surfaced the core problem: **Walmart now hard-blocks every PDP fetch from the droplet with a
 "Robot or human?" press-and-hold captcha — direct AND through the Oxylabs residential proxy** (`pr.oxylabs.io:7777`;
 decoded block URL was the Tabasco PDP). It's **automation-fingerprint** detection, not just IP, so a residential
 proxy doesn't help; the worker log confirmed the same block hitting live CI sweeps. Because all three pipelines

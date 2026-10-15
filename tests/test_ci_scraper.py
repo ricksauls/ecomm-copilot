@@ -268,3 +268,70 @@ def test_proxy_from_env_with_credentials(monkeypatch):
     monkeypatch.setenv("WALMART_PROXY_PASSWORD", "secret")
     assert ci_scraper._proxy_from_env() == {
         "server": "http://gate.example.com:7000", "username": "user123", "password": "secret"}
+
+
+# --- Oxylabs walmart_search mapping + API routing (Phase 2) -------------------
+
+def _ox(title, product_id, pos, sponsored=False, url=None):
+    """A minimal Oxylabs walmart_search result item (only the `general` fields used)."""
+    return {"general": {
+        "title": title,
+        "product_id": product_id,
+        "pos": pos,
+        "sponsored": sponsored,
+        "url": url if url is not None else f"/ip/{title.replace(' ', '-')}/{product_id}?classType=REGULAR",
+    }}
+
+
+def test_cards_from_search_results_maps_fields():
+    results = [
+        _ox("Frank's RedHot", "40685405", 2, sponsored=True),
+        _ox("Cholula Original", "10313024", 3, sponsored=False),
+        _ox("", "999", 4),  # no title -> dropped
+    ]
+    cards = ci_scraper._cards_from_search_results(results)
+    assert len(cards) == 2
+    assert cards[0]["name"] == "Frank's RedHot"
+    assert cards[0]["item_id"] == "40685405"
+    assert cards[0]["listing_type"] == "sponsored"
+    assert cards[0]["product_url"].startswith("https://www.walmart.com/ip/")
+    assert cards[1]["listing_type"] == "organic"
+
+
+def test_cards_feed_build_result_rows_end_to_end():
+    """The mapped cards slot straight into the existing pure builder."""
+    results = [_ox("Tabasco Chipotle", "10294528", 1)]
+    cards = ci_scraper._cards_from_search_results(results)
+    item_map = {"10294528": _product("10294528", brand_id=7, url="https://www.walmart.com/ip/x/10294528")}
+    rows = ci_scraper.build_result_rows(
+        cards, run_id=1, group_id=1, keyword_id=1,
+        item_map=item_map, brand_map={7: _brand(7, "mine")}, scrape_date="2026-10-15",
+    )
+    assert rows[0]["item_id"] == "10294528"
+    assert rows[0]["brand_id"] == 7
+
+
+def test_scrape_keyword_page_uses_api_when_enabled(monkeypatch):
+    from app import scraper_api
+
+    monkeypatch.setattr(scraper_api, "search_enabled", lambda: True)
+    monkeypatch.setattr(
+        scraper_api, "fetch_walmart_search",
+        lambda kw, **kw2: [_ox("Tabasco", "10294528", 1), _ox("Cholula", "10313024", 2, sponsored=True)],
+    )
+    out = ci_scraper.scrape_keyword_page("hot sauce")
+    assert out["ads"] == []  # brand-ad creatives aren't in parsed search
+    assert [c["name"] for c in out["cards"]] == ["Tabasco", "Cholula"]
+    assert out["cards"][1]["listing_type"] == "sponsored"
+
+
+def test_scrape_keyword_page_api_empty_raises_blocked(monkeypatch):
+    import pytest
+
+    from app import scraper_api
+    from app.fetch import FetchBlocked
+
+    monkeypatch.setattr(scraper_api, "search_enabled", lambda: True)
+    monkeypatch.setattr(scraper_api, "fetch_walmart_search", lambda kw, **kw2: [])
+    with pytest.raises(FetchBlocked):
+        ci_scraper.scrape_keyword_page("hot sauce")

@@ -429,6 +429,34 @@ def _capture_ads(page) -> list[dict]:
     return ads
 
 
+def _cards_from_search_results(results: list[dict]) -> list[dict]:
+    """Map Oxylabs ``walmart_search`` results to the card dicts the builders read.
+
+    Each Oxylabs result nests the useful fields under ``general``; we project them
+    onto the same ``{name, item_id, listing_type, product_url}`` shape the browser
+    scraper produced, so :func:`build_result_rows` stays unchanged. The parser's
+    numeric ``product_id`` and ``/ip/<slug>/<number>`` ``url`` line up with the
+    existing match/join keys (:func:`app.pdp.item_number_from_url`). Results already
+    arrive in SERP-position order from :func:`app.scraper_api.fetch_walmart_search`.
+    """
+    cards: list[dict] = []
+    for r in results:
+        general = (r or {}).get("general") or {}
+        name = (general.get("title") or "").strip()
+        if not name:
+            continue
+        url = general.get("url") or ""
+        if url.startswith("/"):
+            url = "https://www.walmart.com" + url
+        cards.append({
+            "name": name,
+            "item_id": str(general.get("product_id") or ""),
+            "listing_type": "sponsored" if general.get("sponsored") else "organic",
+            "product_url": url,
+        })
+    return cards
+
+
 def scrape_keyword_page(keyword: str, *, timeout_ms: int = 30000,
                         capture_ads: bool = True) -> dict:
     """Load a keyword's search page once and return its cards and brand ad units.
@@ -443,7 +471,28 @@ def scrape_keyword_page(keyword: str, *, timeout_ms: int = 30000,
     or when no cards appear, and :class:`FetchError` on any other failure. Playwright
     is imported lazily so this module imports without it. Slow (seconds per keyword)
     and serial — call only from the background worker.
+
+    When the Web Scraper API is configured (:func:`app.scraper_api.search_enabled`)
+    the maintained ``walmart_search`` parser supplies the cards instead — the live
+    path on the droplet, where Walmart blocks our browser. Brand-ad CREATIVES
+    (headline/video) aren't in the parsed search (and never filled from the
+    datacenter IP anyway), so the API path returns ``ads=[]``; the browser path
+    still captures them when used.
     """
+    from app import scraper_api
+
+    if scraper_api.search_enabled():
+        results = scraper_api.fetch_walmart_search(keyword, timeout_s=max(timeout_ms // 1000, 60))
+        cards = _cards_from_search_results(results)
+        if not cards:
+            # Mirror the browser path: an empty result is surfaced, not recorded as
+            # zero, so the run flags a possible block/layout change.
+            raise FetchBlocked(
+                f"No product cards found for {keyword!r} (possible block or layout change)"
+            )
+        logger.info("CI scraped (API) keyword=%r cards=%d ads=0", keyword, len(cards))
+        return {"cards": cards, "ads": []}
+
     try:
         from playwright.sync_api import sync_playwright
     except ImportError as e:  # pragma: no cover - depends on optional install
