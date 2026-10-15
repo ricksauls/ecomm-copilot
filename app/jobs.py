@@ -370,6 +370,23 @@ def readiness_item(conn: sqlite3.Connection, user_id: int, item_id: str,
     return {"title": row["title"], "overall": row["overall"], "dimensions": dimensions}
 
 
+def readiness_history(conn: sqlite3.Connection, user_id: int, item_id: str) -> list[dict]:
+    """Every scored run for one product, oldest→newest — the readiness trend.
+
+    Returns ``[{"as_of", "score"}]`` (one point per scoring run) so the item
+    tracking page can chart content readiness over time alongside its commerce-fact
+    trends. Scoped to the owner. Unlike :func:`readiness_items` (latest-per-item,
+    brand-scoped), this keeps the full history for a single item regardless of brand.
+    """
+    rows = conn.execute(
+        "SELECT created_at, overall FROM scored_items "
+        "WHERE user_id = ? AND item_id = ? AND overall IS NOT NULL "
+        "ORDER BY created_at, id",
+        (user_id, item_id),
+    ).fetchall()
+    return [{"as_of": r["created_at"], "score": r["overall"]} for r in rows]
+
+
 def count_managed_products(conn: sqlite3.Connection, user_id: int,
                            since: str | None = None) -> int:
     """Distinct products a user has worked on — the dashboard "Products managed" KPI.

@@ -1,6 +1,27 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-10-14 (session 37 — **Individual item tracking, build #1 of 2 (the pipeline). Branch
+_Last updated: 2026-10-14 (session 38 — **Individual item tracking, build #2b (the trends UI). Branch
+`feature/item-tracking-ui`, off `feature/item-tracking` (session 37 / the pipeline). 755 tests, ruff clean. NO
+migration, NO new env.** A per-item **tracking detail page** (`/app/portfolio/<id>/tracking`,
+`portfolio_item_tracking`, IDOR-gated via `portfolio.get_item`) charts the signals the pipeline captures: a
+**Current** KPI row (price / availability / rating / reviews), per-metric **trend cards** (price, rating,
+reviews, + **content readiness**) each with a current value, change-since-first, and an inline-SVG sparkline
+(reuses `_sparkline`'s 120×28 spec; neutral single color — no up/down tinting, since "good" direction differs per
+metric), and a full **snapshot-history table** (newest first). Commerce series come from
+`tracking.list_facts`; the readiness trend from NEW `jobs.readiness_history` (all scored runs for one item,
+oldest→newest — a full-history companion to `readiness_item`/`readiness_items`). Series drop snapshots where a
+field was unread, so a metric Walmart didn't expose shows no line rather than zeros. Empty state when nothing's
+accrued yet. **Entry point:** a **"View trends"** link on each tracked row in Portfolio Management (shown only
+when `tracked`). NEW helper `_tracking_metric` + `portfolio.get_item`; CSS `.trk-*` section in workspace.css
+(CSP-safe, no JS). **Tests:** +4 (readiness_history [test_tracking.py], + 3 page route tests [renders/empty/IDOR]
+in test_portfolio.py). **Verified live** (railtest, seeded 4 facts + 2 readiness snapshots → all four trend cards,
+deltas, history table; "View trends" link present; no real console errors — the seeded demo data was then cleaned
+from the dev DB). **With 2a + 2b, individual item tracking is feature-complete.** Open items: (1) **live-validate
+the commerce `__NEXT_DATA__` extractor keys on the droplet** (session 37), (2) merge order — PRs **#48** (session
+36 competitive tracking), **#49** (session 37 pipeline), then this UI branch; rebase each onto main as the prior
+lands. The prior session-37 summary follows._
+
+_Session 37 — **Individual item tracking, build #1 of 2 (the pipeline). Branch
 `feature/item-tracking`, off `main` (independent of the sibling session-36 "Competitive Tracking setup" on
 `feature/competitive-tracking-setup` / PR #48). 751 tests, ruff clean. ONE additive migration (portfolio_items
 `tracked` + two new tables), NO new env.** Part of a 2-part plan the user approved: (1) individual item tracking,

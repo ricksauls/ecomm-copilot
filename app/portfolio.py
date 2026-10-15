@@ -222,6 +222,17 @@ def delete_item(conn: sqlite3.Connection, user_id: int, pk: int) -> bool:
     return removed
 
 
+def get_item(conn: sqlite3.Connection, user_id: int, pk: int) -> sqlite3.Row | None:
+    """Return one managed item the user owns, or None (the IDOR gate for its pages).
+
+    Scoped to ``user_id`` so a forged/foreign id yields None and the caller 404s
+    rather than leaking another user's item.
+    """
+    return conn.execute(
+        "SELECT * FROM portfolio_items WHERE id = ? AND user_id = ?", (pk, user_id)
+    ).fetchone()
+
+
 def list_items(conn: sqlite3.Connection, user_id: int) -> list[sqlite3.Row]:
     """All of the user's managed products, newest first.
 

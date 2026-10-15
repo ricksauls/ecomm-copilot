@@ -1,0 +1,138 @@
+{% extends "app/base.html" %}
+{% block title %}{{ item.title or item.item_id or 'Item' }} · Tracking — DISCOtech{% endblock %}
+
+{# Per-item tracking detail. Commerce-fact trends (price / rating / reviews) come
+   from the daily snapshots; content readiness comes from the weekly re-scores. All
+   sparklines reuse the 120x28 _sparkline() viewBox; they're drawn in a single
+   neutral color (no up/down tinting) because "good" direction differs per metric
+   (a price drop and a rating drop aren't both bad). #}
+{% macro trk_spark(s) -%}
+{% if s %}
+<svg class="trk-spark" viewBox="0 0 120 28" aria-hidden="true">
+  {% if not s.single %}<polyline class="trk-spark-line" points="{{ s.points }}"/>{% endif %}
+  <circle class="trk-spark-dot" cx="{{ s.dot.x }}" cy="{{ s.dot.y }}" r="2.6"/>
+</svg>
+{% endif %}
+{%- endmacro %}
+
+{% block pane_content %}
+<div class="page-header">
+  <div>
+    <h1>{{ item.title or item.item_id or 'Tracked item' }}</h1>
+    <p class="subtitle">
+      {{ item.brand or 'Unbranded' }}{% if item.item_id %} · #{{ item.item_id }}{% endif %}
+      {% if not item.tracked %} · <span class="cell-muted">not currently tracked</span>{% endif %}
+    </p>
+  </div>
+  <div class="header-actions">
+    <a href="{{ url_for('pages.portfolio_home') }}" class="wbtn wbtn-secondary">Back to Portfolio</a>
+    <a href="{{ item.walmart_url }}" target="_blank" rel="noopener noreferrer"
+       class="wbtn wbtn-secondary">View on Walmart</a>
+  </div>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% for category, message in messages %}
+  <div class="ci-flash {{ category }}" role="alert">{{ message }}</div>
+  {% endfor %}
+{% endwith %}
+
+{% if not has_any %}
+<div class="card card-pad ci-empty">
+  No tracking data yet. The first commerce-facts snapshot runs on the next daily
+  check (6 AM CST); content readiness re-scores weekly. Check back after the next run.
+</div>
+{% else %}
+
+{# Current snapshot — the latest reading of each tracked signal. #}
+<div class="card card-pad">
+  <div class="ci-section-title">Current</div>
+  <div class="trk-kpis">
+    <div class="trk-kpi">
+      <div class="trk-kpi-label">Price</div>
+      <div class="trk-kpi-value">
+        {%- if latest and latest.price_string %}{{ latest.price_string }}
+        {%- elif latest and latest.price is not none %}${{ '%.2f'|format(latest.price) }}
+        {%- else %}—{% endif %}
+      </div>
+    </div>
+    <div class="trk-kpi">
+      <div class="trk-kpi-label">Availability</div>
+      <div class="trk-kpi-value">
+        {%- if in_stock == 1 %}<span class="status-badge status-done">In stock</span>
+        {%- elif in_stock == 0 %}<span class="status-badge status-error">Out of stock</span>
+        {%- else %}—{% endif %}
+      </div>
+    </div>
+    <div class="trk-kpi">
+      <div class="trk-kpi-label">Rating</div>
+      <div class="trk-kpi-value">
+        {%- if latest and latest.rating is not none %}{{ '%.1f'|format(latest.rating) }} ★
+        {%- else %}—{% endif %}
+      </div>
+    </div>
+    <div class="trk-kpi">
+      <div class="trk-kpi-label">Reviews</div>
+      <div class="trk-kpi-value">
+        {%- if latest and latest.review_count is not none %}{{ latest.review_count }}
+        {%- else %}—{% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+{# Trend cards — one per metric, each with its current value, change since the first
+   snapshot, and a sparkline. Metrics with no readings yet are skipped. #}
+<div class="trk-metric-grid">
+  {% for m in metrics if m.n > 0 %}
+  <div class="card card-pad trk-metric">
+    <div class="trk-metric-head">
+      <span class="trk-metric-label">{{ m.label }}</span>
+      <span class="trk-metric-current">
+        {%- if m.current_label %}{{ m.current_label }}
+        {%- elif m.kind == 'rating' %}{{ '%.1f'|format(m.current) }} ★
+        {%- elif m.kind == 'score' %}{{ m.current }}/100
+        {%- else %}{{ m.current }}{% endif %}
+      </span>
+    </div>
+    {{ trk_spark(m.spark) }}
+    <div class="trk-metric-foot">
+      {% if m.delta is not none and m.delta != 0 %}
+        {% if m.kind == 'price' %}<span class="cell-muted">{{ '%+.2f'|format(m.delta) }} since first</span>
+        {% elif m.kind == 'rating' %}<span class="cell-muted">{{ '%+.1f'|format(m.delta) }} since first</span>
+        {% else %}<span class="cell-muted">{{ '%+d'|format(m.delta) }} since first</span>{% endif %}
+      {% else %}
+        <span class="cell-muted">{{ m.n }} snapshot{{ '' if m.n == 1 else 's' }}</span>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+{# Full snapshot history (newest first). #}
+<div class="card card-pad">
+  <div class="ci-section-title">Snapshot history</div>
+  <div class="table-scroll">
+    <table class="admin-table">
+      <thead>
+        <tr><th>Date</th><th>Price</th><th>Stock</th><th>Rating</th><th>Reviews</th>
+          <th>Images</th><th>Video</th></tr>
+      </thead>
+      <tbody>
+        {% for f in facts %}
+        <tr>
+          <td>{{ (f.captured_at or '')[:10] }}</td>
+          <td>{% if f.price_string %}{{ f.price_string }}{% elif f.price is not none %}${{ '%.2f'|format(f.price) }}{% else %}—{% endif %}</td>
+          <td>{% if f.in_stock == 1 %}In{% elif f.in_stock == 0 %}Out{% else %}—{% endif %}</td>
+          <td>{% if f.rating is not none %}{{ '%.1f'|format(f.rating) }}{% else %}—{% endif %}</td>
+          <td>{% if f.review_count is not none %}{{ f.review_count }}{% else %}—{% endif %}</td>
+          <td>{% if f.image_count is not none %}{{ f.image_count }}{% else %}—{% endif %}</td>
+          <td>{% if f.has_video == 1 %}✓{% else %}—{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

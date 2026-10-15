@@ -2710,6 +2710,79 @@ def portfolio_toggle_track(item_id: int):
     return redirect(url_for("pages.portfolio_home"))
 
 
+def _tracking_metric(label: str, values: list, *, kind: str,
+                     current_label: str | None = None) -> dict:
+    """Assemble one tracked-metric card: current value, delta vs. first, sparkline.
+
+    ``values`` is the metric's series oldest→newest (already stripped of unread
+    snapshots). ``kind`` tells the template how to format (price / rating / int /
+    score); ``current_label`` overrides the displayed current value (used for price,
+    which prefers the PDP's own "$3.98" string). Returns a flat dict so the template
+    stays logic-light.
+    """
+    if not values:
+        return {"label": label, "kind": kind, "spark": None, "current": None,
+                "current_label": None, "delta": None, "dir": "flat", "n": 0}
+    spark = _sparkline([float(v) for v in values])
+    return {
+        "label": label,
+        "kind": kind,
+        "spark": spark,
+        "current": values[-1],
+        "current_label": current_label,
+        "delta": (values[-1] - values[0]) if len(values) >= 2 else None,
+        "dir": spark["dir"] if spark else "flat",
+        "n": len(values),
+    }
+
+
+@bp.route("/app/portfolio/<int:item_id>/tracking")
+@login_required
+def portfolio_item_tracking(item_id: int):
+    """Per-item tracking detail: commerce-fact + readiness trends over time.
+
+    Reads the daily fact snapshots (:func:`app.tracking.list_facts`) and the
+    content-readiness history (:func:`app.jobs.readiness_history`) for one of the
+    user's managed items, both user-scoped. A forged/foreign id 404s (IDOR gate).
+    Series are trimmed to the snapshots that actually carried a value, so a metric
+    Walmart didn't expose simply shows no trend rather than a line of zeros.
+    """
+    uid = g.user["id"]
+    db = get_db()
+    item = portfolio.get_item(db, uid, item_id)
+    if item is None:
+        abort(404)
+
+    facts = tracking.list_facts(db, uid, item_id)  # oldest→newest
+    price_vals = [f["price"] for f in facts if f["price"] is not None]
+    rating_vals = [f["rating"] for f in facts if f["rating"] is not None]
+    review_vals = [f["review_count"] for f in facts if f["review_count"] is not None]
+    readiness = jobs.readiness_history(db, uid, item["item_id"]) if item["item_id"] else []
+    readiness_vals = [r["score"] for r in readiness]
+    latest = facts[-1] if facts else None
+
+    # Price prefers the PDP's formatted string ("$3.98") for the current value.
+    price_current = (latest["price_string"] if latest and latest["price_string"]
+                     else (f"${price_vals[-1]:.2f}" if price_vals else None))
+    metrics = [
+        _tracking_metric("Price", price_vals, kind="price", current_label=price_current),
+        _tracking_metric("Rating", rating_vals, kind="rating"),
+        _tracking_metric("Reviews", review_vals, kind="int"),
+        _tracking_metric("Content readiness", readiness_vals, kind="score"),
+    ]
+    return render_template(
+        "app/portfolio_item_tracking.html",
+        breadcrumb=f"Portfolio · {item['title'] or item['item_id'] or 'Item'}",
+        active_nav="portfolio",
+        item=item,
+        latest=latest,
+        in_stock=(latest["in_stock"] if latest else None),
+        metrics=metrics,
+        facts=list(reversed(facts)),  # table shows newest first
+        has_any=bool(facts or readiness_vals),
+    )
+
+
 def _csv_template_response(filename: str, header: list[str], rows: list[list[str]]):
     """Build a downloadable CSV template: one header row + illustrative examples.
 
