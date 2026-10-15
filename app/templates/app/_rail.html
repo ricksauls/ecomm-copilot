@@ -46,6 +46,10 @@
 {%- elif name == 'insights-competitive' -%}
 {#- Binoculars: scouting the competitive field. -#}
 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="6.5" cy="14.5" r="3.5"/><circle cx="17.5" cy="14.5" r="3.5"/><path d="M6.5 11V7a1.5 1.5 0 0 1 1.5-1.5h1A1.5 1.5 0 0 1 10.5 7v4"/><path d="M17.5 11V7a1.5 1.5 0 0 0-1.5-1.5h-1A1.5 1.5 0 0 0 13.5 7v4"/><path d="M10.5 11h3"/></svg>
+{%- elif name == 'competitive-tracking' -%}
+{#- Scope / crosshair: setting up what to track in the competitive field.
+    Distinct from Insights' binoculars (viewing) and Opportunities' bullseye. -#}
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="7.5"/><path d="M12 2.5v4M12 17.5v4M2.5 12h4M17.5 12h4"/><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none"/></svg>
 {%- endif -%}
 {%- endmacro %}
 
@@ -153,6 +157,16 @@
        class="rail-leaf{{ ' active' if active_nav == 'portfolio' else '' }}">
       <span class="rail-ico">{{ rail_icon('portfolio') }}</span>
       <span class="rail-main-label">Portfolio Management</span>
+    </a>
+
+    {# Competitive Tracking — single workspace where the user sets up what to track:
+       their brand + products (from the portfolio) against competitors on a set of
+       keywords. The monitoring sweep feeds the Insights screens. Sits directly
+       below Portfolio Management (both configure what the app works on). #}
+    <a href="{{ url_for('pages.ci_monitoring_home') }}"
+       class="rail-leaf{{ ' active' if active_nav == 'competitive-tracking' else '' }}">
+      <span class="rail-ico">{{ rail_icon('competitive-tracking') }}</span>
+      <span class="rail-main-label">Competitive Tracking</span>
     </a>
 
     {# Contact Us — standalone link with a muted hint at what the channel is for;
