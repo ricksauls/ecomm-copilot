@@ -1,58 +1,60 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-10-15 (session 40 PR B — **Business Report scheduling. Branch
-`feature/report-scheduling` off `feature/business-report`; PR targets PR A's branch (stacked). 814 tests (799 +
-15 new), ruff clean. NEW table `report_schedules` + `generated_reports.seen` column (additive migration); NO new
-required env (optional `REPORT_RETENTION_DAYS`, default 90).** Adds a **Schedules** tab to the Reports workspace:
-a user stands up a **weekly** (→ reports last completed week) or **monthly** (→ last completed month) auto-build
-of a brand's deck, in PDF and/or PPTX, delivered to **History** with a rail **"new" badge**. Pieces: NEW
-`app/report_schedules.py` (CRUD + validation + pure due-date math: `is_due`/`due_schedules`/`next_run_date`,
-`last_run_on` dedupe, weekly=day_of_week 0-6 / monthly=day_of_month 1-28). `report_store.py` grew an **async
-queue** (`enqueue_report` queued→`claim_next_report` running→`finish_report` done | `fail_report` error;
-`reclaim_orphaned_reports` on worker start; `count_unseen_scheduled`/`mark_scheduled_seen` badge;
-`prune_old_reports` retention). NEW `app/enqueue_reports.py` (daily: enqueue due schedules × formats + prune) run
-by NEW systemd units `deploy/ecomm-copilot-reports.{timer,service}` (6:30 AM CST daily; installed by
-`setup-droplet.sh`). `worker.py`: NEW `process_report_one` + a claim in the main loop (light pure-Python, ahead
-of the CI sweep) + startup reclaim. Routes: POST `/app/reports/schedules` (create/update, IDOR + validation
-flash), `/schedules/<id>/toggle`, `/schedules/<id>/delete`; `reports_home` gained the `schedules` tab + marks
-scheduled reports seen on History view; `__init__.py` injects `reports_new_count` for the rail badge. UI:
-3-tab bar + schedule form + list in `reports_home.html`, CSS in `workspace.css`, badge on the Reports rail leaf.
-**Verified LIVE** (dev `app.db`, `reporttest@example.com`/`TestPass!234`): created a weekly schedule via the UI
-(lists with next-run date), ran `enqueue_reports` + forced a same-day build → History shows "Scheduled" PDF+PPTX
-rows, rail badge showed "2" then cleared on History view, CSP-clean. **Feature now COMPLETE (both PRs).** Tests:
-`tests/test_report_schedules.py` (+17, incl. the edit flow). Schedules now have an inline **Edit** button
-(the create form doubles as the edit form via `?edit=<id>` → hidden `schedule_id` → existing update route;
-pre-fills brand/cadence/day/formats, "Save changes"/"Cancel"; verified live, 816 tests). **NEXT:** review/merge
-PR A (#53) then PR B (#54); retarget PR B to main after #53 merges; deploy picks up `python-pptx` + the new timer
-(DEPLOY.md updated).)_
+_Last updated: 2026-10-15 (session 40 — **Business Report feature SHIPPED + LIVE in production. Both PRs merged to
+`main` and auto-deployed (CI→Deploy both green): PR A #53 (`main` 2640446, on-demand) + PR B #54 (`main` 065534c,
+scheduling). Reports timer installed on the droplet. 816 tests, ruff clean. NEW dep `python-pptx==1.0.2`; NEW
+tables `generated_reports` + `report_schedules` (additive, auto-applied on restart); optional env
+`REPORT_RETENTION_DAYS` (default 90).**_
 
-_Prior: session 40 PR A — **Business Report feature, on-demand. Branch
-`feature/business-report`, PR #53 OPEN. 799 tests (781 + 18 new), ruff clean. NEW dep `python-pptx==1.0.2`; NEW
-table `generated_reports`; NO new env.** A new rail area **Reports** (workspace with Create / History tabs) that
-builds one monitoring brand's performance deck over one completed period as a **PDF** (`app/report_pdf.py`,
-reportlab, 16:9 canvas deck) and/or an editable **PPTX** (`app/report_pptx.py`, python-pptx, native tables + a
-stacked-bar chart). Shared data layer `app/report.py:assemble_business_report(conn, uid, group, period)` reuses
-the existing `ci_analysis` monitoring aggregations + `jobs` readiness functions (NEW
-`jobs.readiness_dimension_averages`), and derives rule-based Highlights (Wins/Attention), Discovery insights,
-Priority Fixes and Strategic Recommendations — all request/worker-safe (no Flask `g`/`request`/`url_for`), so PR
-B's scheduler can call it unchanged. Deck mirrors the WM example (`WM Dot Com Update/Walmart Performance Deck`):
-Title → Agenda → Summary (3 KPI cards) → Highlights → [Discovery: Search Rank + placement grid, Share of Shelf +
-chart, Organic/Paid mix, Insights] → [Content Readiness: scorecard bars, per-item scores, Priority Fixes] →
-Action Plan (recs) → Close. **By design: NO secondary/below-the-fold content and NO ratings/reviews** (app
-captures neither). Files stored under `MEDIA_DIR/reports/<uid>/<token>.<ext>` via `app/report_store.py` (mirrors
-`seasonal/storage.py` — path-traversal-safe, IDOR-scoped, disk/DB split, survives `git pull`); DB table
-`generated_reports` (brand_label/period_label denormalized; `schedule_id` reserved for PR B). Routes
-(`routes/pages.py`): `/app/reports` (tab=create|history), POST `/app/reports/generate` (IDOR-gated on group,
-fmt+period allowlists, streams file + records in History), `/app/reports/download/<id>`,
-`/app/reports/<id>/delete`. On-demand generation is **synchronous in-request** (pure-Python, no browser/worker).
-Rail leaf "Reports" + icon in `_rail.html`; template `reports_home.html`; CSS appended to `workspace.css`;
-`.env.example` untouched (no new env); `deploy/DEPLOY.md` updated. **Verified LIVE** on the dev server (seeded
-demo user `reporttest@example.com`/`TestPass!234`, group "Tabasco (report demo)" in dev `app.db`): both PDF +
-PPTX generated through the UI, recorded in History, CSP-clean (no console errors). **NEXT = PR B (scheduling):**
-`report_schedules` table, Schedules tab (weekly→weekday / monthly→day-of-month), `app/enqueue_reports.py` + a new
-daily systemd timer + worker `drain_reports()`, retention, delivery = in-app History + a "new" badge (NO email —
-the app has no mail infra; that's a later infra task). **Decisions locked with the user:** both formats · one
-brand+period scope · scheduled delivery in-app (not email) · two-PR staging.)_
+_**What shipped:** a **Reports** rail area (workspace with 3 tabs). **Create** = generate one monitoring brand's
+performance deck over one completed period as a **PDF** and/or **editable PPTX**, downloaded now (synchronous,
+pure-Python). **Schedules** = stand up a **weekly** (→ last completed week) or **monthly** (→ last completed
+month) auto-build in either/both formats, with an inline **Edit** button. **History** = every generated report,
+re-downloadable; scheduled runs land here with a **"new" badge** on the rail leaf (cleared on viewing History).
+Deck mirrors the WM example (`WM Dot Com Update/Walmart Performance Deck`): Title → Agenda → Summary (3 KPI cards)
+→ Highlights (Wins/Attention) → [Discovery: Search Rank + placement grid, Share of Shelf + chart, Organic/Paid
+mix, Insights] → [Content Readiness: scorecard bars, per-item scores, Priority Fixes] → Action Plan (recs) →
+Close. **By design: NO secondary/below-the-fold content and NO ratings/reviews** (app captures neither)._
+
+_**Architecture (all in `main` now):** `app/report.py` `assemble_business_report(conn, uid, group, period)` — one
+request/worker-safe data layer (no Flask `g`/`request`/`url_for`) reusing `ci_analysis` monitoring aggregations +
+`jobs` readiness (NEW `jobs.readiness_dimension_averages`), deriving rule-based Highlights/Insights/Fixes/Recs.
+Renderers: `app/report_pdf.py` (reportlab 16:9 **canvas** deck; reuses `pdf_export._sos_chart` +
+`_rank_placement_grid`) and `app/report_pptx.py` (python-pptx, native tables + stacked-bar chart). Persistence:
+`app/report_store.py` — files at `MEDIA_DIR/reports/<uid>/<token>.<ext>` (mirrors `seasonal/storage.py`;
+path-traversal-safe, IDOR-scoped, survives `git pull`); sync path `save_report`, async queue `enqueue_report`
+(queued) → `claim_next_report` (running) → `finish_report`/`fail_report`, `reclaim_orphaned_reports`,
+`count_unseen_scheduled`/`mark_scheduled_seen` (badge), `prune_old_reports` (retention). Scheduling:
+`app/report_schedules.py` (CRUD + validation + pure due-date math `is_due`/`due_schedules`/`next_run_date`;
+`last_run_on` dedupe; weekly=`day_of_week` 0-6, monthly=`day_of_month` 1-28; period derived from cadence).
+`app/enqueue_reports.py` (daily: enqueue due × formats + prune) run by `deploy/ecomm-copilot-reports.{timer,
+service}` (**6:30 AM CST daily**). `worker.py`: `process_report_one` + main-loop claim (light, ahead of the CI
+sweep) + startup reclaim. Routes in `routes/pages.py`: `/app/reports` (tab=create|schedules|history), POST
+`/app/reports/generate`, `/download/<id>`, `/<id>/delete`, `/schedules` (create+update via hidden `schedule_id`),
+`/schedules/<id>/{toggle,delete}` — all `login_required` + IDOR-gated + allowlist-validated. `__init__.py`
+injects `reports_new_count` for the badge. UI: `reports_home.html`, `workspace.css`, `_rail.html`. Tests:
+`tests/test_report.py` (+18) + `tests/test_report_schedules.py` (+17)._
+
+_**Decisions (locked with user):** both formats · one brand+period scope · scheduled delivery in-app, NOT email
+(app has no mail infra — a future infra task) · two-PR staging. **Deploy note:** auto-deploy (`git pull` + `pip
+install` + restart web/worker) covered PR A fully and PR B's code/schema/worker; the reports **timer** was the
+one manual step (installed on the droplet this session via `sudo install … /etc/systemd/system/ …` + `systemctl
+enable --now`)._
+
+_**Loose ends for next session:**_
+_1. **`deploy/DEPLOY.md` doc nit** — the "add to an already-provisioned droplet" block for the reports timer shows
+   the two `install` lines WITHOUT `sudo` (they need it as the `deploy` user). Units are already installed on
+   prod, so this is cosmetic; offered to patch but not yet done — a 1-line fix for correctness next time._
+_2. **Dev `app.db` demo data** (dev only, not prod): user `reporttest@example.com` / `TestPass!234`, CI group
+   "Tabasco (report demo)" with seeded monitoring/scores, a **monthly-day-15** report schedule, and a few
+   generated reports. Harmless; delete anytime. Seed scripts live in the session scratchpad (gone next session)._
+_3. **Merged feature branches** `feature/business-report` + `feature/report-scheduling` still exist on origin —
+   safe to delete._
+_4. **Possible polish (none critical):** email delivery for scheduled reports (needs transactional-email infra +
+   SPF/DKIM, tied to the eventual domain work); per-item placement grids in the deck (currently brand-level only);
+   a MoM/QoQ/YoY period picker for scheduled reports (cadence currently fixes weekly→wow, monthly→mom)._
+_5. User was doing first real **production** click-through (Create/Schedules/History on ecomm-copilot.com) at
+   session end — confirm it all renders live if picking this up._
 
 _Prior: session 39 Phase 2 — **CI search scrapers migrated to the Oxylabs `walmart_search`
 parser. Branch `feature/ci-search-scraper-api` (PR open). 781 tests, ruff clean. NO migration, NO new env.**

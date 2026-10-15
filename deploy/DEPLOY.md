@@ -346,12 +346,12 @@ Console):
 
 ```bash
 cd /home/deploy/apps/ecomm-copilot
-install -m 644 deploy/ecomm-copilot-reports.service \
+sudo install -m 644 deploy/ecomm-copilot-reports.service \
   /etc/systemd/system/ecomm-copilot-reports.service
-install -m 644 deploy/ecomm-copilot-reports.timer \
+sudo install -m 644 deploy/ecomm-copilot-reports.timer \
   /etc/systemd/system/ecomm-copilot-reports.timer
-systemctl daemon-reload
-systemctl enable --now ecomm-copilot-reports.timer
+sudo systemctl daemon-reload
+sudo systemctl enable --now ecomm-copilot-reports.timer
 ```
 
 Inspect / verify:
