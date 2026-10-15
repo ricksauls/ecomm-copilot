@@ -76,14 +76,19 @@ def test_add_multiple_keywords_comma_separated(client, auth):
     assert kws == {"hot sauce", "chipotle sauce", "wing sauce"}
 
 
-def test_monitoring_create_shows_schedule_and_next_run(client, auth):
+def test_monitoring_create_shows_tracking_setup(client, auth):
     auth.register()
     resp = client.post("/app/competitive-intel/monitoring/groups", data={"name": "Mon"})
     gid = int(resp.headers["Location"].rstrip("/").split("/")[-1])
     cfg = client.get(f"/app/competitive-intel/groups/{gid}")
     assert cfg.status_code == 200
-    assert b"Schedule &amp; Run" in cfg.data or b"Schedule & Run" in cfg.data
-    assert b"Next scheduled check" in cfg.data
+    # A fresh monitoring group lands on the redesigned Competitive Tracking setup
+    # screen: tracking is off, so it offers to turn it on and names the schedule.
+    assert b"Turn on tracking" in cfg.data
+    assert b"7 AM / 3 PM / 11 PM CST" in cfg.data
+    # The setup sections (your brand, competitors, keywords) are all present.
+    assert b"Your brand" in cfg.data
+    assert b"Competitors" in cfg.data
 
 
 def test_snapshot_results_render_without_trend_markup(client, auth):
@@ -479,3 +484,118 @@ def test_snapshot_analysis_is_run_scoped(app):
             ci_jobs.write_share_of_search(db, rid, gid, kid, d, None, rows, {"10294528"})
         ranks = ci_analysis.snapshot_rank(db, gid, r2)
         assert len(ranks) == 1 and ranks[0]["current_position"] == 2  # only r2's row
+
+
+# ── Competitive Tracking setup: portfolio-backed bulk product add ─────────────
+
+def _monitoring_group(client):
+    """Create a monitoring group via HTTP; return its id (test user is user 1)."""
+    resp = client.post("/app/competitive-intel/monitoring/groups", data={"name": "Track"})
+    return int(resp.headers["Location"].rstrip("/").split("/")[-1])
+
+
+def test_tracking_config_renders_setup_sections(client, auth):
+    # A monitoring group opens the redesigned setup screen with all three sections.
+    auth.register()
+    gid = _monitoring_group(client)
+    cfg = client.get(f"/app/competitive-intel/groups/{gid}")
+    assert cfg.status_code == 200
+    assert b"Your brand" in cfg.data
+    assert b"Competitors" in cfg.data
+    assert b"Keywords" in cfg.data
+    # The portfolio picker only appears once a brand exists (products attach to one).
+    with client.application.app_context():
+        ci_config.add_brand(get_db(), gid, 1, "Tabasco", "mine")
+    cfg = client.get(f"/app/competitive-intel/groups/{gid}")
+    assert b"managed items" in cfg.data  # the portfolio picker macro's label
+
+
+def test_add_products_bulk_and_dedupe(client, auth):
+    # The picker posts several `urls`; duplicates (repeated or already tracked) are
+    # skipped rather than creating double rows, since ci_products has no DB uniqueness.
+    auth.register()
+    gid = _monitoring_group(client)
+    with client.application.app_context():
+        brand_id = ci_config.add_brand(get_db(), gid, 1, "Tabasco", "mine")
+
+    u1 = "https://www.walmart.com/ip/Tabasco-Original/10294528"
+    u2 = "https://www.walmart.com/ip/Tabasco-Chipotle/20857711518"
+    resp = client.post(
+        f"/app/competitive-intel/groups/{gid}/products/bulk",
+        data={"brand_id": brand_id, "urls": [u1, u2, u1]},  # u1 repeated in one submit
+    )
+    assert resp.status_code in (302, 303)
+    with client.application.app_context():
+        ids = {p["walmart_item_id"] for p in ci_config.list_products(get_db(), gid, 1)}
+    assert ids == {"10294528", "20857711518"}  # repeat collapsed to one
+
+    # Re-submitting an already-tracked item adds nothing.
+    client.post(
+        f"/app/competitive-intel/groups/{gid}/products/bulk",
+        data={"brand_id": brand_id, "urls": [u1]},
+    )
+    with client.application.app_context():
+        count = len(ci_config.list_products(get_db(), gid, 1))
+    assert count == 2
+
+
+def test_add_products_manual_field_unions_with_picker(client, auth):
+    # The manual `url` field is added alongside the picker's `urls` in one submit.
+    auth.register()
+    gid = _monitoring_group(client)
+    with client.application.app_context():
+        brand_id = ci_config.add_brand(get_db(), gid, 1, "Tabasco", "mine")
+    client.post(
+        f"/app/competitive-intel/groups/{gid}/products/bulk",
+        data={"brand_id": brand_id,
+              "urls": ["https://www.walmart.com/ip/a/10294528"],
+              "url": "https://www.walmart.com/ip/b/20857711518"},
+    )
+    with client.application.app_context():
+        ids = {p["walmart_item_id"] for p in ci_config.list_products(get_db(), gid, 1)}
+    assert ids == {"10294528", "20857711518"}
+
+
+def test_add_products_requires_brand(client, auth):
+    # Without a brand_id nothing is added (products must attach to a brand).
+    auth.register()
+    gid = _monitoring_group(client)
+    resp = client.post(
+        f"/app/competitive-intel/groups/{gid}/products/bulk",
+        data={"urls": ["https://www.walmart.com/ip/a/10294528"]},
+        follow_redirects=True,
+    )
+    assert b"Choose which of your brands" in resp.data
+    with client.application.app_context():
+        assert ci_config.list_products(get_db(), gid, 1) == []
+
+
+def test_add_products_reports_invalid_url(client, auth):
+    # A URL with no trailing item number is reported invalid and not added.
+    auth.register()
+    gid = _monitoring_group(client)
+    with client.application.app_context():
+        brand_id = ci_config.add_brand(get_db(), gid, 1, "Tabasco", "mine")
+    resp = client.post(
+        f"/app/competitive-intel/groups/{gid}/products/bulk",
+        data={"brand_id": brand_id, "urls": ["https://www.walmart.com/ip/no-number"]},
+        follow_redirects=True,
+    )
+    assert b"Not a valid Walmart product URL" in resp.data
+    with client.application.app_context():
+        assert ci_config.list_products(get_db(), gid, 1) == []
+
+
+def test_add_products_bulk_idor_guard(client, auth, app):
+    # A user cannot bulk-add products to another user's group.
+    owner_uid, gid = _make_group(app, "owner@example.com", "monitoring")
+    with app.app_context():
+        brand_id = ci_config.add_brand(get_db(), gid, owner_uid, "B", "mine")
+    auth.register()  # logs in as a second, unrelated user — the group isn't theirs
+    resp = client.post(
+        f"/app/competitive-intel/groups/{gid}/products/bulk",
+        data={"brand_id": brand_id, "urls": ["https://www.walmart.com/ip/a/10294528"]},
+    )
+    assert resp.status_code == 404
+    with client.application.app_context():
+        assert ci_config.list_products(get_db(), gid, owner_uid) == []

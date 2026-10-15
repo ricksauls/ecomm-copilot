@@ -299,6 +299,11 @@ def add_product(conn: sqlite3.Connection, group_id: int, brand_id: int, user_id:
         raise ConfigError("Could not find a Walmart item number in that URL.")
 
     name = _clean_text(name, max_len=MAX_NAME_LEN, field="Product name", required=False)
+    # ci_products has no DB-level uniqueness on (group_id, item_id), so guard against
+    # tracking the same SKU twice here — a duplicate would double-count the brand in
+    # the share-of-shelf math downstream.
+    if _item_tracked(conn, group_id, item_id):
+        raise ConfigError("That product is already tracked in this group.")
     if _count(conn, "ci_products", group_id) >= MAX_PRODUCTS_PER_GROUP:
         raise ConfigError(f"A group can have at most {MAX_PRODUCTS_PER_GROUP} products.")
 
@@ -309,6 +314,95 @@ def add_product(conn: sqlite3.Connection, group_id: int, brand_id: int, user_id:
     )
     conn.commit()
     return int(cur.lastrowid)
+
+
+def _item_tracked(conn: sqlite3.Connection, group_id: int, item_id: str) -> bool:
+    """Return True if ``item_id`` is already a product in ``group_id``."""
+    return conn.execute(
+        "SELECT 1 FROM ci_products WHERE group_id = ? AND walmart_item_id = ?",
+        (group_id, item_id),
+    ).fetchone() is not None
+
+
+def add_products(conn: sqlite3.Connection, group_id: int, brand_id: int, user_id: int,
+                 urls: list[str]) -> dict:
+    """Add several products under one brand in a single pass, de-duping by item id.
+
+    Backs the "choose from your portfolio" multi-select picker (and the manual URL
+    field alongside it) on the competitive-tracking setup screen, where a user may
+    re-select SKUs that are already tracked. Each URL is validated and reduced to a
+    Walmart item number exactly as :func:`add_product` does; a URL whose item number
+    is already tracked in this group — or repeated within this same submission — is
+    skipped rather than duplicated. All valid, new rows insert in one transaction.
+
+    Args:
+        urls: raw URL strings (picker checkbox values plus the optional manual entry).
+
+    Returns:
+        Summary dict: ``added`` (int), ``skipped_duplicate`` (int), ``invalid`` (int),
+        and ``errors`` (a short list of human-readable notes for the caller to flash).
+
+    Raises:
+        ConfigError: the caller doesn't own the group, or ``brand_id`` isn't a brand
+            in this group. (Per-row problems are reported in the summary, not raised,
+            so one bad URL can't discard the rest of a bulk add.)
+    """
+    _require_group(conn, group_id, user_id)
+    brand = conn.execute(
+        "SELECT id FROM ci_brands WHERE id = ? AND group_id = ?", (brand_id, group_id)
+    ).fetchone()
+    if brand is None:
+        raise ConfigError("Brand not found in this group.")
+
+    # Snapshot the already-tracked item ids once so de-dupe is a set lookup, not a
+    # query per URL. `seen` also catches the same SKU appearing twice in one submit.
+    tracked = {
+        row["walmart_item_id"]
+        for row in conn.execute(
+            "SELECT walmart_item_id FROM ci_products WHERE group_id = ?", (group_id,)
+        )
+    }
+    room = MAX_PRODUCTS_PER_GROUP - len(tracked)
+
+    added = skipped = invalid = 0
+    errors: list[str] = []
+    seen: set[str] = set()
+    to_insert: list[tuple] = []
+    for raw in urls:
+        raw = (raw or "").strip()
+        if not raw:
+            continue
+        clean_url = pdp.validate_item_url(raw)
+        item_id = pdp.item_number_from_url(clean_url) if clean_url else None
+        if not item_id:
+            invalid += 1
+            if len(errors) < 3:
+                errors.append(f"Not a valid Walmart product URL: {raw[:80]}")
+            continue
+        if item_id in tracked or item_id in seen:
+            skipped += 1
+            continue
+        if len(to_insert) >= room:
+            errors.append(
+                f"Product limit ({MAX_PRODUCTS_PER_GROUP}) reached — some items weren't added."
+            )
+            break
+        seen.add(item_id)
+        to_insert.append((group_id, brand_id, None, item_id, clean_url))
+        added += 1
+
+    if to_insert:
+        conn.executemany(
+            "INSERT INTO ci_products (group_id, brand_id, name, walmart_item_id, walmart_url) "
+            "VALUES (?, ?, ?, ?, ?)",
+            to_insert,
+        )
+        conn.commit()
+    logger.info(
+        "CI add_products group_id=%s brand_id=%s (user_id=%s) added=%d skipped=%d invalid=%d",
+        group_id, brand_id, user_id, added, skipped, invalid,
+    )
+    return {"added": added, "skipped_duplicate": skipped, "invalid": invalid, "errors": errors}
 
 
 def list_products(conn: sqlite3.Connection, group_id: int, user_id: int) -> list[sqlite3.Row]:

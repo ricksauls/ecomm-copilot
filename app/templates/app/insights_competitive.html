@@ -65,8 +65,8 @@
 
 {% if not available %}
   <div class="card card-pad ci-empty">
-    No monitoring brand yet. Set one up under
-    <a href="{{ setup_url }}">Daily Monitoring</a> to see competitive intelligence here.
+    No tracked brand yet. Set one up under
+    <a href="{{ setup_url }}">Competitive Tracking</a> to see competitive intelligence here.
   </div>
 {% else %}
 
@@ -164,7 +164,7 @@
     {% if not has_branded %}
     <div class="card card-pad ci-empty">
       No branded keywords are being tracked for this brand. Add search terms that
-      include your brand name under <a href="{{ url_for('pages.ci_monitoring_home') }}">Daily Monitoring</a>
+      include your brand name under <a href="{{ url_for('pages.ci_monitoring_home') }}">Competitive Tracking</a>
       to see which competitors are bidding on your name.
     </div>
     {% else %}
