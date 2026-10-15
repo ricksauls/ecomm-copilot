@@ -280,6 +280,46 @@ def test_schedule_routes(client, auth, app, media):
         assert rs.get_schedule(get_db(), sid, _uid(get_db())) is None
 
 
+def test_schedule_edit_flow(client, auth, app):
+    auth.register()
+    with app.app_context():
+        db = get_db()
+        uid = _uid(db)
+        gid = _group(db, uid)
+        sid = rs.create_schedule(db, user_id=uid, group_id=gid, cadence="weekly",
+                                 day_of_week=0, formats=["pdf"])
+    # The edit view pre-loads the form (200) with the schedule's id present.
+    resp = client.get(f"/app/reports?tab=schedules&edit={sid}")
+    assert resp.status_code == 200
+    assert f'name="schedule_id" value="{sid}"'.encode() in resp.data
+    # Posting with the schedule_id updates it (weekly→monthly, add pptx).
+    client.post("/app/reports/schedules", data={
+        "schedule_id": sid, "group_id": gid, "cadence": "monthly",
+        "day_of_month": 10, "formats": ["pdf", "pptx"]})
+    with app.app_context():
+        row = rs.get_schedule(get_db(), sid, _uid(get_db()))
+        assert row["cadence"] == "monthly" and row["day_of_month"] == 10
+        assert row["day_of_week"] is None and row["formats"] == "pdf,pptx"
+
+
+def test_schedule_edit_idor(client, auth, app):
+    # Editing another user's schedule id 404s on save; the edit view ignores it.
+    with app.app_context():
+        other = create_local_user("stranger2@example.com", "password123")
+        gid = _group(get_db(), other)
+        sid = rs.create_schedule(get_db(), user_id=other, group_id=gid,
+                                 cadence="weekly", day_of_week=0, formats=["pdf"])
+    auth.register()
+    # The edit param for someone else's schedule falls back to the create form.
+    resp = client.get(f"/app/reports?tab=schedules&edit={sid}")
+    assert resp.status_code == 200
+    assert b'name="schedule_id"' not in resp.data
+    # A save targeting it is rejected (the brand is also not theirs → 404).
+    assert client.post("/app/reports/schedules", data={
+        "schedule_id": sid, "group_id": gid, "cadence": "monthly",
+        "day_of_month": 5, "formats": ["pdf"]}).status_code == 404
+
+
 def test_schedule_create_validation_flashes(client, auth, app):
     auth.register()
     with app.app_context():

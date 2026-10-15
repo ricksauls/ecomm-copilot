@@ -110,31 +110,37 @@
   {% else %}
     {# Add-a-schedule form. CSP-/JS-free: both the weekday and day-of-month pickers
        are shown; the backend reads whichever matches the chosen cadence. #}
+    {# One form for both create and edit: an ?edit=<id> link (from a row below)
+       loads this pre-filled with a hidden schedule_id, which the save route treats
+       as an update. CSP-/JS-free — the active day picker is chosen by the user to
+       match the cadence; the backend stores only the one that applies. #}
     <div class="card card-pad report-schedule-form">
-      <div class="label">New schedule</div>
+      <div class="label">{{ 'Edit schedule' if editing else 'New schedule' }}</div>
       <form method="post" action="{{ url_for('pages.report_schedule_save') }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        {% if editing %}<input type="hidden" name="schedule_id" value="{{ editing.id }}">{% endif %}
         <div class="report-sched-grid">
           <label class="report-field">
             <span class="report-field-label">Brand</span>
             <select name="group_id" class="briefing-select">
               {% for opt in selection.groups %}
-              <option value="{{ opt.id }}" {{ 'selected' if opt.selected }}>{{ opt.label }}</option>
+              <option value="{{ opt.id }}"
+                {{ 'selected' if (editing and opt.id == editing.group_id) or (not editing and opt.selected) }}>{{ opt.label }}</option>
               {% endfor %}
             </select>
           </label>
           <label class="report-field">
             <span class="report-field-label">Cadence</span>
             <select name="cadence" class="briefing-select">
-              <option value="weekly">Weekly</option>
-              <option value="monthly">Monthly</option>
+              <option value="weekly" {{ 'selected' if editing and editing.cadence == 'weekly' }}>Weekly</option>
+              <option value="monthly" {{ 'selected' if editing and editing.cadence == 'monthly' }}>Monthly</option>
             </select>
           </label>
           <label class="report-field">
             <span class="report-field-label">Day of week <em>(weekly)</em></span>
             <select name="day_of_week" class="briefing-select">
               {% for i, name in weekday_names %}
-              <option value="{{ i }}">{{ name }}</option>
+              <option value="{{ i }}" {{ 'selected' if editing and editing.day_of_week == i }}>{{ name }}</option>
               {% endfor %}
             </select>
           </label>
@@ -142,21 +148,28 @@
             <span class="report-field-label">Day of month <em>(monthly)</em></span>
             <select name="day_of_month" class="briefing-select">
               {% for d in range(1, max_day_of_month + 1) %}
-              <option value="{{ d }}">{{ d }}</option>
+              <option value="{{ d }}" {{ 'selected' if editing and editing.day_of_month == d }}>{{ d }}</option>
               {% endfor %}
             </select>
           </label>
         </div>
         <div class="report-sched-formats">
           <span class="report-field-label">Formats</span>
-          <label class="report-check"><input type="checkbox" name="formats" value="pdf" checked> PDF</label>
-          <label class="report-check"><input type="checkbox" name="formats" value="pptx"> PowerPoint</label>
+          <label class="report-check"><input type="checkbox" name="formats" value="pdf"
+            {{ 'checked' if (not editing) or ('pdf' in editing.formats) }}> PDF</label>
+          <label class="report-check"><input type="checkbox" name="formats" value="pptx"
+            {{ 'checked' if editing and 'pptx' in editing.formats }}> PowerPoint</label>
         </div>
         <p class="report-hint">Weekly reports summarize the last completed week;
            monthly reports the last completed month. Each run lands in
            <a href="{{ url_for('pages.reports_home', tab='history') }}">History</a>
            (you'll see a “new” badge on Reports).</p>
-        <button type="submit" class="wbtn wbtn-primary">Save schedule</button>
+        <div class="report-formats">
+          <button type="submit" class="wbtn wbtn-primary">{{ 'Save changes' if editing else 'Save schedule' }}</button>
+          {% if editing %}
+          <a class="wbtn wbtn-secondary" href="{{ url_for('pages.reports_home', tab='schedules') }}">Cancel</a>
+          {% endif %}
+        </div>
       </form>
     </div>
 
@@ -175,6 +188,8 @@
             <td>{{ s.next_run or '—' }}</td>
             <td>{{ 'Active' if s.enabled else 'Paused' }}</td>
             <td class="report-row-actions">
+              <a class="wbtn wbtn-sm wbtn-secondary"
+                 href="{{ url_for('pages.reports_home', tab='schedules', edit=s.id) }}">Edit</a>
               <form method="post" action="{{ url_for('pages.report_schedule_toggle', schedule_id=s.id) }}">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="enabled" value="{{ '0' if s.enabled else '1' }}">

@@ -20,9 +20,11 @@ scheduled reports seen on History view; `__init__.py` injects `reports_new_count
 **Verified LIVE** (dev `app.db`, `reporttest@example.com`/`TestPass!234`): created a weekly schedule via the UI
 (lists with next-run date), ran `enqueue_reports` + forced a same-day build → History shows "Scheduled" PDF+PPTX
 rows, rail badge showed "2" then cleared on History view, CSP-clean. **Feature now COMPLETE (both PRs).** Tests:
-`tests/test_report_schedules.py` (+15). **NEXT:** review/merge PR A (#53) then PR B; retarget PR B to main after
-#53 merges; deploy picks up `python-pptx` + the new timer (DEPLOY.md updated). Consider wiring an edit button for
-schedules (update route exists; UI only exposes create/pause/delete).)_
+`tests/test_report_schedules.py` (+17, incl. the edit flow). Schedules now have an inline **Edit** button
+(the create form doubles as the edit form via `?edit=<id>` → hidden `schedule_id` → existing update route;
+pre-fills brand/cadence/day/formats, "Save changes"/"Cancel"; verified live, 816 tests). **NEXT:** review/merge
+PR A (#53) then PR B (#54); retarget PR B to main after #53 merges; deploy picks up `python-pptx` + the new timer
+(DEPLOY.md updated).)_
 
 _Prior: session 40 PR A — **Business Report feature, on-demand. Branch
 `feature/business-report`, PR #53 OPEN. 799 tests (781 + 18 new), ruff clean. NEW dep `python-pptx==1.0.2`; NEW

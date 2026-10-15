@@ -950,8 +950,16 @@ def reports_home():
     selection = _report_selection(db, uid)
     history = [_report_row_view(r) for r in report_store.list_reports(db, uid)]
     schedules = [_schedule_row_view(s) for s in report_schedules.list_schedules(db, uid)]
-    logger.info("Reports home user_id=%s tab=%s history=%d schedules=%d",
-                uid, tab, len(history), len(schedules))
+    # ?edit=<id> on the Schedules tab pre-fills the form to edit that schedule
+    # (ownership-scoped; an unknown/forged id simply falls back to the create form).
+    editing = None
+    edit_id = request.args.get("edit", type=int)
+    if tab == "schedules" and edit_id is not None:
+        row = report_schedules.get_schedule(db, edit_id, uid)
+        if row is not None:
+            editing = _schedule_edit_view(row)
+    logger.info("Reports home user_id=%s tab=%s history=%d schedules=%d editing=%s",
+                uid, tab, len(history), len(schedules), editing["id"] if editing else None)
     return render_template(
         "app/reports_home.html",
         breadcrumb="Reports",
@@ -960,6 +968,7 @@ def reports_home():
         selection=selection,
         history=history,
         schedules=schedules,
+        editing=editing,
         weekday_names=list(enumerate(report_schedules.WEEKDAY_NAMES)),
         max_day_of_month=report_schedules.MAX_DAY_OF_MONTH,
     )
@@ -974,6 +983,18 @@ def _schedule_row_view(s) -> dict:
         "formats": [f.upper() for f in report_schedules.parse_formats(s["formats"])],
         "enabled": bool(s["enabled"]),
         "next_run": report_schedules.next_run_date(s).isoformat() if s["enabled"] else None,
+    }
+
+
+def _schedule_edit_view(s) -> dict:
+    """Shape a schedule for pre-filling the edit form (raw field values)."""
+    return {
+        "id": s["id"],
+        "group_id": s["group_id"],
+        "cadence": s["cadence"],
+        "day_of_week": s["day_of_week"],
+        "day_of_month": s["day_of_month"],
+        "formats": report_schedules.parse_formats(s["formats"]),
     }
 
 
