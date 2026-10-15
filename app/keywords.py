@@ -306,6 +306,49 @@ def _extract_serp_titles(page, *, max_items: int) -> list[dict]:
     return results
 
 
+def _serp_rows_from_search_results(results: list[dict], *, max_items: int) -> list[dict]:
+    """Map Oxylabs ``walmart_search`` results to the row shape ``_extract_serp_titles``
+    returns (``{name, organic_position, sponsored}``), so the mining filter is shared.
+
+    ``organic_position`` counts only non-sponsored results — what the ranking
+    algorithm actually rewards — exactly as the DOM path does.
+    """
+    rows: list[dict] = []
+    organic_pos = 0
+    for r in results:
+        if len(rows) >= max_items:
+            break
+        general = (r or {}).get("general") or {}
+        name = (general.get("title") or "").strip()
+        if not name:
+            continue
+        if general.get("sponsored"):
+            rows.append({"name": name, "organic_position": 0, "sponsored": True})
+        else:
+            organic_pos += 1
+            rows.append({"name": name, "organic_position": organic_pos, "sponsored": False})
+    return rows
+
+
+def _collect_competitor_titles(rows: list[dict], *, term: str, brand_l: str,
+                               titles: list[dict]) -> int:
+    """Append organic, non-same-brand titles from ``rows`` into ``titles`` (shared by
+    the API and browser mining paths). Returns the count collected for ``term``."""
+    collected = 0
+    for row in rows:
+        if row["sponsored"] or collected >= _MAX_COMPETITORS_PER_SERP:
+            continue
+        if brand_l and brand_l in row["name"].lower():
+            continue  # skip the seller's own brand
+        titles.append({
+            "title": row["name"],
+            "search_term": term,
+            "organic_position": row["organic_position"],
+        })
+        collected += 1
+    return collected
+
+
 def mine_competitor_titles(serp_terms: list[str], brand: str, *, timeout_ms: int = 30000) -> list[dict]:
     """Scrape organic, non-same-brand titles from Walmart SERPs for each term.
 
@@ -314,14 +357,33 @@ def mine_competitor_titles(serp_terms: list[str], brand: str, *, timeout_ms: int
     and missing results are logged and skipped so partial data still flows
     through. Returns ``{"title", "search_term", "organic_position"}`` rows.
     """
+    brand_l = (brand or "").lower()
+    titles: list[dict] = []
+
+    # Managed API path: the maintained walmart_search parser replaces the browser.
+    from app import scraper_api
+
+    if scraper_api.search_enabled():
+        for term in serp_terms:
+            try:
+                results = scraper_api.fetch_walmart_search(
+                    term, timeout_s=max(timeout_ms // 1000, 60)
+                )
+                rows = _serp_rows_from_search_results(results, max_items=48)
+                collected = _collect_competitor_titles(
+                    rows, term=term, brand_l=brand_l, titles=titles
+                )
+                logger.info("Mined %d competitor title(s) for %r (API)", collected, term)
+            except Exception as e:  # noqa: BLE001 - skip a bad term; keep partial data
+                logger.warning("SERP mining (API) failed for %r: %s", term, e)
+        return titles
+
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:  # pragma: no cover - optional install
         logger.warning("Playwright not installed; skipping competitor mining")
         return []
 
-    brand_l = (brand or "").lower()
-    titles: list[dict] = []
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch(
@@ -346,18 +408,9 @@ def mine_competitor_titles(serp_terms: list[str], brand: str, *, timeout_ms: int
                             logger.warning("Bot block on SERP for %r; skipping", term)
                             continue
                         rows = _extract_serp_titles(page, max_items=48)
-                        collected = 0
-                        for row in rows:
-                            if row["sponsored"] or collected >= _MAX_COMPETITORS_PER_SERP:
-                                continue
-                            if brand_l and brand_l in row["name"].lower():
-                                continue  # skip the seller's own brand
-                            titles.append({
-                                "title": row["name"],
-                                "search_term": term,
-                                "organic_position": row["organic_position"],
-                            })
-                            collected += 1
+                        collected = _collect_competitor_titles(
+                            rows, term=term, brand_l=brand_l, titles=titles
+                        )
                         logger.info("Mined %d competitor title(s) for %r", collected, term)
                     except Exception as e:  # noqa: BLE001 - skip a bad SERP
                         logger.warning("SERP mining failed for %r: %s", term, e)

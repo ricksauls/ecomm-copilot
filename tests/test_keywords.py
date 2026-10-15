@@ -164,3 +164,42 @@ def test_missing_keywords_generate_recommendations():
     missing = _base_record(target_keywords=["buffalo wing sauce", "ketchup"])
     title = _dim(missing, "title")
     assert any("search term" in r for r in title.recommendations)
+
+
+# --- Oxylabs walmart_search mining (Phase 2) ---------------------------------
+
+from app import keywords as _kw  # noqa: E402
+
+
+def _ox(title, pos, sponsored=False):
+    return {"general": {"title": title, "pos": pos, "sponsored": sponsored}}
+
+
+def test_serp_rows_from_search_results_counts_organic_only():
+    results = [
+        _ox("Sponsored Brand X", 1, sponsored=True),
+        _ox("Organic One", 2),
+        _ox("Organic Two", 3),
+        _ox("", 4),  # dropped
+    ]
+    rows = _kw._serp_rows_from_search_results(results, max_items=48)
+    assert [r["organic_position"] for r in rows] == [0, 1, 2]
+    assert [r["sponsored"] for r in rows] == [True, False, False]
+
+
+def test_mine_competitor_titles_api_path(monkeypatch):
+    from app import scraper_api
+
+    monkeypatch.setattr(scraper_api, "search_enabled", lambda: True)
+    monkeypatch.setattr(
+        scraper_api, "fetch_walmart_search",
+        lambda term, **kw: [
+            _ox("Sponsored Thing", 1, sponsored=True),   # skipped (sponsored)
+            _ox("Tabasco Original", 2),                   # skipped (own brand)
+            _ox("Cholula Original Hot Sauce", 3),         # kept
+        ],
+    )
+    out = _kw.mine_competitor_titles(["hot sauce"], brand="Tabasco")
+    assert [t["title"] for t in out] == ["Cholula Original Hot Sauce"]
+    assert out[0]["search_term"] == "hot sauce"
+    assert out[0]["organic_position"] == 2

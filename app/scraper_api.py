@@ -93,6 +93,16 @@ def scraper_enabled() -> bool:
     return _scraper_configured() or _unblocker_configured()
 
 
+def search_enabled() -> bool:
+    """True when the Web Scraper API is configured (the ``walmart_search`` path).
+
+    Narrower than :func:`scraper_enabled`: the Web Unblocker returns raw HTML, not
+    the parsed search JSON, so the SERP scrapers need the Scraper API specifically.
+    When ``False``, the CI search scrapers fall back to driving a real browser.
+    """
+    return _scraper_configured()
+
+
 def fetch_html(url: str, *, timeout_s: int = _DEFAULT_TIMEOUT_S) -> str:
     """Return the server-rendered HTML of ``url`` via Oxylabs.
 
@@ -127,6 +137,58 @@ def fetch_html(url: str, *, timeout_s: int = _DEFAULT_TIMEOUT_S) -> str:
     if blocked:
         raise FetchBlocked(f"All Oxylabs providers blocked for {url}: {detail}")
     raise FetchError(f"All Oxylabs providers failed for {url}: {detail}")
+
+
+def fetch_walmart_search(keyword: str, *, timeout_s: int = _DEFAULT_TIMEOUT_S) -> list[dict]:
+    """Return Walmart page-1 search results for ``keyword`` via the Web Scraper API.
+
+    Uses the dedicated ``walmart_search`` parser (``parse=true``), which Oxylabs
+    maintains, so we get structured per-result dicts — each with a ``general`` block
+    carrying ``title`` / ``sponsored`` / ``url`` / ``product_id`` / ``pos`` — instead
+    of scraping the live DOM. Results are returned sorted by ``general.pos`` so
+    position order is preserved for the Competitive-Intelligence builders.
+
+    Raises :class:`FetchError` when the Scraper API isn't configured or the response
+    is unusable. This path is Scraper-API-only (the Web Unblocker returns raw HTML,
+    not parsed search JSON); callers fall back to the browser when
+    :func:`scraper_enabled` is ``False``.
+    """
+    if not _scraper_configured():
+        raise FetchError("Web Scraper API not configured for walmart_search")
+
+    import requests
+
+    user, pw = _scraper_creds()
+    endpoint = (os.environ.get("OXYLABS_SCRAPER_URL") or _SCRAPER_URL_DEFAULT).strip()
+    payload = {"source": "walmart_search", "query": keyword, "parse": True}
+
+    logger.info("Scraper API search: keyword=%r", keyword)
+    started = time.monotonic()
+    resp = _send_with_retry(
+        "Scraper API (walmart_search)",
+        lambda: requests.post(endpoint, json=payload, auth=(user, pw), timeout=timeout_s),
+    )
+    if resp.status_code != 200:
+        raise FetchError(f"Scraper API search returned {resp.status_code}: {resp.text[:300]}")
+
+    try:
+        content = ((resp.json() or {}).get("results") or [{}])[0].get("content") or {}
+        results = content.get("results") or []
+    except (ValueError, IndexError, AttributeError) as e:
+        raise FetchError(f"Scraper API search returned an unexpected shape: {e}") from e
+    if not isinstance(results, list):
+        raise FetchError("Scraper API search carried no results list")
+
+    # Preserve SERP order; items without a position sort last but keep their order.
+    ordered = sorted(
+        (r for r in results if isinstance(r, dict)),
+        key=lambda r: (r.get("general") or {}).get("pos", 10_000),
+    )
+    logger.info(
+        "Scraper API search done: keyword=%r results=%d elapsed=%.1fs",
+        keyword, len(ordered), time.monotonic() - started,
+    )
+    return ordered
 
 
 def _scraper_api_html(url: str, *, timeout_s: int) -> str:

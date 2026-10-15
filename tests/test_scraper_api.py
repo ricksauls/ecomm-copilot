@@ -129,3 +129,51 @@ def test_fetch_html_all_providers_fail_raises_fetcherror(monkeypatch):
     monkeypatch.setattr("requests.post", fake_post)
     with pytest.raises(FetchError):
         scraper_api.fetch_html("https://www.walmart.com/ip/123")
+
+
+# --- walmart_search (Phase 2) -------------------------------------------------
+
+def _search_resp(items):
+    """A fake realtime response wrapping walmart_search parsed content."""
+    return _FakeResp(200, json_data={"results": [{"content": {"results": items}}]})
+
+
+def test_fetch_walmart_search_requires_scraper_creds(monkeypatch):
+    # Unblocker-only config does not enable the parsed-search path.
+    _set_unblocker(monkeypatch)
+    with pytest.raises(FetchError):
+        scraper_api.fetch_walmart_search("hot sauce")
+
+
+def test_fetch_walmart_search_returns_results_sorted_by_pos(monkeypatch):
+    _set_scraper(monkeypatch)
+    items = [
+        {"general": {"title": "C", "pos": 3}},
+        {"general": {"title": "A", "pos": 1}},
+        {"general": {"title": "B", "pos": 2}},
+    ]
+    captured = {}
+
+    def fake_post(url, json=None, auth=None, timeout=None, **kw):
+        captured["json"] = json
+        return _search_resp(items)
+
+    monkeypatch.setattr("requests.post", fake_post)
+    out = scraper_api.fetch_walmart_search("hot sauce")
+    assert [r["general"]["title"] for r in out] == ["A", "B", "C"]
+    assert captured["json"] == {"source": "walmart_search", "query": "hot sauce", "parse": True}
+
+
+def test_fetch_walmart_search_non_200_raises(monkeypatch):
+    _set_scraper(monkeypatch)
+    monkeypatch.setattr("requests.post", lambda *a, **k: _FakeResp(500, text="boom"))
+    with pytest.raises(FetchError):
+        scraper_api.fetch_walmart_search("hot sauce")
+
+
+def test_search_enabled_gating(monkeypatch):
+    assert scraper_api.search_enabled() is False
+    _set_unblocker(monkeypatch)
+    assert scraper_api.search_enabled() is False  # unblocker alone doesn't count
+    _set_scraper(monkeypatch)
+    assert scraper_api.search_enabled() is True
