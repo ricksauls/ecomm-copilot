@@ -1,0 +1,17 @@
+# Fires the weekly content-readiness re-score of tracked items, Monday 5:00 AM
+# Central. The explicit timezone in OnCalendar makes systemd handle CST/CDT
+# automatically (the droplet clock is UTC).
+#
+# Install at /etc/systemd/system/ecomm-copilot-track-weekly.timer, then
+# `systemctl enable --now ecomm-copilot-track-weekly.timer`.
+
+[Unit]
+Description=ecomm-copilot item tracking — weekly readiness re-score (Mon 5:00 AM CST)
+
+[Timer]
+OnCalendar=Mon *-*-* 05:00:00 America/Chicago
+Persistent=true
+Unit=ecomm-copilot-track@weekly.service
+
+[Install]
+WantedBy=timers.target

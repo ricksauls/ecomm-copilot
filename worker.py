@@ -35,7 +35,7 @@ from zoneinfo import ZoneInfo  # noqa: E402
 
 from app import (  # noqa: E402  (after load_dotenv is intentional)
     ci_config, ci_images, ci_jobs, ci_scraper, copy_jobs, copygen, db,
-    image_enhance, image_jobs, jobs, keywords, portfolio,
+    image_enhance, image_jobs, jobs, keywords, portfolio, tracking,
 )
 from app.imageset import generate as imageset_generate  # noqa: E402
 from app.imageset import jobs as imageset_jobs  # noqa: E402
@@ -47,7 +47,8 @@ from app.seasonal import generate as seasonal_generate  # noqa: E402
 from app.seasonal import jobs as seasonal_jobs  # noqa: E402
 from app.seasonal import store as seasonal_store  # noqa: E402
 from app.fetch import (  # noqa: E402
-    FetchBlocked, FetchError, fetch_main_image_url, fetch_pdp, fetch_title,
+    FetchBlocked, FetchError, fetch_item_facts, fetch_main_image_url, fetch_pdp,
+    fetch_title,
 )
 from app.scoring import PdpRecord, result_to_dict, score_pdp  # noqa: E402
 
@@ -192,6 +193,30 @@ def process_one(conn: sqlite3.Connection, row: sqlite3.Row) -> None:
     except Exception as e:  # noqa: BLE001 - a bad item must not kill the worker
         log.exception("Unexpected error scoring id=%s", row_id)
         jobs.mark_failed(conn, row_id, "error", f"Unexpected error: {e}")
+
+
+def process_fact_one(conn: sqlite3.Connection, row: sqlite3.Row) -> None:
+    """Fetch and store one daily item-tracking facts snapshot. Never raises.
+
+    Cheap relative to scoring (no LLM, no image-byte downloads) but still a headed
+    PDP load, so it's grouped with the other browser work. A blocked/failed fetch
+    marks the job ``error``; the next day's run simply captures a fresh snapshot.
+    """
+    job_id = row["id"]
+    try:
+        facts = fetch_item_facts(row["walmart_url"], row["walmart_item_id"])
+        tracking.save_facts(conn, row, facts)
+        log.info("Facts snapshot job=%s item=%s price=%s in_stock=%s",
+                 job_id, row["walmart_item_id"], facts.get("price"), facts.get("in_stock"))
+    except FetchBlocked as e:
+        log.warning("Facts blocked job=%s: %s", job_id, e)
+        tracking.mark_fact_failed(conn, job_id, f"Blocked: {e}")
+    except FetchError as e:
+        log.warning("Facts fetch error job=%s: %s", job_id, e)
+        tracking.mark_fact_failed(conn, job_id, str(e))
+    except Exception as e:  # noqa: BLE001 - a bad item must not kill the worker
+        log.exception("Unexpected error fetching facts job=%s", job_id)
+        tracking.mark_fact_failed(conn, job_id, f"Unexpected error: {e}")
 
 
 def _copy_fetch(conn: sqlite3.Connection, row: sqlite3.Row) -> None:
@@ -854,16 +879,17 @@ def main() -> None:
     reclaimed_imports = import_store.reclaim_orphaned_items(conn)
     reclaimed_seasonal_products = seasonal_store.reclaim_orphaned_products(conn)
     reclaimed_seasonal_jobs = seasonal_jobs.reclaim_orphaned_jobs(conn)
+    reclaimed_facts = tracking.reclaim_orphaned_fact_jobs(conn)
     if (reclaimed_items or reclaimed_copy or reclaimed_runs or reclaimed_images
             or reclaimed_sets or reclaimed_fetches or reclaimed_plans or reclaimed_imports
-            or reclaimed_seasonal_products or reclaimed_seasonal_jobs):
+            or reclaimed_seasonal_products or reclaimed_seasonal_jobs or reclaimed_facts):
         log.warning(
             "Startup: reclaimed %d scoring item(s), %d copy item(s), %d CI run(s), "
             "%d image job(s), %d image-set job(s), %d image-set prefill(s), %d plan(s), "
-            "%d import item(s), %d seasonal product(s), %d seasonal job(s)",
+            "%d import item(s), %d seasonal product(s), %d seasonal job(s), %d facts job(s)",
             reclaimed_items, reclaimed_copy, reclaimed_runs, reclaimed_images,
             reclaimed_sets, reclaimed_fetches, reclaimed_plans, reclaimed_imports,
-            reclaimed_seasonal_products, reclaimed_seasonal_jobs,
+            reclaimed_seasonal_products, reclaimed_seasonal_jobs, reclaimed_facts,
         )
     while True:
         # Scoring first and concurrently: drain the whole queue with the thread
@@ -914,6 +940,16 @@ def main() -> None:
             seasonal_product = seasonal_store.claim_next_product(conn)
             if seasonal_product is not None:
                 process_seasonal_product_one(conn, seasonal_product)
+                continue
+
+        # Daily item-tracking facts next — a headed PDP load like the browser work
+        # above, but cheap (no LLM, no image-byte downloads). One per loop so a day's
+        # batch of tracked items is naturally paced for Walmart politeness.
+        if tracking.has_claimable_fact_job(conn):
+            fact_job = tracking.claim_next_fact_job(conn)
+            if fact_job is not None:
+                process_fact_one(conn, fact_job)
+                time.sleep(random.uniform(*FETCH_DELAY_RANGE_S))
                 continue
 
         # Image fixes next — the lightest work (provider HTTP calls, no browser),

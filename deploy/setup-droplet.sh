@@ -49,6 +49,16 @@ for slot in morning afternoon night; do
   install -m 644 "$APP_DIR/deploy/ecomm-copilot-ci-$slot.timer" \
     "/etc/systemd/system/ecomm-copilot-ci-$slot.timer"
 done
+
+# Item-tracking enqueue timers: daily commerce-facts sweep (6AM CST) + weekly
+# readiness re-score (Mon 5AM CST). Same pattern as the CI timers — these only
+# write queued rows; the worker does the browser work.
+install -m 644 "$APP_DIR/deploy/ecomm-copilot-track@.service" \
+  /etc/systemd/system/ecomm-copilot-track@.service
+for cadence in daily weekly; do
+  install -m 644 "$APP_DIR/deploy/ecomm-copilot-track-$cadence.timer" \
+    "/etc/systemd/system/ecomm-copilot-track-$cadence.timer"
+done
 systemctl daemon-reload
 
 # The worker drives headed Chrome and needs the Xvfb :99 display. Warn (don't
@@ -105,6 +115,10 @@ systemctl enable --now ecomm-copilot-worker
 # CI monitoring timers (the templated service is started by the timers, not enabled itself).
 for slot in morning afternoon night; do
   systemctl enable --now "ecomm-copilot-ci-$slot.timer"
+done
+# Item-tracking timers (same pattern: the track@ service is started by its timers).
+for cadence in daily weekly; do
+  systemctl enable --now "ecomm-copilot-track-$cadence.timer"
 done
 systemctl reload nginx
 

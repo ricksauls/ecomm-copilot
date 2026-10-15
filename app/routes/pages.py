@@ -44,6 +44,7 @@ from app import (
     messages,
     pdp,
     portfolio,
+    tracking,
     users,
 )
 from app.db import get_db
@@ -2685,6 +2686,27 @@ def portfolio_delete(item_id: int):
     removed = portfolio.delete_item(get_db(), g.user["id"], item_id)
     flash("Item removed." if removed else "That item is no longer in your portfolio.",
           "ok" if removed else "error")
+    return redirect(url_for("pages.portfolio_home"))
+
+
+@bp.route("/app/portfolio/track/<int:item_id>", methods=["POST"])
+@login_required
+def portfolio_toggle_track(item_id: int):
+    """Turn ongoing tracking on/off for one of the user's managed items.
+
+    The form posts the desired new state (``tracked`` = 1/0), so one route handles
+    both directions. A tracked item starts getting daily commerce-facts snapshots
+    (the next scheduled run) and a weekly readiness re-score. ``set_tracked``
+    returns False for a forged/foreign id — surfaced as a benign message, never a
+    leak (IDOR gate).
+    """
+    want = request.form.get("tracked") == "1"
+    ok = tracking.set_tracked(get_db(), g.user["id"], item_id, want)
+    if ok:
+        flash("Now tracking this item — daily checks begin on the next run."
+              if want else "Stopped tracking this item.", "ok")
+    else:
+        flash("That item is no longer in your portfolio.", "error")
     return redirect(url_for("pages.portfolio_home"))
 
 

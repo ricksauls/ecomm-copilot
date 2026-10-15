@@ -1,6 +1,42 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-10-14 (session 36 — **Competitive Tracking setup — revived + redesigned the hidden
+_Last updated: 2026-10-14 (session 37 — **Individual item tracking, build #1 of 2 (the pipeline). Branch
+`feature/item-tracking`, off `main` (independent of the sibling session-36 "Competitive Tracking setup" on
+`feature/competitive-tracking-setup` / PR #48). 751 tests, ruff clean. ONE additive migration (portfolio_items
+`tracked` + two new tables), NO new env.** Part of a 2-part plan the user approved: (1) individual item tracking,
+(2) competitive tracking groups — session 36 did #2, this does #1. **Cadence decided by the user: tracked items
++ keyword data DAILY, content readiness WEEKLY** (keyword data is already daily via the CI sweep, so no new work
+there).
+**What a tracked item gets:** a user flags a portfolio item (new `portfolio_items.tracked`) and it's watched
+over time — cheap **commerce facts DAILY** (price / in-stock / rating / review count, + free content facts:
+image count, video, title) and a full **content-readiness re-score WEEKLY** (reuses the existing `scored_items`
+queue, so the readiness trend plumbing comes free). Item-level *rank* stays out of this flow — rank needs
+keyword scraping, which is the competitive-group's job.
+**New extraction** (`app/fetch.py`): `_extract_price` / `_extract_rating` / `_extract_review_count` /
+`_extract_in_stock` (defensive, multi-path reads of the `__NEXT_DATA__` product node — ⚠️ the exact Walmart keys
+[`priceInfo.currentPrice.price/priceString`, `averageRating`/`rating.averageRating`, `numberOfReviews`,
+`availabilityStatus`/`canAddToCart`] are the documented ones but were NOT live-validated from this box — confirm
+against a real droplet fetch and adjust if a field comes back all-None) + `fetch_item_facts()`, a lean cousin of
+`fetch_pdp` that loads the PDP once and skips the slow image-byte downloads (cheap enough for a daily run).
+**Storage** (`app/db.py`): `portfolio_items.tracked` (migration + `_SCHEMA`); new `portfolio_fact_jobs` (daily
+queue: queued→fetching→done|error) + `portfolio_item_facts` (dated snapshots the trend UI will read). **Store**
+`app/tracking.py` (set_tracked [IDOR-scoped], list/count_tracked, enqueue_fact_jobs [skip active/urlless],
+claim/save/mark_failed, reclaim_orphaned_fact_jobs, user-scoped list_facts/latest_facts). **Enqueuer**
+`app/enqueue_item_tracking.py <daily|weekly>` (daily → facts jobs; weekly → `jobs.enqueue_items` re-score,
+one batch per user). **Worker** `worker.py`: `process_fact_one` + a facts drain (grouped with browser work, one
+per loop, paced) + startup orphan reclaim. **Timers** `deploy/ecomm-copilot-track@.service` +
+`-track-daily.timer` (6AM CST) + `-track-weekly.timer` (Mon 5AM CST); wired into `setup-droplet.sh` + DEPLOY.md
+(install manually on the droplet like the CI timers — a git-pull deploy doesn't run setup-droplet.sh).
+**UI:** a **Track** toggle per item on Portfolio Management (`portfolio_toggle_track` route, IDOR-scoped;
+`list_items` now selects `tracked`); subtitle explains it. **Tests:** `test_tracking.py` (7) + commerce-extractor
+tests in `test_fetch.py` (5) + Track-toggle route tests in `test_portfolio.py` (2). **Verified live** (railtest):
+migration applied on restart, Portfolio Track column renders + toggles on/off.
+**Separate same-session rail change** (on PR #48, not this branch): Portfolio Management + Competitive Tracking
+moved directly below Dashboard.
+**NEXT = build #2b — the trends UI** (a per-item tracking page charting price / rating / reviews / readiness over
+time; history needs to accrue first, which is why pipeline shipped before UI). Also: live-validate the commerce
+extractor keys on the droplet. The prior session-36 summary follows._
+_Session 36 — (session 36 — **Competitive Tracking setup — revived + redesigned the hidden
 monitoring-group config into a first-class, rail-visible feature, with portfolio-backed product entry. On
 branch `feature/competitive-tracking-setup` (PR open). 744 tests, ruff clean. NO migration, NO new env.**
 The monitoring-group model (brands mine/competitor + products + keywords + the 3×/day sweep that feeds

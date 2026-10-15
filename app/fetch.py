@@ -302,6 +302,68 @@ def _extract_idml_bullets(idml: dict | None) -> list[str]:
     return _html_list_items(idml.get("longDescription") or "")
 
 
+def _to_float(value) -> float | None:
+    """Coerce a JSON number/string to float, or None when it isn't numeric."""
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _to_int(value) -> int | None:
+    """Coerce a JSON number/string to int, or None when it isn't an integer."""
+    f = _to_float(value)
+    return int(f) if f is not None else None
+
+
+def _extract_price(product: dict) -> tuple[float | None, str | None]:
+    """Read current price + display string from the product node.
+
+    Walmart nests the live price under ``priceInfo.currentPrice`` (``price`` is the
+    number, ``priceString`` the formatted "$3.98"). Out-of-stock items may omit the
+    block entirely, so both fall back to None.
+    """
+    current = (product.get("priceInfo") or {}).get("currentPrice") or {}
+    price_string = current.get("priceString")
+    return (
+        _to_float(current.get("price")),
+        price_string.strip() if isinstance(price_string, str) and price_string.strip() else None,
+    )
+
+
+def _extract_rating(product: dict) -> float | None:
+    """Average star rating — on the product node directly or under ``rating``."""
+    direct = _to_float(product.get("averageRating"))
+    if direct is not None:
+        return direct
+    return _to_float((product.get("rating") or {}).get("averageRating"))
+
+
+def _extract_review_count(product: dict) -> int | None:
+    """Review count — on the product node directly or under ``rating``."""
+    direct = _to_int(product.get("numberOfReviews"))
+    if direct is not None:
+        return direct
+    return _to_int((product.get("rating") or {}).get("numberOfReviews"))
+
+
+def _extract_in_stock(product: dict) -> bool | None:
+    """Whether the item is purchasable.
+
+    Prefers the explicit ``availabilityStatus`` string ("IN_STOCK"/"OUT_OF_STOCK"),
+    falling back to the boolean ``canAddToCart``. None when neither is present.
+    """
+    status = product.get("availabilityStatus")
+    if isinstance(status, str) and status.strip():
+        return status.strip().upper() == "IN_STOCK"
+    cart = product.get("canAddToCart")
+    if isinstance(cart, bool):
+        return cart
+    return None
+
+
 def parse_product(product: dict, *, url: str = "", item_id: str | None = None,
                    max_image_px: int = 0,
                    image_dims: list[dict] | None = None,
@@ -517,6 +579,37 @@ def fetch_title(url: str, item_id: str | None = None, *, timeout_ms: int = 35000
     logger.info("Fetching product title url=%s item_id=%s", url, item_id)
     data = _load_pdp_data(url, timeout_ms)
     return ((data.get("product") or {}).get("name") or "").strip()
+
+
+def fetch_item_facts(url: str, item_id: str | None = None, *,
+                     timeout_ms: int = 35000) -> dict:
+    """Lean cousin of :func:`fetch_pdp` for the DAILY item-tracking snapshot.
+
+    Loads the PDP once and reads only the signals that actually move day to day —
+    price, stock, rating, review count — plus a couple of free content facts (image
+    count, video, title). It deliberately skips the slow image-byte downloads
+    :func:`fetch_pdp` does for scoring, so it's cheap enough to run on every tracked
+    item daily. Same headed-browser / bot-detection path: raises
+    :class:`FetchBlocked` / :class:`FetchError`; background-only.
+
+    Returns a dict keyed for :func:`app.tracking.save_facts` (``price``,
+    ``price_string``, ``in_stock``, ``rating``, ``review_count``, ``image_count``,
+    ``has_video``, ``title``); any field the page doesn't expose comes back None.
+    """
+    logger.info("Fetching item facts url=%s item_id=%s", url, item_id)
+    data = _load_pdp_data(url, timeout_ms)
+    product = data.get("product") or {}
+    price, price_string = _extract_price(product)
+    return {
+        "price": price,
+        "price_string": price_string,
+        "in_stock": _extract_in_stock(product),
+        "rating": _extract_rating(product),
+        "review_count": _extract_review_count(product),
+        "image_count": _extract_image_count(product),
+        "has_video": _detect_video(product),
+        "title": (product.get("name") or "").strip() or None,
+    }
 
 
 def fetch_all_image_urls(url: str, *, timeout_ms: int = 35000,

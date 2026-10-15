@@ -137,6 +137,9 @@ CREATE TABLE IF NOT EXISTS portfolio_items (
     -- lands on 'error' (searchable by brand/item/URL meanwhile).
     title        TEXT,
     title_status TEXT    NOT NULL DEFAULT 'queued',
+    -- tracked = 1 opts this item into ongoing monitoring (daily commerce facts +
+    -- weekly readiness re-score). Defaults off; the user flags items individually.
+    tracked      INTEGER NOT NULL DEFAULT 0,
     created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
     updated_at   TEXT    NOT NULL DEFAULT (datetime('now'))
 );
@@ -147,6 +150,47 @@ CREATE INDEX IF NOT EXISTS idx_portfolio_items_user ON portfolio_items(user_id, 
 -- NOTE: the title-claim index (on title_status) is created in _migrate, not here —
 -- on a pre-existing DB that column is added by _migrate first, so _SCHEMA can't
 -- reference it yet (same pattern as idx_image_jobs_claim).
+
+-- Individual item tracking (build on top of the portfolio catalog). A portfolio
+-- item the user flags as "tracked" (portfolio_items.tracked = 1) gets watched over
+-- time: cheap commerce facts DAILY and a full content-readiness re-score WEEKLY.
+--   • portfolio_fact_jobs — the daily cheap-fetch queue (one row per enqueued
+--     facts fetch; worker drains queued -> fetching -> done|error). Mirrors the
+--     other worker queues so it self-heals via a startup orphan reclaim.
+--   • portfolio_item_facts — one dated snapshot per successful facts fetch; the
+--     time series the trend UI reads. Readiness is NOT stored here — the weekly
+--     re-score reuses scored_items (which already carries a per-item score history).
+CREATE TABLE IF NOT EXISTS portfolio_fact_jobs (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    portfolio_item_id INTEGER NOT NULL REFERENCES portfolio_items(id) ON DELETE CASCADE,
+    user_id           INTEGER NOT NULL REFERENCES users(id),
+    walmart_item_id   TEXT,                              -- denormalized for logging/snapshot rows
+    walmart_url       TEXT    NOT NULL,                  -- the PDP to fetch
+    status            TEXT    NOT NULL DEFAULT 'queued', -- queued|fetching|done|error
+    created_at        TEXT    NOT NULL DEFAULT (datetime('now')),
+    finished_at       TEXT,
+    message           TEXT                               -- failure detail when status='error'
+);
+CREATE INDEX IF NOT EXISTS idx_portfolio_fact_jobs_claim ON portfolio_fact_jobs(status, id);
+CREATE INDEX IF NOT EXISTS idx_portfolio_fact_jobs_item ON portfolio_fact_jobs(portfolio_item_id);
+
+CREATE TABLE IF NOT EXISTS portfolio_item_facts (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    portfolio_item_id INTEGER NOT NULL REFERENCES portfolio_items(id) ON DELETE CASCADE,
+    user_id           INTEGER NOT NULL REFERENCES users(id),
+    walmart_item_id   TEXT,
+    captured_at       TEXT    NOT NULL DEFAULT (datetime('now')),
+    price             REAL,                              -- current price in dollars; NULL if unread
+    price_string      TEXT,                              -- as shown on the PDP, e.g. "$3.98"
+    in_stock          INTEGER,                           -- 1 in stock, 0 out, NULL unknown
+    rating            REAL,                              -- average star rating
+    review_count      INTEGER,
+    image_count       INTEGER,
+    has_video         INTEGER,                           -- 1/0
+    title             TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_portfolio_item_facts_series
+    ON portfolio_item_facts(portfolio_item_id, captured_at);
 
 -- One row per AI image-fix (upscale / white-background) requested from the
 -- scoring results page. The web app inserts rows as 'queued'; the background
@@ -812,6 +856,14 @@ def _migrate(conn: sqlite3.Connection) -> None:
             "ALTER TABLE portfolio_items ADD COLUMN title_status TEXT NOT NULL DEFAULT 'queued'"
         )
         logger.info("Migrated portfolio_items: added 'title_status' column")
+    # tracked flags a managed item for ongoing monitoring (daily facts + weekly
+    # readiness re-score). Existing rows default to 0 (not tracked) — the user opts
+    # each item in. Fresh DBs get the column from _SCHEMA's portfolio_items block.
+    if pf_cols and "tracked" not in pf_cols:
+        conn.execute(
+            "ALTER TABLE portfolio_items ADD COLUMN tracked INTEGER NOT NULL DEFAULT 0"
+        )
+        logger.info("Migrated portfolio_items: added 'tracked' column")
     if pf_cols:
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_portfolio_title_claim "
