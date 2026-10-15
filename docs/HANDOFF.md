@@ -1,6 +1,34 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-10-15 (session 39 Phase 2 — **CI search scrapers migrated to the Oxylabs `walmart_search`
+_Last updated: 2026-10-15 (session 40 — **Business Report feature, PR A (on-demand). Branch
+`feature/business-report`, NOT pushed. 799 tests (781 + 18 new), ruff clean. NEW dep `python-pptx==1.0.2`; NEW
+table `generated_reports`; NO new env.** A new rail area **Reports** (workspace with Create / History tabs) that
+builds one monitoring brand's performance deck over one completed period as a **PDF** (`app/report_pdf.py`,
+reportlab, 16:9 canvas deck) and/or an editable **PPTX** (`app/report_pptx.py`, python-pptx, native tables + a
+stacked-bar chart). Shared data layer `app/report.py:assemble_business_report(conn, uid, group, period)` reuses
+the existing `ci_analysis` monitoring aggregations + `jobs` readiness functions (NEW
+`jobs.readiness_dimension_averages`), and derives rule-based Highlights (Wins/Attention), Discovery insights,
+Priority Fixes and Strategic Recommendations — all request/worker-safe (no Flask `g`/`request`/`url_for`), so PR
+B's scheduler can call it unchanged. Deck mirrors the WM example (`WM Dot Com Update/Walmart Performance Deck`):
+Title → Agenda → Summary (3 KPI cards) → Highlights → [Discovery: Search Rank + placement grid, Share of Shelf +
+chart, Organic/Paid mix, Insights] → [Content Readiness: scorecard bars, per-item scores, Priority Fixes] →
+Action Plan (recs) → Close. **By design: NO secondary/below-the-fold content and NO ratings/reviews** (app
+captures neither). Files stored under `MEDIA_DIR/reports/<uid>/<token>.<ext>` via `app/report_store.py` (mirrors
+`seasonal/storage.py` — path-traversal-safe, IDOR-scoped, disk/DB split, survives `git pull`); DB table
+`generated_reports` (brand_label/period_label denormalized; `schedule_id` reserved for PR B). Routes
+(`routes/pages.py`): `/app/reports` (tab=create|history), POST `/app/reports/generate` (IDOR-gated on group,
+fmt+period allowlists, streams file + records in History), `/app/reports/download/<id>`,
+`/app/reports/<id>/delete`. On-demand generation is **synchronous in-request** (pure-Python, no browser/worker).
+Rail leaf "Reports" + icon in `_rail.html`; template `reports_home.html`; CSS appended to `workspace.css`;
+`.env.example` untouched (no new env); `deploy/DEPLOY.md` updated. **Verified LIVE** on the dev server (seeded
+demo user `reporttest@example.com`/`TestPass!234`, group "Tabasco (report demo)" in dev `app.db`): both PDF +
+PPTX generated through the UI, recorded in History, CSP-clean (no console errors). **NEXT = PR B (scheduling):**
+`report_schedules` table, Schedules tab (weekly→weekday / monthly→day-of-month), `app/enqueue_reports.py` + a new
+daily systemd timer + worker `drain_reports()`, retention, delivery = in-app History + a "new" badge (NO email —
+the app has no mail infra; that's a later infra task). **Decisions locked with the user:** both formats · one
+brand+period scope · scheduled delivery in-app (not email) · two-PR staging.)_
+
+_Prior: session 39 Phase 2 — **CI search scrapers migrated to the Oxylabs `walmart_search`
 parser. Branch `feature/ci-search-scraper-api` (PR open). 781 tests, ruff clean. NO migration, NO new env.**
 Follow-on to Phase 1 below (which unblocked the PDP `_load_pdp_data` path but left the CI **search** scrapers on
 the blocked browser). This migrates the two DOM-based SERP scrapers — `ci_scraper.py:scrape_keyword_page` and

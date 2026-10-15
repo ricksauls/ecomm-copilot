@@ -3922,3 +3922,75 @@ textarea.text-input { resize: vertical; line-height: 1.5; }
 .trk-metric-foot {
   font-size: 12px;
 }
+
+/* ── Reports workspace ──────────────────────────────────────────────────────
+   Create tab: a scope picker card (brand + period) above a generate card with
+   one button per format. History tab: a plain table of generated reports. Reuses
+   the shared .card / .wbtn / .briefing-* / .dash-table primitives; only the
+   report-specific spacing and the format/source chips are defined here. */
+.report-create {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-14);
+  max-width: 720px;
+}
+.report-scope-form {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-12);
+}
+.report-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+.report-field-label {
+  font-size: 12px;
+  color: var(--mid-gray);
+}
+.report-periods {
+  margin-top: var(--space-14);
+}
+.report-scope-line {
+  margin: var(--space-6) 0 var(--space-12);
+  color: var(--mid-gray);
+}
+.report-scope-line strong {
+  color: var(--black);
+}
+.report-formats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-12);
+  margin: var(--space-8) 0 var(--space-12);
+}
+.report-hint {
+  font-size: 12px;
+  color: var(--cool-gray);
+  margin: var(--space-8) 0 0;
+}
+.report-history th,
+.report-history td {
+  white-space: nowrap;
+}
+.report-row-actions {
+  display: flex;
+  gap: var(--space-8);
+  align-items: center;
+}
+.report-row-actions form {
+  margin: 0;
+}
+/* Format chip: PDF in signal red, PPTX in the brand accent, so the two read
+   apart at a glance in the History list. Square chip, per the design system. */
+.report-fmt {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 2px 6px;
+  border-radius: var(--radius-chip);
+  color: var(--surface);
+}
+.report-fmt-pdf { background: var(--signal-red); }
+.report-fmt-pptx { background: var(--accent); }

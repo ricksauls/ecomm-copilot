@@ -24,6 +24,12 @@ Pillow==12.3.0
 # a web request and deploys without extra apt packages on the droplet.
 reportlab==5.0.1
 
+# Business report export: the PDF deck (app.report_pdf) uses reportlab above; the
+# editable PowerPoint deck (app.report_pptx) uses python-pptx. Pure-Python
+# (python-pptx + lxml, no Office/COM), so it runs in a web request or the worker
+# and deploys without extra apt packages on the droplet.
+python-pptx==1.0.2
+
 # Excel (.xlsx) export of generated copy for Walmart content upload. Pure-Python
 # like reportlab — runs in a web request, no apt packages. (CSV export uses the
 # stdlib and needs no dependency.)

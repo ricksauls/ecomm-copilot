@@ -657,6 +657,41 @@ CREATE TABLE IF NOT EXISTS seasonal_jobs (
 );
 CREATE INDEX IF NOT EXISTS idx_seasonal_jobs_claim ON seasonal_jobs(status, priority DESC, id);
 CREATE INDEX IF NOT EXISTS idx_seasonal_jobs_campaign ON seasonal_jobs(campaign_id);
+
+-- ── Business Reports ────────────────────────────────────────────────────────
+-- A downloadable performance deck (PDF or PPTX) for one monitoring brand over
+-- one completed period, built from the same CI + content-readiness data the
+-- dashboard and Insights already compute. One row per generated file.
+--
+-- The file bytes live on disk under MEDIA_DIR/reports/<user_id>/, never in the
+-- DB (same disk/DB split as the image caches), so a deploy `git pull` never
+-- wipes them. rel_path is the path under MEDIA_DIR; the download route maps it
+-- back to an absolute path and re-checks ownership (IDOR) before serving.
+--
+-- brand_label / period_label are denormalized at generation time so a report
+-- stays meaningful in the History list even after its CI group is renamed or
+-- deleted (group_id then goes NULL via ON DELETE SET NULL, but the label holds).
+-- source distinguishes a user-triggered build from a scheduled one; schedule_id
+-- is reserved for the scheduling feature (PR B) and is a plain nullable INTEGER
+-- here (no FK yet — the report_schedules table arrives with that work).
+CREATE TABLE IF NOT EXISTS generated_reports (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id      INTEGER NOT NULL REFERENCES users(id),
+    group_id     INTEGER REFERENCES ci_groups(id) ON DELETE SET NULL,
+    brand_label  TEXT    NOT NULL,                      -- brand/group name at build time
+    period       TEXT    NOT NULL,                      -- period key (wow|mom|...)
+    period_label TEXT,                                  -- human period label at build time
+    fmt          TEXT    NOT NULL,                      -- pdf|pptx
+    source       TEXT    NOT NULL DEFAULT 'on_demand',  -- on_demand|scheduled
+    schedule_id  INTEGER,                               -- reserved for scheduling (PR B)
+    filename     TEXT    NOT NULL,                      -- download filename shown to the user
+    rel_path     TEXT    NOT NULL,                      -- path under MEDIA_DIR/reports
+    size_bytes   INTEGER,
+    status       TEXT    NOT NULL DEFAULT 'done',       -- done|error (scheduling adds queued|running)
+    error        TEXT,
+    created_at   TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_generated_reports_user ON generated_reports(user_id, id DESC);
 """
 
 

@@ -44,6 +44,8 @@ from app import (
     messages,
     pdp,
     portfolio,
+    report,
+    report_store,
     tracking,
     users,
 )
@@ -859,6 +861,185 @@ def set_default_brand():
         abort(404)
     users.set_default_ci_group(uid, group_id)
     return redirect(url_for("pages.dashboard", group_id=group_id))
+
+
+# ── Reports (downloadable business decks) ────────────────────────────────────
+# A Reports workspace (Create / History tabs) that builds a brand's performance
+# deck as a PDF or PPTX on demand. One report = one monitoring brand over one
+# completed period, assembled by app.report and rendered by app.report_pdf /
+# app.report_pptx. Scheduled (cadenced) reports are a follow-on (PR B); the
+# generated_reports table + the History list are shared by both.
+
+_REPORT_FORMATS = ("pdf", "pptx")
+
+
+def _report_selection(db, uid) -> dict:
+    """Resolve the brand + period choices for the Reports Create tab.
+
+    Mirrors the dashboard briefing's selection model: ``?group_id=`` → saved
+    default → newest monitoring group; ``?period=`` validated against the group's
+    ready periods (first ready period as the fallback). Returns the selectors plus
+    the resolved ``selected_group_id`` / ``period`` the generate form submits.
+    """
+    groups = ci_config.list_groups(db, uid, mode="monitoring")
+    if not groups:
+        # No monitoring brands yet — nothing to report on; prompt to set one up.
+        return {"available": False, "setup_url": url_for("pages.ci_monitoring_home")}
+
+    group_id = request.args.get("group_id", type=int)
+    selected = ci_config.get_group(db, group_id, uid) if group_id is not None else None
+    if selected is not None and selected["mode"] != "monitoring":
+        selected = None
+    default_id = g.user["default_ci_group_id"]
+    if selected is None and default_id is not None:
+        saved = ci_config.get_group(db, default_id, uid)
+        if saved is not None and saved["mode"] == "monitoring":
+            selected = saved
+    if selected is None:
+        selected = groups[0]
+    gid = selected["id"]
+
+    available = ci_analysis.available_periods(db, gid)
+    requested = request.args.get("period")
+    period = (requested if requested in available
+              else (available[0] if available else ci_analysis.DEFAULT_PERIOD))
+
+    return {
+        "available": True,
+        "has_data": bool(available),
+        "brand_label": _group_brand_label(db, uid, gid, selected["name"]),
+        "selected_group_id": gid,
+        "period": period,
+        "groups": [{"id": grp["id"],
+                    "label": _group_brand_label(db, uid, grp["id"], grp["name"]),
+                    "selected": grp["id"] == gid} for grp in groups],
+        "periods": [{"key": p, "label": ci_analysis.PERIOD_LABELS[p],
+                     "enabled": p in available, "selected": p == period}
+                    for p in ci_analysis.PERIODS],
+    }
+
+
+def _report_row_view(row) -> dict:
+    """Shape one generated-report row for the History table."""
+    return {
+        "id": row["id"],
+        "brand_label": row["brand_label"],
+        "period_label": row["period_label"] or row["period"],
+        "fmt": row["fmt"],
+        "source": row["source"],
+        "size_kb": round((row["size_bytes"] or 0) / 1024),
+        "created_at": (row["created_at"] or "")[:16],
+    }
+
+
+@bp.route("/app/reports")
+@login_required
+def reports_home():
+    """Reports workspace. ``?tab=create`` (default) or ``?tab=history``."""
+    db = get_db()
+    uid = g.user["id"]
+    tab = request.args.get("tab")
+    if tab not in ("create", "history"):
+        tab = "create"
+    selection = _report_selection(db, uid)
+    history = [_report_row_view(r) for r in report_store.list_reports(db, uid)]
+    logger.info("Reports home user_id=%s tab=%s history=%d", uid, tab, len(history))
+    return render_template(
+        "app/reports_home.html",
+        breadcrumb="Reports",
+        active_nav="reports",
+        tab=tab,
+        selection=selection,
+        history=history,
+    )
+
+
+@bp.route("/app/reports/generate", methods=["POST"])
+@login_required
+def report_generate():
+    """Build a report now and stream it as a download (also recorded in History).
+
+    Validates the brand (IDOR: must be a monitoring group the user owns), the
+    period (allowlist), and the format (allowlist) before doing any work. A
+    build/render failure logs the detail and flashes a safe message rather than
+    leaking internals to the client (security-standards).
+    """
+    from flask import Response
+
+    db = get_db()
+    uid = g.user["id"]
+
+    group_id = request.form.get("group_id", type=int)
+    fmt = request.form.get("fmt", "")
+    period = request.form.get("period", "")
+
+    group = ci_config.get_group(db, group_id, uid) if group_id is not None else None
+    if group is None or group["mode"] != "monitoring":
+        logger.warning("Report generate rejected: user_id=%s group_id=%s", uid, group_id)
+        abort(404)
+    if fmt not in _REPORT_FORMATS:
+        abort(400)
+    if period not in ci_analysis.PERIODS:
+        period = ci_analysis.DEFAULT_PERIOD
+
+    try:
+        data = report.assemble_business_report(db, uid, group, period)
+        if fmt == "pdf":
+            from app.report_pdf import build_business_report_pdf
+            payload = build_business_report_pdf(data)
+            mimetype = "application/pdf"
+        else:
+            from app.report_pptx import build_business_report_pptx
+            payload = build_business_report_pptx(data)
+            mimetype = ("application/vnd.openxmlformats-officedocument."
+                        "presentationml.presentation")
+    except Exception:  # noqa: BLE001 — surface a safe message, log the detail
+        logger.exception("Report build failed user_id=%s group_id=%s fmt=%s",
+                         uid, group_id, fmt)
+        flash("Sorry — that report couldn't be generated. Please try again.", "error")
+        return redirect(url_for("pages.reports_home", group_id=group_id, period=period))
+
+    filename = (f"discotech-{_slug(group['name'])}-{period}-"
+                f"{data['meta']['generated_date']}.{fmt}")
+    report_store.save_report(
+        db, user_id=uid, group_id=group_id, brand_label=group["name"], period=period,
+        period_label=data["meta"]["period_label"], fmt=fmt, data=payload,
+        filename=filename, source="on_demand")
+    logger.info("Report generated user_id=%s group_id=%s period=%s fmt=%s bytes=%d",
+                uid, group_id, period, fmt, len(payload))
+    return Response(payload, mimetype=mimetype,
+                    headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+
+@bp.route("/app/reports/download/<int:report_id>")
+@login_required
+def report_download(report_id):
+    """Stream a previously generated report from storage (ownership-checked)."""
+    from flask import send_file
+
+    db = get_db()
+    row = report_store.get_report(db, report_id, g.user["id"])
+    if row is None:
+        abort(404)
+    path = report_store.abspath(row["rel_path"])
+    if not path or not os.path.isfile(path):
+        logger.warning("Report file missing id=%s user_id=%s", report_id, g.user["id"])
+        abort(404)
+    mimetype = ("application/pdf" if row["fmt"] == "pdf"
+                else "application/vnd.openxmlformats-officedocument."
+                     "presentationml.presentation")
+    logger.info("Report download id=%s user_id=%s", report_id, g.user["id"])
+    return send_file(path, mimetype=mimetype, as_attachment=True,
+                     download_name=row["filename"])
+
+
+@bp.route("/app/reports/<int:report_id>/delete", methods=["POST"])
+@login_required
+def report_delete(report_id):
+    """Delete a generated report (row + file), then return to History."""
+    db = get_db()
+    report_store.delete_report(db, report_id, g.user["id"])
+    return redirect(url_for("pages.reports_home", tab="history"))
 
 
 # ── Opportunities (Insights) ─────────────────────────────────────────────────

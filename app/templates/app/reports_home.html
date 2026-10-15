@@ -1,0 +1,137 @@
+{% extends "app/base.html" %}
+{% import "app/_workspace_tabs.html" as ws %}
+{% block title %}Reports — DISCOtech{% endblock %}
+
+{% block pane_content %}
+{# Reports workspace. Two tabs: Create (pick a brand + period, download a PDF or
+   PPTX performance deck now) and History (every report generated so far, each
+   re-downloadable). Scheduling (weekly/monthly) lands as a third tab in a
+   follow-on; the History list already backs it. All brand/period selection
+   mirrors the dashboard briefing so the two screens feel the same. #}
+<div class="page-header">
+  <div>
+    <h1>Reports</h1>
+    <p class="subtitle">Download a brand's performance deck as a PDF or PowerPoint</p>
+  </div>
+</div>
+
+{{ ws.workspace_tabs(tab,
+    url_for('pages.reports_home', tab='create'),
+    url_for('pages.reports_home', tab='history')) }}
+
+{% if tab == 'create' %}
+  {% if not selection.available %}
+    {# No monitoring brands yet — a report needs one, so send them to set it up. #}
+    <div class="card card-pad briefing-setup">
+      <div class="label">Create a report</div>
+      <p>Set up Competitive Tracking for a brand first — a report draws on its
+         search-ranking and share-of-shelf monitoring data.</p>
+      <a class="wbtn wbtn-primary" href="{{ selection.setup_url }}">Set up tracking</a>
+    </div>
+  {% else %}
+    {# Brand + period picker (GET — reloads this tab with the selection), then the
+       generate card (POST per format). The picker mirrors the dashboard's. #}
+    <div class="report-create">
+      <div class="card card-pad">
+        <div class="label">Report scope</div>
+        <form method="get" action="{{ url_for('pages.reports_home') }}" class="report-scope-form">
+          <input type="hidden" name="tab" value="create">
+          <input type="hidden" name="period" value="{{ selection.period }}">
+          <label class="report-field">
+            <span class="report-field-label">Brand</span>
+            <select name="group_id" class="briefing-select" aria-label="Brand">
+              {% for opt in selection.groups %}
+              <option value="{{ opt.id }}" {{ 'selected' if opt.selected }}>{{ opt.label }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <button type="submit" class="wbtn wbtn-secondary">Apply</button>
+        </form>
+        <div class="briefing-periods report-periods" role="group" aria-label="Reporting period">
+          {% for p in selection.periods %}
+            {% if p.enabled %}
+              <a class="briefing-period {{ 'is-active' if p.selected }}"
+                 href="{{ url_for('pages.reports_home', tab='create', group_id=selection.selected_group_id, period=p.key) }}"
+              >{{ p.label }}</a>
+            {% else %}
+              <span class="briefing-period is-disabled" title="No data yet">{{ p.label }}</span>
+            {% endif %}
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="card card-pad report-generate">
+        <div class="label">Generate now</div>
+        <p class="report-scope-line">
+          <strong>{{ selection.brand_label }}</strong>
+          {% for p in selection.periods if p.selected %}· {{ p.label }}{% endfor %}
+        </p>
+        {% if not selection.has_data %}
+          <p class="report-hint">Monitoring is still gathering data for this brand —
+             the report will build with content-readiness only until the first full
+             period completes.</p>
+        {% endif %}
+        <div class="report-formats">
+          <form method="post" action="{{ url_for('pages.report_generate') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="group_id" value="{{ selection.selected_group_id }}">
+            <input type="hidden" name="period" value="{{ selection.period }}">
+            <input type="hidden" name="fmt" value="pdf">
+            <button type="submit" class="wbtn wbtn-primary">Download PDF</button>
+          </form>
+          <form method="post" action="{{ url_for('pages.report_generate') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="group_id" value="{{ selection.selected_group_id }}">
+            <input type="hidden" name="period" value="{{ selection.period }}">
+            <input type="hidden" name="fmt" value="pptx">
+            <button type="submit" class="wbtn wbtn-secondary">Download PowerPoint</button>
+          </form>
+        </div>
+        <p class="report-hint">Covers summary KPIs, search ranking, share of digital
+           shelf, content readiness, and a prioritized action plan. Each download is
+           also saved to <a href="{{ url_for('pages.reports_home', tab='history') }}">History</a>.</p>
+      </div>
+    </div>
+  {% endif %}
+
+{% else %}
+  {# History tab — every generated report, newest first, each re-downloadable. #}
+  {% if not history %}
+    <div class="card card-pad">
+      <p class="report-hint">No reports yet. Generate one from the
+         <a href="{{ url_for('pages.reports_home', tab='create') }}">Create New</a> tab.</p>
+    </div>
+  {% else %}
+    <div class="card">
+      <table class="dash-table report-history">
+        <thead>
+          <tr>
+            <th>Generated</th><th>Brand</th><th>Period</th><th>Format</th>
+            <th>Source</th><th>Size</th><th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in history %}
+          <tr>
+            <td>{{ r.created_at }}</td>
+            <td>{{ r.brand_label }}</td>
+            <td>{{ r.period_label }}</td>
+            <td><span class="report-fmt report-fmt-{{ r.fmt }}">{{ r.fmt | upper }}</span></td>
+            <td>{{ 'Scheduled' if r.source == 'scheduled' else 'On demand' }}</td>
+            <td>{{ r.size_kb }} KB</td>
+            <td class="report-row-actions">
+              <a class="wbtn wbtn-sm wbtn-secondary"
+                 href="{{ url_for('pages.report_download', report_id=r.id) }}">Download</a>
+              <form method="post" action="{{ url_for('pages.report_delete', report_id=r.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="wbtn wbtn-sm wbtn-link wbtn-danger">Delete</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+{% endif %}
+{% endblock %}
