@@ -326,6 +326,46 @@ sudo systemctl start ecomm-copilot-track@daily.service
 An item is only picked up when its owner has toggled **Track** on for it in the
 app (`portfolio_items.tracked`).
 
+## Scheduled-reports timer
+
+The Reports area lets a user stand up a **weekly or monthly** auto-build of a
+brand's deck (rail → Reports → Schedules). A single daily timer drives it:
+
+- **daily** — 6:30 AM CST (`ecomm-copilot-reports.timer` →
+  `ecomm-copilot-reports.service` → `python -m app.enqueue_reports`).
+
+The enqueue job decides which schedules are *due today* (by weekday / day-of-
+month), writes one `queued` `generated_reports` row per schedule × format, and
+**prunes** generated reports older than `REPORT_RETENTION_DAYS` (default 90;
+optional env). The `ecomm-copilot-worker` builds the queued decks (pure-Python,
+no browser) and writes them under `media/reports/`. Same model as the other
+timers — only `queued` rows are written, and `OnCalendar` carries an explicit
+`America/Chicago` timezone. `setup-droplet.sh` installs and enables it. To add to
+an already-provisioned droplet without re-running the full script (root via the DO
+Console):
+
+```bash
+cd /home/deploy/apps/ecomm-copilot
+install -m 644 deploy/ecomm-copilot-reports.service \
+  /etc/systemd/system/ecomm-copilot-reports.service
+install -m 644 deploy/ecomm-copilot-reports.timer \
+  /etc/systemd/system/ecomm-copilot-reports.timer
+systemctl daemon-reload
+systemctl enable --now ecomm-copilot-reports.timer
+```
+
+Inspect / verify:
+
+```bash
+systemctl list-timers 'ecomm-copilot-reports.timer' --all
+journalctl -u ecomm-copilot-reports.service -n 50 --no-pager
+# Trigger one immediately for a smoke test (enqueues today's due schedules):
+sudo systemctl start ecomm-copilot-reports.service
+```
+
+A schedule only fires when its owner created it in the app (`report_schedules`)
+and left it enabled; completed runs land in Reports → History with a "new" badge.
+
 ## Manual deploy / rollback
 
 ```bash

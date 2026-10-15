@@ -180,6 +180,9 @@
        class="rail-leaf{{ ' active' if active_nav == 'reports' else '' }}">
       <span class="rail-ico">{{ rail_icon('reports') }}</span>
       <span class="rail-main-label">Reports</span>
+      {# "New" badge: completed scheduled reports the user hasn't opened yet
+         (cleared when they view the History tab). #}
+      {% if reports_new_count %}<span class="nav-count nav-count-alert">{{ reports_new_count }}</span>{% endif %}
     </a>
 
     {# Contact Us — standalone link with a muted hint at what the channel is for;

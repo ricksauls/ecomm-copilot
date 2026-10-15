@@ -222,10 +222,15 @@ def create_app() -> Flask:
             return {}
 
         from app import messages as messages_mod
+        from app import report_store
         from app.db import get_db
 
         db = get_db()
-        ctx = {"msg_unread_count": messages_mod.count_unread_for_user(db, user["id"])}
+        ctx = {
+            "msg_unread_count": messages_mod.count_unread_for_user(db, user["id"]),
+            # Completed scheduled reports the user hasn't opened yet → rail "new" badge.
+            "reports_new_count": report_store.count_unseen_scheduled(db, user["id"]),
+        }
         if security.is_admin(user):
             ctx["admin_msg_unread_count"] = messages_mod.count_unread_for_admin(db)
         return ctx

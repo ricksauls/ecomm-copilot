@@ -1,0 +1,23 @@
+# Oneshot that enqueues the scheduled business reports due today and prunes old
+# ones. Triggered daily by ecomm-copilot-reports.timer. It only writes queued
+# generated_reports rows + deletes expired files — the ecomm-copilot-worker does
+# the actual deck building — so it needs no DISPLAY and finishes in milliseconds.
+#
+# Install at /etc/systemd/system/ecomm-copilot-reports.service
+# (setup-droplet.sh does this).
+
+[Unit]
+Description=ecomm-copilot scheduled-reports enqueue + retention
+After=network.target
+
+[Service]
+Type=oneshot
+User=deploy
+Group=deploy
+WorkingDirectory=/home/deploy/apps/ecomm-copilot
+EnvironmentFile=/home/deploy/apps/ecomm-copilot/.env
+ExecStart=/home/deploy/apps/ecomm-copilot/venv/bin/python -m app.enqueue_reports
+
+# Least-privilege hardening (matching the other units).
+NoNewPrivileges=true
+PrivateTmp=true

@@ -1,13 +1,11 @@
 {% extends "app/base.html" %}
-{% import "app/_workspace_tabs.html" as ws %}
 {% block title %}Reports — DISCOtech{% endblock %}
 
 {% block pane_content %}
-{# Reports workspace. Two tabs: Create (pick a brand + period, download a PDF or
-   PPTX performance deck now) and History (every report generated so far, each
-   re-downloadable). Scheduling (weekly/monthly) lands as a third tab in a
-   follow-on; the History list already backs it. All brand/period selection
-   mirrors the dashboard briefing so the two screens feel the same. #}
+{# Reports workspace. Three tabs: Create (pick a brand + period, download a PDF or
+   PPTX now), Schedules (stand up a weekly/monthly auto-build delivered to History),
+   and History (every report generated so far, each re-downloadable). All brand +
+   period selection mirrors the dashboard briefing so the screens feel the same. #}
 <div class="page-header">
   <div>
     <h1>Reports</h1>
@@ -15,13 +13,22 @@
   </div>
 </div>
 
-{{ ws.workspace_tabs(tab,
-    url_for('pages.reports_home', tab='create'),
-    url_for('pages.reports_home', tab='history')) }}
+{# Three-tab bar (the shared workspace_tabs macro only does two). Plain links, so
+   it works with JS off; the active tab is styled, not disabled. #}
+<nav class="ws-tabs" aria-label="Reports views">
+  <a href="{{ url_for('pages.reports_home', tab='create') }}"
+     class="ws-tab{{ ' active' if tab == 'create' else '' }}"
+     {{ 'aria-current="page"' if tab == 'create' else '' }}>Create New</a>
+  <a href="{{ url_for('pages.reports_home', tab='schedules') }}"
+     class="ws-tab{{ ' active' if tab == 'schedules' else '' }}"
+     {{ 'aria-current="page"' if tab == 'schedules' else '' }}>Schedules</a>
+  <a href="{{ url_for('pages.reports_home', tab='history') }}"
+     class="ws-tab{{ ' active' if tab == 'history' else '' }}"
+     {{ 'aria-current="page"' if tab == 'history' else '' }}>History</a>
+</nav>
 
 {% if tab == 'create' %}
   {% if not selection.available %}
-    {# No monitoring brands yet — a report needs one, so send them to set it up. #}
     <div class="card card-pad briefing-setup">
       <div class="label">Create a report</div>
       <p>Set up Competitive Tracking for a brand first — a report draws on its
@@ -29,8 +36,6 @@
       <a class="wbtn wbtn-primary" href="{{ selection.setup_url }}">Set up tracking</a>
     </div>
   {% else %}
-    {# Brand + period picker (GET — reloads this tab with the selection), then the
-       generate card (POST per format). The picker mirrors the dashboard's. #}
     <div class="report-create">
       <div class="card card-pad">
         <div class="label">Report scope</div>
@@ -94,12 +99,110 @@
     </div>
   {% endif %}
 
+{% elif tab == 'schedules' %}
+  {% if not selection.available %}
+    <div class="card card-pad briefing-setup">
+      <div class="label">Schedule a report</div>
+      <p>Set up Competitive Tracking for a brand first — a scheduled report needs a
+         brand to monitor.</p>
+      <a class="wbtn wbtn-primary" href="{{ selection.setup_url }}">Set up tracking</a>
+    </div>
+  {% else %}
+    {# Add-a-schedule form. CSP-/JS-free: both the weekday and day-of-month pickers
+       are shown; the backend reads whichever matches the chosen cadence. #}
+    <div class="card card-pad report-schedule-form">
+      <div class="label">New schedule</div>
+      <form method="post" action="{{ url_for('pages.report_schedule_save') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="report-sched-grid">
+          <label class="report-field">
+            <span class="report-field-label">Brand</span>
+            <select name="group_id" class="briefing-select">
+              {% for opt in selection.groups %}
+              <option value="{{ opt.id }}" {{ 'selected' if opt.selected }}>{{ opt.label }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label class="report-field">
+            <span class="report-field-label">Cadence</span>
+            <select name="cadence" class="briefing-select">
+              <option value="weekly">Weekly</option>
+              <option value="monthly">Monthly</option>
+            </select>
+          </label>
+          <label class="report-field">
+            <span class="report-field-label">Day of week <em>(weekly)</em></span>
+            <select name="day_of_week" class="briefing-select">
+              {% for i, name in weekday_names %}
+              <option value="{{ i }}">{{ name }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label class="report-field">
+            <span class="report-field-label">Day of month <em>(monthly)</em></span>
+            <select name="day_of_month" class="briefing-select">
+              {% for d in range(1, max_day_of_month + 1) %}
+              <option value="{{ d }}">{{ d }}</option>
+              {% endfor %}
+            </select>
+          </label>
+        </div>
+        <div class="report-sched-formats">
+          <span class="report-field-label">Formats</span>
+          <label class="report-check"><input type="checkbox" name="formats" value="pdf" checked> PDF</label>
+          <label class="report-check"><input type="checkbox" name="formats" value="pptx"> PowerPoint</label>
+        </div>
+        <p class="report-hint">Weekly reports summarize the last completed week;
+           monthly reports the last completed month. Each run lands in
+           <a href="{{ url_for('pages.reports_home', tab='history') }}">History</a>
+           (you'll see a “new” badge on Reports).</p>
+        <button type="submit" class="wbtn wbtn-primary">Save schedule</button>
+      </form>
+    </div>
+
+    {% if schedules %}
+    <div class="card report-schedule-list">
+      <table class="dash-table">
+        <thead>
+          <tr><th>Brand</th><th>Cadence</th><th>Formats</th><th>Next run</th><th>Status</th><th></th></tr>
+        </thead>
+        <tbody>
+          {% for s in schedules %}
+          <tr class="{{ '' if s.enabled else 'report-sched-paused' }}">
+            <td>{{ s.brand_name }}</td>
+            <td>{{ s.cadence_desc }}</td>
+            <td>{% for f in s.formats %}<span class="report-fmt report-fmt-{{ f | lower }}">{{ f }}</span> {% endfor %}</td>
+            <td>{{ s.next_run or '—' }}</td>
+            <td>{{ 'Active' if s.enabled else 'Paused' }}</td>
+            <td class="report-row-actions">
+              <form method="post" action="{{ url_for('pages.report_schedule_toggle', schedule_id=s.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="enabled" value="{{ '0' if s.enabled else '1' }}">
+                <button type="submit" class="wbtn wbtn-sm wbtn-secondary">{{ 'Pause' if s.enabled else 'Resume' }}</button>
+              </form>
+              <form method="post" action="{{ url_for('pages.report_schedule_delete', schedule_id=s.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="wbtn wbtn-sm wbtn-link wbtn-danger">Delete</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="report-hint report-sched-empty">No schedules yet. Add one above to have
+       a report built automatically each week or month.</p>
+    {% endif %}
+  {% endif %}
+
 {% else %}
   {# History tab — every generated report, newest first, each re-downloadable. #}
   {% if not history %}
     <div class="card card-pad">
       <p class="report-hint">No reports yet. Generate one from the
-         <a href="{{ url_for('pages.reports_home', tab='create') }}">Create New</a> tab.</p>
+         <a href="{{ url_for('pages.reports_home', tab='create') }}">Create New</a> tab,
+         or set up a <a href="{{ url_for('pages.reports_home', tab='schedules') }}">Schedule</a>.</p>
     </div>
   {% else %}
     <div class="card">
@@ -120,8 +223,14 @@
             <td>{{ 'Scheduled' if r.source == 'scheduled' else 'On demand' }}</td>
             <td>{{ r.size_kb }} KB</td>
             <td class="report-row-actions">
+              {% if r.status == 'done' %}
               <a class="wbtn wbtn-sm wbtn-secondary"
                  href="{{ url_for('pages.report_download', report_id=r.id) }}">Download</a>
+              {% elif r.status in ('queued', 'running') %}
+              <span class="report-status">Building…</span>
+              {% else %}
+              <span class="report-status report-status-error">Failed</span>
+              {% endif %}
               <form method="post" action="{{ url_for('pages.report_delete', report_id=r.id) }}">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <button type="submit" class="wbtn wbtn-sm wbtn-link wbtn-danger">Delete</button>

@@ -1,7 +1,31 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-10-15 (session 40 — **Business Report feature, PR A (on-demand). Branch
-`feature/business-report`, NOT pushed. 799 tests (781 + 18 new), ruff clean. NEW dep `python-pptx==1.0.2`; NEW
+_Last updated: 2026-10-15 (session 40 PR B — **Business Report scheduling. Branch
+`feature/report-scheduling` off `feature/business-report`; PR targets PR A's branch (stacked). 814 tests (799 +
+15 new), ruff clean. NEW table `report_schedules` + `generated_reports.seen` column (additive migration); NO new
+required env (optional `REPORT_RETENTION_DAYS`, default 90).** Adds a **Schedules** tab to the Reports workspace:
+a user stands up a **weekly** (→ reports last completed week) or **monthly** (→ last completed month) auto-build
+of a brand's deck, in PDF and/or PPTX, delivered to **History** with a rail **"new" badge**. Pieces: NEW
+`app/report_schedules.py` (CRUD + validation + pure due-date math: `is_due`/`due_schedules`/`next_run_date`,
+`last_run_on` dedupe, weekly=day_of_week 0-6 / monthly=day_of_month 1-28). `report_store.py` grew an **async
+queue** (`enqueue_report` queued→`claim_next_report` running→`finish_report` done | `fail_report` error;
+`reclaim_orphaned_reports` on worker start; `count_unseen_scheduled`/`mark_scheduled_seen` badge;
+`prune_old_reports` retention). NEW `app/enqueue_reports.py` (daily: enqueue due schedules × formats + prune) run
+by NEW systemd units `deploy/ecomm-copilot-reports.{timer,service}` (6:30 AM CST daily; installed by
+`setup-droplet.sh`). `worker.py`: NEW `process_report_one` + a claim in the main loop (light pure-Python, ahead
+of the CI sweep) + startup reclaim. Routes: POST `/app/reports/schedules` (create/update, IDOR + validation
+flash), `/schedules/<id>/toggle`, `/schedules/<id>/delete`; `reports_home` gained the `schedules` tab + marks
+scheduled reports seen on History view; `__init__.py` injects `reports_new_count` for the rail badge. UI:
+3-tab bar + schedule form + list in `reports_home.html`, CSS in `workspace.css`, badge on the Reports rail leaf.
+**Verified LIVE** (dev `app.db`, `reporttest@example.com`/`TestPass!234`): created a weekly schedule via the UI
+(lists with next-run date), ran `enqueue_reports` + forced a same-day build → History shows "Scheduled" PDF+PPTX
+rows, rail badge showed "2" then cleared on History view, CSP-clean. **Feature now COMPLETE (both PRs).** Tests:
+`tests/test_report_schedules.py` (+15). **NEXT:** review/merge PR A (#53) then PR B; retarget PR B to main after
+#53 merges; deploy picks up `python-pptx` + the new timer (DEPLOY.md updated). Consider wiring an edit button for
+schedules (update route exists; UI only exposes create/pause/delete).)_
+
+_Prior: session 40 PR A — **Business Report feature, on-demand. Branch
+`feature/business-report`, PR #53 OPEN. 799 tests (781 + 18 new), ruff clean. NEW dep `python-pptx==1.0.2`; NEW
 table `generated_reports`; NO new env.** A new rail area **Reports** (workspace with Create / History tabs) that
 builds one monitoring brand's performance deck over one completed period as a **PDF** (`app/report_pdf.py`,
 reportlab, 16:9 canvas deck) and/or an editable **PPTX** (`app/report_pptx.py`, python-pptx, native tables + a

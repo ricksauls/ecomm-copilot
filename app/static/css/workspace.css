@@ -3994,3 +3994,48 @@ textarea.text-input { resize: vertical; line-height: 1.5; }
 }
 .report-fmt-pdf { background: var(--signal-red); }
 .report-fmt-pptx { background: var(--accent); }
+
+/* ── Reports: Schedules tab ──────────────────────────────────────────────────
+   The add-a-schedule form (brand + cadence + both day pickers + format checks)
+   and the schedules list. Reuses .card / .briefing-select / .dash-table / the
+   .report-fmt chips; only the schedule-form grid and status labels are here. */
+.report-schedule-form {
+  max-width: 760px;
+  margin-bottom: var(--space-16);
+}
+.report-sched-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-12);
+  margin-bottom: var(--space-14);
+}
+.report-field-label em {
+  font-style: normal;
+  color: var(--cool-gray);
+}
+.report-sched-formats {
+  display: flex;
+  align-items: center;
+  gap: var(--space-16);
+  margin-bottom: var(--space-12);
+}
+.report-check {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-6);
+  font-size: 13px;
+  color: var(--black);
+}
+.report-sched-empty {
+  margin-top: var(--space-12);
+}
+.report-sched-paused td {
+  opacity: 0.6;
+}
+.report-status {
+  font-size: 12px;
+  color: var(--cool-gray);
+}
+.report-status-error {
+  color: var(--signal-red);
+}
