@@ -44,6 +44,33 @@ class FetchBlocked(FetchError):
     """Walmart's bot defense blocked the request."""
 
 
+# Walmart embeds its server state in a <script id="__NEXT_DATA__"> JSON blob.
+# When the page HTML comes from the managed scraping API (see app.scraper_api)
+# instead of a live browser, we pull that blob out of the markup here.
+_NEXT_DATA_RE = re.compile(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', re.DOTALL)
+
+
+def _next_data_from_html(html_text: str) -> dict:
+    """Extract Walmart's ``__NEXT_DATA__`` ``initialData.data`` from page HTML.
+
+    Produces the identical dict the browser path returns (``{"product": …,
+    "idml": …}``), so every caller parses it the same way regardless of whether
+    the HTML came from the Oxylabs API or a live browser. Raises
+    :class:`FetchError` when the blob is absent (e.g. an error/block page) or
+    malformed.
+    """
+    import json
+
+    match = _NEXT_DATA_RE.search(html_text or "")
+    if not match:
+        raise FetchError("__NEXT_DATA__ not found in the page HTML")
+    try:
+        blob = json.loads(match.group(1))
+        return blob["props"]["pageProps"]["initialData"]["data"]
+    except (ValueError, KeyError, TypeError) as e:
+        raise FetchError(f"__NEXT_DATA__ present but unparsable: {e}") from e
+
+
 def _extract_bullets(product: dict) -> list[str]:
     """Pull key-feature bullets from the known __NEXT_DATA__ locations."""
     kf = product.get("keyFeatures")
@@ -428,7 +455,20 @@ def _load_pdp_data(url: str, timeout_ms: int, *, use_proxy: bool = False) -> dic
     (:func:`app.proxy.proxy_from_env`) when one is configured — opt-in because it's
     metered per-GB. Scoring/CI-image-cache leave it off (they work direct); Import
     Product Images turns it on so Walmart's bot detection sees a residential IP.
+
+    When a managed scraping API is configured (:func:`app.scraper_api.scraper_enabled`)
+    the API supplies the rendered HTML instead and the browser below is skipped —
+    this is the live path on the droplet, where Walmart blocks our own browser.
+    ``use_proxy`` is then moot (the API handles unblocking).
     """
+    # Preferred on the droplet: the managed API returns the rendered HTML and we
+    # parse the same __NEXT_DATA__ blob out of it. Imported here (not at module
+    # top) to avoid a circular import — scraper_api imports this module's errors.
+    from app import scraper_api
+
+    if scraper_api.scraper_enabled():
+        return _next_data_from_html(scraper_api.fetch_html(url))
+
     try:
         from playwright.sync_api import sync_playwright
     except ImportError as e:  # pragma: no cover - depends on optional install
@@ -486,7 +526,16 @@ def render_page_html(url: str, *, timeout_ms: int = 35000, use_proxy: bool = Fal
     working Walmart path). ``use_proxy`` routes through the residential proxy when
     configured. Raises :class:`FetchBlocked` / :class:`FetchError`. Headed + slow —
     background jobs only.
+
+    When a managed scraping API is configured
+    (:func:`app.scraper_api.scraper_enabled`) it renders and returns the HTML
+    instead, skipping the browser below.
     """
+    from app import scraper_api
+
+    if scraper_api.scraper_enabled():
+        return scraper_api.fetch_html(url)
+
     try:
         from playwright.sync_api import sync_playwright
     except ImportError as e:  # pragma: no cover - depends on optional install
