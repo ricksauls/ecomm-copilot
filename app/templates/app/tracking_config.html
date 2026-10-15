@@ -1,0 +1,269 @@
+{% extends "app/base.html" %}
+{% import "app/_portfolio_pick.html" as pick %}
+{% block title %}{{ group.name }} · Competitive Tracking — DISCOtech{% endblock %}
+
+{# Competitive-tracking setup for one monitoring group ("tracked category"). Unlike
+   the shared ci_group_config screen (still used for snapshot groups), this screen is
+   monitoring-only and reorganized around the user's mental model: turn tracking on,
+   set up YOUR brand + products (picked from the portfolio), set up the COMPETITORS,
+   then the keywords. The run-status element id (#ci-run-status) and data-confirm
+   buttons reuse ci_config.js; the portfolio picker reuses portfolio.js. #}
+
+{# Split the flat brand/product lists by side so each section shows only its own. #}
+{% set mine_brands = brands | selectattr('type', 'equalto', 'mine') | list %}
+{% set comp_brands = brands | rejectattr('type', 'equalto', 'mine') | list %}
+{% set mine_products = products | selectattr('brand_type', 'equalto', 'mine') | list %}
+{% set comp_products = products | rejectattr('brand_type', 'equalto', 'mine') | list %}
+
+{% block pane_content %}
+<div class="page-header">
+  <div>
+    <h1>{{ group.name }}</h1>
+    <p class="subtitle">Set up what to track in this category — your products, the
+      competitors to measure against, and the search terms to watch.</p>
+  </div>
+  <div class="header-actions">
+    <a href="{{ url_for('pages.insights_competitive', group_id=group.id) }}"
+       class="wbtn wbtn-primary">View in Insights</a>
+  </div>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% for category, message in messages %}
+  <div class="ci-flash {{ category }}" role="alert">{{ message }}</div>
+  {% endfor %}
+{% endwith %}
+
+{# ── Monitoring control ─────────────────────────────────────────────────────── #}
+<div class="ci-section card card-pad">
+  <div class="ci-inline-form" style="margin-top:0; justify-content:space-between">
+    <div>
+      <div class="ci-section-title">Tracking</div>
+      <p class="ci-section-hint" style="margin-bottom:0">
+        {% if group.monitoring_enabled %}
+          Automatic checks are on (7 AM / 3 PM / 11 PM CST). Next check:
+          <strong>{{ next_run.strftime('%a %b %-d, %-I:%M %p') }} CST</strong>.
+        {% else %}
+          Turn tracking on to start automatic checks (7 AM / 3 PM / 11 PM CST) and run a
+          baseline now. Add your products, competitors, and keywords below first.
+        {% endif %}
+      </p>
+    </div>
+    <div>
+      <form method="post" action="{{ url_for('pages.ci_schedule_run', group_id=group.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+        <button type="submit" class="wbtn wbtn-primary">
+          {% if group.monitoring_enabled %}Run now{% else %}Turn on tracking &amp; run baseline{% endif %}
+        </button>
+      </form>
+    </div>
+  </div>
+  <p class="ci-section-hint" id="ci-run-status"
+     data-status-url="{{ url_for('pages.ci_run_status', group_id=group.id) }}"
+     style="margin-top:12px; margin-bottom:0">
+    {% if latest_run %}
+      Latest check:
+      <span class="status-badge status-{{ latest_run.status }}">{{ latest_run.status }}</span>
+      <span class="js-run-when">{{ latest_run_when }}</span>
+    {% else %}
+      No checks yet.
+    {% endif %}
+  </p>
+</div>
+
+{# ── Your brand & products ──────────────────────────────────────────────────── #}
+<div class="ci-section card card-pad">
+  <div class="ci-section-title">Your brand &amp; products</div>
+  <p class="ci-section-hint">
+    Add your brand, then the products you sell in this category — pick them from your
+    portfolio or paste a Walmart URL.
+  </p>
+
+  {# Brand(s) you own in this category. Most categories have one; several are allowed. #}
+  {% if mine_brands %}
+  <div class="ci-chips">
+    {% for b in mine_brands %}
+    <span class="ci-chip">{{ b.name }}
+      <form method="post" action="{{ url_for('pages.ci_delete_brand', brand_id=b.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+        <input type="hidden" name="group_id" value="{{ group.id }}" />
+        <button type="submit" aria-label="Remove brand"
+                data-confirm="Delete brand '{{ b.name }}' and its products?">&times;</button>
+      </form>
+    </span>
+    {% endfor %}
+  </div>
+  {% endif %}
+  <form method="post" action="{{ url_for('pages.ci_add_brand', group_id=group.id) }}" class="ci-inline-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+    <input type="hidden" name="type" value="mine" />
+    <input type="text" name="name" class="ci-input grow" placeholder="Your brand name" maxlength="255" required />
+    <button type="submit" class="wbtn wbtn-secondary">Add Your Brand</button>
+  </form>
+
+  {# Your products — listed, then an add form that pairs the portfolio picker with a
+     manual URL. Products can only attach to a brand, so this needs a brand first. #}
+  {% if mine_products %}
+  <div class="table-scroll" style="margin-top:18px">
+    <table class="admin-table">
+      <thead><tr><th>Item #</th><th>Product</th><th>Brand</th><th></th></tr></thead>
+      <tbody>
+        {% for p in mine_products %}
+        <tr>
+          <td>{{ p.walmart_item_id }}</td>
+          <td class="col-product">
+            {% if p.name %}{{ p.name }}{% else %}<a href="{{ p.walmart_url }}" target="_blank"
+               rel="noopener noreferrer" class="cell-muted">{{ p.walmart_url }}</a>{% endif %}
+          </td>
+          <td>{{ p.brand_name }}</td>
+          <td class="cell-action">
+            <form method="post" action="{{ url_for('pages.ci_delete_product', product_id=p.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+              <input type="hidden" name="group_id" value="{{ group.id }}" />
+              <button type="submit" class="btn-delete" data-confirm="Delete this product?">Delete</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  {% if mine_brands %}
+  <form method="post" action="{{ url_for('pages.ci_add_products', group_id=group.id) }}"
+        style="margin-top:18px">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+    {# One "mine" brand → attach silently; several → let the user choose which. #}
+    {% if mine_brands | length == 1 %}
+    <input type="hidden" name="brand_id" value="{{ mine_brands[0].id }}" />
+    {% else %}
+    <div class="ci-inline-form" style="margin-top:0">
+      <label class="field-label" for="mine-brand">Add under brand</label>
+      <select name="brand_id" id="mine-brand" class="ci-select" required>
+        {% for b in mine_brands %}<option value="{{ b.id }}">{{ b.name }}</option>{% endfor %}
+      </select>
+    </div>
+    {% endif %}
+
+    {# Portfolio multi-picker (checkboxes post as `urls`; filtered by portfolio.js). #}
+    {{ pick.portfolio_pick(portfolio_items) }}
+
+    <div class="ci-inline-form">
+      <input type="url" name="url" class="ci-input grow"
+             placeholder="…or paste a Walmart product URL" maxlength="2048" />
+      <button type="submit" class="wbtn wbtn-primary">Add to Tracking</button>
+    </div>
+  </form>
+  {% else %}
+  <p class="ci-section-hint" style="margin-top:14px">Add your brand first, then you can add products under it.</p>
+  {% endif %}
+</div>
+
+{# ── Competitors & their products ───────────────────────────────────────────── #}
+<div class="ci-section card card-pad">
+  <div class="ci-section-title">Competitors</div>
+  <p class="ci-section-hint">
+    Add the rival brands you want to measure against, then their products. Competitor
+    products are entered by Walmart URL (they aren't in your portfolio).
+  </p>
+
+  {% if comp_brands %}
+  <div class="ci-chips">
+    {% for b in comp_brands %}
+    <span class="ci-chip">{{ b.name }}
+      <form method="post" action="{{ url_for('pages.ci_delete_brand', brand_id=b.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+        <input type="hidden" name="group_id" value="{{ group.id }}" />
+        <button type="submit" aria-label="Remove competitor"
+                data-confirm="Delete competitor '{{ b.name }}' and its products?">&times;</button>
+      </form>
+    </span>
+    {% endfor %}
+  </div>
+  {% endif %}
+  <form method="post" action="{{ url_for('pages.ci_add_brand', group_id=group.id) }}" class="ci-inline-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+    <input type="hidden" name="type" value="competitor" />
+    <input type="text" name="name" class="ci-input grow" placeholder="Competitor brand name" maxlength="255" required />
+    <button type="submit" class="wbtn wbtn-secondary">Add Competitor</button>
+  </form>
+
+  {% if comp_products %}
+  <div class="table-scroll" style="margin-top:18px">
+    <table class="admin-table">
+      <thead><tr><th>Item #</th><th>Product</th><th>Brand</th><th></th></tr></thead>
+      <tbody>
+        {% for p in comp_products %}
+        <tr>
+          <td>{{ p.walmart_item_id }}</td>
+          <td class="col-product">
+            {% if p.name %}{{ p.name }}{% else %}<a href="{{ p.walmart_url }}" target="_blank"
+               rel="noopener noreferrer" class="cell-muted">{{ p.walmart_url }}</a>{% endif %}
+          </td>
+          <td>{{ p.brand_name }}</td>
+          <td class="cell-action">
+            <form method="post" action="{{ url_for('pages.ci_delete_product', product_id=p.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+              <input type="hidden" name="group_id" value="{{ group.id }}" />
+              <button type="submit" class="btn-delete" data-confirm="Delete this product?">Delete</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  {% if comp_brands %}
+  <form method="post" action="{{ url_for('pages.ci_add_product', group_id=group.id) }}"
+        class="ci-inline-form" style="margin-top:18px">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+    <select name="brand_id" class="ci-select" required>
+      <option value="" disabled selected>Competitor…</option>
+      {% for b in comp_brands %}<option value="{{ b.id }}">{{ b.name }}</option>{% endfor %}
+    </select>
+    <input type="url" name="url" class="ci-input grow"
+           placeholder="https://www.walmart.com/ip/…" maxlength="2048" required />
+    <input type="text" name="name" class="ci-input grow" placeholder="Label (optional)" maxlength="255" />
+    <button type="submit" class="wbtn wbtn-secondary">Add Product</button>
+  </form>
+  {% else %}
+  <p class="ci-section-hint" style="margin-top:14px">Add a competitor brand first, then you can add its products.</p>
+  {% endif %}
+</div>
+
+{# ── Keywords ───────────────────────────────────────────────────────────────── #}
+<div class="ci-section card card-pad">
+  <div class="ci-section-title">Keywords</div>
+  <p class="ci-section-hint">
+    Search terms to track on Walmart.com. Add several at once by putting a comma after
+    each one — e.g. <em>hot sauce, chipotle sauce, wing sauce,</em>
+  </p>
+  {% if keywords %}
+  <div class="ci-chips">
+    {% for k in keywords %}
+    <span class="ci-chip">{{ k.keyword }}
+      <form method="post" action="{{ url_for('pages.ci_delete_keyword', keyword_id=k.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+        <input type="hidden" name="group_id" value="{{ group.id }}" />
+        <button type="submit" aria-label="Remove keyword">&times;</button>
+      </form>
+    </span>
+    {% endfor %}
+  </div>
+  {% endif %}
+  <form method="post" action="{{ url_for('pages.ci_add_keyword', group_id=group.id) }}" class="ci-inline-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+    <input type="text" name="keyword" class="ci-input grow"
+           placeholder="e.g. hot sauce, chipotle sauce," maxlength="1000" required />
+    <button type="submit" class="wbtn wbtn-secondary">Add Keywords</button>
+  </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ static_url('js/portfolio.js') }}"></script>
+<script src="{{ static_url('js/ci_config.js') }}"></script>
+{% endblock %}

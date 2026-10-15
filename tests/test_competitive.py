@@ -200,7 +200,7 @@ def test_competitive_prompts_setup_without_monitoring_group(client, auth):
     auth.login(email="empty@example.com")
     resp = client.get(_URL)
     assert resp.status_code == 200
-    assert b"No monitoring brand yet" in resp.data
+    assert b"No tracked brand yet" in resp.data
 
 
 def test_competitive_rank_tab_renders_leaderboard_and_nav(client, auth, app):

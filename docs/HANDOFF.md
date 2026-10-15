@@ -1,6 +1,48 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-10-14 (session 35 — **Competitive Intelligence Insights screen — a NEW third Insights
+_Last updated: 2026-10-14 (session 36 — **Competitive Tracking setup — revived + redesigned the hidden
+monitoring-group config into a first-class, rail-visible feature, with portfolio-backed product entry. On
+branch `feature/competitive-tracking-setup` (PR open). 744 tests, ruff clean. NO migration, NO new env.**
+The monitoring-group model (brands mine/competitor + products + keywords + the 3×/day sweep that feeds
+Insights) already existed, but its entry points had been HIDDEN from the rail since the Insights rework — so
+users had the reports with no way to configure what's tracked. This session surfaces + modernizes the setup
+side (build #1 of 2; build #2 = individual item tracking on Portfolio, deferred).
+**Rail:** NEW standalone leaf **"Competitive Tracking"** (`_rail.html`) directly below Portfolio Management,
+with a NEW crosshair/scope `rail_icon` for slug `competitive-tracking` (distinct from Insights' binoculars /
+Opportunities' bullseye). active_nav for the monitoring home + config is now `competitive-tracking`
+(`_ci_active_nav` monitoring branch + `ci_monitoring_home`).
+**Home** (`ci_monitoring_home.html` redesigned in place, same route): "Competitive Tracking" / "tracked
+category" wording; New-category create; per-category cards showing tracking on/off, counts, and **Set Up** /
+**View in Insights** (→ `insights_competitive?group_id=`) / Delete.
+**Setup** — NEW `tracking_config.html`, rendered by `ci_group_config` for **monitoring groups only**
+(snapshot groups still use the untouched shared `ci_group_config.html`). Monitoring-only, reorganized into:
+Tracking control (reuses `ci_schedule_run`) → **Your brand & products** (mine-brand chips + products table +
+the **portfolio picker** `_portfolio_pick.html` checkboxes + a manual-URL field) → **Competitors** (brand
+chips + manual-URL products) → **Keywords**. Flat brand/product lists are split by side via Jinja
+selectattr/rejectattr; the portfolio picker only appears once a mine brand exists (products must attach to a
+brand). Reuses `portfolio.js` (filter) + `ci_config.js` (delete-confirm + the `#ci-run-status` poller);
+CSP-safe (no inline `on*`).
+**Backend** (`ci_config.py`): NEW `add_products()` bulk add — validates each URL, de-dupes by
+`walmart_item_id` against what's already tracked AND within the submission (ci_products has NO DB uniqueness
+constraint, so de-dupe is enforced in code), stops at the 500-per-group cap, and returns an
+added/skipped/invalid summary; plus `_item_tracked()`. `add_product()` (single) now also rejects a duplicate
+item. **Route** NEW `ci_add_products` (`POST /app/competitive-intel/groups/<id>/products/bulk`, IDOR-gated)
+unions the picker's `urls[]` with the manual `url` and flashes the per-category summary; `ci_group_config`
+now passes `portfolio_items` for monitoring groups.
+**Wording:** the user-facing "Daily Monitoring" *setup* links on the dashboard, all three Insights empty
+states, and `ci_view` now read "Competitive Tracking" / "tracked brand" (internal/admin/PDF "Daily
+Monitoring" strings left alone on purpose).
+**Verified live** (`railtest@localhost.test`, seeded groups 24/25): rail leaf + icon, home, the full setup
+screen, the portfolio picker rendering a real managed item, and an end-to-end "Added 1 product" through the
+picker (test rows then cleaned out of the dev DB) — no console/CSP errors; mobile checked.
+**Tests:** +6 in `test_ci_pages.py` (bulk add/dedupe, manual-union, brand-required, invalid-URL, IDOR,
+setup-render); updated the monitoring-config + empty-state assertions in
+`test_ci_pages`/`test_pages`/`test_competitive`.
+**Next: merge the PR (CI → auto-deploy); then build #2 — individual item tracking on Portfolio** (a Track
+toggle + a scheduled PDP re-fetch/re-score → per-item content-readiness trend; needs a cadence/cost decision
+since re-scoring runs an LLM per item). The prior session-35 summary follows._
+
+_Session 35 — (session 35 — **Competitive Intelligence Insights screen — a NEW third Insights
 leaf, tabbed, reporting the competitor field.** On branch `feature/insights-competitive` (PR open).
 **738 tests, ruff clean. NO migration, NO new env.** Five of the user's six requested CI capabilities shipped
 on ONE tabbed screen under Insights (the 6th, competitive content gaps, was DEFERRED — no competitor-content

@@ -46,6 +46,10 @@
 {%- elif name == 'insights-competitive' -%}
 {#- Binoculars: scouting the competitive field. -#}
 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="6.5" cy="14.5" r="3.5"/><circle cx="17.5" cy="14.5" r="3.5"/><path d="M6.5 11V7a1.5 1.5 0 0 1 1.5-1.5h1A1.5 1.5 0 0 1 10.5 7v4"/><path d="M17.5 11V7a1.5 1.5 0 0 0-1.5-1.5h-1A1.5 1.5 0 0 0 13.5 7v4"/><path d="M10.5 11h3"/></svg>
+{%- elif name == 'competitive-tracking' -%}
+{#- Scope / crosshair: setting up what to track in the competitive field.
+    Distinct from Insights' binoculars (viewing) and Opportunities' bullseye. -#}
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="7.5"/><path d="M12 2.5v4M12 17.5v4M2.5 12h4M17.5 12h4"/><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none"/></svg>
 {%- endif -%}
 {%- endmacro %}
 
@@ -128,6 +132,24 @@
       <span class="rail-main-label">Dashboard</span>
     </a>
 
+    {# Portfolio Management + Competitive Tracking sit right below Dashboard: they
+       configure WHAT the app works on (the managed-items catalog and what's tracked
+       against competitors), ahead of the tools that act on it. #}
+    <a href="{{ url_for('pages.portfolio_home') }}"
+       class="rail-leaf{{ ' active' if active_nav == 'portfolio' else '' }}">
+      <span class="rail-ico">{{ rail_icon('portfolio') }}</span>
+      <span class="rail-main-label">Portfolio Management</span>
+    </a>
+
+    {# Competitive Tracking — set up your brand + products (from the portfolio)
+       against competitors on a set of keywords; the monitoring sweep feeds Insights.
+       Sits directly after Portfolio Management. #}
+    <a href="{{ url_for('pages.ci_monitoring_home') }}"
+       class="rail-leaf{{ ' active' if active_nav == 'competitive-tracking' else '' }}">
+      <span class="rail-ico">{{ rail_icon('competitive-tracking') }}</span>
+      <span class="rail-main-label">Competitive Tracking</span>
+    </a>
+
     {# Content Scoring — single workspace, so a standalone leaf (its history is a
        tab inside the tool, reached from the scoring page). #}
     <a href="{{ url_for('pages.pdp_scoring') }}"
@@ -146,14 +168,6 @@
 
     {{ rail_group('creative', 'Creative Studio', creative_items, active_nav) }}
     {{ rail_group('reporting', 'Insights', reporting_items, active_nav) }}
-
-    {# Portfolio Management — single workspace (the managed-items catalog), so a
-       standalone leaf rather than a one-child group. Sits directly below Insights. #}
-    <a href="{{ url_for('pages.portfolio_home') }}"
-       class="rail-leaf{{ ' active' if active_nav == 'portfolio' else '' }}">
-      <span class="rail-ico">{{ rail_icon('portfolio') }}</span>
-      <span class="rail-main-label">Portfolio Management</span>
-    </a>
 
     {# Contact Us — standalone link with a muted hint at what the channel is for;
        the badge shows unread admin replies. Hidden for admins: they use the

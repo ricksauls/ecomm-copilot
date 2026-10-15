@@ -1210,7 +1210,7 @@ def test_dashboard_briefing_prompts_setup_without_monitoring(client, auth):
     # the "set up tracking" prompt rather than empty gauges.
     auth.register()
     body = client.get("/app").data
-    assert b"Set up Daily Monitoring" in body
+    assert b"Set up Competitive Tracking" in body
     assert b"Set up tracking" in body
     # No cards are built in this state.
     assert b"briefing-card" not in body
@@ -1341,7 +1341,7 @@ def test_insights_opportunities_no_monitoring_group_shows_setup(client, auth):
     # prompts the user to set tracking up.
     auth.register()
     body = client.get("/app/insights/opportunities").data
-    assert b"No monitoring brand yet" in body
+    assert b"No tracked brand yet" in body
     # The removed stub slug no longer resolves.
     assert client.get("/app/insights/bogus").status_code == 404
 
@@ -1536,13 +1536,13 @@ def test_performance_group_idor_falls_back_to_own_view(client, auth, app):
     auth.register(email="perfother@example.com")
     body = client.get(f"/app/insights/performance?group_id={gid}").data
     assert b"Tabasco Green Pepper Sauce" not in body   # A's data never leaks to B
-    assert b"No monitoring brand yet" in body          # B has none of their own
+    assert b"No tracked brand yet" in body          # B has none of their own
 
 
 def test_performance_no_monitoring_group_shows_setup(client, auth):
     auth.register(email="perfnone@example.com")
     body = client.get("/app/insights/performance").data
-    assert b"No monitoring brand yet" in body
+    assert b"No tracked brand yet" in body
 
 
 def _seed_readiness(app, email):
@@ -1669,7 +1669,7 @@ def test_opportunities_group_idor_falls_back(client, auth, app):
     auth.register(email="oppb@example.com")
     body = client.get(f"/app/insights/opportunities?group_id={gid}").data
     assert b"Tabasco Habanero Sauce" not in body
-    assert b"No monitoring brand yet" in body
+    assert b"No tracked brand yet" in body
 
 
 def test_opportunities_prefill_deep_links_into_fix_workflow(client, auth, app):

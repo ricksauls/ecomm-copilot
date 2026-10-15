@@ -1,13 +1,14 @@
 {% extends "app/base.html" %}
-{% block title %}Daily Monitoring — DISCOtech{% endblock %}
+{% block title %}Competitive Tracking — DISCOtech{% endblock %}
 
 {% block pane_content %}
 <div class="page-header">
   <div>
-    <h1>Daily Monitoring</h1>
+    <h1>Competitive Tracking</h1>
     <p class="subtitle">
-      Track Search Ranking &amp; Share of Digital Shelf over time — automatic checks
-      3×/day (7 AM / 3 PM / 11 PM CST).
+      Track your brand against competitors on Walmart.com — search ranking, share of
+      digital shelf, and ad presence, checked automatically 3×/day (7 AM / 3 PM / 11 PM
+      CST). Each tracked category feeds your Insights.
     </p>
   </div>
 </div>
@@ -18,15 +19,17 @@
   {% endfor %}
 {% endwith %}
 
+{# Create a new tracked category. A category pairs one of the user's brands with the
+   competitors and keywords to measure it against; setup happens on the next screen. #}
 <div class="card card-pad">
-  <div class="ci-section-title">New monitoring group</div>
+  <div class="ci-section-title">New tracked category</div>
   <p class="ci-section-hint">
-    Next scheduled check:
-    <strong>{{ next_run.strftime('%a %b %-d, %-I:%M %p') }} CST</strong>.
+    Name a category you compete in (e.g. <em>Hot Sauce</em>). Next, you'll add your
+    products, the competitors to watch, and the keywords to track.
   </p>
   <form method="post" action="{{ url_for('pages.ci_create_monitoring_group') }}" class="ci-inline-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-    <input type="text" name="name" class="ci-input grow" placeholder="Name (e.g. Hot Sauce)"
+    <input type="text" name="name" class="ci-input grow" placeholder="Category name (e.g. Hot Sauce)"
            maxlength="255" required />
     <input type="text" name="description" class="ci-input grow" placeholder="Description (optional)"
            maxlength="1000" />
@@ -40,7 +43,11 @@
   <div class="card card-pad ci-group-card">
     <div>
       <div class="name">{{ gr.name }}
-        {% if gr.monitoring_enabled %}<span class="ci-type mine">Monitoring on</span>{% endif %}
+        {% if gr.monitoring_enabled %}
+        <span class="ci-type mine">Tracking on</span>
+        {% else %}
+        <span class="ci-type">Not tracking yet</span>
+        {% endif %}
       </div>
       {% if gr.description %}<div class="meta">{{ gr.description }}</div>{% endif %}
     </div>
@@ -51,18 +58,24 @@
     </div>
     <div class="actions">
       <a href="{{ url_for('pages.ci_group_config', group_id=gr.id) }}" class="wbtn wbtn-primary">Set Up</a>
-      <a href="{{ url_for('pages.ci_view', group_id=gr.id) }}" class="wbtn wbtn-secondary">View</a>
+      {# Report lives in the Competitive Intelligence Insights screen, scoped to this group. #}
+      <a href="{{ url_for('pages.insights_competitive', group_id=gr.id) }}"
+         class="wbtn wbtn-secondary">View in Insights</a>
       <form method="post" action="{{ url_for('pages.ci_delete_group', group_id=gr.id) }}"
             style="margin-left:auto">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-        <button type="submit" class="btn-delete" data-confirm="Delete this monitoring group and all its data?">Delete</button>
+        <button type="submit" class="btn-delete"
+                data-confirm="Delete '{{ gr.name }}' and all its tracking data?">Delete</button>
       </form>
     </div>
   </div>
   {% endfor %}
 </div>
 {% else %}
-<div class="card card-pad ci-empty">No monitoring groups yet. Create one above to start.</div>
+<div class="card card-pad ci-empty">
+  No tracked categories yet. Create one above to start tracking your brand against the
+  competition.
+</div>
 {% endif %}
 {% endblock %}
 

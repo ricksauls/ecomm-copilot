@@ -4846,8 +4846,12 @@ def _run_when_cst(run) -> str | None:
 
 
 def _ci_active_nav(mode: str) -> str:
-    """Rail slug for a group's mode (config screen highlights its parent menu)."""
-    return "ci-monitoring" if mode == "monitoring" else "ci-snapshot"
+    """Rail slug for a group's mode (config screen highlights its parent menu).
+
+    Monitoring groups are reached through the "Competitive Tracking" rail leaf;
+    snapshot groups keep their (currently hidden) legacy slug.
+    """
+    return "competitive-tracking" if mode == "monitoring" else "ci-snapshot"
 
 
 def _slug(name: str) -> str:
@@ -4902,8 +4906,8 @@ def ci_monitoring_home():
     db = get_db()
     return render_template(
         "app/ci_monitoring_home.html",
-        breadcrumb="Insights · Daily Monitoring",
-        active_nav="ci-monitoring",
+        breadcrumb="Competitive Tracking",
+        active_nav="competitive-tracking",
         groups=ci_config.list_groups(db, g.user["id"], mode="monitoring"),
         next_run=ci_analysis.next_monitoring_run(),
     )
@@ -4951,19 +4955,29 @@ def ci_group_config(group_id):
     group = _owned_group_or_404(group_id)
     db = get_db()
     latest_run = ci_jobs.latest_run(db, group_id)
+    uid = g.user["id"]
+    is_monitoring = group["mode"] == "monitoring"
+    # Monitoring groups use the redesigned "Competitive Tracking" setup screen, which
+    # lets the user pick their products from the portfolio catalog; snapshot groups
+    # keep the original shared config screen (the portfolio list is unused there).
+    template = "app/tracking_config.html" if is_monitoring else "app/ci_group_config.html"
+    breadcrumb = (f"Competitive Tracking · {group['name']}" if is_monitoring
+                  else f"Insights · {group['name']}")
     return render_template(
-        "app/ci_group_config.html",
-        breadcrumb=f"Insights · {group['name']}",
+        template,
+        breadcrumb=breadcrumb,
         active_nav=_ci_active_nav(group["mode"]),
         group=group,
-        brands=ci_config.list_brands(db, group_id, g.user["id"]),
-        products=ci_config.list_products(db, group_id, g.user["id"]),
-        keywords=ci_config.list_keywords(db, group_id, g.user["id"]),
+        brands=ci_config.list_brands(db, group_id, uid),
+        products=ci_config.list_products(db, group_id, uid),
+        keywords=ci_config.list_keywords(db, group_id, uid),
         latest_run=latest_run,
         latest_run_when=_run_when_cst(latest_run),
         brand_types=ci_config.BRAND_TYPES,
         next_run=ci_analysis.next_monitoring_run(),
         url_prefix=pdp.WALMART_IP_PREFIX,
+        # Only the redesigned monitoring screen renders the portfolio picker.
+        portfolio_items=portfolio.list_items(db, uid) if is_monitoring else [],
     )
 
 
@@ -5006,6 +5020,51 @@ def ci_add_product(group_id):
         )
     except ci_config.ConfigError as e:
         flash(str(e), "error")
+    return _config_redirect(group_id)
+
+
+@bp.route("/app/competitive-intel/groups/<int:group_id>/products/bulk", methods=["POST"])
+@login_required
+def ci_add_products(group_id):
+    """Add several products under one brand at once (the portfolio multi-picker
+    plus an optional manual URL), reporting how many were added vs. skipped.
+
+    The picker's checkboxes post their Walmart URLs under ``urls`` (the same field
+    the other intakes use), and the manual entry posts a single ``url``; both are
+    unioned and de-duped by :func:`ci_config.add_products`.
+    """
+    _owned_group_or_404(group_id)  # IDOR gate before touching the group's data
+    db = get_db()
+    brand_id = request.form.get("brand_id", type=int)
+    if not brand_id:
+        flash("Choose which of your brands these products belong to.", "error")
+        return _config_redirect(group_id)
+
+    urls = request.form.getlist("urls")
+    manual = request.form.get("url", "").strip()
+    if manual:
+        urls.append(manual)
+    if not any(u.strip() for u in urls):
+        flash("Pick at least one managed item or paste a product URL.", "error")
+        return _config_redirect(group_id)
+
+    try:
+        result = ci_config.add_products(db, group_id, brand_id, g.user["id"], urls)
+    except ci_config.ConfigError as e:
+        flash(str(e), "error")
+        return _config_redirect(group_id)
+
+    # Surface a per-category summary so the user sees exactly what happened to a
+    # multi-item submission (added, silently-skipped duplicates, invalid URLs).
+    if result["added"]:
+        flash(f"Added {result['added']} product{'' if result['added'] == 1 else 's'}.", "ok")
+    if result["skipped_duplicate"]:
+        n = result["skipped_duplicate"]
+        flash(f"{n} product{'' if n == 1 else 's'} already tracked — skipped.", "ok")
+    for err in result["errors"]:
+        flash(err, "error")
+    if not (result["added"] or result["skipped_duplicate"] or result["errors"]):
+        flash("No products were added.", "error")
     return _config_redirect(group_id)
 
 
