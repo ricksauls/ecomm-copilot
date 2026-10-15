@@ -3789,3 +3789,76 @@ textarea.text-input { resize: vertical; line-height: 1.5; }
   .oi-row { grid-template-columns: 1fr; align-items: start; gap: 8px; }
   .oi-metrics { justify-content: flex-start; }
 }
+
+/* ── Competitive Intelligence Insights (competitor field reporting) ────────────
+   Four tabs over one brand + period: Rankings / Share of Shelf leaderboards (reuse
+   .perf-top / .kpi-tile / .tbl-card / .perf-dash), Paid vs Organic split bars, and
+   Branded Keyword Ads. Namespaced ci-* ; shares the Performance header controls
+   (.perf-controls / .ci-select / .ci-periods) and the green/red metric helpers. */
+
+/* The "#3 of 7" style KPI: the secondary count beside the big metric. */
+.kpi-sub { font-size: 18px; font-weight: 500; color: var(--cool-gray); letter-spacing: 0; }
+
+/* The brand-selector "Go" is the no-JS fallback; competitive.js / performance.js set
+   `hidden` once they wire the auto-submit. `.wbtn`'s own display would otherwise
+   override the UA [hidden] rule (same gotcha as .pf-pick-row above), so honor it here. */
+.perf-go[hidden] { display: none; }
+
+/* Leaderboard "Change" column: delta colored by direction (up = improvement). */
+.col-metric.up { color: var(--signal-green); }
+.col-metric.down { color: var(--signal-red); }
+.col-metric.flat { color: var(--cool-gray); font-weight: 600; }
+
+/* Multi-brand trend: legend wraps to several series; swatch is a short line. */
+.ci-chart-legend { flex-wrap: wrap; gap: 6px 16px; }
+.ci-chart-legend > span { display: inline-flex; align-items: center; gap: 6px; }
+.ci-chart-legend .sw { width: 14px; height: 3px; border: 0; border-radius: 2px; }
+.ci-trend { width: 100%; }
+.ci-trend-svg { width: 100%; height: auto; display: block; }
+.ci-section-hint { font-size: 12.5px; color: var(--cool-gray); margin: 8px 0; }
+
+/* Inline share bar in the Share-of-Shelf leaderboard metric cell. */
+.ci-sharebar { display: inline-flex; align-items: center; gap: 10px; justify-content: flex-end; }
+.ci-track { width: 90px; height: 7px; background: var(--placeholder); border-radius: 4px; overflow: hidden; }
+.ci-fill { display: block; height: 100%; background: var(--mid-gray); }
+
+/* Paid vs Organic: one split bar per brand (organic = ink, paid = accent). */
+.ci-splits { margin-top: 8px; }
+.ci-split-row {
+  display: grid; grid-template-columns: 150px 1fr 90px; gap: 14px; align-items: center;
+  padding: 11px 0; border-bottom: 1px solid var(--divider);
+}
+.ci-split-row:last-child { border-bottom: 0; }
+.ci-split-name { font-size: 13px; font-weight: 500; display: inline-flex; align-items: center; min-width: 0; }
+.ci-split-bar { display: flex; height: 16px; border-radius: 3px; overflow: hidden; background: var(--placeholder); }
+.ci-org { height: 100%; background: var(--black); }
+.ci-paid { height: 100%; background: var(--accent); }
+.ci-split-nums { font-size: 12px; color: var(--mid-gray); text-align: right; font-variant-numeric: tabular-nums; }
+.ci-split-nums b { color: var(--black); }
+.ci-you-chip {
+  font-size: 9px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--accent); border: 1px solid var(--accent); border-radius: var(--radius-chip);
+  padding: 1px 5px; margin-left: 7px;
+}
+
+/* A plain-language "read" line under a tab, and the branded-keyword summary. */
+.ci-read {
+  font-size: 13px; color: var(--mid-gray); background: var(--row-hover);
+  border: 1px solid var(--border); border-left: 3px solid var(--accent);
+  border-radius: var(--radius-card); padding: 12px 16px; margin-bottom: 16px;
+}
+.ci-read b { color: var(--black); }
+
+/* Branded Keyword Ads: the dormant headline/video creatives placeholder. */
+.ci-creatives { margin-top: var(--space-14); }
+.ci-pending {
+  border: 1px dashed var(--control-border); background: var(--surface);
+  border-radius: var(--radius-card); padding: 26px 22px; text-align: center;
+}
+.ci-pending .label { color: var(--accent); margin-bottom: 8px; }
+.ci-pending h3 { font-size: 15px; font-weight: 600; margin: 0 0 8px; }
+.ci-pending p { color: var(--mid-gray); margin: 0 auto; max-width: 56ch; font-size: 13px; }
+
+@media (max-width: 760px) {
+  .ci-split-row { grid-template-columns: 110px 1fr 70px; gap: 10px; }
+}

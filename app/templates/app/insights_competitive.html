@@ -1,0 +1,222 @@
+{% extends "app/base.html" %}
+{% block title %}Competitive Intelligence — DISCOtech{% endblock %}
+
+{# Competitive Intelligence Insights: four tabs (Rankings, Share of Shelf, Paid vs
+   Organic, Branded Keyword Ads) over one monitoring brand + period. Tabs and the
+   period are plain links (?tab=, ?period=) so each state is a deep-linkable URL;
+   only the trend chart is drawn client-side (competitive.js). Assembled in
+   _competitive_insights(); this template stays presentation-only. #}
+
+{% macro ci_kpi(h) -%}
+  <div class="card card-pad kpi-tile">
+    <div class="label">{{ h.label }}</div>
+    <div class="kpi-metric">{{ h.metric }}{% if h.sub %} <span class="kpi-sub">{{ h.sub }}</span>{% endif %}</div>
+    {% if h.delta and h.delta.display %}
+    <div class="kpi-delta {{ h.delta.dir }}">{{ h.delta.display }}</div>
+    {% endif %}
+    <div class="kpi-foot">{{ h.foot }}</div>
+  </div>
+{%- endmacro %}
+
+{% block pane_content %}
+<div class="page-header perf-header">
+  <div>
+    <div class="label eyebrow">Insights</div>
+    <h1>Competitive Intelligence</h1>
+    <p class="subtitle">How you stack up against competitors on Walmart search — ranking, shelf, paid vs. organic, and who's bidding on your name.</p>
+  </div>
+
+  {% if available %}
+  {# Brand selector auto-submits via competitive.js (CSP forbids inline handlers);
+     the Go button is the no-JS fallback. Period is a set of links. #}
+  <div class="perf-controls">
+    <form method="get" action="{{ url_for('pages.insights_competitive') }}" class="perf-controls-form">
+      <input type="hidden" name="tab" value="{{ tab }}">
+      <input type="hidden" name="period" value="{{ period }}">
+      <label class="control-field">
+        <span class="field-label">Brand</span>
+        <select name="group_id" class="ci-select ci-brand-select" aria-label="Brand">
+          {% for o in groups %}
+          <option value="{{ o.id }}" {{ 'selected' if o.selected }}>{{ o.label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <button type="submit" class="wbtn wbtn-secondary perf-go">Go</button>
+    </form>
+
+    {% if has_data %}
+    <div class="control-field">
+      <span class="field-label">Period</span>
+      <div class="ci-periods" role="group" aria-label="Reporting period">
+        {% for p in periods %}
+          {% if p.enabled %}
+          <a class="{{ 'active' if p.selected }}"
+             href="{{ url_for('pages.insights_competitive', group_id=selected_group_id, tab=tab, period=p.key) }}">{{ p.label }}</a>
+          {% else %}
+          <span class="disabled" title="No completed {{ p.label | lower }} of data yet">{{ p.label }}</span>
+          {% endif %}
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+
+{% if not available %}
+  <div class="card card-pad ci-empty">
+    No monitoring brand yet. Set one up under
+    <a href="{{ setup_url }}">Daily Monitoring</a> to see competitive intelligence here.
+  </div>
+{% else %}
+
+  {# Tabs — each is a deep-linkable URL that keeps the current brand + period. #}
+  <div class="ws-tabs" role="tablist">
+    {% for t in tabs %}
+    <a class="ws-tab {{ 'active' if t == tab }}" role="tab"
+       href="{{ url_for('pages.insights_competitive', group_id=selected_group_id, period=period, tab=t) }}">{{ tab_labels[t] }}</a>
+    {% endfor %}
+  </div>
+
+  <p class="briefing-context perf-context">
+    <span class="label eyebrow">Brand</span>
+    <strong class="briefing-context-brand">{{ brand_label }}</strong>{% if period_label %}<span class="briefing-context-period"> · {{ period_label }}</span>{% endif %}
+  </p>
+
+  {% if not has_data %}
+  <div class="card card-pad ci-empty">
+    No completed period with data yet. Monitoring aggregates over a full completed
+    week, month, quarter or year — the period buttons switch on as each one fills in.
+    Check back once the first period wraps up.
+  </div>
+
+  {% elif tab in ('rank', 'shelf') %}
+    {# Rankings / Share of Shelf: your KPI + a multi-brand trend, then the top-5
+       competitor leaderboard. #}
+    <div class="perf-top">
+      {{ ci_kpi(headline) }}
+      <div class="card card-pad chart-card">
+        <h2 class="chart-title">{{ chart_title }}</h2>
+        <div class="chart-legend ci-chart-legend">
+          {% for s in chart.series %}
+          <span><span class="sw" style="background: {{ s.color }}"></span> {{ s.name }}{{ ' (you)' if s.mine }}</span>
+          {% endfor %}
+        </div>
+        <div class="chart-wrap">
+          <div class="ci-trend" data-ci-chart='{{ chart | tojson }}'></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card tbl-card">
+      <div class="tbl-head">{{ leaderboard_title }}<div class="sub">{{ leaderboard_sub }}</div></div>
+      <table class="dash perf-dash">
+        <thead><tr><th>#</th><th>Brand</th><th class="col-right">{{ metric_col }}</th><th class="col-right">Change</th></tr></thead>
+        <tbody>
+          {% for r in leaderboard %}
+          <tr>
+            <td class="col-num">{{ loop.index }}</td>
+            <td>{{ r.brand_name }}</td>
+            <td class="col-metric">
+              {% if with_bars %}
+              <span class="ci-sharebar"><span class="ci-track"><span class="ci-fill" style="width: {{ r.bar_pct }}%"></span></span>{{ r.metric }}</span>
+              {% else %}{{ r.metric }}{% endif %}
+            </td>
+            <td class="col-metric {{ r.delta.dir }}">{{ r.delta.display or '—' }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="4" class="perf-empty-cell">No competitor data for this brand yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+  {% elif tab == 'paid' %}
+    {# Paid vs Organic: your mix KPI + per-brand organic/sponsored split bars. #}
+    <div class="perf-top">
+      {{ ci_kpi(headline) }}
+      <div class="card card-pad">
+        <h2 class="chart-title">Organic vs. paid, by brand</h2>
+        <div class="chart-legend">
+          <span><span class="sw" style="background: var(--black)"></span> Organic</span>
+          <span><span class="sw" style="background: var(--accent)"></span> Paid (sponsored)</span>
+        </div>
+        <div class="ci-splits">
+          {% for b in bars %}
+          <div class="ci-split-row">
+            <span class="ci-split-name">{{ b.brand_name }}{% if b.is_mine %} <span class="ci-you-chip">You</span>{% endif %}</span>
+            <span class="ci-split-bar">
+              <span class="ci-org" style="width: {{ b.organic_pct }}%"></span>
+              <span class="ci-paid" style="width: {{ b.sponsored_pct }}%"></span>
+            </span>
+            <span class="ci-split-nums"><b>{{ b.organic_pct | round | int }}</b> / {{ b.sponsored_pct | round | int }}</span>
+          </div>
+          {% else %}
+          <p class="perf-empty-cell">No page-1 placements for this brand's field yet.</p>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    {% if read %}<div class="ci-read"><b>Read:</b> {{ read }}</div>{% endif %}
+
+  {% else %}
+    {# Branded Keyword Ads: who is bidding on the user's own branded terms. #}
+    {% if not has_branded %}
+    <div class="card card-pad ci-empty">
+      No branded keywords are being tracked for this brand. Add search terms that
+      include your brand name under <a href="{{ url_for('pages.ci_monitoring_home') }}">Daily Monitoring</a>
+      to see which competitors are bidding on your name.
+    </div>
+    {% else %}
+    {% if ad_summary %}<div class="ci-read"><b>Read:</b> {{ ad_summary }}</div>{% endif %}
+    <div class="card tbl-card">
+      <div class="tbl-head">Competitors on your branded keywords<div class="sub">Who is running sponsored placements on search terms that include your brand name</div></div>
+      <table class="dash perf-dash">
+        <thead><tr><th>Branded keyword</th><th>Competitors advertising here</th><th class="col-right">Sponsored sightings</th><th class="col-right">Status</th></tr></thead>
+        <tbody>
+          {% for r in ad_rows %}
+          <tr>
+            <td>{{ r.keyword }}</td>
+            <td>{{ r.competitor_names }}</td>
+            <td class="col-metric">{{ r.sightings }}</td>
+            <td class="col-metric {{ r.cls }}">{{ r.label }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {# Headline/video banner creatives — a richer ad layer Walmart serves only to
+       residential clients, so it fills through the proxy, not the monitoring server. #}
+    <div class="ci-creatives">
+      {% if ad_creatives %}
+      <div class="card tbl-card">
+        <div class="tbl-head">Headline &amp; video ad creatives<div class="sub">Sponsored-brand banners and video ads seen this period</div></div>
+        <table class="dash perf-dash">
+          <thead><tr><th>Brand</th><th class="col-right">Headline ads</th><th class="col-right">Video ads</th></tr></thead>
+          <tbody>
+            {% for c in ad_creatives %}
+            <tr><td>{{ c.brand_name }}</td><td class="col-metric">{{ c.headline_count }}</td><td class="col-metric">{{ c.video_count }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="ci-pending">
+        <div class="label">Activates with residential-proxy monitoring</div>
+        <h3>Headline &amp; sponsored-video ad creatives</h3>
+        <p>Walmart serves banner (“Sponsored Brand”) and video ads only to residential
+          clients, so they aren't captured from the monitoring server yet. Once the
+          residential proxy is live, each competitor's branded-keyword ad creative will
+          appear here automatically — the capture is already wired.</p>
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
+  {% endif %}
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ static_url('js/competitive.js') }}" defer></script>
+{% endblock %}

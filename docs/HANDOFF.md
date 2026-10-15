@@ -1,6 +1,40 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-10-14 (session 34 — **Performance: added the 3rd tab, Content Readiness** (PR #45, MERGED).
+_Last updated: 2026-10-14 (session 35 — **Competitive Intelligence Insights screen — a NEW third Insights
+leaf, tabbed, reporting the competitor field.** On branch `feature/insights-competitive` (PR open).
+**738 tests, ruff clean. NO migration, NO new env.** Five of the user's six requested CI capabilities shipped
+on ONE tabbed screen under Insights (the 6th, competitive content gaps, was DEFERRED — no competitor-content
+data exists; scoring only runs on the user's own products). **Four tabs** (`_CI_TABS`): **Rankings** (top-5
+competitor leaderboard by avg page-1 rank + your ordinal-in-field KPI + a multi-brand rank trend) · **Share
+of Shelf** (top-5 by brand-level shelf share, inline bars, + share trend) · **Paid vs Organic** (per-brand
+organic/sponsored split bars + your mix KPI + a plain-language "read") · **Branded Keyword Ads** (which
+competitors run sponsored placements on keywords containing your brand name — exposed/defended/clear per
+term — plus a DORMANT headline/video-creative box that fills from `ci_ad_units` once the residential proxy
+lands; empty today). **Big finding: the analytics backbone already existed** — `ci_analysis.monitoring_avg_rank`
+and `monitoring_brand_share_of_shelf` already return EVERY brand (mine + competitor) with per-brand
+organic/sponsored counts, deltas and trends, so 1/2/3/5 were mostly surfacing. **NEW in `ci_analysis.py`:**
+`_aligned_brand_trend` + `competitive_rank_trend`/`competitive_share_trend` (multi-brand trend aligned to one
+period axis, None = gap), `competitive_paid_organic` (per-brand within-brand mix), `branded_keywords`
+(keywords containing a mine-brand name, case-insensitive substring), `competitive_branded_keyword_ads`
+(exposed/defended/clear per branded term). **Route** `insights_competitive` (`/app/insights/competitive`) +
+`_competitive_insights` + `_ci_rank_tab`/`_ci_shelf_tab`/`_ci_paid_tab`/`_ci_ads_tab` + `_CI_*` constants in
+`pages.py`, mirroring `_performance_insights`'s brand(group)/period scaffolding (no item drill). `?tab=` +
+`?period=` deep-linkable. **Template** `insights_competitive.html` (reuses `.perf-top`/`.kpi-tile`/`.tbl-card`/
+`.perf-dash`); **CSS** a "Competitive Intelligence Insights" section in `workspace.css` (ci-* split bars,
+share bars, exposed/defended status, dormant-creatives box) + a `.perf-go[hidden]{display:none}` fix (the
+no-JS "Go" button's `.wbtn` display was overriding the UA `[hidden]` rule — affected the Performance page too,
+now fixed for both). **JS** NEW `app/static/js/competitive.js` (dependency-free multi-line SVG trend renderer,
+rank-axis inverted, None-gaps break the line, mine line near-black on top; CSP-safe brand-select auto-submit).
+**Rail:** NEW leaf "Competitive Intelligence" under Insights (`_rail.html` `reporting_items`) + a **binoculars**
+`rail_icon` for slug `insights-competitive` (Performance=line, Opportunities=target, Competitive=binoculars).
+**Verified live** (dev-seeded `railtest@localhost.test` group 25 `[CI-DEMO]`, Tabasco + 4 hot-sauce
+competitors, 6 weeks of backdated data): all four tabs, multi-line trends, split bars, exposed/defended/clear
+statuses, Go-button hides, mobile stacks, NO console/CSP errors. **Next: merge the PR** (CI → auto-deploy);
+remaining CI idea is the deferred content-gaps capability (needs a new competitor-PDP fetch+score pipeline).
+Also still-open cleanup from session-start: stale open PRs (#38 docs, dependabot #24/#23/#22/#16/#13) + stale
+local feature branches. The prior session-34 summary follows._
+
+_Session 34 — **Performance: added the 3rd tab, Content Readiness** (PR #45, MERGED).
 722 tests, ruff clean, NO migration, NO new env. The Performance screen now mirrors
 all three dashboard pillars: Search Rank, Share of Digital Shelf, **Content Readiness**. **Brand view:** KPI
 `NN/100` + delta + a readiness **trend** chart + an **all-scored-products** table (worst-first, drillable) —

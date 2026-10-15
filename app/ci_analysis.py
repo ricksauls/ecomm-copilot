@@ -1076,3 +1076,178 @@ def item_share_by_keyword(conn, group_id, item_id, period, today=None) -> list[d
     ).fetchall()
     return [{"keyword": r["keyword"], "slots": r["slots"], "total": r["total"],
              "share": _pct(r["slots"], r["total"])} for r in rows]
+
+
+# ── Competitive Intelligence screen ──────────────────────────────────────────────
+# The CI Insights screen reports the *competitive field*: how rival brands rank,
+# how much shelf they hold, how much of their visibility is paid vs. organic, and
+# who is bidding on the user's own branded search terms. The leaderboards and the
+# paid/organic split reuse the per-brand aggregations above (which already return
+# every brand, mine and competitor); only the aligned multi-brand trend and the
+# branded-keyword-ad analysis are specific to this screen.
+
+def _aligned_brand_trend(conn, group_id, period, today, *, range_fn, val_key,
+                         brand_names) -> dict:
+    """Multi-brand trend aligned to one shared period axis.
+
+    Unlike :func:`_period_trend` (which drops the periods where a given entity had
+    no value, so each brand's series can end up a different length), a multi-line
+    chart needs every series plotted against the *same* x-axis. So we walk the last
+    :data:`TREND_PERIODS` completed periods once (oldest→newest), keep every period
+    that holds any group data, and record each requested brand's value for that
+    period — ``None`` where the brand had none, which the renderer draws as a gap.
+
+    ``range_fn`` is a per-brand range aggregation (e.g. :func:`_avg_rank_by_brand_range`)
+    and ``val_key`` the field to plot from its rows (``"avg_position"`` / ``"total_share"``).
+    Returns ``{"labels": [...], "series": {brand_name: [value|None, ...]}}``.
+    """
+    labels: list[str] = []
+    series: dict[str, list] = {name: [] for name in brand_names}
+    for i in range(TREND_PERIODS - 1, -1, -1):
+        start, end = period_bounds(period, i, today)
+        by_brand = {r["brand_name"]: r for r in range_fn(conn, group_id, start, end)}
+        if not by_brand:  # nothing scraped this period — skip it entirely
+            continue
+        labels.append(period_label(period, i, today))
+        for name in brand_names:
+            r = by_brand.get(name)
+            series[name].append(r[val_key] if r and r.get(val_key) is not None else None)
+    return {"labels": labels, "series": series}
+
+
+def competitive_rank_trend(conn, group_id, period, brand_names, today=None) -> dict:
+    """Aligned search-rank trend for the named brands (lower position is better)."""
+    return _aligned_brand_trend(conn, group_id, period, today,
+                                range_fn=_avg_rank_by_brand_range,
+                                val_key="avg_position", brand_names=brand_names)
+
+
+def competitive_share_trend(conn, group_id, period, brand_names, today=None) -> dict:
+    """Aligned share-of-shelf trend for the named brands (percent of page 1)."""
+    return _aligned_brand_trend(conn, group_id, period, today,
+                                range_fn=_brand_share_of_shelf_range,
+                                val_key="total_share", brand_names=brand_names)
+
+
+def competitive_paid_organic(conn, group_id, period, today=None) -> list[dict]:
+    """Each brand's organic-vs-paid visibility mix for the last completed period.
+
+    Reuses the brand-level share aggregation (which already splits every brand's
+    page-1 cards into organic/sponsored counts) and expresses it as the share *within
+    each brand* — i.e. what fraction of that brand's own page-1 presence is paid. This
+    answers "who is buying their way onto the shelf," which the cross-brand share
+    figures don't show on their own. The untracked "Other" bucket is dropped (it isn't
+    a brand you can reason about); mine-first, then by total page-1 cards descending.
+    """
+    rows = _brand_share_of_shelf_range(conn, group_id, *period_bounds(period, 0, today))
+    out = []
+    for r in rows:
+        if r["type"] == "other":
+            continue
+        total = r["total"]
+        out.append({
+            "brand_name": r["brand_name"],
+            "type": r["type"],
+            "organic": r["organic"],
+            "sponsored": r["sponsored"],
+            "total": total,
+            "organic_pct": _pct(r["organic"], total),
+            "sponsored_pct": _pct(r["sponsored"], total),
+        })
+    out.sort(key=lambda r: ({"mine": 0, "competitor": 1}.get(r["type"], 2), -r["total"]))
+    return out
+
+
+def branded_keywords(conn, group_id) -> list[dict]:
+    """Active tracked keywords that contain one of the group's own ('mine') brand names.
+
+    A "branded keyword" is a search term carrying the user's brand (e.g. *tabasco*,
+    *tabasco chipotle*) — the terms a competitor shouldn't be winning on. Matched by
+    case-insensitive substring so multi-word brand terms still catch. Returns
+    ``[{id, keyword}]`` (empty when the group has no mine brand or no branded term).
+    """
+    mine = [r["name"].strip().lower()
+            for r in conn.execute(
+                "SELECT name FROM ci_brands WHERE group_id = ? AND type = 'mine'",
+                (group_id,)).fetchall()
+            if r["name"] and r["name"].strip()]
+    if not mine:
+        return []
+    kws = conn.execute(
+        "SELECT id, keyword FROM ci_keywords WHERE group_id = ? AND active = 1 "
+        "ORDER BY keyword COLLATE NOCASE",
+        (group_id,),
+    ).fetchall()
+    return [{"id": k["id"], "keyword": k["keyword"]}
+            for k in kws if any(m in k["keyword"].lower() for m in mine)]
+
+
+def competitive_branded_keyword_ads(conn, group_id, period, today=None) -> list[dict]:
+    """Which competitors are running sponsored placements on the user's branded terms.
+
+    For each branded keyword (see :func:`branded_keywords`) over the last completed
+    period: the competitors holding a *sponsored* page-1 slot there, how often each
+    was seen (one sighting per card per scrape over the window), and whether the user
+    holds any slot of their own on that term. ``status`` summarizes the exposure:
+
+    - ``"exposed"``  — a competitor is advertising and the user has no slot there.
+    - ``"defended"`` — a competitor is advertising but the user also holds a slot.
+    - ``"clear"``    — no competitor is advertising on that branded term.
+
+    Sorted exposed-first, then by competitor sightings descending, so the terms most
+    worth acting on surface at the top. Ordinary sponsored search cards fill from any
+    scrape; the headline/video *banner* ads (``ci_ad_units``) are a separate, richer
+    layer that only fills through a residential proxy (see :func:`monitoring_brand_ads`).
+    """
+    branded = branded_keywords(conn, group_id)
+    if not branded:
+        return []
+    start, end = period_bounds(period, 0, today)
+    kw_ids = [k["id"] for k in branded]
+    placeholders = ",".join("?" * len(kw_ids))
+
+    # Competitors with a sponsored slot on each branded keyword, with sighting counts.
+    comp_rows = conn.execute(
+        "SELECT sr.keyword_id AS kid, b.name AS name, COUNT(*) AS sightings "
+        "FROM ci_search_results sr JOIN ci_brands b ON b.id = sr.brand_id "
+        "WHERE sr.group_id = ? AND sr.scraped_at >= ? AND sr.scraped_at <= ? "
+        "  AND sr.position_type = 'sponsored' AND b.type = 'competitor' "
+        "  AND sr.keyword_id IN (" + placeholders + ") "
+        "GROUP BY sr.keyword_id, b.id ORDER BY sightings DESC, b.name COLLATE NOCASE",
+        (group_id, start, end, *kw_ids),
+    ).fetchall()
+    comps_by_kw: dict = defaultdict(list)
+    for r in comp_rows:
+        comps_by_kw[r["kid"]].append({"name": r["name"], "sightings": r["sightings"]})
+
+    # Keywords where the user holds any page-1 slot of their own (organic or sponsored).
+    mine_rows = conn.execute(
+        "SELECT DISTINCT sr.keyword_id AS kid "
+        "FROM ci_search_results sr JOIN ci_brands b ON b.id = sr.brand_id "
+        "WHERE sr.group_id = ? AND sr.scraped_at >= ? AND sr.scraped_at <= ? "
+        "  AND b.type = 'mine' AND sr.keyword_id IN (" + placeholders + ")",
+        (group_id, start, end, *kw_ids),
+    ).fetchall()
+    mine_present = {r["kid"] for r in mine_rows}
+
+    _STATUS_ORDER = {"exposed": 0, "defended": 1, "clear": 2}
+    out = []
+    for k in branded:
+        comps = comps_by_kw.get(k["id"], [])
+        you_present = k["id"] in mine_present
+        if not comps:
+            status = "clear"
+        elif you_present:
+            status = "defended"
+        else:
+            status = "exposed"
+        out.append({
+            "keyword": k["keyword"],
+            "competitors": comps,
+            "competitor_sightings": sum(c["sightings"] for c in comps),
+            "you_present": you_present,
+            "status": status,
+        })
+    out.sort(key=lambda r: (_STATUS_ORDER[r["status"]], -r["competitor_sightings"],
+                            r["keyword"].lower()))
+    return out
