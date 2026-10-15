@@ -370,3 +370,58 @@ def test_portfolio_toggle_track_is_user_scoped(client, auth, app):
     with app.app_context():
         assert get_db().execute(
             "SELECT tracked FROM portfolio_items WHERE id = ?", (pid,)).fetchone()["tracked"] == 0
+
+
+# ── Per-item tracking detail page (build #2b) ─────────────────────────────────
+
+def _seed_facts(app, pid, rows):
+    """Insert portfolio_item_facts snapshots directly. rows: (day, price, rating, reviews)."""
+    with app.app_context():
+        db = get_db()
+        for day, price, rating, reviews in rows:
+            db.execute(
+                "INSERT INTO portfolio_item_facts "
+                "(portfolio_item_id, user_id, walmart_item_id, captured_at, price, "
+                " price_string, in_stock, rating, review_count, image_count, has_video) "
+                "VALUES (?, 1, '10294528', ?, ?, ?, 1, ?, ?, 5, 0)",
+                (pid, day, price, f"${price:.2f}", rating, reviews),
+            )
+        db.commit()
+
+
+def test_item_tracking_page_renders_trends(client, auth, app):
+    auth.register(email="trkui@example.com", password="password123")
+    _add_one(client, "Tabasco", "https://www.walmart.com/ip/Tabasco/10294528")
+    with app.app_context():
+        pid = get_db().execute(
+            "SELECT id FROM portfolio_items WHERE item_id = '10294528'").fetchone()["id"]
+    _seed_facts(app, pid, [("2026-10-10", 3.98, 4.5, 100), ("2026-10-11", 3.50, 4.6, 120)])
+
+    page = client.get(f"/app/portfolio/{pid}/tracking")
+    assert page.status_code == 200
+    assert b"Current" in page.data
+    assert b"Snapshot history" in page.data
+    assert b"$3.50" in page.data  # latest price in the KPI/metric
+    assert b"trk-spark-line" in page.data  # a sparkline rendered (>=2 points)
+
+
+def test_item_tracking_page_empty_state(client, auth, app):
+    auth.register(email="trkempty@example.com", password="password123")
+    _add_one(client, "Tabasco", "https://www.walmart.com/ip/Tabasco/10294528")
+    with app.app_context():
+        pid = get_db().execute(
+            "SELECT id FROM portfolio_items WHERE item_id = '10294528'").fetchone()["id"]
+    page = client.get(f"/app/portfolio/{pid}/tracking")
+    assert page.status_code == 200
+    assert b"No tracking data yet" in page.data
+
+
+def test_item_tracking_page_is_user_scoped(client, auth, app):
+    auth.register(email="trkowner@example.com", password="password123")
+    _add_one(client, "Tabasco", "https://www.walmart.com/ip/Tabasco/10294528")
+    with app.app_context():
+        pid = get_db().execute(
+            "SELECT id FROM portfolio_items WHERE item_id = '10294528'").fetchone()["id"]
+    auth.logout()
+    auth.register(email="trkattacker@example.com", password="password123")
+    assert client.get(f"/app/portfolio/{pid}/tracking").status_code == 404

@@ -135,6 +135,11 @@
               <button type="submit" class="wbtn wbtn-secondary">Track</button>
               {% endif %}
             </form>
+            {% if it.tracked %}
+            {# Trends page only makes sense once an item is tracked. #}
+            <a href="{{ url_for('pages.portfolio_item_tracking', item_id=it.id) }}"
+               class="cell-muted pf-track-view">View trends</a>
+            {% endif %}
           </td>
           <td class="cell-action">
             <form method="post" action="{{ url_for('pages.portfolio_delete', item_id=it.id) }}"

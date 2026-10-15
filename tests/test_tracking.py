@@ -135,3 +135,22 @@ def test_weekly_readiness_enqueues_into_scoring_queue_per_user(app):
             "SELECT COUNT(*) FROM scored_items WHERE status = 'queued'").fetchone()[0] == 3
         # Sanity: they're real scoring rows the worker would drain.
         assert jobs.has_queued_items(conn) is True
+
+
+def test_readiness_history_returns_scores_oldest_first(app):
+    # The weekly re-score history that the item tracking page charts.
+    with app.app_context():
+        conn = get_db()
+        uid = create_local_user("rh@example.com", "password123")
+        for score, when in [(70, "2026-10-01 00:00:00"), (82, "2026-10-08 00:00:00")]:
+            conn.execute(
+                "INSERT INTO scored_items (user_id, item_id, url, overall, status, created_at) "
+                "VALUES (?, '111', 'https://www.walmart.com/ip/a/111', ?, 'scored', ?)",
+                (uid, score, when),
+            )
+        conn.commit()
+        hist = jobs.readiness_history(conn, uid, "111")
+        assert [h["score"] for h in hist] == [70, 82]
+        # Scoped to the owner — another user sees nothing.
+        other = create_local_user("rh2@example.com", "password123")
+        assert jobs.readiness_history(conn, other, "111") == []
