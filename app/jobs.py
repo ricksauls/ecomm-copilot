@@ -336,6 +336,77 @@ def readiness_items(conn: sqlite3.Connection, user_id: int, brands: list[str]) -
     return [{"item_id": r["item_id"], "title": r["title"], "score": r["overall"]} for r in rows]
 
 
+# Primary (above-the-fold) content dimensions, in the order a scorecard reads
+# them: the three copy fields, then imagery. Secondary / below-the-fold content
+# (brand story, comparison charts, video) is intentionally excluded — the app
+# doesn't score it, and the business report omits it by design.
+PRIMARY_DIMENSION_ORDER = ("title", "key_features", "description", "imagery")
+
+
+def readiness_dimension_averages(conn: sqlite3.Connection, user_id: int,
+                                 brands: list[str]) -> list[dict]:
+    """Average score per primary content dimension across a brand's products.
+
+    Feeds the report's "Content Readiness Scorecard": one bar per dimension
+    (Title, Key Features, Description, Imagery) averaged over each product's
+    *latest* scored result. Only ``available`` dimensions with a numeric score
+    count toward an average, so a product whose images couldn't be fetched
+    doesn't drag Imagery down to zero — it simply isn't counted there.
+
+    Returns ``[{key, label, avg, count}]`` in :data:`PRIMARY_DIMENSION_ORDER`,
+    including a dimension measured on zero products (``avg=None, count=0``) so the
+    scorecard can still show every row. An empty brand scope yields ``[]``.
+    """
+    wanted = [b.strip().lower() for b in brands if b and b.strip()]
+    if not wanted:
+        return []
+
+    placeholders = ",".join("?" for _ in wanted)
+    # Latest result per product (same window rule as readiness_score), carrying
+    # the full dimension detail so we can average each dimension client-side.
+    rows = conn.execute(
+        "SELECT result_json FROM ("
+        "  SELECT item_id, result_json, ROW_NUMBER() OVER ("
+        "    PARTITION BY item_id ORDER BY created_at DESC, id DESC) AS rn "
+        "  FROM scored_items "
+        "  WHERE user_id = ? AND item_id IS NOT NULL AND item_id != '' "
+        "    AND overall IS NOT NULL AND result_json IS NOT NULL AND result_json != '' "
+        "    AND LOWER(TRIM(brand)) IN (" + placeholders + ")"
+        ") WHERE rn = 1",
+        [user_id, *wanted],
+    ).fetchall()
+
+    # Accumulate sum + count per dimension key, remembering the first label seen.
+    sums: dict[str, float] = {k: 0.0 for k in PRIMARY_DIMENSION_ORDER}
+    counts: dict[str, int] = {k: 0 for k in PRIMARY_DIMENSION_ORDER}
+    labels: dict[str, str] = {}
+    for r in rows:
+        try:
+            dims = json.loads(r["result_json"]).get("dimensions", [])
+        except (ValueError, TypeError):
+            logger.warning("Skipping unparseable scored result in dimension averages user_id=%s",
+                           user_id)
+            continue
+        for d in dims:
+            key = d.get("key")
+            if key not in sums:
+                continue
+            if not d.get("available", True) or d.get("score") is None:
+                continue
+            sums[key] += d["score"]
+            counts[key] += 1
+            labels.setdefault(key, d.get("label") or key)
+
+    result = [
+        {"key": k, "label": labels.get(k, k.replace("_", " ").title()),
+         "avg": round(sums[k] / counts[k]) if counts[k] else None, "count": counts[k]}
+        for k in PRIMARY_DIMENSION_ORDER
+    ]
+    logger.debug("Readiness dimension averages user_id=%s brands=%s → %s",
+                 user_id, wanted, {r["key"]: r["avg"] for r in result})
+    return result
+
+
 def readiness_item(conn: sqlite3.Connection, user_id: int, item_id: str,
                    as_of: str | None = None) -> dict | None:
     """One product's latest scored result, for the drilled Content Readiness view.

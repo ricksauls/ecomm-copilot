@@ -50,6 +50,10 @@
 {#- Scope / crosshair: setting up what to track in the competitive field.
     Distinct from Insights' binoculars (viewing) and Opportunities' bullseye. -#}
 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="7.5"/><path d="M12 2.5v4M12 17.5v4M2.5 12h4M17.5 12h4"/><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none"/></svg>
+{%- elif name == 'reports' -%}
+{#- Document with a download arrow: a generated, downloadable deck. Distinct from
+    Insights' bar-chart icon (analysis you read in-app) — this is the export. -#}
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M12 11.5v5"/><path d="M9.5 14l2.5 2.5 2.5-2.5"/></svg>
 {%- endif -%}
 {%- endmacro %}
 
@@ -168,6 +172,15 @@
 
     {{ rail_group('creative', 'Creative Studio', creative_items, active_nav) }}
     {{ rail_group('reporting', 'Insights', reporting_items, active_nav) }}
+
+    {# Reports — generate and download a brand's performance deck (PDF/PowerPoint).
+       A single workspace (Create / History tabs), so a standalone leaf. Sits
+       after Insights: Insights is the in-app read, Reports is the shareable export. #}
+    <a href="{{ url_for('pages.reports_home') }}"
+       class="rail-leaf{{ ' active' if active_nav == 'reports' else '' }}">
+      <span class="rail-ico">{{ rail_icon('reports') }}</span>
+      <span class="rail-main-label">Reports</span>
+    </a>
 
     {# Contact Us — standalone link with a muted hint at what the channel is for;
        the badge shows unread admin replies. Hidden for admins: they use the

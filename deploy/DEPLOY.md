@@ -169,6 +169,28 @@ deploys never wipe it), and needs no setup. Zero-config; both the web app and th
 worker resolve it from `DATABASE_URL`. To force a re-fetch, delete a file (or the
 directory) — the next run re-caches any that are missing. No secrets live here.
 
+### Generated business reports (media dir)
+
+The Reports area (rail → **Reports**) builds a brand's performance deck as a PDF
+or PowerPoint and stores the file under the same `media/` tree, at
+`media/reports/<user_id>/<token>.<pdf|pptx>`, with a `generated_reports` row
+pointing at it. Same lifecycle as the image cache: created on first write,
+outside the git checkout, resolved from `DATABASE_URL`/`$MEDIA_DIR`, no setup and
+no secrets. The History tab re-downloads past reports; deleting one removes both
+the row and the file. Generation is pure-Python and synchronous (no browser, no
+apt packages) — the only new dependency is **`python-pptx`** (for the editable
+PowerPoint), already pinned in `requirements.txt`, so a normal
+`venv/bin/pip install -r requirements.txt` on deploy picks it up. Restart the web
+service after deploying:
+
+```bash
+sudo systemctl restart ecomm-copilot
+```
+
+Scheduled (weekly/monthly) reports are a planned follow-on; they will reuse this
+same `generated_reports` table + `media/reports/` store and add a timer + worker
+drain, documented here when they land.
+
 ## AI image upscaling (optional)
 
 The content scorer flags product images below Walmart's 2000px zoom spec and main
