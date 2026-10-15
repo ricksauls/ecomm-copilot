@@ -238,6 +238,48 @@ sudo systemctl start ecomm-copilot-ci-monitor@morning.service
 A group is only swept when its owner has toggled **monitoring on** for it in the
 app (`ci_groups.monitoring_enabled`).
 
+## Item-tracking timers
+
+Individual portfolio-item tracking is enqueued by two systemd timers driving a
+templated oneshot (`ecomm-copilot-track@<cadence>.service`):
+
+- **daily** — 6:00 AM CST — a cheap commerce-facts fetch (price / stock / rating /
+  reviews) per tracked item, via the `portfolio_fact_jobs` queue.
+- **weekly** — Monday 5:00 AM CST — a full content-readiness re-score per tracked
+  item, reusing the `scored_items` queue.
+
+Same model as the CI timers: they only write `queued` rows; the existing
+`ecomm-copilot-worker` does the browser work, and `OnCalendar` carries an explicit
+`America/Chicago` timezone. `setup-droplet.sh` installs and enables them. To add to
+an already-provisioned droplet without re-running the full script (root via the DO
+Console):
+
+```bash
+cd /home/deploy/apps/ecomm-copilot
+install -m 644 deploy/ecomm-copilot-track@.service \
+  /etc/systemd/system/ecomm-copilot-track@.service
+for cadence in daily weekly; do
+  install -m 644 "deploy/ecomm-copilot-track-$cadence.timer" \
+    "/etc/systemd/system/ecomm-copilot-track-$cadence.timer"
+done
+systemctl daemon-reload
+for cadence in daily weekly; do
+  systemctl enable --now "ecomm-copilot-track-$cadence.timer"
+done
+```
+
+Inspect / verify:
+
+```bash
+systemctl list-timers 'ecomm-copilot-track-*' --all
+journalctl -u 'ecomm-copilot-track@*' -n 50 --no-pager
+# Trigger one immediately for a smoke test (enqueues jobs for all tracked items):
+sudo systemctl start ecomm-copilot-track@daily.service
+```
+
+An item is only picked up when its owner has toggled **Track** on for it in the
+app (`portfolio_items.tracked`).
+
 ## Manual deploy / rollback
 
 ```bash

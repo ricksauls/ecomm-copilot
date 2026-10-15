@@ -318,3 +318,55 @@ def test_template_download_has_expected_headers(client, auth):
     assert resp.status_code == 200
     assert "text/csv" in resp.headers["Content-Type"]
     assert b"Brand,Walmart Item URL,Amazon ASIN URL (Optional)" in resp.data
+
+
+# ── Track toggle (item tracking) ──────────────────────────────────────────────
+
+def _add_one(client, brand, url):
+    client.post("/app/portfolio/add",
+                data={"brand": brand, "walmart_url": url, "amazon_url": ""},
+                follow_redirects=True)
+
+
+def test_portfolio_toggle_track_on_and_off(client, auth, app):
+    auth.register(email="track@example.com", password="password123")
+    _add_one(client, "Tabasco", "https://www.walmart.com/ip/10294528")
+    with app.app_context():
+        row = get_db().execute(
+            "SELECT id FROM portfolio_items WHERE item_id = '10294528'").fetchone()
+        pid = row["id"]
+
+    # Untracked items show a "Track" action.
+    assert b"Track" in client.get("/app/portfolio").data
+
+    on = client.post(f"/app/portfolio/track/{pid}", data={"tracked": "1"},
+                     follow_redirects=True)
+    assert b"pf-track-on" in on.data  # the active "Tracking" button renders
+    with app.app_context():
+        assert get_db().execute(
+            "SELECT tracked FROM portfolio_items WHERE id = ?", (pid,)).fetchone()["tracked"] == 1
+
+    off = client.post(f"/app/portfolio/track/{pid}", data={"tracked": "0"},
+                      follow_redirects=True)
+    assert b"Stopped tracking" in off.data
+    with app.app_context():
+        assert get_db().execute(
+            "SELECT tracked FROM portfolio_items WHERE id = ?", (pid,)).fetchone()["tracked"] == 0
+
+
+def test_portfolio_toggle_track_is_user_scoped(client, auth, app):
+    # Owner adds an item; a second user cannot flip its tracked flag.
+    auth.register(email="owner2@example.com", password="password123")
+    _add_one(client, "Tabasco", "https://www.walmart.com/ip/10294528")
+    with app.app_context():
+        pid = get_db().execute(
+            "SELECT id FROM portfolio_items WHERE item_id = '10294528'").fetchone()["id"]
+    auth.logout()
+    auth.register(email="attacker@example.com", password="password123")
+
+    resp = client.post(f"/app/portfolio/track/{pid}", data={"tracked": "1"},
+                       follow_redirects=True)
+    assert b"no longer in your portfolio" in resp.data  # benign, no leak
+    with app.app_context():
+        assert get_db().execute(
+            "SELECT tracked FROM portfolio_items WHERE id = ?", (pid,)).fetchone()["tracked"] == 0

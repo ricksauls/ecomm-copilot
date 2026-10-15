@@ -7,7 +7,9 @@
     <h1>Portfolio Management</h1>
     <p class="subtitle">
       The products you manage. Import a CSV or add items one at a time — they'll
-      appear as a filterable pick-list on Content Scoring and Product Copy.
+      appear as a filterable pick-list on Content Scoring and Product Copy. Flag an
+      item to <strong>Track</strong> it: daily price / stock / rating checks and a
+      weekly content re-score, trended over time.
     </p>
   </div>
 </div>
@@ -94,6 +96,7 @@
           <th class="col-product">Product</th>
           <th class="col-product">Walmart URL</th>
           <th>Amazon</th>
+          <th>Tracking</th>
           <th></th>
         </tr>
       </thead>
@@ -119,6 +122,20 @@
                class="cell-muted">link</a>
             {% else %}—{% endif %}
           </td>
+          {# Track toggle — posts the DESIRED new state so the one route handles both
+             directions. A tracked item shows an active "Tracking ✓" that turns it off. #}
+          <td class="cell-action">
+            <form method="post" action="{{ url_for('pages.portfolio_toggle_track', item_id=it.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+              <input type="hidden" name="tracked" value="{{ 0 if it.tracked else 1 }}" />
+              {% if it.tracked %}
+              <button type="submit" class="wbtn wbtn-secondary pf-track-on"
+                      title="Tracking daily — click to stop">Tracking ✓</button>
+              {% else %}
+              <button type="submit" class="wbtn wbtn-secondary">Track</button>
+              {% endif %}
+            </form>
+          </td>
           <td class="cell-action">
             <form method="post" action="{{ url_for('pages.portfolio_delete', item_id=it.id) }}"
                   class="pf-delete-form">
@@ -130,7 +147,7 @@
         {% endfor %}
         {# Shown by the search JS when no row matches; hidden otherwise. #}
         <tr class="pf-empty-filtered" hidden>
-          <td colspan="6" class="results-count">No items match that search.</td>
+          <td colspan="7" class="results-count">No items match that search.</td>
         </tr>
       </tbody>
     </table>

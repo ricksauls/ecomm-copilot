@@ -11,6 +11,10 @@ from app.fetch import (
     _extract_brand,
     _extract_idml_bullets,
     _extract_idml_specs,
+    _extract_in_stock,
+    _extract_price,
+    _extract_rating,
+    _extract_review_count,
     _is_white_background,
     parse_product,
 )
@@ -251,3 +255,37 @@ def test_fetch_main_image_url_none_when_no_images(monkeypatch):
     import app.fetch as fetch
     monkeypatch.setattr(fetch, "_load_pdp_data", lambda url, timeout_ms: {"product": {}})
     assert fetch.fetch_main_image_url("https://www.walmart.com/ip/x/1") is None
+
+
+# ── Commerce-signal extraction (daily item-tracking facts) ───────────────────
+
+def test_extract_price_reads_current_price():
+    product = {"priceInfo": {"currentPrice": {"price": 3.98, "priceString": "$3.98"}}}
+    assert _extract_price(product) == (3.98, "$3.98")
+
+
+def test_extract_price_handles_string_and_missing():
+    # Numbers can arrive as strings; an out-of-stock item may omit the block.
+    assert _extract_price({"priceInfo": {"currentPrice": {"price": "12.5"}}}) == (12.5, None)
+    assert _extract_price({}) == (None, None)
+    assert _extract_price({"priceInfo": {}}) == (None, None)
+
+
+def test_extract_rating_direct_and_nested():
+    assert _extract_rating({"averageRating": 4.6}) == 4.6
+    assert _extract_rating({"rating": {"averageRating": 4.2}}) == 4.2
+    assert _extract_rating({}) is None
+
+
+def test_extract_review_count_direct_and_nested():
+    assert _extract_review_count({"numberOfReviews": 1200}) == 1200
+    assert _extract_review_count({"rating": {"numberOfReviews": 7}}) == 7
+    assert _extract_review_count({}) is None
+
+
+def test_extract_in_stock_status_then_cart_flag():
+    assert _extract_in_stock({"availabilityStatus": "IN_STOCK"}) is True
+    assert _extract_in_stock({"availabilityStatus": "OUT_OF_STOCK"}) is False
+    assert _extract_in_stock({"canAddToCart": True}) is True
+    assert _extract_in_stock({"canAddToCart": False}) is False
+    assert _extract_in_stock({}) is None

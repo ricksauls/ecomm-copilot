@@ -227,11 +227,12 @@ def list_items(conn: sqlite3.Connection, user_id: int) -> list[sqlite3.Row]:
 
     Carries the columns the screen and the scoring/copy pick-lists need: the
     Walmart URL (the value submitted to a run), the parsed item number, brand, the
-    optional Amazon link, and the backfilled product title — all four of brand /
-    item # / URL / title are searchable in the unified filter.
+    optional Amazon link, the backfilled product title — all four of brand /
+    item # / URL / title are searchable in the unified filter — and the ``tracked``
+    flag that drives the Track toggle.
     """
     return conn.execute(
-        "SELECT id, brand, walmart_url, item_id, amazon_url, title, created_at "
+        "SELECT id, brand, walmart_url, item_id, amazon_url, title, tracked, created_at "
         "FROM portfolio_items WHERE user_id = ? ORDER BY id DESC",
         (user_id,),
     ).fetchall()
