@@ -1283,6 +1283,271 @@ def insights_performance():
     )
 
 
+# ── Competitive Intelligence Insights screen ─────────────────────────────────────
+# Four tabs over one monitoring brand + period, all reporting the competitive field
+# (rival brands) rather than the user's own items: Rankings and Share of Shelf
+# (top-5 competitor leaderboards + a multi-brand trend), Paid vs Organic (each
+# brand's visibility mix), and Branded Keyword Ads (who is bidding on the user's own
+# terms). Mirrors the Performance screen's brand/period scaffolding; no item drill.
+_CI_TABS = ("rank", "shelf", "paid", "ads")
+_CI_TAB_LABELS = {
+    "rank": "Rankings",
+    "shelf": "Share of Shelf",
+    "paid": "Paid vs Organic",
+    "ads": "Branded Keyword Ads",
+}
+_CI_LEADERBOARD_LIMIT = 5   # top-N competitors on each leaderboard
+_CI_CHART_LINES = 4         # mine brand(s) + top competitors drawn on a trend chart
+# Competitor trend lines, in draw order (the mine line is always near-black on top).
+_CI_COMPETITOR_COLORS = ("#64748b", "#94a3b8", "#b9c3d2")
+_CI_MINE_COLOR = "#0b1220"
+
+
+def _ci_chart(trend: dict, mine_names: set, unit: str) -> dict:
+    """Shape an aligned multi-brand trend (:func:`ci_analysis.competitive_rank_trend`
+    / ``competitive_share_trend``) into series for competitive.js.
+
+    The mine brand(s) draw last (so they sit on top) in the app's near-black "mine"
+    color; competitors cycle through muted greys. ``unit`` is 'rank' (y-axis inverted)
+    or 'share' (percent)."""
+    series = []
+    comp_i = 0
+    for name, values in trend["series"].items():
+        is_mine = name in mine_names
+        color = _CI_MINE_COLOR if is_mine else _CI_COMPETITOR_COLORS[comp_i % len(_CI_COMPETITOR_COLORS)]
+        if not is_mine:
+            comp_i += 1
+        series.append({"name": name, "mine": is_mine, "color": color, "values": values})
+    series.sort(key=lambda s: s["mine"])  # competitors first, mine last (drawn on top)
+    return {"labels": trend["labels"], "unit": unit, "series": series}
+
+
+def _ci_rank_tab(db, gid, period) -> dict:
+    """Rankings tab: your standing in the field + a top-5 competitor rank leaderboard."""
+    rows = ci_analysis.monitoring_avg_rank(db, gid, period)
+    ranked = [r for r in rows if r["avg_position"] is not None]
+    mine_rows = [r for r in ranked if r["type"] == "mine"]
+    # Competitors arrive best-rank-first within their tier (see monitoring_avg_rank).
+    competitors = [r for r in ranked if r["type"] == "competitor"][:_CI_LEADERBOARD_LIMIT]
+
+    # Your ordinal position across every ranked brand (mine + competitors).
+    field = sorted(ranked, key=lambda r: r["avg_position"])
+    mine_best = min(mine_rows, key=lambda r: r["avg_position"]) if mine_rows else None
+    ordinal = field.index(mine_best) + 1 if mine_best else None
+
+    mine_names = {r["brand_name"] for r in mine_rows}
+    chart_names = ([r["brand_name"] for r in mine_rows]
+                   + [r["brand_name"] for r in competitors])[:_CI_CHART_LINES]
+    trend = ci_analysis.competitive_rank_trend(db, gid, period, chart_names)
+
+    if mine_best:
+        headline = {
+            "label": "Your rank in the field",
+            "metric": f"#{ordinal}", "sub": f"of {len(field)}",
+            "delta": _perf_delta(mine_best["delta"], unit="spots"),
+            "foot": f"Your avg page-1 position {mine_best['avg_position']:.1f} · lower is better",
+        }
+    else:
+        headline = {"label": "Your rank in the field", "metric": "—", "sub": None,
+                    "delta": _perf_delta(None), "foot": "Your brand isn't ranking on these terms yet."}
+    leaderboard = [{"brand_name": r["brand_name"], "metric": f"{r['avg_position']:.1f}",
+                    "delta": _perf_delta(r["delta"], unit="spots")} for r in competitors]
+    return {
+        "headline": headline,
+        "chart": _ci_chart(trend, mine_names, "rank"),
+        "chart_title": "Search rank trend",
+        "leaderboard": leaderboard,
+        "leaderboard_title": "Top competitors by search ranking",
+        "leaderboard_sub": "Lower average page-1 position is better · the field you're up against",
+        "metric_col": "Avg. position",
+    }
+
+
+def _ci_shelf_tab(db, gid, period) -> dict:
+    """Share of Shelf tab: your brand's shelf share + a top-5 competitor leaderboard."""
+    rows = ci_analysis.monitoring_brand_share_of_shelf(db, gid, period)
+    mine_rows = [r for r in rows if r["type"] == "mine"]
+    # Rows arrive total-share-descending within their tier (see _shape_share_rows).
+    competitors = [r for r in rows if r["type"] == "competitor" and r["total_share"] > 0][:_CI_LEADERBOARD_LIMIT]
+
+    mine_best = max(mine_rows, key=lambda r: r["total_share"]) if mine_rows else None
+    mine_names = {r["brand_name"] for r in mine_rows}
+    chart_names = ([r["brand_name"] for r in mine_rows]
+                   + [r["brand_name"] for r in competitors])[:_CI_CHART_LINES]
+    trend = ci_analysis.competitive_share_trend(db, gid, period, chart_names)
+
+    headline = {
+        "label": "Your shelf share",
+        "metric": f"{mine_best['total_share']}%" if mine_best else "0%", "sub": None,
+        "delta": _perf_delta(mine_best["delta"] if mine_best else None, unit="pts"),
+        "foot": "Your brand's slots as a share of all page-1 slots.",
+    }
+    # Scale the inline bars to the largest competitor share (the #1 row is full width).
+    top_share = competitors[0]["total_share"] if competitors else 0
+    leaderboard = [{"brand_name": r["brand_name"], "metric": f"{r['total_share']}%",
+                    "bar_pct": round(100 * r["total_share"] / top_share) if top_share else 0,
+                    "delta": _perf_delta(r["delta"], unit="pts")} for r in competitors]
+    return {
+        "headline": headline,
+        "chart": _ci_chart(trend, mine_names, "share"),
+        "chart_title": "Share of shelf trend",
+        "leaderboard": leaderboard,
+        "leaderboard_title": "Top competitors by share of shelf",
+        "leaderboard_sub": "Share of all page-1 result slots · the field you're up against",
+        "metric_col": "Shelf share",
+        "with_bars": True,
+    }
+
+
+def _ci_paid_tab(db, gid, period) -> dict:
+    """Paid vs Organic tab: each brand's organic/sponsored visibility mix."""
+    rows = ci_analysis.competitive_paid_organic(db, gid, period)
+    mine_row = next((r for r in rows if r["type"] == "mine"), None)
+    # Order the bars by total page-1 presence (biggest first), cap the list.
+    bar_source = sorted(rows, key=lambda r: -r["total"])[:6]
+    bars = [{"brand_name": r["brand_name"], "is_mine": r["type"] == "mine",
+             "organic_pct": r["organic_pct"], "sponsored_pct": r["sponsored_pct"]}
+            for r in bar_source]
+
+    if mine_row:
+        headline = {
+            "label": "Your visibility mix",
+            "metric": f"{mine_row['organic_pct']:.0f}", "sub": f"/ {mine_row['sponsored_pct']:.0f}",
+            "delta": None,
+            "foot": "Share of your page-1 slots that is organic vs. sponsored.",
+        }
+    else:
+        headline = {"label": "Your visibility mix", "metric": "—", "sub": None, "delta": None,
+                    "foot": "Your brand has no page-1 slots this period."}
+
+    # A plain-language read: name the competitor leaning hardest on paid, vs. you.
+    competitors = [r for r in rows if r["type"] == "competitor"]
+    heaviest = max(competitors, key=lambda r: r["sponsored_pct"], default=None)
+    read = None
+    if heaviest and heaviest["sponsored_pct"] > 0 and mine_row:
+        read = (f"{heaviest['brand_name']} leans hardest on paid — {heaviest['sponsored_pct']:.0f}% "
+                f"of its page-1 presence is sponsored, vs. your {mine_row['sponsored_pct']:.0f}%. "
+                f"Where a competitor's shelf climbs on paid, matching it organically alone won't "
+                f"close the gap.")
+    return {"headline": headline, "bars": bars, "read": read}
+
+
+def _ci_ads_tab(db, gid, period) -> dict:
+    """Branded Keyword Ads tab: competitors bidding on the user's own branded terms,
+    plus the dormant headline/video-creative section (fills via the residential proxy).
+    """
+    branded = ci_analysis.competitive_branded_keyword_ads(db, gid, period)
+    _STATUS = {
+        "exposed": {"label": "⚠ exposed", "cls": "m-bad"},
+        "defended": {"label": "✓ defended", "cls": "m-good"},
+        "clear": {"label": "✓ clear", "cls": "m-good"},
+    }
+    kw_rows = [{
+        "keyword": r["keyword"],
+        "competitor_names": ", ".join(c["name"] for c in r["competitors"]) or "—",
+        "sightings": r["competitor_sightings"],
+        **_STATUS[r["status"]],
+    } for r in branded]
+
+    advertised = sum(1 for r in branded if r["competitors"])
+    summary = (f"Competitors are advertising on {advertised} of your {len(branded)} "
+               f"branded keyword{_s(len(branded))}." if branded else None)
+
+    # Headline/video banner creatives — only tracked competitors with a sighting.
+    creatives = [r for r in ci_analysis.monitoring_brand_ads(db, gid, period)
+                 if r["type"] == "competitor" and (r["headline_count"] or r["video_count"])]
+    return {
+        "has_branded": bool(branded),
+        "ad_summary": summary,
+        "ad_rows": kw_rows,
+        "ad_creatives": creatives,
+    }
+
+
+def _competitive_insights(db, uid) -> dict:
+    """Assemble the Competitive Intelligence screen for the current request.
+
+    Brand (monitoring CI group) and period selection mirror :func:`_performance_insights`:
+    ``?group_id=`` → saved default → newest group; ``?period=`` → first ready period.
+    ``?tab=`` picks one of :data:`_CI_TABS` (an unknown value falls back to Rankings).
+    Only the active tab's data is built, since each tab is a separate page load.
+    """
+    groups = ci_config.list_groups(db, uid, mode="monitoring")
+    if not groups:
+        return {"available": False, "setup_url": url_for("pages.ci_monitoring_home")}
+
+    group_id = request.args.get("group_id", type=int)
+    selected = ci_config.get_group(db, group_id, uid) if group_id is not None else None
+    if selected is not None and selected["mode"] != "monitoring":
+        selected = None
+    default_id = g.user["default_ci_group_id"]
+    if selected is None and default_id is not None:
+        saved = ci_config.get_group(db, default_id, uid)
+        if saved is not None and saved["mode"] == "monitoring":
+            selected = saved
+    if selected is None:
+        selected = groups[0]
+    gid = selected["id"]
+
+    tab = request.args.get("tab")
+    if tab not in _CI_TABS:
+        tab = "rank"
+    available = ci_analysis.available_periods(db, gid)
+    requested = request.args.get("period")
+    period = (requested if requested in available
+              else (available[0] if available else ci_analysis.DEFAULT_PERIOD))
+    has_data = bool(available)
+
+    logger.info("Competitive insights user_id=%s group_id=%s tab=%s period=%s has_data=%s",
+                uid, gid, tab, period, has_data)
+
+    data = {
+        "available": True,
+        "has_data": has_data,
+        "brand_label": _group_brand_label(db, uid, gid, selected["name"]),
+        "selected_group_id": gid,
+        "period": period,
+        "period_label": ci_analysis.period_label(period) if has_data else None,
+        "tab": tab,
+        "tab_labels": _CI_TAB_LABELS,
+        "tabs": list(_CI_TABS),
+        "groups": [{"id": grp["id"],
+                    "label": _group_brand_label(db, uid, grp["id"], grp["name"]),
+                    "selected": grp["id"] == gid} for grp in groups],
+        "periods": [{"key": p, "label": ci_analysis.PERIOD_LABELS[p],
+                     "enabled": p in available, "selected": p == period}
+                    for p in ci_analysis.PERIODS],
+    }
+    if not has_data:
+        return data
+
+    if tab == "rank":
+        data.update(_ci_rank_tab(db, gid, period))
+    elif tab == "shelf":
+        data.update(_ci_shelf_tab(db, gid, period))
+    elif tab == "paid":
+        data.update(_ci_paid_tab(db, gid, period))
+    else:
+        data.update(_ci_ads_tab(db, gid, period))
+    return data
+
+
+@bp.route("/app/insights/competitive")
+@login_required
+def insights_competitive():
+    """Competitive Intelligence Insights screen: competitor rankings, share of shelf,
+    paid-vs-organic mix, and branded-keyword ad exposure. Built in
+    :func:`_competitive_insights`."""
+    db = get_db()
+    data = _competitive_insights(db, g.user["id"])
+    return render_template(
+        "app/insights_competitive.html",
+        breadcrumb="Competitive Intelligence",
+        active_nav="insights-competitive",
+        **data,
+    )
+
+
 @bp.route("/app/activity/<kind>")
 @login_required
 def activity_all(kind):
