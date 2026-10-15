@@ -1,7 +1,8 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-10-14 (session 35 — **Competitive Intelligence Insights screen — a NEW third Insights
-leaf, tabbed, reporting the competitor field.** On branch `feature/insights-competitive` (PR open).
+_Last updated: 2026-10-15 (session 35 — **Competitive Intelligence Insights screen — a NEW third Insights
+leaf, tabbed, reporting the competitor field. PR #46 MERGED + deployed + VERIFIED LIVE on prod** (`main` at
+`1850627`; `/app/insights/competitive` 302→signin, `static/js/competitive.js` served 200).
 **738 tests, ruff clean. NO migration, NO new env.** Five of the user's six requested CI capabilities shipped
 on ONE tabbed screen under Insights (the 6th, competitive content gaps, was DEFERRED — no competitor-content
 data exists; scoring only runs on the user's own products). **Four tabs** (`_CI_TABS`): **Rankings** (top-5
@@ -29,10 +30,21 @@ rank-axis inverted, None-gaps break the line, mine line near-black on top; CSP-s
 `rail_icon` for slug `insights-competitive` (Performance=line, Opportunities=target, Competitive=binoculars).
 **Verified live** (dev-seeded `railtest@localhost.test` group 25 `[CI-DEMO]`, Tabasco + 4 hot-sauce
 competitors, 6 weeks of backdated data): all four tabs, multi-line trends, split bars, exposed/defended/clear
-statuses, Go-button hides, mobile stacks, NO console/CSP errors. **Next: merge the PR** (CI → auto-deploy);
-remaining CI idea is the deferred content-gaps capability (needs a new competitor-PDP fetch+score pipeline).
-Also still-open cleanup from session-start: stale open PRs (#38 docs, dependabot #24/#23/#22/#16/#13) + stale
-local feature branches. The prior session-34 summary follows._
+statuses, Go-button hides, mobile stacks, NO console/CSP errors. **PR #46 then MERGED to `main` + auto-deployed
++ confirmed live.** Remaining CI idea is the deferred content-gaps capability (needs a new competitor-PDP
+fetch+score pipeline).
+**SESSION-35 CLEANUP (done end of session):** closed stale docs PR #38; pruned 5 stale local branches;
+**merged + deployed** python-dotenv #13 (→1.2.4) + authlib #24 (→1.8.0) after `@dependabot rebase` onto `main`
++ fresh green CI; closed ruff #23 (0.16.8 flags new lint on the current codebase → CI fails; adopting it is a
+dedicated lint-fix task, not a drop-in bump).
+**⭐ NEXT SESSION (user's stated focus — "cleanup items"):** the two deferred dependency PRs, each of which
+merges→auto-deploys to prod so TEST FIRST — **#22 anthropic 1.0→1.9** (the copy generator's SDK; CI uses a
+FAKE client, so the real API surface is UNTESTED — run a live copygen check before merging) and **#16 gunicorn
+22→26** (major prod-server bump, never exercised by CI). Then **re-do the ruff 0.16.8 upgrade** with the new
+lint findings fixed (a focused PR). **Optional hygiene:** add a `concurrency:` group to
+`.github/workflows/deploy.yml` — the #13/#24 merges landed seconds apart and raced two SSH deploys, one Deploy
+run FAILED (transient; later deploys succeeded, prod healthy). ⚠️ authlib (SSO) is now live but CI never
+exercises Google login — worth a real sign-in check. The prior session-34 summary follows._
 
 _Session 34 — **Performance: added the 3rd tab, Content Readiness** (PR #45, MERGED).
 722 tests, ruff clean, NO migration, NO new env. The Performance screen now mirrors
