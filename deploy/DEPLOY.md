@@ -289,10 +289,19 @@ app (`ci_groups.monitoring_enabled`).
 Individual portfolio-item tracking is enqueued by two systemd timers driving a
 templated oneshot (`ecomm-copilot-track@<cadence>.service`):
 
-- **daily** — 6:00 AM CST — a cheap commerce-facts fetch (price / stock / rating /
-  reviews) per tracked item, via the `portfolio_fact_jobs` queue.
-- **weekly** — Monday 5:00 AM CST — a full content-readiness re-score per tracked
-  item, reusing the `scored_items` queue.
+- **daily** — 6:00 AM CST — a **search rank + share-of-search** capture per tracked
+  item × keyword, via the `portfolio_rank_jobs` queue (`app.item_rank`). **Cost:**
+  one Oxylabs `walmart_search` call per keyword per tracked item per day (up to 3
+  keywords/item) — the spend scales with the number of tracked items, so this is
+  the dominant cost lever of the tracking feature. Blank keywords aren't scraped,
+  and an item can be turned off with its Tracking pill. *(The rank enqueuer is
+  wired in a later change; until then the daily run is a no-op.)*
+- **weekly** — Monday 5:00 AM CST — the full **PDP snapshot** per tracked item: the
+  commerce-facts fetch (price / stock / rating / reviews, `portfolio_fact_jobs`)
+  **and** a content-readiness re-score (reusing the `scored_items` queue).
+
+Daily captures are rolled up to the weekly / monthly / quarterly views in the app
+— there is no daily view.
 
 Same model as the CI timers: they only write `queued` rows; the existing
 `ecomm-copilot-worker` does the browser work, and `OnCalendar` carries an explicit

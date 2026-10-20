@@ -1,9 +1,10 @@
 # Templated oneshot that enqueues item-tracking work for every tracked portfolio
 # item. The instance name (%i) is the cadence: daily | weekly.
-#   daily  -> a cheap commerce-facts fetch per tracked item (price/stock/rating/
-#             reviews), via the portfolio_fact_jobs queue.
-#   weekly -> a full content-readiness re-score per tracked item (reuses the
-#             scored_items queue).
+#   daily  -> a search rank + share-of-search capture per tracked item x keyword,
+#             via the portfolio_rank_jobs queue (app.item_rank).
+#   weekly -> the full PDP snapshot per tracked item: commerce facts (price/stock/
+#             rating/reviews, portfolio_fact_jobs) + a content-readiness re-score
+#             (reuses the scored_items queue).
 # Triggered by the ecomm-copilot-track-*.timer units. This only writes queued rows
 # — the ecomm-copilot-worker does the actual browser work — so it needs no DISPLAY
 # and finishes in milliseconds.

@@ -5,7 +5,7 @@ Covers the tracked flag (with the IDOR gate), the daily-facts queue
 weekly readiness enqueuer that reuses the scoring queue.
 """
 
-from app import jobs, tracking
+from app import enqueue_item_tracking, jobs, tracking
 from app.db import get_db
 from app.enqueue_item_tracking import enqueue_weekly_readiness
 from app.users import create_local_user
@@ -135,6 +135,44 @@ def test_weekly_readiness_enqueues_into_scoring_queue_per_user(app):
             "SELECT COUNT(*) FROM scored_items WHERE status = 'queued'").fetchone()[0] == 3
         # Sanity: they're real scoring rows the worker would drain.
         assert jobs.has_queued_items(conn) is True
+
+
+class _NoClose:
+    """Proxy that forwards to a real connection but swallows close().
+
+    enqueue_item_tracking.main() closes its connection in a finally; this lets a
+    test feed it the shared Flask-request connection without it being closed
+    between the daily and weekly calls.
+    """
+
+    def __init__(self, conn):
+        self._conn = conn
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+    def close(self):
+        pass
+
+
+def test_cadence_facts_moved_to_weekly(app, monkeypatch):
+    # The PDP commerce facts are captured WEEKLY now (bundled with the re-score);
+    # the daily run no longer enqueues them (daily = rank/share, wired later).
+    with app.app_context():
+        conn = get_db()
+        monkeypatch.setattr(enqueue_item_tracking, "_connect", lambda: _NoClose(conn))
+        monkeypatch.setattr(enqueue_item_tracking, "load_dotenv", lambda: None)
+        calls: list[str] = []
+        monkeypatch.setattr(tracking, "enqueue_fact_jobs",
+                            lambda c: calls.append("facts") or 0)
+        monkeypatch.setattr(enqueue_item_tracking, "enqueue_weekly_readiness",
+                            lambda c: calls.append("readiness") or 0)
+
+        enqueue_item_tracking.main(["daily"])
+        assert calls == []  # daily enqueues neither facts nor readiness yet
+
+        enqueue_item_tracking.main(["weekly"])
+        assert calls == ["facts", "readiness"]  # weekly = full PDP snapshot
 
 
 def test_readiness_history_returns_scores_oldest_first(app):

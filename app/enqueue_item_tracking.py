@@ -1,11 +1,14 @@
 """Enqueue item-tracking work for every tracked portfolio item.
 
 Invoked by systemd timers — see ``deploy/ecomm-copilot-track-*.timer``:
-  • ``daily``  → a cheap commerce-facts fetch per tracked item (price / stock /
-                 rating / reviews), via the ``portfolio_fact_jobs`` queue.
-  • ``weekly`` → a full content-readiness re-score per tracked item, reusing the
-                 existing scoring queue (``scored_items``) so the readiness trend
-                 and all its plumbing come for free.
+  • ``daily``  → a search rank + share-of-search capture per tracked item ×
+                 keyword, via the ``portfolio_rank_jobs`` queue. (Wired in a later
+                 change — see :mod:`app.item_rank`; until then ``daily`` is a
+                 no-op so the timer stays harmless.)
+  • ``weekly`` → the full PDP snapshot per tracked item: the commerce-facts fetch
+                 (price / stock / rating / reviews, via ``portfolio_fact_jobs``)
+                 **and** a content-readiness re-score (reusing the scoring queue,
+                 ``scored_items``, so the readiness trend comes for free).
 
 Like :mod:`app.enqueue_monitoring`, this only writes ``queued`` rows and stays
 fast/display-less; the background worker does the slow browser work.
@@ -80,9 +83,13 @@ def main(argv: list[str] | None = None) -> int:
     conn = _connect()
     try:
         if mode == "daily":
+            # Daily = search rank + share of search. The rank enqueuer lands with
+            # app.item_rank (next change); until then there's nothing to enqueue
+            # here — the commerce facts moved to the weekly PDP snapshot below.
+            logger.info("Daily item tracking: rank capture not yet enabled — nothing to enqueue")
+        else:  # weekly — the full PDP snapshot: commerce facts + content re-score
             from app import tracking
             tracking.enqueue_fact_jobs(conn)
-        else:  # weekly
             enqueue_weekly_readiness(conn)
     finally:
         conn.close()
