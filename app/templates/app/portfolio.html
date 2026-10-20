@@ -7,9 +7,11 @@
     <h1>Portfolio Management</h1>
     <p class="subtitle">
       The products you manage. Import a CSV or add items one at a time — they'll
-      appear as a filterable pick-list on Content Scoring and Product Copy. Flag an
-      item to <strong>Track</strong> it: daily price / stock / rating checks and a
-      weekly content re-score, trended over time.
+      appear in the managed-items dropdowns on Content Scoring, Product Copy, and
+      the Image Set Creator. New items are <strong>tracked</strong> automatically:
+      daily search rank &amp; share of search against their keywords, plus a weekly
+      PDP snapshot — rolled up weekly, monthly, and quarterly. Use the pill to turn
+      tracking off for any item.
     </p>
   </div>
 </div>
@@ -122,17 +124,23 @@
                class="cell-muted">link</a>
             {% else %}—{% endif %}
           </td>
-          {# Track toggle — posts the DESIRED new state so the one route handles both
-             directions. A tracked item shows an active "Tracking ✓" that turns it off. #}
+          {# Tracking pill — an enable/disable toggle. It posts the DESIRED new state
+             so the one route handles both directions: an on item posts 0 (disable),
+             an off item posts 1 (enable). pf-track-on marks the active state. #}
           <td class="cell-action">
             <form method="post" action="{{ url_for('pages.portfolio_toggle_track', item_id=it.id) }}">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
               <input type="hidden" name="tracked" value="{{ 0 if it.tracked else 1 }}" />
               {% if it.tracked %}
-              <button type="submit" class="wbtn wbtn-secondary pf-track-on"
-                      title="Tracking daily — click to stop">Tracking ✓</button>
+              <button type="submit" class="pf-pill pf-pill-on pf-track-on"
+                      title="Tracking on — click to disable">
+                <span class="pf-pill-dot" aria-hidden="true"></span>Tracking
+              </button>
               {% else %}
-              <button type="submit" class="wbtn wbtn-secondary">Track</button>
+              <button type="submit" class="pf-pill pf-pill-off"
+                      title="Tracking off — click to enable">
+                <span class="pf-pill-dot" aria-hidden="true"></span>Off
+              </button>
               {% endif %}
             </form>
             {% if it.tracked %}

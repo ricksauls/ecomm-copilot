@@ -37,10 +37,36 @@
   {% endfor %}
 {% endwith %}
 
+{# Tracking keywords — the 3 search terms this item's daily rank & share of search
+   are measured against. Auto-filled best-effort from the product; editable, and an
+   edit is kept (the backfill won't overwrite it). A blank field means that keyword
+   isn't scraped. Always shown — the user curates these before data accrues. #}
+{% if keywords %}
+<div class="card card-pad">
+  <div class="ci-section-title">Tracking keywords</div>
+  <p class="brand-hint">The search terms this item's daily rank &amp; share of search are
+    measured against. Auto-filled from the product — edit any of them; leave one blank to skip it.</p>
+  <form method="post" action="{{ url_for('pages.portfolio_edit_keywords', item_id=item.id) }}"
+        class="pf-kw-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+    {% for kw in keywords %}
+    <div class="pf-kw-row">
+      <label class="field-sublabel" for="kw{{ kw.slot }}">{{ keyword_labels.get(kw.kind, kw.kind) }}</label>
+      <input type="text" id="kw{{ kw.slot }}" name="kw{{ kw.slot }}" class="text-input"
+             maxlength="120" value="{{ kw.keyword or '' }}"
+             placeholder="{% if kw.kind == 'category' %}e.g. Hot Sauce{% elif kw.kind == 'brand' %}e.g. Tabasco{% else %}e.g. Tabasco Original Hot Sauce 12 oz{% endif %}" />
+    </div>
+    {% endfor %}
+    <button type="submit" class="wbtn wbtn-primary">Save keywords</button>
+  </form>
+</div>
+{% endif %}
+
 {% if not has_any %}
 <div class="card card-pad ci-empty">
-  No tracking data yet. The first commerce-facts snapshot runs on the next daily
-  check (6 AM CST); content readiness re-scores weekly. Check back after the next run.
+  No tracking data yet. Daily search rank &amp; share of search begin on the next run, and
+  a weekly PDP snapshot (price, reviews, content) is captured weekly — rolled up to the
+  weekly, monthly, and quarterly views. Check back after the first week closes.
 </div>
 {% else %}
 

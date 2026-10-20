@@ -3585,6 +3585,43 @@ select.pf-select[multiple] option { padding: 6px 8px; border-radius: 4px; }
 /* "Fetch details" sits just under the Image Set picker; a little breathing room. */
 .imageset-prefill-hint { margin-top: var(--space-12); }
 
+/* Tracking pill (Portfolio Management "Tracking" column): an enable/disable
+   toggle. The "on" state reads active (green dot + tinted border); "off" is muted.
+   It's a submit button styled as a pill — one click flips the item's tracked flag
+   via portfolio_toggle_track. */
+.pf-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.4;
+  border-radius: 999px;
+  border: 1px solid var(--control-border);
+  background: var(--surface);
+  color: var(--mid-gray);
+  cursor: pointer;
+  transition: border-color var(--fade) var(--ease), color var(--fade) var(--ease);
+}
+.pf-pill:hover { border-color: var(--mid-gray); }
+.pf-pill-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--mid-gray);
+}
+.pf-pill-on { color: var(--black); border-color: var(--signal-green); }
+.pf-pill-on .pf-pill-dot { background: var(--signal-green); }
+/* The "View trends" link sits beside the pill. */
+.pf-track-view { display: inline-block; margin-left: var(--space-8); font-size: 12.5px; }
+
+/* Keyword editor on the per-item tracking page: three stacked labelled fields. */
+.pf-kw-row { margin-bottom: var(--space-12); max-width: 520px; }
+.pf-kw-row .field-sublabel { display: block; margin-bottom: 4px; }
+.pf-kw-form .wbtn { margin-top: var(--space-8); }
+
 /* Managed-items card header: section title on the left, filter bar on the right
    when there's room; stacks on narrow panes. */
 .pf-list-head {

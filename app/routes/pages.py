@@ -40,6 +40,7 @@ from app import (
     copygen,
     image_enhance,
     image_jobs,
+    item_keywords,
     jobs,
     messages,
     pdp,
@@ -3004,16 +3005,16 @@ def portfolio_toggle_track(item_id: int):
     """Turn ongoing tracking on/off for one of the user's managed items.
 
     The form posts the desired new state (``tracked`` = 1/0), so one route handles
-    both directions. A tracked item starts getting daily commerce-facts snapshots
-    (the next scheduled run) and a weekly readiness re-score. ``set_tracked``
-    returns False for a forged/foreign id — surfaced as a benign message, never a
-    leak (IDOR gate).
+    both directions. A tracked item starts getting daily search rank + share-of-
+    search captures against its keywords and a weekly PDP snapshot (the next
+    scheduled runs). ``set_tracked`` returns False for a forged/foreign id —
+    surfaced as a benign message, never a leak (IDOR gate).
     """
     want = request.form.get("tracked") == "1"
     ok = tracking.set_tracked(get_db(), g.user["id"], item_id, want)
     if ok:
-        flash("Now tracking this item — daily checks begin on the next run."
-              if want else "Stopped tracking this item.", "ok")
+        flash("Now tracking this item — daily rank & share plus a weekly PDP snapshot, "
+              "starting on the next run." if want else "Stopped tracking this item.", "ok")
     else:
         flash("That item is no longer in your portfolio.", "error")
     return redirect(url_for("pages.portfolio_home"))
@@ -3089,7 +3090,40 @@ def portfolio_item_tracking(item_id: int):
         metrics=metrics,
         facts=list(reversed(facts)),  # table shows newest first
         has_any=bool(facts or readiness_vals),
+        keywords=item_keywords.list_keywords(db, uid, item_id),
+        keyword_labels=_KEYWORD_SLOT_LABELS,
     )
+
+
+# Human labels for the three keyword slots, shown beside each editor field.
+_KEYWORD_SLOT_LABELS = {
+    "brand": "Brand",
+    "brand_product_size": "Brand + product + size",
+    "category": "Category / intent",
+}
+
+
+@bp.route("/app/portfolio/<int:item_id>/keywords", methods=["POST"])
+@login_required
+def portfolio_edit_keywords(item_id: int):
+    """Save user edits to one managed item's three tracking keywords.
+
+    The editor on the item's tracking page posts ``kw1``/``kw2``/``kw3``; a blank
+    field clears that keyword (so it isn't scraped). ``set_keywords`` is user-scoped
+    and returns False for a forged/foreign id — surfaced as a benign message, never
+    a leak (IDOR gate). An edited keyword is pinned so the descriptors backfill
+    won't overwrite it.
+    """
+    values = {slot: request.form.get(f"kw{slot}") for slot in (1, 2, 3)}
+    ok = item_keywords.set_keywords(get_db(), g.user["id"], item_id, values)
+    if ok:
+        flash("Tracking keywords updated.", "ok")
+        # Back to the editor (on the item's own tracking page).
+        return redirect(url_for("pages.portfolio_item_tracking", item_id=item_id))
+    # Foreign/absent id: the tracking page would 404, so bounce to the catalog with
+    # a benign message (never confirm the item exists — IDOR gate).
+    flash("That item is no longer in your portfolio.", "error")
+    return redirect(url_for("pages.portfolio_home"))
 
 
 def _csv_template_response(filename: str, header: list[str], rows: list[list[str]]):

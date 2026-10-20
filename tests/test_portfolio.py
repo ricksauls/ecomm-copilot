@@ -423,6 +423,56 @@ def test_portfolio_toggle_track_is_user_scoped(client, auth, app):
             "SELECT tracked FROM portfolio_items WHERE id = ?", (pid,)).fetchone()["tracked"] == 1
 
 
+def test_tracking_page_shows_keyword_editor(client, auth, app):
+    auth.register(email="kwpage@example.com", password="password123")
+    _add_one(client, "Tabasco", "https://www.walmart.com/ip/10294528")
+    with app.app_context():
+        pid = get_db().execute(
+            "SELECT id FROM portfolio_items WHERE item_id = '10294528'").fetchone()["id"]
+    page = client.get(f"/app/portfolio/{pid}/tracking").data
+    assert b"Tracking keywords" in page
+    assert b'name="kw1"' in page and b'name="kw2"' in page and b'name="kw3"' in page
+    assert b"Tabasco" in page  # KW1 default rendered in its field
+
+
+def test_edit_keywords_saves_and_pins(client, auth, app):
+    auth.register(email="kwedit@example.com", password="password123")
+    _add_one(client, "Tabasco", "https://www.walmart.com/ip/10294528")
+    with app.app_context():
+        pid = get_db().execute(
+            "SELECT id FROM portfolio_items WHERE item_id = '10294528'").fetchone()["id"]
+
+    resp = client.post(f"/app/portfolio/{pid}/keywords",
+                       data={"kw1": "Tabasco", "kw2": "Tabasco Sriracha 11 oz", "kw3": "Sriracha"},
+                       follow_redirects=True)
+    assert b"Tracking keywords updated" in resp.data
+    with app.app_context():
+        rows = {r["slot"]: r for r in get_db().execute(
+            "SELECT slot, keyword, user_edited FROM portfolio_keywords "
+            "WHERE portfolio_item_id = ?", (pid,))}
+        assert rows[2]["keyword"] == "Tabasco Sriracha 11 oz"
+        assert rows[3]["keyword"] == "Sriracha"
+        assert all(rows[s]["user_edited"] == 1 for s in (1, 2, 3))
+
+
+def test_edit_keywords_is_user_scoped(client, auth, app):
+    auth.register(email="kwowner@example.com", password="password123")
+    _add_one(client, "Tabasco", "https://www.walmart.com/ip/10294528")
+    with app.app_context():
+        pid = get_db().execute(
+            "SELECT id FROM portfolio_items WHERE item_id = '10294528'").fetchone()["id"]
+    auth.logout()
+    auth.register(email="kwattacker@example.com", password="password123")
+
+    resp = client.post(f"/app/portfolio/{pid}/keywords",
+                       data={"kw1": "Hijack"}, follow_redirects=True)
+    assert b"no longer in your portfolio" in resp.data
+    with app.app_context():
+        assert get_db().execute(
+            "SELECT keyword FROM portfolio_keywords WHERE portfolio_item_id = ? AND slot = 1",
+            (pid,)).fetchone()["keyword"] == "Tabasco"
+
+
 # ── Per-item tracking detail page (build #2b) ─────────────────────────────────
 
 def _seed_facts(app, pid, rows):
