@@ -1,8 +1,9 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-10-20 (session 43 — **ONE FEATURE SHIPPED + LIVE + the session-42 pending ops item CLOSED.
-`main` = `127c0de`, pushed + deployed (CI→Deploy green, droplet verified at `127c0de`, web+worker active), 855
-tests passing, ruff clean.**)_
+_Last updated: 2026-10-20 (session 43 — **TWO Portfolio features SHIPPED + LIVE (PR #55, PR #56) + a pillow CVE
+bump + the session-42 pending ops item CLOSED. `main` = `065101f`, pushed + deployed (CI→Deploy green, droplet
+verified at `065101f`, web+worker active, pillow 13.0.0 live), 857 tests passing, ruff clean. NEXT SESSION = Phase 2
+(reorient Insights/Performance around per-item tracked data) — see "Next session" below.**)_
 
 _**1) Portfolio Management reworked (PR #55, `main` 127c0de, live).** Three user-requested changes: (a) **two
 server-rendered tabs** — "Managed Items" (the list + filter, `/app/portfolio`) and "Upload Items" (CSV import +
@@ -15,6 +16,22 @@ back to the Upload tab. (b) **Tracked-first sort:** `portfolio.list_items` now `
 offset on submit and re-applies it on reload, then clears it — targets the real scroll container **`.pane`** (the
 shell hides body overflow, so `window.scrollY` is always 0), scoped to the managed-items forms, pure enhancement.
 New tests: tab split + tracked-first order._
+
+_**1b) Inline tracking keywords on the Portfolio list (PR #56, `main` 065101f, live).** Each **tracked** item now
+shows its 3 keywords as labeled chips (Brand / Brand+product+size / Category) **in the Tracking column, under the
+toggle** (the keywords ARE the tracking config), and they're **editable inline**: "Edit keywords" swaps the chips
+for inputs + Save/Cancel (toggled by `portfolio.js`, event-delegated, CSP-safe). Save reuses the existing
+`portfolio_edit_keywords` route with **`return_to=portfolio`** → redirects back to the list (scroll-restore keeps
+the place); Cancel discards. Chips show ONLY while tracking is on. Keywords joined the client-side search haystack
+(tracked rows carry `data-keywords`). NEW `item_keywords.list_keywords_by_item` (one grouped query, no N+1);
+`portfolio_home` passes keywords for tracked items + slot labels. **"View trends" link left intact on purpose —
+it's removed/renamed in Phase 2, not now.** New tests: tracked-only chips + return-to-list redirect._
+
+_**1c) Pillow 12.3.0 → 13.0.0 (PR #56, CVE fix).** The 12.3.0 pin accrued 8 published pillow CVEs that the CI
+`pip-audit` gate started failing on (blocking EVERY PR, time-based — appeared mid-session after #55 passed).
+13.0.0 fixes them and is a drop-in for our image usage (resolution + imageset compose); 857 tests incl. all image
+paths pass, live on droplet. (Werkzeug/certifi are unpinned → CI resolves safe latest, so they weren't flagged; a
+local venv may show stale-version findings that CI does not.)_
 
 _**2) ⚠️ Session-42 PENDING OPS ITEM — item-tracking systemd units — now DONE + LIVE.** Discovered the units were
 **never installed** on the droplet (not just the rotating daily timer — the weekly timer AND the `track@` template
@@ -32,9 +49,23 @@ weekly PDP 8/wk + CI monitoring (only 4 active keywords, 1×/day) ≈ 28/wk. **I
 scrape driver (~86%)** — relevant to the deferred cost-visibility feature. (Oxylabs $/request rate still needed
 from the user to turn volume → dollars; the app still does NOT meter scrape cost in-app.)_
 
-_**Next session ideas:** (a) the still-deferred session-41 cost-visibility feature (lens question — operator vs
-client — still open; now with live item-tracking cost to surface); (b) week-end cost reconciliation: count actual
-`portfolio_rank_jobs` rows vs the ~204 projection and the user's Oxylabs invoice._
+_**NEXT SESSION — Phase 2 (COMMITTED, agreed with the user this session): reorient Insights/Performance around
+per-item tracked data.** The user wants **Insights/Performance to focus on ITEM-TRACKED data primarily, competitive
+tracking secondarily** (today it's the reverse). KEY GROUNDWORK ALREADY ESTABLISHED THIS SESSION: the two
+"performance" surfaces are **different data** — Insights/Performance (`_performance_insights` → `ci_analysis.*` →
+`ci_search_results`/`ci_share_of_search`) is **competitive** (you vs competitors across CI keyword GROUPS);
+the Portfolio item "View trends" page (`item_rank.*` → `portfolio_rank_readings` + weekly PDP) is **per-managed-item**
+rank/share for ITS OWN 3 keywords — and that per-item data lives **NOWHERE ELSE**. So Phase 2 is a real rework
+(the two data models don't map 1:1), NOT a move. Plan: (1) make Insights/Performance lead with per-item tracking
+(rank, share-of-search, PDP health across managed items), competitive as a secondary section/tab; (2) ONCE that
+hosts the per-item performance, strip the performance blocks from the Portfolio item page and either rename its
+link "View Keywords" or retire the page (keywords already live inline on the Portfolio list as of PR #56). Scope
+first (layout, which metrics lead, how the two data sets coexist, navigation)._
+
+_**Other open items (unchanged):** (a) the session-41 cost-visibility feature (lens question — operator vs client —
+still open; now with live item-tracking cost to surface, [[project-ecomm-cost-architecture]]); (b) week-end cost
+reconciliation: count actual `portfolio_rank_jobs` rows vs the ~204/wk projection and the user's Oxylabs invoice
+(need the Oxylabs $/request rate from the user)._
 
 _**Prior: session 42 (2026-10-20) — TWO FEATURES SHIPPED + LIVE. `main` = `0a68af9`, everything pushed +
 deployed (CI→Deploy green), ~855 tests passing, ruff clean. [NOTE: this block's "0 items tracked / no scrape cost"
