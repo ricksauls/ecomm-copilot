@@ -207,20 +207,68 @@ def test_fail_title_is_terminal(app):
         assert portfolio.has_claimable_title(db) is False
 
 
-def test_worker_backfills_title(app, monkeypatch):
+def test_add_item_tracks_on_add_and_seeds_keywords(app):
+    with app.app_context():
+        db = get_db()
+        uid = create_local_user("ta@example.com", "password123")
+        ok, _ = portfolio.add_item(db, uid, "Tabasco",
+                                   "https://www.walmart.com/ip/10294528", None)
+        assert ok
+        item = db.execute(
+            "SELECT id, tracked FROM portfolio_items WHERE item_id = '10294528'").fetchone()
+        assert item["tracked"] == 1  # tracked on add
+        kws = db.execute(
+            "SELECT slot, kind, keyword FROM portfolio_keywords "
+            "WHERE portfolio_item_id = ? ORDER BY slot", (item["id"],)).fetchall()
+        assert [(r["slot"], r["kind"]) for r in kws] == [
+            (1, "brand"), (2, "brand_product_size"), (3, "category")]
+        assert kws[0]["keyword"] == "Tabasco"       # KW1 known at add
+        assert kws[1]["keyword"] == "Tabasco"       # KW2 brand-only until the PDP fetch
+        assert kws[2]["keyword"] is None            # KW3 category filled later / by the user
+
+
+def test_import_rows_tracks_and_seeds_keywords(app):
+    with app.app_context():
+        db = get_db()
+        uid = create_local_user("ir@example.com", "password123")
+        result = portfolio.import_rows(db, uid, [
+            {"brand": "Tabasco", "walmart_url": "https://www.walmart.com/ip/111",
+             "amazon_url": None},
+        ])
+        assert result["added"] == 1
+        item = db.execute(
+            "SELECT id, tracked FROM portfolio_items WHERE item_id = '111'").fetchone()
+        assert item["tracked"] == 1
+        assert db.execute(
+            "SELECT COUNT(*) c FROM portfolio_keywords WHERE portfolio_item_id = ?",
+            (item["id"],)).fetchone()["c"] == 3
+
+
+def test_worker_backfills_descriptors(app, monkeypatch):
     import worker
     with app.app_context():
         db = get_db()
         uid = create_local_user("w@example.com", "password123")
         portfolio.add_item(db, uid, "Tabasco", "https://www.walmart.com/ip/10294528", None)
         item = portfolio.claim_next_title(db)
-        monkeypatch.setattr(worker, "fetch_title", lambda url, item_id: "Fetched Name")
-        worker.process_portfolio_title_one(db, item)
+        monkeypatch.setattr(worker, "fetch_item_descriptors",
+                            lambda url, item_id: {"title": "Original Hot Sauce",
+                                                  "brand": "Tabasco", "size": "12 oz",
+                                                  "category": "Hot Sauce"})
+        worker.process_portfolio_descriptors_one(db, item)
         row = db.execute(
             "SELECT title, title_status FROM portfolio_items WHERE id = ?", (item["id"],)
         ).fetchone()
-        assert row["title"] == "Fetched Name"
+        assert row["title"] == "Original Hot Sauce"
         assert row["title_status"] == "done"
+        # KW2/KW3 refined from the fetched size/category (KW1 brand stays).
+        kws = {r["slot"]: r["keyword"]
+               for r in db.execute(
+                   "SELECT slot, keyword FROM portfolio_keywords WHERE portfolio_item_id = ?",
+                   (item["id"],))}
+        assert kws[1] == "Tabasco"
+        assert kws[2] == "Tabasco Original Hot Sauce 12 oz"
+        assert kws[3] == "Hot Sauce"
 
 
 def test_worker_marks_error_when_fetch_blocked(app, monkeypatch):
@@ -234,8 +282,8 @@ def test_worker_marks_error_when_fetch_blocked(app, monkeypatch):
 
         def _blocked(url, item_id):
             raise FetchBlocked("bot wall")
-        monkeypatch.setattr(worker, "fetch_title", _blocked)
-        worker.process_portfolio_title_one(db, item)  # must not raise
+        monkeypatch.setattr(worker, "fetch_item_descriptors", _blocked)
+        worker.process_portfolio_descriptors_one(db, item)  # must not raise
         row = db.execute(
             "SELECT title_status FROM portfolio_items WHERE id = ?", (item["id"],)
         ).fetchone()
@@ -336,12 +384,8 @@ def test_portfolio_toggle_track_on_and_off(client, auth, app):
             "SELECT id FROM portfolio_items WHERE item_id = '10294528'").fetchone()
         pid = row["id"]
 
-    # Untracked items show a "Track" action.
-    assert b"Track" in client.get("/app/portfolio").data
-
-    on = client.post(f"/app/portfolio/track/{pid}", data={"tracked": "1"},
-                     follow_redirects=True)
-    assert b"pf-track-on" in on.data  # the active "Tracking" button renders
+    # Items are tracked on add — the active "Tracking" pill renders from the start.
+    assert b"pf-track-on" in client.get("/app/portfolio").data
     with app.app_context():
         assert get_db().execute(
             "SELECT tracked FROM portfolio_items WHERE id = ?", (pid,)).fetchone()["tracked"] == 1
@@ -353,9 +397,16 @@ def test_portfolio_toggle_track_on_and_off(client, auth, app):
         assert get_db().execute(
             "SELECT tracked FROM portfolio_items WHERE id = ?", (pid,)).fetchone()["tracked"] == 0
 
+    on = client.post(f"/app/portfolio/track/{pid}", data={"tracked": "1"},
+                     follow_redirects=True)
+    assert b"pf-track-on" in on.data  # the active "Tracking" pill renders again
+    with app.app_context():
+        assert get_db().execute(
+            "SELECT tracked FROM portfolio_items WHERE id = ?", (pid,)).fetchone()["tracked"] == 1
+
 
 def test_portfolio_toggle_track_is_user_scoped(client, auth, app):
-    # Owner adds an item; a second user cannot flip its tracked flag.
+    # Owner adds an item (tracked on add); a second user cannot flip its flag.
     auth.register(email="owner2@example.com", password="password123")
     _add_one(client, "Tabasco", "https://www.walmart.com/ip/10294528")
     with app.app_context():
@@ -364,12 +415,12 @@ def test_portfolio_toggle_track_is_user_scoped(client, auth, app):
     auth.logout()
     auth.register(email="attacker@example.com", password="password123")
 
-    resp = client.post(f"/app/portfolio/track/{pid}", data={"tracked": "1"},
+    resp = client.post(f"/app/portfolio/track/{pid}", data={"tracked": "0"},
                        follow_redirects=True)
     assert b"no longer in your portfolio" in resp.data  # benign, no leak
     with app.app_context():
         assert get_db().execute(
-            "SELECT tracked FROM portfolio_items WHERE id = ?", (pid,)).fetchone()["tracked"] == 0
+            "SELECT tracked FROM portfolio_items WHERE id = ?", (pid,)).fetchone()["tracked"] == 1
 
 
 # ── Per-item tracking detail page (build #2b) ─────────────────────────────────

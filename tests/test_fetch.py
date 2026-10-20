@@ -9,12 +9,14 @@ from PIL import Image
 from app.fetch import (
     _count_spec_pairs,
     _extract_brand,
+    _extract_category,
     _extract_idml_bullets,
     _extract_idml_specs,
     _extract_in_stock,
     _extract_price,
     _extract_rating,
     _extract_review_count,
+    _extract_size_from_specs,
     _is_white_background,
     _load_pdp_data,
     _next_data_from_html,
@@ -65,6 +67,32 @@ def test_parse_product_maps_fields():
     assert "Purified water" in pdp.description
     assert pdp.attributes_present == 3  # empty spec value dropped
     assert pdp.brand == "Great Value"
+
+
+def test_extract_size_from_specs_prefers_net_content():
+    specs = [
+        {"name": "Brand", "value": "Tabasco"},
+        {"name": "Size", "value": "Medium"},
+        {"name": "Net Content", "value": "12 oz"},
+    ]
+    # "net content" ranks above the generic "size".
+    assert _extract_size_from_specs(specs) == "12 oz"
+    # Falls back to "size" when there's no net content.
+    assert _extract_size_from_specs([{"name": "Size", "value": "6 pack"}]) == "6 pack"
+    # Nothing size-ish, or no specs at all -> ''.
+    assert _extract_size_from_specs([{"name": "Color", "value": "Red"}]) == ""
+    assert _extract_size_from_specs(None) == ""
+
+
+def test_extract_category_handles_breadcrumb_string_and_absent():
+    # Breadcrumb path -> leaf name.
+    assert _extract_category(
+        {"category": {"path": [{"name": "Food"}, {"name": "Hot Sauce"}]}}) == "Hot Sauce"
+    # Delimited string -> last segment.
+    assert _extract_category({"categoryPathName": "Food/Condiments/Hot Sauce"}) == "Hot Sauce"
+    assert _extract_category({"productType": "Hot Sauce"}) == "Hot Sauce"
+    # Absent -> '' (KW3 left blank for the user).
+    assert _extract_category({}) == ""
 
 
 def test_extract_brand_handles_string_dict_and_absent():

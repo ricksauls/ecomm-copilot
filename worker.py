@@ -48,8 +48,8 @@ from app.seasonal import generate as seasonal_generate  # noqa: E402
 from app.seasonal import jobs as seasonal_jobs  # noqa: E402
 from app.seasonal import store as seasonal_store  # noqa: E402
 from app.fetch import (  # noqa: E402
-    FetchBlocked, FetchError, fetch_item_facts, fetch_main_image_url, fetch_pdp,
-    fetch_title,
+    FetchBlocked, FetchError, fetch_item_descriptors, fetch_item_facts,
+    fetch_main_image_url, fetch_pdp,
 )
 from app.scoring import PdpRecord, result_to_dict, score_pdp  # noqa: E402
 
@@ -747,24 +747,28 @@ def process_import_one(conn: sqlite3.Connection, item: sqlite3.Row) -> None:
     import_acquire.process_item(conn, item)
 
 
-def process_portfolio_title_one(conn: sqlite3.Connection, item: sqlite3.Row) -> None:
-    """Backfill one claimed portfolio item's product title (Walmart PDP scrape).
+def process_portfolio_descriptors_one(conn: sqlite3.Connection, item: sqlite3.Row) -> None:
+    """Backfill one claimed portfolio item's descriptors (Walmart PDP scrape).
 
-    Browser work like the other fetches, but lightweight (name only). A blocked or
-    failed fetch settles the row to 'error' (terminal, not re-queued) so it never
-    spins; the item stays searchable by brand / item # / URL meanwhile. Never
-    raises — it settles the row itself so the worker loop keeps draining.
+    Reads the product title (backfilling the name as before) plus the size and
+    category, and refines the item's auto-generated tracking keywords (KW2/KW3)
+    without overwriting any the user has edited. Browser work like the other
+    fetches, but lightweight. A blocked or failed fetch settles the row to 'error'
+    (terminal, not re-queued) so it never spins; the item stays searchable by brand
+    / item # / URL meanwhile. Never raises — it settles the row itself so the worker
+    loop keeps draining.
     """
     try:
-        title = fetch_title(item["walmart_url"], item["item_id"])
-        portfolio.save_title(conn, item["id"], title)
-        log.info("Portfolio title fetched id=%s item=%s len=%d",
-                 item["id"], item["item_id"], len(title))
+        descriptors = fetch_item_descriptors(item["walmart_url"], item["item_id"])
+        portfolio.save_descriptors(conn, item["id"], descriptors)
+        log.info("Portfolio descriptors fetched id=%s item=%s title_len=%d size=%r category=%r",
+                 item["id"], item["item_id"], len(descriptors.get("title") or ""),
+                 descriptors.get("size"), descriptors.get("category"))
     except FetchBlocked as e:
-        log.warning("Portfolio title fetch blocked id=%s: %s", item["id"], e)
+        log.warning("Portfolio descriptors fetch blocked id=%s: %s", item["id"], e)
         portfolio.fail_title(conn, item["id"])
     except FetchError as e:
-        log.warning("Portfolio title fetch failed id=%s: %s", item["id"], e)
+        log.warning("Portfolio descriptors fetch failed id=%s: %s", item["id"], e)
         portfolio.fail_title(conn, item["id"])
 
 
@@ -1023,12 +1027,13 @@ def main() -> None:
             process_ci_run(conn, ci_run)
             continue
 
-        # Portfolio title backfill — lowest priority (a light name-only scrape that
-        # only makes the pick-lists searchable by title). One item per loop so it
+        # Portfolio descriptors backfill — lowest priority (a light scrape for the
+        # product name, size, and category that makes the pick-lists searchable by
+        # title and refines the auto tracking keywords). One item per loop so it
         # never competes with real work; runs only when every queue above is idle.
-        title_item = portfolio.claim_next_title(conn)
-        if title_item is not None:
-            process_portfolio_title_one(conn, title_item)
+        descriptors_item = portfolio.claim_next_title(conn)
+        if descriptors_item is not None:
+            process_portfolio_descriptors_one(conn, descriptors_item)
             continue
 
         time.sleep(POLL_INTERVAL_S)

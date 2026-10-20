@@ -106,6 +106,64 @@ def _extract_description(product: dict) -> str:
     return ""
 
 
+def _extract_category(product: dict) -> str:
+    """Best-effort leaf category / shopper intent from the product node.
+
+    Used to seed the item's category keyword (KW3). Walmart's __NEXT_DATA__ is not
+    consistent here, so we try the known shapes in order and return the most
+    specific (leaf) category name, or '' when none is exposed — in which case KW3
+    is left blank for the user to fill (the defaults are explicitly best-effort).
+
+      • ``product.category.path`` — a breadcrumb list of ``{name}``; last = leaf.
+      • ``product.categoryPathName`` / ``product.productType`` — a ``"A/B/C"`` or
+        plain string; last path segment = leaf.
+    """
+    category = product.get("category")
+    if isinstance(category, dict):
+        path = category.get("path")
+        if isinstance(path, list) and path:
+            leaf = path[-1]
+            name = leaf.get("name") if isinstance(leaf, dict) else leaf
+            if isinstance(name, str) and name.strip():
+                return name.strip()
+    elif isinstance(category, str) and category.strip():
+        return category.strip().split("/")[-1].strip()
+
+    for key in ("categoryPathName", "productType"):
+        value = product.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip().split("/")[-1].strip()
+    return ""
+
+
+# Spec names (lowercased, substring-matched) that carry a product's size / pack,
+# in priority order — the first one present with a value wins. Ordered so an
+# explicit net content/weight beats a generic "size", and a multipack count is a
+# last resort.
+_SIZE_SPEC_HINTS = (
+    "net content", "net weight", "total capacity", "capacity",
+    "container size", "size", "volume", "count per pack", "count",
+)
+
+
+def _extract_size_from_specs(specs: list[dict] | None) -> str:
+    """Best-effort product size from the idml spec rows (see _extract_idml_specs).
+
+    Scans the ``{name, value}`` rows for the first size-ish attribute with a
+    value (e.g. ``Net Content → "12 oz"``). Returns '' when none is found — the
+    size is simply dropped from KW2 rather than guessed.
+    """
+    if not specs:
+        return ""
+    for hint in _SIZE_SPEC_HINTS:
+        for row in specs:
+            name = (row.get("name") or "").strip().lower()
+            value = (row.get("value") or "").strip()
+            if value and hint in name:
+                return value
+    return ""
+
+
 def _extract_image_count(product: dict) -> int:
     """Count images from imageInfo.allImages."""
     images = product.get("imageInfo", {}).get("allImages", [])
@@ -658,6 +716,32 @@ def fetch_item_facts(url: str, item_id: str | None = None, *,
         "image_count": _extract_image_count(product),
         "has_video": _detect_video(product),
         "title": (product.get("name") or "").strip() or None,
+    }
+
+
+def fetch_item_descriptors(url: str, item_id: str | None = None, *,
+                           timeout_ms: int = 35000) -> dict:
+    """Lean cousin of :func:`fetch_pdp` that backfills an item's tracking keywords.
+
+    Loads the PDP once and reads the few descriptors needed to generate the
+    best-effort keyword defaults (see :mod:`app.item_keywords`): the product
+    ``title`` and ``brand``, the ``size`` (from the idml spec rows), and the leaf
+    ``category``. No scoring parse, no image work. Same headed-browser /
+    bot-detection path: raises :class:`FetchBlocked` / :class:`FetchError`;
+    background-only.
+
+    Returns ``{title, brand, size, category}`` with '' for any field the page
+    doesn't expose (title/brand also drive the existing name backfill).
+    """
+    logger.info("Fetching item descriptors url=%s item_id=%s", url, item_id)
+    data = _load_pdp_data(url, timeout_ms)
+    product = data.get("product") or {}
+    specs = _extract_idml_specs(data.get("idml"))
+    return {
+        "title": (product.get("name") or "").strip(),
+        "brand": _extract_brand(product),
+        "size": _extract_size_from_specs(specs),
+        "category": _extract_category(product),
     }
 
 

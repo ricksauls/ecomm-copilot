@@ -137,8 +137,10 @@ CREATE TABLE IF NOT EXISTS portfolio_items (
     -- lands on 'error' (searchable by brand/item/URL meanwhile).
     title        TEXT,
     title_status TEXT    NOT NULL DEFAULT 'queued',
-    -- tracked = 1 opts this item into ongoing monitoring (daily commerce facts +
-    -- weekly readiness re-score). Defaults off; the user flags items individually.
+    -- tracked = 1 opts this item into ongoing monitoring: DAILY search rank + share
+    -- of search against its keywords, and a WEEKLY full-PDP snapshot (commerce facts
+    -- + content re-score). New rows are tracked on add (app.portfolio.add_item);
+    -- the user can toggle it per item.
     tracked      INTEGER NOT NULL DEFAULT 0,
     created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
     updated_at   TEXT    NOT NULL DEFAULT (datetime('now'))
@@ -191,6 +193,66 @@ CREATE TABLE IF NOT EXISTS portfolio_item_facts (
 );
 CREATE INDEX IF NOT EXISTS idx_portfolio_item_facts_series
     ON portfolio_item_facts(portfolio_item_id, captured_at);
+
+-- Per-item keyword tracking (daily search rank + share of search). Each tracked
+-- portfolio item carries 3 keywords; the daily sweep scrapes each keyword's page-1
+-- SERP and records where the item places and how many of the page's slots are its
+-- own (the share-of-search numerator; total slots = the denominator). The app
+-- rolls these daily readings up to the Weekly/Monthly/Quarterly views — it never
+-- shows a daily figure. Distinct from the commerce-facts pipeline above.
+--   • portfolio_keywords — the 3 editable keywords per item (brand / brand+product
+--     +size / category). Auto-generated best-effort, then user-editable; a row the
+--     user has edited (user_edited=1) is never overwritten by the backfill.
+--   • portfolio_rank_jobs — the daily scrape queue (one row per item×keyword per
+--     sweep; worker drains queued -> fetching -> done|error, self-heals on startup).
+--   • portfolio_rank_readings — one dated result per item×keyword; the series the
+--     calendar-bucket roll-up reads. Raw slot counts are stored (not a pre-divided
+--     share) so a weekly/monthly/quarterly roll-up sums slots across its days.
+CREATE TABLE IF NOT EXISTS portfolio_keywords (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    portfolio_item_id INTEGER NOT NULL REFERENCES portfolio_items(id) ON DELETE CASCADE,
+    user_id           INTEGER NOT NULL REFERENCES users(id),
+    slot              INTEGER NOT NULL,                  -- 1|2|3
+    kind              TEXT    NOT NULL,                  -- brand|brand_product_size|category
+    keyword           TEXT,                              -- NULL until generated/backfilled
+    user_edited       INTEGER NOT NULL DEFAULT 0,        -- 1 => don't clobber on backfill
+    created_at        TEXT    NOT NULL DEFAULT (datetime('now')),
+    updated_at        TEXT    NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(portfolio_item_id, slot)
+);
+CREATE INDEX IF NOT EXISTS idx_portfolio_keywords_item ON portfolio_keywords(portfolio_item_id);
+
+CREATE TABLE IF NOT EXISTS portfolio_rank_jobs (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    portfolio_item_id INTEGER NOT NULL REFERENCES portfolio_items(id) ON DELETE CASCADE,
+    keyword_id        INTEGER NOT NULL REFERENCES portfolio_keywords(id) ON DELETE CASCADE,
+    user_id           INTEGER NOT NULL REFERENCES users(id),
+    keyword           TEXT    NOT NULL,                  -- denormalized for the scrape + logging
+    walmart_item_id   TEXT,                              -- match key (the item's own placements)
+    walmart_url       TEXT,                              -- URL fallback match key
+    status            TEXT    NOT NULL DEFAULT 'queued', -- queued|fetching|done|error
+    created_at        TEXT    NOT NULL DEFAULT (datetime('now')),
+    finished_at       TEXT,
+    message           TEXT                               -- failure detail when status='error'
+);
+CREATE INDEX IF NOT EXISTS idx_portfolio_rank_jobs_claim ON portfolio_rank_jobs(status, id);
+CREATE INDEX IF NOT EXISTS idx_portfolio_rank_jobs_item ON portfolio_rank_jobs(portfolio_item_id);
+
+CREATE TABLE IF NOT EXISTS portfolio_rank_readings (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    portfolio_item_id INTEGER NOT NULL REFERENCES portfolio_items(id) ON DELETE CASCADE,
+    keyword_id        INTEGER NOT NULL REFERENCES portfolio_keywords(id) ON DELETE CASCADE,
+    user_id           INTEGER NOT NULL REFERENCES users(id),
+    walmart_item_id   TEXT,
+    captured_at       TEXT    NOT NULL,                  -- YYYY-MM-DD (the scrape date)
+    rank              INTEGER,                           -- best page-1 position; NULL = off page 1
+    organic_rank      INTEGER,                           -- best organic position, if any
+    sponsored_rank    INTEGER,                           -- best sponsored position, if any
+    item_slots        INTEGER NOT NULL DEFAULT 0,        -- the item's own placements this scrape
+    total_slots       INTEGER NOT NULL DEFAULT 0         -- all placements on the page (SoS denominator)
+);
+CREATE INDEX IF NOT EXISTS idx_portfolio_rank_readings_series
+    ON portfolio_rank_readings(portfolio_item_id, keyword_id, captured_at);
 
 -- One row per AI image-fix (upscale / white-background) requested from the
 -- scoring results page. The web app inserts rows as 'queued'; the background
@@ -935,6 +997,48 @@ def _migrate(conn: sqlite3.Connection) -> None:
             "CREATE INDEX IF NOT EXISTS idx_portfolio_title_claim "
             "ON portfolio_items(title_status, id)"
         )
+
+    # Per-item keyword tracking backfill (one-time). New portfolio rows get their
+    # tracked flag + 3 keyword rows at add-time (see app.portfolio.add_item); this
+    # catches items that predate the feature. Gated on portfolio_keywords being
+    # empty so it runs exactly once: on first startup after the feature ships it
+    # turns tracking ON for existing managed items (so they adopt the new UI) and
+    # seeds best-effort keyword defaults (KW1 brand, KW2 brand+title, KW3 category
+    # left blank for the user/descriptors backfill to fill). On a fresh DB there are
+    # no items yet, so it's a harmless no-op until the first add. The SELECT guards
+    # against a missing table on a DB mid-migration.
+    pk_exists = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='portfolio_keywords'"
+    ).fetchone()
+    if pk_exists:
+        pk_empty = conn.execute("SELECT 1 FROM portfolio_keywords LIMIT 1").fetchone() is None
+        if pk_empty:
+            conn.execute("UPDATE portfolio_items SET tracked = 1 WHERE tracked = 0")
+            existing = conn.execute(
+                "SELECT id, user_id, brand, title FROM portfolio_items"
+            ).fetchall()
+            for row in existing:
+                brand = (row["brand"] or "").strip()
+                title = (row["title"] or "").strip()
+                kw1 = brand or None
+                kw2 = (f"{brand} {title}".strip() or None)
+                # (item_id, user_id, slot, kind, keyword) — KW3 category stays NULL.
+                seeds = (
+                    (1, "brand", kw1),
+                    (2, "brand_product_size", kw2),
+                    (3, "category", None),
+                )
+                for slot, kind, keyword in seeds:
+                    conn.execute(
+                        "INSERT OR IGNORE INTO portfolio_keywords "
+                        "(portfolio_item_id, user_id, slot, kind, keyword) VALUES (?, ?, ?, ?, ?)",
+                        (row["id"], row["user_id"], slot, kind, keyword),
+                    )
+            if existing:
+                logger.info(
+                    "Backfilled per-item keyword tracking for %d existing portfolio item(s)",
+                    len(existing),
+                )
 
     # generated_reports.seen — added with the report-scheduling work (PR B). A DB
     # created by PR A has the table without this column; scheduled reports mark it 0

@@ -20,7 +20,7 @@ import sqlite3
 
 from werkzeug.datastructures import FileStorage
 
-from app import pdp
+from app import item_keywords, pdp
 
 logger = logging.getLogger(__name__)
 
@@ -163,13 +163,17 @@ def import_rows(conn: sqlite3.Connection, user_id: int, rows: list[dict]) -> dic
         walmart_url = row["walmart_url"]
         item_id = pdp.item_number_from_url(walmart_url)
         key = _dedupe_key(walmart_url, item_id)
+        # tracked=1: imported items are tracked on add, like the single-add form.
         cur = conn.execute(
             "INSERT OR IGNORE INTO portfolio_items "
-            "(user_id, brand, walmart_url, item_id, amazon_url, dedupe_key) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
+            "(user_id, brand, walmart_url, item_id, amazon_url, dedupe_key, tracked) "
+            "VALUES (?, ?, ?, ?, ?, ?, 1)",
             (user_id, row.get("brand"), walmart_url, item_id, row.get("amazon_url"), key),
         )
         added += cur.rowcount  # 1 when inserted, 0 when the UNIQUE index skipped it
+        if cur.rowcount:
+            # Seed the 3 keywords (KW1=brand); KW2/KW3 refine from the PDP later.
+            item_keywords.generate_defaults(conn, user_id, cur.lastrowid, row.get("brand"))
     conn.commit()
     skipped = len(rows) - added
     logger.info("Portfolio import: %d added, %d skipped, user_id=%s", added, skipped, user_id)
@@ -193,17 +197,23 @@ def add_item(conn: sqlite3.Connection, user_id: int, brand: str | None,
         return False, "Enter a valid Walmart item URL (http/https)."
     item_id = pdp.item_number_from_url(walmart_url)
     key = _dedupe_key(walmart_url, item_id)
+    # tracked=1: new managed items are tracked on add (daily rank/share + weekly
+    # PDP). The user can turn an item off from the Portfolio screen's pill.
     cur = conn.execute(
         "INSERT OR IGNORE INTO portfolio_items "
-        "(user_id, brand, walmart_url, item_id, amazon_url, dedupe_key) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
+        "(user_id, brand, walmart_url, item_id, amazon_url, dedupe_key, tracked) "
+        "VALUES (?, ?, ?, ?, ?, ?, 1)",
         (user_id, cleaned_brand, walmart_url, item_id,
          _clean_optional_url(amazon_url_raw), key),
     )
     conn.commit()
     if cur.rowcount == 0:
         return False, "That product is already in your portfolio."
-    logger.info("Portfolio: added one item, user_id=%s", user_id)
+    # Seed the 3 tracking keywords now (KW1=brand). KW2/KW3 are refined from the
+    # PDP by the descriptors backfill once title_status (default 'queued') is
+    # claimed — see save_descriptors / worker.process_portfolio_descriptors_one.
+    item_keywords.generate_defaults(conn, user_id, cur.lastrowid, cleaned_brand)
+    logger.info("Portfolio: added one item (tracked), user_id=%s", user_id)
     return True, None
 
 
@@ -292,6 +302,34 @@ def save_title(conn: sqlite3.Connection, item_id: int, title: str | None) -> Non
         ((title or "").strip() or None, item_id),
     )
     conn.commit()
+
+
+def save_descriptors(conn: sqlite3.Connection, item_id: int, descriptors: dict) -> None:
+    """Store the fetched title and refine the item's keyword defaults, settle 'done'.
+
+    ``descriptors`` is the :func:`app.fetch.fetch_item_descriptors` result
+    (``{title, brand, size, category}``). The name backfill behaviour is unchanged
+    (title + ``title_status='done'``); on top of it the product name, size, and
+    category refine the auto-generated KW2/KW3 keywords, never overwriting a
+    keyword the user has already edited (see
+    :func:`app.item_keywords.apply_descriptors`). KW2 is composed from the item's
+    OWN stored brand (the authoritative KW1), not the fetched brand, so the three
+    keywords stay consistent.
+    """
+    title = (descriptors.get("title") or "").strip() or None
+    conn.execute(
+        "UPDATE portfolio_items SET title = ?, title_status = 'done', "
+        "updated_at = datetime('now') WHERE id = ?",
+        (title, item_id),
+    )
+    row = conn.execute("SELECT brand FROM portfolio_items WHERE id = ?", (item_id,)).fetchone()
+    brand = row["brand"] if row else None
+    item_keywords.apply_descriptors(
+        conn, item_id, brand=brand,
+        title=descriptors.get("title"),
+        size=descriptors.get("size"),
+        category=descriptors.get("category"),
+    )  # commits (title UPDATE above rides the same connection)
 
 
 def fail_title(conn: sqlite3.Connection, item_id: int) -> None:
