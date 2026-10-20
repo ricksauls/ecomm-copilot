@@ -72,3 +72,56 @@
   var containers = document.querySelectorAll("[data-portfolio-filter]");
   Array.prototype.forEach.call(containers, wire);
 })();
+
+// Preserve scroll position across an in-list action (track toggle / Remove).
+//
+// Those controls are plain POST forms that redirect back to this page, so the
+// browser loads a fresh document scrolled to the top — losing the user's place
+// in a long list. We stash the scroll offset just before the form navigates
+// away and re-apply it on the next load, then clear it so an ordinary visit
+// still starts at the top.
+//
+// The scrolling element is `.pane` (the shell hides body overflow), NOT the
+// window — so window.scrollY is always 0 here and we must read/write
+// pane.scrollTop. Loaded only on the list tab (where portfolio.js is included),
+// so it never runs on the Upload tab. Pure enhancement: with JS off the page
+// just behaves as before (jumps to top).
+(function () {
+  "use strict";
+
+  var KEY = "pf-pane-scroll";
+  var pane = document.querySelector(".pane");
+  if (!pane) {
+    return;
+  }
+
+  // Restore first (this script runs at end of body, so layout is ready). A
+  // missing/blocked sessionStorage simply means no restore — never a hard fail.
+  try {
+    var saved = sessionStorage.getItem(KEY);
+    if (saved !== null) {
+      sessionStorage.removeItem(KEY);
+      pane.scrollTop = parseInt(saved, 10) || 0;
+    }
+  } catch (e) {
+    /* private mode / storage disabled — skip restore */
+  }
+
+  // Capture phase so we record the offset before the submit navigates away.
+  // Scoped to forms inside the managed-items container (the track + delete
+  // forms); the search box doesn't submit, so it never triggers this.
+  document.addEventListener(
+    "submit",
+    function (ev) {
+      var form = ev.target;
+      if (form && form.closest && form.closest("[data-portfolio-filter]")) {
+        try {
+          sessionStorage.setItem(KEY, String(pane.scrollTop));
+        } catch (e) {
+          /* storage disabled — the reload will just land at the top */
+        }
+      }
+    },
+    true
+  );
+})();

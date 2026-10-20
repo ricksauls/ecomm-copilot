@@ -6,15 +6,27 @@
   <div>
     <h1>Portfolio Management</h1>
     <p class="subtitle">
-      The products you manage. Import a CSV or add items one at a time — they'll
-      appear in the managed-items dropdowns on Content Scoring, Product Copy, and
-      the Image Set Creator. New items are <strong>tracked</strong> automatically:
-      daily search rank &amp; share of search against their keywords, plus a weekly
-      PDP snapshot — rolled up weekly, monthly, and quarterly. Use the pill to turn
-      tracking off for any item.
+      The products you manage. They appear in the managed-items dropdowns on
+      Content Scoring, Product Copy, and the Image Set Creator. New items are
+      <strong>tracked</strong> automatically: daily search rank &amp; share of
+      search against their keywords, plus a weekly PDP snapshot — rolled up weekly,
+      monthly, and quarterly. Use the toggle to turn tracking off for any item.
     </p>
   </div>
 </div>
+
+{# --- Tabs: Managed Items (the list) vs Upload (import / add) ----------------
+   Plain links in the shared .ws-tabs style (CSP-safe, works with JS off). Each
+   tab is its own URL (portfolio_home / portfolio_upload) rendering this template
+   with a different `view`, so the active tab is driven server-side. #}
+<nav class="ws-tabs" aria-label="Portfolio views">
+  <a href="{{ url_for('pages.portfolio_home') }}"
+     class="ws-tab{{ ' active' if view == 'items' else '' }}"
+     {{ 'aria-current="page"' if view == 'items' else '' }}>Managed Items</a>
+  <a href="{{ url_for('pages.portfolio_upload') }}"
+     class="ws-tab{{ ' active' if view == 'upload' else '' }}"
+     {{ 'aria-current="page"' if view == 'upload' else '' }}>Upload Items</a>
+</nav>
 
 {% with flashes = get_flashed_messages(with_categories=true) %}
   {% for category, message in flashes %}
@@ -22,6 +34,7 @@
   {% endfor %}
 {% endwith %}
 
+{% if view == 'upload' %}
 {# --- Import a CSV ---------------------------------------------------------- #}
 <div class="card card-pad">
   <div class="ci-section-title">Import items from a CSV</div>
@@ -74,6 +87,7 @@
   </form>
 </div>
 
+{% else %}
 {# --- Managed items: filter + table ---------------------------------------- #}
 <div class="card card-pad" data-portfolio-filter>
   <div class="pf-list-head">
@@ -128,8 +142,10 @@
              state so the one route handles both directions: an on item posts 0
              (disable), an off item posts 1 (enable). The switch is a submit button
              styled as a slider (no inline JS — CSP-safe); the knob sits right/green
-             when on, left/grey when off. pf-track-on marks the active state. #}
-          <td class="cell-action">
+             when on, left/grey when off. pf-track-on marks the active state.
+             cell-track (not cell-action) keeps this column left-aligned to match
+             its header; cell-action right-aligns (used by the Remove column). #}
+          <td class="cell-track">
             <form method="post" action="{{ url_for('pages.portfolio_toggle_track', item_id=it.id) }}"
                   class="pf-track-form">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
@@ -166,13 +182,22 @@
     </table>
   </div>
   {% if not items %}
-  <p class="results-count">No managed items yet. Import a CSV or add one above to get started.</p>
+  <p class="results-count">
+    No managed items yet.
+    <a href="{{ url_for('pages.portfolio_upload') }}">Upload a CSV or add one</a>
+    to get started.
+  </p>
   {% endif %}
 </div>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}
-{# intake.js powers the CSV drop zone; portfolio.js powers the client-side filter. #}
+{% if view == 'upload' %}
+{# intake.js powers the CSV drop zone (only present on the Upload tab). #}
 <script src="{{ static_url('js/intake.js') }}"></script>
+{% else %}
+{# portfolio.js powers the client-side filter over the managed-items table. #}
 <script src="{{ static_url('js/portfolio.js') }}"></script>
+{% endif %}
 {% endblock %}

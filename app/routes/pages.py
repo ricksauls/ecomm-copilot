@@ -2932,15 +2932,38 @@ _PORTFOLIO_NAV = "portfolio"
 @bp.route("/app/portfolio")
 @login_required
 def portfolio_home():
-    """Portfolio Management screen: list managed items, with import/add/filter."""
-    logger.info("Serving Portfolio Management, user_id=%s", g.user["id"])
+    """Portfolio Management — Managed Items tab: the list + client-side filter.
+
+    Adding items (CSV import / single add) lives on the sibling Upload tab
+    (``portfolio_upload``); the two share this template via the ``view`` flag.
+    """
+    logger.info("Serving Portfolio Management (items), user_id=%s", g.user["id"])
     db = get_db()
     uid = g.user["id"]
     return render_template(
         "app/portfolio.html",
         breadcrumb="Portfolio Management · Managed Items",
         active_nav=_PORTFOLIO_NAV,
+        view="items",
         items=portfolio.list_items(db, uid),
+    )
+
+
+@bp.route("/app/portfolio/upload")
+@login_required
+def portfolio_upload():
+    """Portfolio Management — Upload tab: CSV import + single-item add forms.
+
+    The forms POST to the existing ``portfolio_import`` / ``portfolio_add``
+    handlers; on success they redirect to the Managed Items tab so the user sees
+    the new rows (tracked, sorted to the top).
+    """
+    logger.info("Serving Portfolio Management (upload), user_id=%s", g.user["id"])
+    return render_template(
+        "app/portfolio.html",
+        breadcrumb="Portfolio Management · Upload Items",
+        active_nav=_PORTFOLIO_NAV,
+        view="upload",
     )
 
 
@@ -2951,7 +2974,8 @@ def portfolio_import():
     csv_file = request.files.get("csv")
     if csv_file is None or not csv_file.filename:
         flash("Choose a CSV file to import.", "error")
-        return redirect(url_for("pages.portfolio_home"))
+        # Back to the Upload tab so the drop zone stays in view for a retry.
+        return redirect(url_for("pages.portfolio_upload"))
 
     rows, invalid = portfolio.parse_csv(csv_file)
     if not rows:
@@ -2961,7 +2985,7 @@ def portfolio_import():
             "\"Walmart Item URL\" (a full product URL).",
             "error",
         )
-        return redirect(url_for("pages.portfolio_home"))
+        return redirect(url_for("pages.portfolio_upload"))
 
     result = portfolio.import_rows(get_db(), g.user["id"], rows)
     # Summarize the outcome so the user knows exactly what happened: added vs
@@ -2987,7 +3011,9 @@ def portfolio_add():
         amazon_url_raw=request.form.get("amazon_url"),
     )
     flash("Item added to your portfolio." if ok else error, "ok" if ok else "error")
-    return redirect(url_for("pages.portfolio_home"))
+    # On success show the list (new item tracked + sorted to the top); on a
+    # validation error stay on the Upload tab so the form is right there.
+    return redirect(url_for("pages.portfolio_home" if ok else "pages.portfolio_upload"))
 
 
 @bp.route("/app/portfolio/delete/<int:item_id>", methods=["POST"])

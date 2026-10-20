@@ -244,17 +244,21 @@ def get_item(conn: sqlite3.Connection, user_id: int, pk: int) -> sqlite3.Row | N
 
 
 def list_items(conn: sqlite3.Connection, user_id: int) -> list[sqlite3.Row]:
-    """All of the user's managed products, newest first.
+    """All of the user's managed products, tracked items first, then newest first.
 
     Carries the columns the screen and the scoring/copy pick-lists need: the
     Walmart URL (the value submitted to a run), the parsed item number, brand, the
     optional Amazon link, the backfilled product title — all four of brand /
     item # / URL / title are searchable in the unified filter — and the ``tracked``
     flag that drives the Track toggle.
+
+    Ordering: the Portfolio screen groups actively tracked items at the top (that
+    is where the user's attention and spend go), falling back to newest-first
+    within each group so a just-added item still surfaces near its peers.
     """
     return conn.execute(
         "SELECT id, brand, walmart_url, item_id, amazon_url, title, tracked, created_at "
-        "FROM portfolio_items WHERE user_id = ? ORDER BY id DESC",
+        "FROM portfolio_items WHERE user_id = ? ORDER BY tracked DESC, id DESC",
         (user_id,),
     ).fetchall()
 
