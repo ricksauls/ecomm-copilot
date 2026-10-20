@@ -62,11 +62,88 @@
 </div>
 {% endif %}
 
+{# ── Search tracking (rank + share of search), rolled up to the selected grain.
+   Never a daily view: a grain toggle (Weekly/Monthly/Quarterly) + a bucket picker
+   choose an absolute calendar window; each keyword shows its average rank and
+   share with the change vs the previous bucket and a trailing sparkline. #}
+<div class="card card-pad">
+  <div class="trk-search-head">
+    <div class="ci-section-title">Search tracking</div>
+    <div class="trk-grain-tabs">
+      {% for gkey, glabel in search_grain_labels.items() %}
+      <a href="{{ url_for('pages.portfolio_item_tracking', item_id=item.id, grain=gkey) }}"
+         class="trk-grain-tab {{ 'is-active' if gkey == search_grain else '' }}">{{ glabel }}</a>
+      {% endfor %}
+    </div>
+  </div>
+
+  {% if search_collecting %}
+  <p class="ci-empty">
+    Collecting data — daily rank &amp; share of search are captured per keyword and rolled up to
+    the {{ search_grain_labels[search_grain] | lower }} view. The first results appear once this
+    {{ search_grain }} closes.
+  </p>
+  {% else %}
+  {# Bucket picker — no-JS GET form (CSP blocks inline handlers). #}
+  <form method="get" class="trk-bucket-form">
+    <input type="hidden" name="grain" value="{{ search_grain }}" />
+    <label class="field-sublabel" for="bucket">Period</label>
+    <select id="bucket" name="bucket" class="pf-select trk-bucket-select">
+      {% for b in search_buckets %}
+      <option value="{{ b.year }}.{{ b.index }}"
+        {{ 'selected' if b.year == search_selected.year and b.index == search_selected.index else '' }}>
+        {{ b.label }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="wbtn wbtn-secondary">View</button>
+  </form>
+
+  <div class="trk-search-grid">
+    {% for row in search_rows %}
+    <div class="trk-metric">
+      <div class="trk-metric-head">
+        <span class="trk-metric-label">{{ row.keyword }}</span>
+        <span class="cell-muted">{{ keyword_labels.get(row.kind, row.kind) }}</span>
+      </div>
+      <div class="trk-search-pair">
+        <div class="trk-search-cell">
+          <div class="trk-kpi-label">Avg rank</div>
+          <div class="trk-kpi-value">
+            {%- if row.rank_current is not none %}#{{ '%.1f'|format(row.rank_current) }}
+            {%- else %}—{% endif %}
+          </div>
+          {{ trk_spark(row.rank_spark) }}
+          <div class="trk-metric-foot">
+            {% if row.rank_delta is not none and row.rank_delta != 0 %}
+              {# Rank: lower is better, so a negative delta is an improvement. #}
+              <span class="cell-muted">{{ '%+.1f'|format(row.rank_delta) }} vs prev</span>
+            {% else %}<span class="cell-muted">{{ row.n }} day{{ '' if row.n == 1 else 's' }}</span>{% endif %}
+          </div>
+        </div>
+        <div class="trk-search-cell">
+          <div class="trk-kpi-label">Share of search</div>
+          <div class="trk-kpi-value">
+            {%- if row.share_current is not none %}{{ '%.1f'|format(row.share_current * 100) }}%
+            {%- else %}—{% endif %}
+          </div>
+          {{ trk_spark(row.share_spark) }}
+          <div class="trk-metric-foot">
+            {% if row.share_delta is not none and row.share_delta != 0 %}
+              <span class="cell-muted">{{ '%+.1f'|format(row.share_delta * 100) }} pts vs prev</span>
+            {% else %}<span class="cell-muted">{{ row.n }} day{{ '' if row.n == 1 else 's' }}</span>{% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+
 {% if not has_any %}
 <div class="card card-pad ci-empty">
-  No tracking data yet. Daily search rank &amp; share of search begin on the next run, and
-  a weekly PDP snapshot (price, reviews, content) is captured weekly — rolled up to the
-  weekly, monthly, and quarterly views. Check back after the first week closes.
+  No weekly PDP snapshot yet. Price, reviews, and content readiness are captured weekly for
+  tracked items — check back after the next weekly run.
 </div>
 {% else %}
 

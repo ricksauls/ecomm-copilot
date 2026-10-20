@@ -35,8 +35,8 @@ from zoneinfo import ZoneInfo  # noqa: E402
 
 from app import (  # noqa: E402  (after load_dotenv is intentional)
     ci_config, ci_images, ci_jobs, ci_scraper, copy_jobs, copygen, db,
-    image_enhance, image_jobs, jobs, keywords, portfolio, report, report_store,
-    tracking,
+    image_enhance, image_jobs, item_rank, jobs, keywords, portfolio, report,
+    report_store, tracking,
 )
 from app.imageset import generate as imageset_generate  # noqa: E402
 from app.imageset import jobs as imageset_jobs  # noqa: E402
@@ -218,6 +218,35 @@ def process_fact_one(conn: sqlite3.Connection, row: sqlite3.Row) -> None:
     except Exception as e:  # noqa: BLE001 - a bad item must not kill the worker
         log.exception("Unexpected error fetching facts job=%s", job_id)
         tracking.mark_fact_failed(conn, job_id, f"Unexpected error: {e}")
+
+
+def process_rank_one(conn: sqlite3.Connection, job: sqlite3.Row) -> None:
+    """Capture one tracked item's daily rank + share for one keyword. Never raises.
+
+    Scrapes the keyword's page-1 SERP (same Oxylabs path as CI), reduces it to this
+    item's placements via :func:`app.item_rank.build_reading`, and stores one dated
+    reading. A blocked/failed scrape marks the job ``error`` — the next day's sweep
+    captures fresh (no requeue). The scrape date is the Walmart/CI timezone (CST) so
+    readings bucket consistently with the rest of the app.
+    """
+    job_id = job["id"]
+    try:
+        cards = ci_scraper.scrape_keyword_cards(job["keyword"])
+        reading = item_rank.build_reading(cards, job["walmart_item_id"], job["walmart_url"])
+        captured_at = datetime.now(CST).date().isoformat()
+        item_rank.save_reading(conn, job, reading, captured_at)
+        log.info("Rank reading job=%s item=%s kw=%r rank=%s slots=%s/%s",
+                 job_id, job["walmart_item_id"], job["keyword"],
+                 reading["rank"], reading["item_slots"], reading["total_slots"])
+    except FetchBlocked as e:
+        log.warning("Rank scrape blocked job=%s: %s", job_id, e)
+        item_rank.mark_rank_failed(conn, job_id, f"Blocked: {e}")
+    except FetchError as e:
+        log.warning("Rank scrape error job=%s: %s", job_id, e)
+        item_rank.mark_rank_failed(conn, job_id, str(e))
+    except Exception as e:  # noqa: BLE001 - a bad keyword must not kill the worker
+        log.exception("Unexpected error capturing rank job=%s", job_id)
+        item_rank.mark_rank_failed(conn, job_id, f"Unexpected error: {e}")
 
 
 def _copy_fetch(conn: sqlite3.Connection, row: sqlite3.Row) -> None:
@@ -915,18 +944,21 @@ def main() -> None:
     reclaimed_seasonal_products = seasonal_store.reclaim_orphaned_products(conn)
     reclaimed_seasonal_jobs = seasonal_jobs.reclaim_orphaned_jobs(conn)
     reclaimed_facts = tracking.reclaim_orphaned_fact_jobs(conn)
+    reclaimed_rank = item_rank.reclaim_orphaned_rank_jobs(conn)
     reclaimed_reports = report_store.reclaim_orphaned_reports(conn)
     if (reclaimed_items or reclaimed_copy or reclaimed_runs or reclaimed_images
             or reclaimed_sets or reclaimed_fetches or reclaimed_plans or reclaimed_imports
             or reclaimed_seasonal_products or reclaimed_seasonal_jobs or reclaimed_facts
-            or reclaimed_reports):
+            or reclaimed_rank or reclaimed_reports):
         log.warning(
             "Startup: reclaimed %d scoring item(s), %d copy item(s), %d CI run(s), "
             "%d image job(s), %d image-set job(s), %d image-set prefill(s), %d plan(s), "
-            "%d import item(s), %d seasonal product(s), %d seasonal job(s), %d facts job(s)",
+            "%d import item(s), %d seasonal product(s), %d seasonal job(s), %d facts job(s), "
+            "%d rank job(s)",
             reclaimed_items, reclaimed_copy, reclaimed_runs, reclaimed_images,
             reclaimed_sets, reclaimed_fetches, reclaimed_plans, reclaimed_imports,
             reclaimed_seasonal_products, reclaimed_seasonal_jobs, reclaimed_facts,
+            reclaimed_rank,
         )
     while True:
         # Scoring first and concurrently: drain the whole queue with the thread
@@ -986,6 +1018,17 @@ def main() -> None:
             fact_job = tracking.claim_next_fact_job(conn)
             if fact_job is not None:
                 process_fact_one(conn, fact_job)
+                time.sleep(random.uniform(*FETCH_DELAY_RANGE_S))
+                continue
+
+        # Daily item-tracking rank/share next — a keyword SERP scrape (same Oxylabs
+        # path as CI). One keyword per loop, paced like the facts sweep. The queue
+        # is empty unless the daily rank enqueue is turned on, so this is inert by
+        # default.
+        if item_rank.has_claimable_rank_job(conn):
+            rank_job = item_rank.claim_next_rank_job(conn)
+            if rank_job is not None:
+                process_rank_one(conn, rank_job)
                 time.sleep(random.uniform(*FETCH_DELAY_RANGE_S))
                 continue
 

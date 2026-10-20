@@ -41,6 +41,7 @@ from app import (
     image_enhance,
     image_jobs,
     item_keywords,
+    item_rank,
     jobs,
     messages,
     pdp,
@@ -3092,7 +3093,54 @@ def portfolio_item_tracking(item_id: int):
         has_any=bool(facts or readiness_vals),
         keywords=item_keywords.list_keywords(db, uid, item_id),
         keyword_labels=_KEYWORD_SLOT_LABELS,
+        **_search_tracking_context(db, uid, item_id),
     )
+
+
+# The grains the search-tracking view offers, with their selector labels.
+_GRAIN_LABELS = {"week": "Weekly", "month": "Monthly", "quarter": "Quarterly"}
+
+
+def _search_tracking_context(db, uid: int, item_id: int) -> dict:
+    """Build the Weekly/Monthly/Quarterly search-tracking view for the item.
+
+    Reads the chosen grain + bucket from the query string (defaulting to the most
+    recent bucket that holds data) and assembles the per-keyword rank + share rows,
+    each with a sparkline over the trailing buckets. When the item has no readings
+    for the chosen grain yet, ``search_collecting`` is True and the page shows a
+    'collecting data' state instead of empty tables — daily readings only surface
+    once their first bucket closes.
+    """
+    grain = request.args.get("grain", "week")
+    if grain not in item_rank.GRAINS:
+        grain = "week"
+    buckets = item_rank.available_buckets(db, item_id, grain)
+
+    selected, rows = None, []
+    if buckets:
+        # The selector submits the bucket as "<year>.<index>"; default to the most
+        # recent bucket that has data.
+        want = request.args.get("bucket", "")
+        selected = next((b for b in buckets if f"{b['year']}.{b['index']}" == want),
+                        buckets[0])
+        for row in item_rank.keyword_rollup(db, uid, item_id, grain,
+                                             selected["year"], selected["index"]):
+            rows.append({
+                **row,
+                "rank_spark": _sparkline(row["rank_series"]),
+                # Share is a fraction; scale to % for a legible sparkline (shape is
+                # scale-invariant, but keeps it consistent with the displayed value).
+                "share_spark": _sparkline([v * 100 for v in row["share_series"]]),
+            })
+
+    return {
+        "search_grain": grain,
+        "search_grain_labels": _GRAIN_LABELS,
+        "search_buckets": buckets,
+        "search_selected": selected,
+        "search_rows": rows,
+        "search_collecting": not buckets,
+    }
 
 
 # Human labels for the three keyword slots, shown beside each editor field.

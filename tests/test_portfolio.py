@@ -455,6 +455,43 @@ def test_edit_keywords_saves_and_pins(client, auth, app):
         assert all(rows[s]["user_edited"] == 1 for s in (1, 2, 3))
 
 
+def test_tracking_page_collecting_state(client, auth, app):
+    auth.register(email="collect@example.com", password="password123")
+    _add_one(client, "Tabasco", "https://www.walmart.com/ip/10294528")
+    with app.app_context():
+        pid = get_db().execute(
+            "SELECT id FROM portfolio_items WHERE item_id = '10294528'").fetchone()["id"]
+    page = client.get(f"/app/portfolio/{pid}/tracking").data
+    assert b"Search tracking" in page
+    assert b"Collecting data" in page          # no readings yet
+    assert b"Weekly" in page and b"Monthly" in page and b"Quarterly" in page
+
+
+def test_tracking_page_renders_rollup(client, auth, app):
+    auth.register(email="roll2@example.com", password="password123")
+    _add_one(client, "Tabasco", "https://www.walmart.com/ip/10294528")
+    with app.app_context():
+        db = get_db()
+        item = db.execute(
+            "SELECT id, user_id FROM portfolio_items WHERE item_id = '10294528'").fetchone()
+        kid = db.execute(
+            "SELECT id FROM portfolio_keywords WHERE portfolio_item_id = ? AND slot = 1",
+            (item["id"],)).fetchone()["id"]
+        for when, rank in (("2026-01-02", 4), ("2026-01-05", 2)):
+            db.execute(
+                "INSERT INTO portfolio_rank_readings (portfolio_item_id, keyword_id, user_id, "
+                "walmart_item_id, captured_at, rank, item_slots, total_slots) "
+                "VALUES (?, ?, ?, '10294528', ?, ?, 1, 40)",
+                (item["id"], kid, item["user_id"], when, rank))
+        db.commit()
+        pid = item["id"]
+    page = client.get(f"/app/portfolio/{pid}/tracking?grain=week").data
+    assert b"Search tracking" in page
+    assert b"Collecting data" not in page
+    assert b"Avg rank" in page and b"Share of search" in page
+    assert b"Jan 1" in page  # the week bucket label in the picker
+
+
 def test_edit_keywords_is_user_scoped(client, auth, app):
     auth.register(email="kwowner@example.com", password="password123")
     _add_one(client, "Tabasco", "https://www.walmart.com/ip/10294528")
@@ -514,7 +551,9 @@ def test_item_tracking_page_empty_state(client, auth, app):
             "SELECT id FROM portfolio_items WHERE item_id = '10294528'").fetchone()["id"]
     page = client.get(f"/app/portfolio/{pid}/tracking")
     assert page.status_code == 200
-    assert b"No tracking data yet" in page.data
+    # Search tracking shows a collecting-data state; the weekly PDP block its own.
+    assert b"Collecting data" in page.data
+    assert b"No weekly PDP snapshot yet" in page.data
 
 
 def test_item_tracking_page_is_user_scoped(client, auth, app):

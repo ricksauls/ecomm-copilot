@@ -83,10 +83,15 @@ def main(argv: list[str] | None = None) -> int:
     conn = _connect()
     try:
         if mode == "daily":
-            # Daily = search rank + share of search. The rank enqueuer lands with
-            # app.item_rank (next change); until then there's nothing to enqueue
-            # here — the commerce facts moved to the weekly PDP snapshot below.
-            logger.info("Daily item tracking: rank capture not yet enabled — nothing to enqueue")
+            # Daily = search rank + share of search per tracked item x keyword.
+            # Gated off by default (ITEM_TRACKING_RANK_ENABLED) because the scrape
+            # is the feature's dominant Oxylabs cost — enabling it starts the spend.
+            from app import item_rank
+            if item_rank.rank_capture_enabled():
+                item_rank.enqueue_rank_jobs(conn)
+            else:
+                logger.info("Daily item tracking: rank capture disabled "
+                            "(set ITEM_TRACKING_RANK_ENABLED=1 to enable)")
         else:  # weekly — the full PDP snapshot: commerce facts + content re-score
             from app import tracking
             tracking.enqueue_fact_jobs(conn)

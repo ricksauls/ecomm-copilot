@@ -3982,6 +3982,51 @@ select.pf-select[multiple] option { padding: 6px 8px; border-radius: 4px; }
   font-size: 12px;
 }
 
+/* Search-tracking block (rank + share, Weekly/Monthly/Quarterly). */
+.trk-search-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-12);
+}
+/* Grain toggle: Weekly | Monthly | Quarterly. */
+.trk-grain-tabs { display: inline-flex; gap: 4px; }
+.trk-grain-tab {
+  padding: 4px 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  border-radius: 999px;
+  border: 1px solid var(--control-border);
+  color: var(--mid-gray);
+  text-decoration: none;
+}
+.trk-grain-tab.is-active { color: var(--black); border-color: var(--black); }
+/* Bucket picker row. */
+.trk-bucket-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--space-8);
+  margin: var(--space-12) 0;
+}
+.trk-bucket-select { width: auto; min-width: 200px; }
+.trk-bucket-form .field-sublabel { display: block; width: 100%; margin-bottom: 4px; }
+/* One card per keyword, each holding the rank + share pair. */
+.trk-search-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+.trk-search-grid .trk-metric {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: var(--space-12);
+}
+.trk-search-pair { display: flex; gap: var(--space-16); margin-top: var(--space-8); }
+.trk-search-cell { flex: 1; min-width: 0; }
+
 /* ── Reports workspace ──────────────────────────────────────────────────────
    Create tab: a scope picker card (brand + period) above a generate card with
    one button per format. History tab: a plain table of generated reports. Reuses
