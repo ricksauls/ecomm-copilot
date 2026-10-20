@@ -337,8 +337,18 @@ journalctl -u 'ecomm-copilot-track@*' -n 50 --no-pager
 sudo systemctl start ecomm-copilot-track@daily.service
 ```
 
-An item is only picked up when its owner has toggled **Track** on for it in the
-app (`portfolio_items.tracked`).
+An item is only picked up when its owner has toggled **Track** on for it (the
+Portfolio pill, `portfolio_items.tracked`). New items are tracked on add; items
+that predate the feature start **off**. To enable a batch by name prefix — e.g.
+the demo products — without hand-toggling each one:
+
+```bash
+cd /home/deploy/apps/ecomm-copilot
+sudo -u deploy venv/bin/python -m app.enable_tracking DEMO   # brand/title LIKE 'DEMO%'
+```
+
+This only sets the tracked flag (and seeds keywords); no scraping runs until the
+daily rank sweep is enabled with `ITEM_TRACKING_RANK_ENABLED=1` in `.env`.
 
 ## Scheduled-reports timer
 

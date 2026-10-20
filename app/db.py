@@ -1001,19 +1001,20 @@ def _migrate(conn: sqlite3.Connection) -> None:
     # Per-item keyword tracking backfill (one-time). New portfolio rows get their
     # tracked flag + 3 keyword rows at add-time (see app.portfolio.add_item); this
     # catches items that predate the feature. Gated on portfolio_keywords being
-    # empty so it runs exactly once: on first startup after the feature ships it
-    # turns tracking ON for existing managed items (so they adopt the new UI) and
-    # seeds best-effort keyword defaults (KW1 brand, KW2 brand+title, KW3 category
-    # left blank for the user/descriptors backfill to fill). On a fresh DB there are
-    # no items yet, so it's a harmless no-op until the first add. The SELECT guards
-    # against a missing table on a DB mid-migration.
+    # empty so it runs exactly once. It seeds best-effort keyword defaults (KW1
+    # brand, KW2 brand+title, KW3 category left blank for the user/descriptors
+    # backfill to fill) but does NOT change the tracked flag — existing items stay
+    # at their current state (off by default) and are opted in individually via the
+    # Portfolio pill or the `python -m app.enable_tracking <prefix>` admin command.
+    # New items are tracked on add (app.portfolio.add_item). On a fresh DB there are
+    # no items yet, so it's a harmless no-op. The SELECT guards against a missing
+    # table on a DB mid-migration.
     pk_exists = conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='portfolio_keywords'"
     ).fetchone()
     if pk_exists:
         pk_empty = conn.execute("SELECT 1 FROM portfolio_keywords LIMIT 1").fetchone() is None
         if pk_empty:
-            conn.execute("UPDATE portfolio_items SET tracked = 1 WHERE tracked = 0")
             existing = conn.execute(
                 "SELECT id, user_id, brand, title FROM portfolio_items"
             ).fetchall()
