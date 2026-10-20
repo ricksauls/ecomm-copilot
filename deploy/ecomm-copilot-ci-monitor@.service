@@ -1,8 +1,10 @@
 # Templated oneshot that enqueues a monitoring CI run for every opted-in group.
 # The instance name (%i) is the slot: morning | afternoon | night. Triggered by
-# the three ecomm-copilot-ci-*.timer units (7AM/3PM/11PM CST). This only writes
-# queued rows — the ecomm-copilot-worker does the actual scraping — so it needs
-# no DISPLAY and finishes in milliseconds.
+# the three ecomm-copilot-ci-*.timer units (7AM/3PM/11PM CST), but the sweep runs
+# only ONCE per day: the enqueuer runs only the slot app.scrape_rotation picks for
+# today and the other two firings no-op, so the scrape time rotates day to day at a
+# third of the cost. This only writes queued rows — the ecomm-copilot-worker does
+# the actual scraping — so it needs no DISPLAY and finishes in milliseconds.
 #
 # Install at /etc/systemd/system/ecomm-copilot-ci-monitor@.service
 # (setup-droplet.sh does this).

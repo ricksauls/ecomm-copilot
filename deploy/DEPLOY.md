@@ -246,12 +246,15 @@ API key is read from the environment and never logged.
 
 ## Competitive Intelligence monitoring timers
 
-CI "monitoring" runs are enqueued **3×/day at 7:00 AM / 3:00 PM / 11:00 PM CST**
-by three systemd timers driving a templated oneshot
-(`ecomm-copilot-ci-monitor@<slot>.service`). The timers only enqueue `queued`
-runs; the existing `ecomm-copilot-worker` does the scraping, so there's no extra
-long-running process. `OnCalendar` carries an explicit `America/Chicago`
-timezone, so systemd tracks CST/CDT automatically (the droplet clock is UTC).
+CI "monitoring" runs **once per day at a rotating time**. Three systemd timers
+still fire at 7:00 AM / 3:00 PM / 11:00 PM CST (driving the templated oneshot
+`ecomm-copilot-ci-monitor@<slot>.service`), but the enqueuer runs only the slot
+`app.scrape_rotation` picks for today — the other two firings no-op. So the scrape
+samples different times of day across days while costing one sweep/day instead of
+three. The timers only enqueue `queued` runs; the existing `ecomm-copilot-worker`
+does the scraping, so there's no extra long-running process. `OnCalendar` carries
+an explicit `America/Chicago` timezone, so systemd tracks CST/CDT automatically
+(the droplet clock is UTC).
 
 `setup-droplet.sh` installs and enables all of this. If you're adding it to an
 already-provisioned droplet **without** re-running the full script, do the
@@ -289,8 +292,10 @@ app (`ci_groups.monitoring_enabled`).
 Individual portfolio-item tracking is enqueued by two systemd timers driving a
 templated oneshot (`ecomm-copilot-track@<cadence>.service`):
 
-- **daily** — 6:00 AM CST — a **search rank + share-of-search** capture per tracked
-  item × keyword, via the `portfolio_rank_jobs` queue (`app.item_rank`). **Cost:**
+- **daily** — once per day at a **rotating time** (6 AM / 2 PM / 10 PM CST,
+  partitioned by weekday in the timer, offset an hour from the CI windows) — a
+  **search rank + share-of-search** capture per tracked item × keyword, via the
+  `portfolio_rank_jobs` queue (`app.item_rank`). **Cost:**
   one Oxylabs `walmart_search` call per keyword per tracked item per day (up to 3
   keywords/item) — the spend scales with the number of tracked items, so this is
   the dominant cost lever of the tracking feature. Blank keywords aren't scraped,

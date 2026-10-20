@@ -1,16 +1,24 @@
-# Fires the daily item-tracking search sweep (rank + share of search) at 6:00 AM
-# Central (ahead of the CI morning sweep at 7:00). The explicit timezone in
-# OnCalendar makes systemd handle CST/CDT automatically (the droplet clock is UTC),
-# so no manual offset upkeep.
+# Fires the daily item-tracking search sweep (rank + share of search) ONCE per day,
+# but at a time that rotates across the week so results sample different hours
+# without paying for multiple runs. The three OnCalendar lines are partitioned by
+# weekday, so exactly one matches on any given day:
+#   Mon/Thu        -> 6:00 AM CST
+#   Tue/Fri        -> 2:00 PM CST
+#   Wed/Sat/Sun    -> 10:00 PM CST
+# Times are offset an hour from the CI monitoring windows (7 AM / 3 PM / 11 PM) so
+# the two sweeps don't hit Oxylabs at the same instant. The explicit timezone makes
+# systemd handle CST/CDT automatically (the droplet clock is UTC).
 #
 # Install at /etc/systemd/system/ecomm-copilot-track-daily.timer, then
 # `systemctl enable --now ecomm-copilot-track-daily.timer`.
 
 [Unit]
-Description=ecomm-copilot item tracking — daily rank & share of search (6:00 AM CST)
+Description=ecomm-copilot item tracking — daily rank & share of search (rotating time)
 
 [Timer]
-OnCalendar=*-*-* 06:00:00 America/Chicago
+OnCalendar=Mon,Thu *-*-* 06:00:00 America/Chicago
+OnCalendar=Tue,Fri *-*-* 14:00:00 America/Chicago
+OnCalendar=Wed,Sat,Sun *-*-* 22:00:00 America/Chicago
 Persistent=true
 Unit=ecomm-copilot-track@daily.service
 

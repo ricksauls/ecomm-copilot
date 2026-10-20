@@ -1,8 +1,11 @@
 """Enqueue a monitoring CI run for every opted-in group.
 
-Invoked by the systemd timers (3x/day: morning/afternoon/night, CST) — see
-``deploy/ecomm-copilot-ci-*.timer``. It only writes ``queued`` rows to the run
-queue; the background worker does the actual (slow, browser) scraping, so this
+Invoked by the systemd timers at all three windows (morning/afternoon/night, CST)
+— see ``deploy/ecomm-copilot-ci-*.timer``. But the sweep now runs **once per day
+at a rotating time**: only the window that :mod:`app.scrape_rotation` picks for
+today actually enqueues; the other two invocations no-op. This keeps the
+time-of-day variety at a third of the cost. It only writes ``queued`` rows to the
+run queue; the background worker does the actual (slow, browser) scraping, so this
 script stays fast and needs no display.
 
 Usage: ``python -m app.enqueue_monitoring <slot>`` where slot is one of
@@ -68,6 +71,16 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     load_dotenv()
+
+    # Once-per-day rotation: run only the window chosen for today; the other two
+    # timer firings no-op (so the sweep still varies its time of day across days
+    # but costs one scrape/day, not three).
+    from app import scrape_rotation
+    if not scrape_rotation.is_active(slot):
+        logger.info("Monitoring slot=%s is not today's rotation slot (%s) — skipping",
+                    slot, scrape_rotation.active_slot())
+        return 0
+
     conn = _connect()
     try:
         enqueue_all(conn, slot)

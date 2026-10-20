@@ -5303,7 +5303,8 @@ def _row_view(row) -> dict:
 #
 # Search Ranking + Share of Digital Shelf. A user manages one or more groups
 # (brands -> products, plus keywords), triggers a one-time scrape or opts a group
-# into the 3x/day monitoring sweep, and views the dashboards. Every route resolves
+# into the daily monitoring sweep (one run/day at a rotating time), and views the
+# dashboards. Every route resolves
 # ownership through ci_config (which raises ConfigError / returns None for another
 # user's ids), so IDOR is enforced server-side regardless of the ids posted.
 
@@ -5650,8 +5651,9 @@ def ci_schedule_from_snapshot(group_id):
     """Clone a snapshot group into a monitoring group, then queue a baseline run.
 
     The snapshot card's "Schedule for monitoring" action: promote a one-time
-    competitive set to ongoing 3x/day tracking without disturbing the snapshot.
-    Lands on the new monitoring group's config so the user can confirm the setup.
+    competitive set to ongoing daily tracking (one run/day at a rotating time)
+    without disturbing the snapshot. Lands on the new monitoring group's config so
+    the user can confirm the setup.
     """
     _owned_group_or_404(group_id)  # IDOR gate before we touch anything
     db = get_db()
@@ -5663,7 +5665,7 @@ def ci_schedule_from_snapshot(group_id):
 
     ci_jobs.enqueue_run(db, new_group_id, run_type="one_time")
     flash("Monitoring group created from this snapshot — a baseline run is queued "
-          "and automatic checks run 3×/day.", "ok")
+          "and automatic checks run once a day at a rotating time.", "ok")
     logger.info("CI schedule-from-snapshot src=%s new=%s user_id=%s",
                 group_id, new_group_id, g.user["id"])
     return _config_redirect(new_group_id)

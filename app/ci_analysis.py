@@ -28,7 +28,9 @@ DEFAULT_PERIOD = "wow"
 # How many completed periods the per-row trend sparkline plots (one point each).
 TREND_PERIODS = 6
 
-# The three daily monitoring slots, in Central time (matches the systemd timers).
+# The three daily monitoring windows, in Central time (matches the systemd timers).
+# The sweep runs ONE of these per day, rotating across days (see app.scrape_rotation);
+# the index into this tuple aligns with scrape_rotation.SLOTS.
 CST = ZoneInfo("America/Chicago")
 UTC = ZoneInfo("UTC")
 MONITORING_HOURS = (7, 15, 23)  # 7 AM, 3 PM, 11 PM CST
@@ -72,20 +74,26 @@ def format_run_time_cst(ts: str | None) -> str | None:
 
 
 def next_monitoring_run(now: datetime | None = None) -> datetime:
-    """Return the next 7 AM / 3 PM / 11 PM Central run strictly after ``now``.
+    """Return the next monitoring run strictly after ``now``, Central time.
 
-    Timezone-aware (DST handled by zoneinfo) so the monitoring screens can show
-    the same wall-clock time the systemd timers fire at.
+    The sweep runs once a day at a rotating window, so this is today's rotation
+    slot time if it's still ahead, else the next day's. Timezone-aware (DST handled
+    by zoneinfo) so the monitoring screens show the same wall-clock time the run
+    will fire at.
     """
+    from app import scrape_rotation
+
     now = now.astimezone(CST) if now else datetime.now(CST)
     for day_offset in (0, 1):
         day = (now + timedelta(days=day_offset)).date()
-        for hour in MONITORING_HOURS:
-            candidate = datetime(day.year, day.month, day.day, hour, 0, tzinfo=CST)
-            if candidate > now:
-                return candidate
-    # Unreachable (tomorrow's 7 AM always qualifies), but keep the type total.
-    return datetime(now.year, now.month, now.day, MONITORING_HOURS[0], 0, tzinfo=CST)
+        hour = MONITORING_HOURS[scrape_rotation.active_index(day)]
+        candidate = datetime(day.year, day.month, day.day, hour, 0, tzinfo=CST)
+        if candidate > now:
+            return candidate
+    # Unreachable (tomorrow's slot always qualifies), but keep the type total.
+    day = (now + timedelta(days=1)).date()
+    hour = MONITORING_HOURS[scrape_rotation.active_index(day)]
+    return datetime(day.year, day.month, day.day, hour, 0, tzinfo=CST)
 
 
 def _pct(part: int, whole: int) -> float:

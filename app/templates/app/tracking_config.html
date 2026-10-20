@@ -41,11 +41,13 @@
       <div class="ci-section-title">Tracking</div>
       <p class="ci-section-hint" style="margin-bottom:0">
         {% if group.monitoring_enabled %}
-          Automatic checks are on (7 AM / 3 PM / 11 PM CST). Next check:
+          Automatic checks are on — once a day at a rotating time (7 AM, 3 PM, or
+          11 PM CST, varying day to day). Next check:
           <strong>{{ next_run.strftime('%a %b %-d, %-I:%M %p') }} CST</strong>.
         {% else %}
-          Turn tracking on to start automatic checks (7 AM / 3 PM / 11 PM CST) and run a
-          baseline now. Add your products, competitors, and keywords below first.
+          Turn tracking on to start automatic checks (once a day at a rotating time —
+          7 AM, 3 PM, or 11 PM CST) and run a baseline now. Add your products,
+          competitors, and keywords below first.
         {% endif %}
       </p>
     </div>

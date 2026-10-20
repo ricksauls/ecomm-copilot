@@ -1,5 +1,7 @@
-# Fires the night monitoring sweep at 11:00 PM Central. Timezone in OnCalendar
-# handles CST/CDT automatically (droplet clock is UTC).
+# Fires the night monitoring slot at 11:00 PM Central. The sweep runs once a day at
+# a rotating time, so this enqueues only on the days app.scrape_rotation picks
+# "night" (it no-ops otherwise). Timezone in OnCalendar handles CST/CDT
+# automatically (droplet clock is UTC).
 #
 # Install at /etc/systemd/system/ecomm-copilot-ci-night.timer, then
 # `systemctl enable --now ecomm-copilot-ci-night.timer`.

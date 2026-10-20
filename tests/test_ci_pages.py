@@ -85,7 +85,9 @@ def test_monitoring_create_shows_tracking_setup(client, auth):
     # A fresh monitoring group lands on the redesigned Competitive Tracking setup
     # screen: tracking is off, so it offers to turn it on and names the schedule.
     assert b"Turn on tracking" in cfg.data
-    assert b"7 AM / 3 PM / 11 PM CST" in cfg.data
+    # The sweep now runs once a day at a rotating time (not 3x/day).
+    assert b"rotating time" in cfg.data
+    assert b"7 AM, 3 PM, or 11 PM CST" in cfg.data
     # The setup sections (your brand, competitors, keywords) are all present.
     assert b"Your brand" in cfg.data
     assert b"Competitors" in cfg.data
@@ -439,16 +441,23 @@ def test_idor_across_new_routes(client, auth, app):
     assert b"View Monitoring" in client.get("/app/competitive-intel/view").data
 
 
-def test_next_monitoring_run_picks_correct_slot():
-    from datetime import datetime
+def test_next_monitoring_run_follows_daily_rotation():
+    from datetime import date, datetime
     from zoneinfo import ZoneInfo
+
+    from app import scrape_rotation
     cst = ZoneInfo("America/Chicago")
-    # 8 AM CST -> next slot is 3 PM the same day.
-    n = ci_analysis.next_monitoring_run(datetime(2026, 8, 22, 8, 0, tzinfo=cst))
-    assert (n.hour, n.day) == (15, 22)
-    # 11:30 PM CST -> next slot is 7 AM tomorrow.
-    n = ci_analysis.next_monitoring_run(datetime(2026, 8, 22, 23, 30, tzinfo=cst))
-    assert (n.hour, n.day) == (7, 23)
+    hours = ci_analysis.MONITORING_HOURS
+
+    # Early in the day -> today's one rotation slot (whichever the date selects).
+    today_hour = hours[scrape_rotation.active_index(date(2026, 8, 22))]
+    n = ci_analysis.next_monitoring_run(datetime(2026, 8, 22, 0, 1, tzinfo=cst))
+    assert (n.year, n.month, n.day, n.hour) == (2026, 8, 22, today_hour)
+
+    # After the last possible slot time -> tomorrow's rotation slot.
+    tmr_hour = hours[scrape_rotation.active_index(date(2026, 8, 23))]
+    n = ci_analysis.next_monitoring_run(datetime(2026, 8, 22, 23, 59, tzinfo=cst))
+    assert (n.year, n.month, n.day, n.hour) == (2026, 8, 23, tmr_hour)
 
 
 def test_format_run_time_cst_converts_utc_to_central():
