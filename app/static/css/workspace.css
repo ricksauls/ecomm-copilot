@@ -3635,6 +3635,61 @@ select.pf-select[multiple] option { padding: 6px 8px; border-radius: 4px; }
 .pf-kw-row .field-sublabel { display: block; margin-bottom: 4px; }
 .pf-kw-form .wbtn { margin-top: var(--space-8); }
 
+/* --- Inline tracking keywords in the Portfolio list (Tracking column) --------
+   Shown only for tracked rows, below the toggle + "View trends". A read view
+   (labelled chips) swaps to an edit form (inputs) via portfolio.js. Kept narrow
+   so the column stays compact; long keywords (KW2) ellipsize with the full text
+   on hover (the chip's title attribute). */
+.pf-kw { margin-top: var(--space-8); max-width: 300px; }
+.pf-kw-chips {
+  list-style: none;
+  margin: 0 0 6px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.pf-kw-chip { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.pf-kw-tag {
+  flex: none;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--cool-gray);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 1px 6px;
+  white-space: nowrap;
+}
+.pf-kw-term {
+  font-size: 12px;
+  color: var(--black);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pf-kw-term.is-blank { color: var(--cool-gray); font-style: italic; }
+.pf-kw-edit {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--mid-gray);
+  text-decoration: underline;
+}
+.pf-kw-edit:hover { color: var(--black); }
+/* Edit view. The [hidden] default would be overridden by display:flex, so scope
+   the flex to the shown state. */
+.pf-kw-edit-form:not([hidden]) { display: flex; flex-direction: column; gap: 8px; }
+.pf-kw-edit-form { max-width: 300px; }
+.pf-kw-field { display: flex; flex-direction: column; gap: 2px; }
+.pf-kw-field .field-sublabel { font-size: 11px; }
+.pf-kw-input { width: 100%; font-size: 12px; padding: 5px 8px; }
+.pf-kw-actions { display: flex; gap: 8px; margin-top: 2px; }
+
 /* Managed-items card header: section title on the left, filter bar on the right
    when there's room; stacks on narrow panes. */
 .pf-list-head {

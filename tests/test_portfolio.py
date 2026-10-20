@@ -386,6 +386,51 @@ def test_upload_tab_holds_the_forms_and_list_tab_does_not(client, auth):
     assert b"Add a single item" not in listing.data
 
 
+def test_list_shows_keyword_chips_for_tracked_items_only(client, auth, app):
+    # Tracked items render their keyword chips + the inline editor in the Tracking
+    # column; turning tracking off removes them (the keywords are the tracking
+    # config, so they only show while tracking is on).
+    auth.register(email="chips@example.com", password="password123")
+    _add_one(client, "Tabasco", "https://www.walmart.com/ip/10294528")  # tracked on add
+
+    page = client.get("/app/portfolio").data
+    assert b"pf-kw-chips" in page                       # chips shown
+    assert b"data-pf-kw-form" in page                   # inline editor present
+    assert b'name="return_to"' in page                  # posts back to the list
+
+    with app.app_context():
+        pid = get_db().execute(
+            "SELECT id FROM portfolio_items WHERE item_id = '10294528'").fetchone()["id"]
+    client.post(f"/app/portfolio/track/{pid}", data={"tracked": "0"},
+                follow_redirects=True)
+
+    page_off = client.get("/app/portfolio").data
+    assert b"pf-kw-chips" not in page_off               # untracked -> no chips
+
+
+def test_inline_keyword_edit_returns_to_the_list(client, auth, app):
+    # The inline editor posts return_to=portfolio, so a save redirects back to the
+    # list (where scroll-restore keeps the user's place); the item-page editor
+    # omits it and still returns to that page.
+    auth.register(email="inlinekw@example.com", password="password123")
+    _add_one(client, "Tabasco", "https://www.walmart.com/ip/10294528")
+    with app.app_context():
+        pid = get_db().execute(
+            "SELECT id FROM portfolio_items WHERE item_id = '10294528'").fetchone()["id"]
+
+    from_list = client.post(
+        f"/app/portfolio/{pid}/keywords",
+        data={"kw1": "Tabasco", "kw2": "Tabasco Hot Sauce", "kw3": "Hot Sauce",
+              "return_to": "portfolio"})
+    assert from_list.status_code == 302
+    assert from_list.headers["Location"].endswith("/app/portfolio")
+
+    from_page = client.post(
+        f"/app/portfolio/{pid}/keywords",
+        data={"kw1": "Tabasco", "kw2": "x", "kw3": "y"})
+    assert from_page.headers["Location"].endswith(f"/app/portfolio/{pid}/tracking")
+
+
 def test_list_orders_tracked_items_first(client, auth, app):
     # Tracked items sort above untracked ones regardless of recency. Add two
     # items (222 is newer, so newest-first alone would put it on top), then turn

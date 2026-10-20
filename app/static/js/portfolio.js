@@ -33,13 +33,16 @@
       return;
     }
 
-    // Precompute each row's searchable haystack once (brand + item # + title + URL).
+    // Precompute each row's searchable haystack once (brand + item # + title +
+    // URL + tracking keywords). data-keywords is present only on tracked rows (on
+    // the Portfolio list); the pick-lists have no such attribute, so it no-ops there.
     var haystacks = rows.map(function (row) {
       return [
         row.getAttribute("data-brand") || "",
         row.getAttribute("data-item") || "",
         row.getAttribute("data-title") || "",
         row.getAttribute("data-url") || "",
+        row.getAttribute("data-keywords") || "",
       ].join(" ");
     });
 
@@ -124,4 +127,53 @@
     },
     true
   );
+})();
+
+// Inline keyword editor on the Portfolio list. Each tracked row's Tracking cell
+// has a read view (chips + "Edit keywords") and a hidden edit form. "Edit"
+// reveals the form and hides the chips; "Cancel" reverts unsaved changes and
+// collapses; submitting posts to the shared edit route (return_to=portfolio) and
+// the server redirects back to the list. Event-delegated so it covers every row
+// with one listener (CSP-safe, no inline handlers). Pure enhancement: with JS off
+// the chips stay visible and editing is still reachable from the item's own
+// tracking page ("View trends").
+(function () {
+  "use strict";
+
+  document.addEventListener("click", function (ev) {
+    var target = ev.target;
+    if (!target || !target.closest) {
+      return;
+    }
+    var editBtn = target.closest("[data-pf-kw-edit]");
+    var cancelBtn = target.closest("[data-pf-kw-cancel]");
+    if (!editBtn && !cancelBtn) {
+      return;
+    }
+
+    var container = (editBtn || cancelBtn).closest("[data-pf-kw]");
+    if (!container) {
+      return;
+    }
+    var view = container.querySelector("[data-pf-kw-view]");
+    var form = container.querySelector("[data-pf-kw-form]");
+    if (!view || !form) {
+      return;
+    }
+
+    if (editBtn) {
+      view.hidden = true;
+      form.hidden = false;
+      var first = form.querySelector("input[type=text]");
+      if (first) {
+        first.focus();
+      }
+    } else {
+      // Cancel — discard any unsaved edits (reset to the server-rendered values)
+      // and return to the chip view.
+      form.reset();
+      form.hidden = true;
+      view.hidden = false;
+    }
+  });
 })();
