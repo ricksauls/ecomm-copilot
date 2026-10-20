@@ -1,6 +1,126 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-10-15 (session 40 — **Business Report feature SHIPPED + LIVE in production. Both PRs merged to
+_Last updated: 2026-10-20 (session 42 — **TWO FEATURES SHIPPED + LIVE. `main` = `0a68af9`, everything pushed +
+deployed (CI→Deploy green), ~855 tests passing, ruff clean. Daily item scraping is GATED OFF and 0 items are
+tracked, so no scrape cost is running.**)_
+
+_**1) Managed-item dropdowns on the intakes (`main` 7ff918c, live).** Content Scoring, Product Copy, and the Image
+Set Creator now select products ONLY from the user's managed portfolio via a dropdown — manual URL entry + CSV upload
+were removed (adding items lives solely on Portfolio Management). Scoring/Copy use a native `<select multiple
+name="urls">`; Image Set uses a single `<select name="managed_url">` + a "Fetch details" button (formaction →
+`imageset_fetch`, which now reads `managed_url` with a `url` fallback). NEW macros `portfolio_pick_select` /
+`portfolio_pick_select_single` in `_portfolio_pick.html`; the OLD checkbox/radio macros are UNTOUCHED (still used by
+Seasonal + Tracking Config). Opportunities `?url=` deep-links now pre-select the matching managed item. No
+server-side portfolio gating added (would break many tests; not a security regression — jobs are user-scoped)._
+
+_**2) Per-item keyword tracking (5 phases, `main` cd85031→0816c95, live; daily scrape GATED OFF by default).** Every
+portfolio item is auto-tracked on add against **3 editable keywords** (KW1 brand / KW2 brand+product+size / KW3
+category); **DAILY** search rank + share-of-search per keyword, **WEEKLY** full-PDP snapshot, rolled up to
+**Weekly/Monthly/Quarterly only (never daily)**. Decisions the user set: dropdown selectors, track-on-add, share =
+item's slots ÷ ALL placements, keywords auto-gen best-effort + editable._
+_- **NEW modules:** `app/item_keywords.py` (keyword gen/CRUD, user-edit protection), `app/item_rank.py`
+  (`portfolio_rank_jobs` queue + pure `build_reading` SERP matcher + calendar-bucket readers), `app/scrape_rotation.py`
+  (date-ordinal slot rotation), `app/enable_tracking.py` (admin: enable by brand/title/**item_id** prefix)._
+_- **NEW tables (additive, auto-migrated on restart):** `portfolio_keywords`, `portfolio_rank_jobs`,
+  `portfolio_rank_readings`. Migration seeds keywords for existing items but does NOT auto-enable tracking._
+_- **Cadence change:** `enqueue_item_tracking weekly` = commerce facts (`portfolio_fact_jobs`) **+** content re-score
+  (`scored_items`); `daily` = rank/share via `item_rank.enqueue_rank_jobs`, GATED by env **`ITEM_TRACKING_RANK_ENABLED`**
+  (default off; **set =1 on the droplet now**). The portfolio title backfill became a **descriptors** backfill
+  (`fetch.fetch_item_descriptors` → title + size from idml specs + category; `worker.process_portfolio_descriptors_one`
+  + `portfolio.save_descriptors` refine KW2/KW3 without clobbering user edits)._
+_- **UI:** Portfolio "Tracking" column is a **sliding toggle switch** (green/on, grey/off; CSP-safe submit button,
+  server-rendered knob, keeps `pf-track-on` hook). Per-item tracking page: keyword editor + **Search tracking** card
+  (grain toggle + bucket picker + per-keyword avg rank & share-of-search with sparklines) + "collecting data" state;
+  the weekly PDP (facts + readiness) block kept below. Calendar buckets: weeks anchored at **Jan 1** (7-day bins,
+  final short stub), calendar months, calendar quarters (Q1 Jan–Mar …)._
+
+_**3) Daily scrapes → 1×/day at a rotating time (was 3×/day, `main` efe53f3, live).** CI monitoring: the three slot
+timers (7/3/11 CST) still fire, but `enqueue_monitoring` runs only the slot `scrape_rotation` picks for today (the
+other two no-op) — ~3× Oxylabs cost cut, time still varies across days. `ci_analysis.next_monitoring_run` + the
+Competitive-Tracking config copy updated. Item tracking: `ecomm-copilot-track-daily.timer` now rotates by weekday
+(6a/2p/10p CST, offset an hour from CI)._
+
+_**⚠️ PENDING OPS (needs the DigitalOcean ROOT web console — the `deploy` user has only scoped sudo for service
+restarts; `ssh droplet-deploy` logs in as `deploy`, key `~/.ssh/deploy_wm_ci`):** the new rotating item-tracking
+timer file is NOT yet installed on the droplet. Until it is, daily item scraping runs at the OLD fixed **6 AM**. To
+apply (as root): `install -m 644 deploy/ecomm-copilot-track-daily.timer /etc/systemd/system/ecomm-copilot-track-daily.timer
+&& systemctl daemon-reload && systemctl restart ecomm-copilot-track-daily.timer`. (The CI rotation is pure code → already
+live; no droplet action needed there.) Root password was stale this session — reset via DO → droplet → Access if needed._
+
+_**PROD STATE RIGHT NOW:** `ITEM_TRACKING_RANK_ENABLED=1` is set in the droplet `.env` and the worker is on the new
+code, but **0 items are tracked** → nothing is scraping. Flipping an item's toggle ON in the app adds it to the
+tracked set and it starts daily capture (6 AM for now). ⚠️ The demo products (user `ricksauls1@gmail.com`, u2) carry
+**synthetic item ids** (`DEMO-<brand>-<n>`) with real-looking brand/title, so they'll scrape their keywords but never
+match a real Walmart SERP result (rank blank, 0% share) — track items with REAL numeric ids (the ~12 real rows) or
+edit the demo items' keywords for meaningful numbers. `python -m app.enable_tracking <PREFIX>` bulk-enables by
+brand/title/item_id prefix._
+
+_**Next session ideas:** (a) one-time rotating-timer reinstall via DO root console (above); (b) the still-deferred
+session-41 cost-visibility feature (scoping Qs below); (c) possibly surface item-tracking cost now that it's live._
+
+_**Prior: session 41 (2026-10-15):** **COST-ARCHITECTURE INVESTIGATION — no code written, `main` clean at
+`91928f2`.** Mapped the app's full cost surface ahead of a planned **"cost visibility for actions to be taken"**
+feature. Key finding: the app has exactly **TWO cost events** — (1) the **scheduled Oxylabs scrape** (the dominant
+cost, currently UNMETERED/invisible in-app) and (2) **on-demand Creative Studio AI actions** (copygen / imageset /
+upscale / bg-removal — already per-unit priced). **Everything else is FREE local computation** over that
+once-acquired data._
+
+_**Two buckets (as the user framed it):**_
+_- **OPERATE (fixed/infra, operator-borne, not represented in app):** Digital Ocean droplet (web + worker + SQLite
+  + all timers), domain ecomm-copilot.com, email infra (not built — future). Google OAuth sign-in = free._
+_- **USE (variable/per-activity):** split into **data acquisition** (Oxylabs) + **AI content generation** (Creative
+  Studio)._
+
+_**Cost drivers (traced in code):**_
+_1. **Oxylabs** (`fetch.py`/`keywords.py`/`ci_scraper.py`) — Web Scraper API (`realtime.oxylabs.io`, the main cost:
+   1 request **per keyword × group × day** for daily CI monitoring + per tracked item for item-tracking), Web
+   Unblocker (`unblock.oxylabs.io`, fallback), residential proxy (`pr.oxylabs.io` / `WALMART_PROXY_*`). **NOT
+   metered or estimated anywhere in-app** — the biggest gap. Cost lever = **keywords × groups × days**._
+_2. **AI creative (already priced via `*_PRICE_PER_*` env, shows `est_cost` before running):** copygen = Anthropic
+   (`COPYGEN_PRICE_PER_ITEM`, **no default → counts-only** until set); imageset = OpenAI `gpt-image-2` scenes +
+   Anthropic planning (`IMAGESET_PRICE_PER_IMAGE` default **$0.04/img**); image upscale/enhance = Claid.ai
+   (`api.claid.ai`, `IMAGE_UPSCALE_PRICE_PER_IMAGE` default **$0.04/img**); bg-removal = remove.bg/PhotoRoom. All
+   providers default to **`"mock"` (free)** until real keys set._
+_3. **Product Image Import** (`app/imgimport/`) — **dual-bucket:** source *page* fetch (Amazon/Walmart PDP) renders
+   via the **residential proxy** (`use_proxy=True`) = unmetered, **currently inert** awaiting a proxy endpoint;
+   direct image URL = plain bandwidth (SSRF-guarded, 25 MB cap), negligible; upscale/white-bg = Claid, **priced**
+   (`est_cost` shown). Browsing the gallery is $0 (hotlinked thumbs, nothing downloaded/upscaled at acquire time)._
+
+_**Confirmed FREE ($0, no API, every page load — rule-based local compute over the DB):** content scoring
+(`scoring.py` — deterministic, imports only `logging`+`dataclasses`; the vision/AI pass is **deferred/commented
+out**); the dashboard 3 cards (`_performance_briefing`, data from `ci_analysis.*` + `jobs.*`); all 3 **Insights**
+screens — Performance / Opportunities / Competitive Intelligence (`_performance_insights` / `_opportunities_insights`
+/ `_competitive_insights`, all `ci_analysis.*` + `jobs.*` DB reads, **zero external calls**); **PDF + PPTX reports**
+(`report_pdf.py`=reportlab, `report_pptx.py`=python-pptx — pure-Python, no browser/network; charts drawn in-code via
+`_sos_chart`/`_rank_placement_grid`). ⚠️ The "provider HTTP (Claid)" docstrings in `worker.py` belong to the
+image-fix/imageset jobs, NOT `process_report_one`._
+
+_**Insight text is templated, not AI:** every card headline is 3 fixed strings picked by the SIGN of the delta —
+`_delta_pill(delta)` → `(display, "up"/"down"/"flat")`, then `_headline(dir, up, down, flat)`. "Rankings are
+improving/slipping/holding", "You're winning more shelf/…", "Content health is improving/…". Magnitude only shows in
+the pill (`+2.3 spots`) + narrative, never the headline. "Up" = good even for rank (caller passes `prior − current`).
+Relevant to the feature: if these were ever **generated** (nuanced by magnitude / naming the moved keyword), that
+introduces a per-view LLM cost on a surface that's currently $0._
+
+_**How "actions to be taken" (recommendations) map to cost:** copy rewrite → copygen; imagery upgrade →
+imageset/upscale (both already estimable); **sponsored placement / win-back shelf / page-1 presence → EXTERNAL ad
+spend (Walmart Connect)** — lives NOWHERE in the app, no rate basis yet. So three maturity tiers: (a) already
+estimated (AI creative), (b) incurred-but-invisible (Oxylabs scrape), (c) not-in-app (recommended ad spend)._
+
+_**OPEN scoping decisions for the feature (user deferred all 4 of my AskUserQuestion options — "No preference" —
+leaving the calls to me; STILL to resolve before building):**_
+_- **Lens:** operator (my own Oxylabs/DO/AI burn, internal dashboard) **vs.** client pass-through (each brand sees
+  THEIR action cost, client-facing ROI)? Changes everything. **← the key open question, re-asked at session end.**_
+_- **Oxylabs rate source:** accept a **configurable per-request rate** (mirror the AI `*_PRICE_PER_*` pattern) vs.
+  wire in the actual Oxylabs plan + DO invoice numbers (user to provide)._
+_- My **leaning design** (not committed): attach **cost + effort** to the recommended actions via an **editable
+  rate card with sensible defaults** (zero-setup to see value), and **meter the two real cost events** (scrape +
+  AI). Surface TBD (inline on existing recs vs. a dedicated ROI area)._
+
+_**Next session:** answer the lens + rate-source questions, then scope/build. Consider capturing this map as a
+standalone `docs/cost-architecture.md` if it'll be referenced often._
+
+_Prior: session 40 — **Business Report feature SHIPPED + LIVE in production. Both PRs merged to
 `main` and auto-deployed (CI→Deploy both green): PR A #53 (`main` 2640446, on-demand) + PR B #54 (`main` 065534c,
 scheduling). Reports timer installed on the droplet. 816 tests, ruff clean. NEW dep `python-pptx==1.0.2`; NEW
 tables `generated_reports` + `report_schedules` (additive, auto-applied on restart); optional env
