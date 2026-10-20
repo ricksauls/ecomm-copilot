@@ -1,8 +1,44 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-10-20 (session 42 — **TWO FEATURES SHIPPED + LIVE. `main` = `0a68af9`, everything pushed +
-deployed (CI→Deploy green), ~855 tests passing, ruff clean. Daily item scraping is GATED OFF and 0 items are
-tracked, so no scrape cost is running.**)_
+_Last updated: 2026-10-20 (session 43 — **ONE FEATURE SHIPPED + LIVE + the session-42 pending ops item CLOSED.
+`main` = `127c0de`, pushed + deployed (CI→Deploy green, droplet verified at `127c0de`, web+worker active), 855
+tests passing, ruff clean.**)_
+
+_**1) Portfolio Management reworked (PR #55, `main` 127c0de, live).** Three user-requested changes: (a) **two
+server-rendered tabs** — "Managed Items" (the list + filter, `/app/portfolio`) and "Upload Items" (CSV import +
+single-add, **new route `/app/portfolio/upload`**); one `portfolio.html` drives both via a `view` flag, tabs use
+the shared `.ws-tabs` style (plain links, CSP-safe, JS-off friendly). Import/add still POST to the existing
+handlers — on success → redirect to the list (new item shows, tracked + sorted to top), on validation error →
+back to the Upload tab. (b) **Tracked-first sort:** `portfolio.list_items` now `ORDER BY tracked DESC, id DESC`.
+(c) **Tracking column left-aligned** via new `.cell-track` class (`.cell-action` stays right-aligned for Remove).
+(d) **Scroll position preserved** across an in-list action (track toggle / Remove): `portfolio.js` stashes the
+offset on submit and re-applies it on reload, then clears it — targets the real scroll container **`.pane`** (the
+shell hides body overflow, so `window.scrollY` is always 0), scoped to the managed-items forms, pure enhancement.
+New tests: tab split + tracked-first order._
+
+_**2) ⚠️ Session-42 PENDING OPS ITEM — item-tracking systemd units — now DONE + LIVE.** Discovered the units were
+**never installed** on the droplet (not just the rotating daily timer — the weekly timer AND the `track@` template
+service they both depend on were all missing), so scheduled item tracking wasn't going to fire at all. Installed
+all three via the DO path (the `deploy` user actually has full `(ALL:ALL) ALL` sudo, just password-gated outside
+the restart allowlist). **Both timers now `enabled` + `active`:** daily rotates (Mon/Thu 6a · Tue/Fri 2p ·
+Wed/Sat/Sun 10p CST) → `track@daily.service`; weekly Mon 5a CST → `track@weekly.service`. Schedule math verified.
+(/tmp staging `/tmp/ecomm-track-units/` may still exist from the install; harmless.)_
+
+_**3) ⚠️ STALE-FACT CORRECTION — tracking is LIVE with real cost now (was "0 items tracked, nothing scraping").**
+As of this session **8 real items are tracked** (user u2 `ricksauls1@gmail.com`: Tabasco, Ritz ×3, Listerine ×2,
+Hawaiian Tropic ×2 — all real numeric Walmart ids). Daily rank/share sweeps are firing (first sweep produced 24
+clean readings). **Projected weekly Oxylabs volume ≈ 204 requests:** item-tracking daily 8×3=24/day ≈ 168/wk +
+weekly PDP 8/wk + CI monitoring (only 4 active keywords, 1×/day) ≈ 28/wk. **Item tracking is now the DOMINANT
+scrape driver (~86%)** — relevant to the deferred cost-visibility feature. (Oxylabs $/request rate still needed
+from the user to turn volume → dollars; the app still does NOT meter scrape cost in-app.)_
+
+_**Next session ideas:** (a) the still-deferred session-41 cost-visibility feature (lens question — operator vs
+client — still open; now with live item-tracking cost to surface); (b) week-end cost reconciliation: count actual
+`portfolio_rank_jobs` rows vs the ~204 projection and the user's Oxylabs invoice._
+
+_**Prior: session 42 (2026-10-20) — TWO FEATURES SHIPPED + LIVE. `main` = `0a68af9`, everything pushed +
+deployed (CI→Deploy green), ~855 tests passing, ruff clean. [NOTE: this block's "0 items tracked / no scrape cost"
+is now superseded — see session 43 item 3 above.]**_
 
 _**1) Managed-item dropdowns on the intakes (`main` 7ff918c, live).** Content Scoring, Product Copy, and the Image
 Set Creator now select products ONLY from the user's managed portfolio via a dropdown — manual URL entry + CSV upload
