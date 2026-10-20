@@ -2940,12 +2940,18 @@ def portfolio_home():
     logger.info("Serving Portfolio Management (items), user_id=%s", g.user["id"])
     db = get_db()
     uid = g.user["id"]
+    items = portfolio.list_items(db, uid)
+    # Keyword chips show only for tracked items (the keywords are the tracking
+    # config), so fetch keywords just for those, in one query (no N+1).
+    tracked_ids = [it["id"] for it in items if it["tracked"]]
     return render_template(
         "app/portfolio.html",
         breadcrumb="Portfolio Management · Managed Items",
         active_nav=_PORTFOLIO_NAV,
         view="items",
-        items=portfolio.list_items(db, uid),
+        items=items,
+        keywords_by_item=item_keywords.list_keywords_by_item(db, uid, tracked_ids),
+        keyword_labels=_KEYWORD_SLOT_LABELS,
     )
 
 
@@ -3190,9 +3196,14 @@ def portfolio_edit_keywords(item_id: int):
     """
     values = {slot: request.form.get(f"kw{slot}") for slot in (1, 2, 3)}
     ok = item_keywords.set_keywords(get_db(), g.user["id"], item_id, values)
+    # The inline editor on the Portfolio list posts return_to=portfolio so we come
+    # back to the list (where scroll-restore keeps the user's place); the item
+    # page's editor omits it and returns to that page.
+    back_to_list = request.form.get("return_to") == "portfolio"
     if ok:
         flash("Tracking keywords updated.", "ok")
-        # Back to the editor (on the item's own tracking page).
+        if back_to_list:
+            return redirect(url_for("pages.portfolio_home"))
         return redirect(url_for("pages.portfolio_item_tracking", item_id=item_id))
     # Foreign/absent id: the tracking page would 404, so bounce to the catalog with
     # a benign message (never confirm the item exists — IDOR gate).

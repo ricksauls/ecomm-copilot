@@ -136,6 +136,34 @@ def list_keywords(conn: sqlite3.Connection, user_id: int,
     ).fetchall()
 
 
+def list_keywords_by_item(
+    conn: sqlite3.Connection, user_id: int, portfolio_item_ids: list[int]
+) -> dict[int, list[sqlite3.Row]]:
+    """Keywords for several of the user's items at once, grouped by item id.
+
+    Used by the Portfolio list to render each tracked item's keyword chips in one
+    query instead of an N+1 loop of :func:`list_keywords`. User-scoped (the
+    ``user_id`` predicate is the same IDOR gate), and the ``IN`` list is built from
+    integer ids the caller already owns, so it is parameterized, not interpolated.
+    Returns ``{portfolio_item_id: [rows in slot order]}``; items with no keywords
+    are simply absent from the map.
+    """
+    if not portfolio_item_ids:
+        return {}
+    placeholders = ",".join("?" * len(portfolio_item_ids))
+    rows = conn.execute(
+        "SELECT id, portfolio_item_id, slot, kind, keyword, user_edited "
+        "FROM portfolio_keywords "
+        f"WHERE user_id = ? AND portfolio_item_id IN ({placeholders}) "
+        "ORDER BY portfolio_item_id, slot",
+        (user_id, *portfolio_item_ids),
+    ).fetchall()
+    by_item: dict[int, list[sqlite3.Row]] = {}
+    for row in rows:
+        by_item.setdefault(row["portfolio_item_id"], []).append(row)
+    return by_item
+
+
 def set_keywords(conn: sqlite3.Connection, user_id: int, portfolio_item_id: int,
                  values: dict[int, str | None]) -> bool:
     """Apply user edits to one item's keywords. Returns False on a foreign id.

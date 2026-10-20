@@ -97,7 +97,7 @@
     {% if items %}
     <div class="pf-filter-bar">
       <input type="search" class="ci-input grow" data-filter-search
-             placeholder="Search brand, item #, title, or URL…"
+             placeholder="Search brand, item #, title, URL, or keyword…"
              aria-label="Search managed items" />
     </div>
     {% endif %}
@@ -124,7 +124,11 @@
             data-brand="{{ (it.brand or '') | lower }}"
             data-item="{{ it.item_id or '' }}"
             data-title="{{ (it.title or '') | lower }}"
-            data-url="{{ it.walmart_url | lower }}">
+            data-url="{{ it.walmart_url | lower }}"
+            {# Tracked items' keywords join the search haystack so you can find a
+               row by what it's tracking (untracked rows have no visible keywords,
+               so none here). #}
+            data-keywords="{{ (keywords_by_item.get(it.id, []) | map(attribute='keyword') | select | join(' ')) | lower }}">
           <td>{{ it.brand or '—' }}</td>
           <td>{{ it.item_id or '—' }}</td>
           <td class="col-product">{{ it.title or '—' }}</td>
@@ -163,6 +167,51 @@
             {# Trends page only makes sense once an item is tracked. #}
             <a href="{{ url_for('pages.portfolio_item_tracking', item_id=it.id) }}"
                class="cell-muted pf-track-view">View trends</a>
+
+            {# Tracking keywords for this item — the 3 search terms its daily rank &
+               share of search are measured against. Shown only when tracking is on
+               (the keywords ARE the tracking config). Read view = labeled chips +
+               an Edit button; the edit view (hidden until Edit, toggled by
+               portfolio.js — CSP-safe, no inline handlers) swaps in inputs that
+               POST to the shared edit route with return_to=portfolio so we come
+               back to the list (scroll-restore keeps the user's place). With JS
+               off the chips stay visible and the form is reachable via the item's
+               own tracking page. #}
+            {% set kws = keywords_by_item.get(it.id, []) %}
+            {% if kws %}
+            <div class="pf-kw" data-pf-kw>
+              <div class="pf-kw-view" data-pf-kw-view>
+                <ul class="pf-kw-chips">
+                  {% for kw in kws %}
+                  <li class="pf-kw-chip"
+                      title="{{ keyword_labels.get(kw.kind, kw.kind) }}: {{ kw.keyword or '(blank — not scraped)' }}">
+                    <span class="pf-kw-tag">{{ keyword_labels.get(kw.kind, kw.kind) }}</span>
+                    <span class="pf-kw-term{{ ' is-blank' if not kw.keyword else '' }}">{{ kw.keyword or '—' }}</span>
+                  </li>
+                  {% endfor %}
+                </ul>
+                <button type="button" class="pf-kw-edit" data-pf-kw-edit>Edit keywords</button>
+              </div>
+
+              <form method="post" class="pf-kw-edit-form" data-pf-kw-form hidden
+                    action="{{ url_for('pages.portfolio_edit_keywords', item_id=it.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+                <input type="hidden" name="return_to" value="portfolio" />
+                {% for kw in kws %}
+                <div class="pf-kw-field">
+                  <label class="field-sublabel" for="kw-{{ it.id }}-{{ kw.slot }}">{{ keyword_labels.get(kw.kind, kw.kind) }}</label>
+                  <input type="text" id="kw-{{ it.id }}-{{ kw.slot }}" name="kw{{ kw.slot }}"
+                         class="text-input pf-kw-input" maxlength="120" autocomplete="off"
+                         value="{{ kw.keyword or '' }}" />
+                </div>
+                {% endfor %}
+                <div class="pf-kw-actions">
+                  <button type="submit" class="wbtn wbtn-primary wbtn-sm pf-kw-save">Save</button>
+                  <button type="button" class="wbtn wbtn-ghost wbtn-sm pf-kw-cancel" data-pf-kw-cancel>Cancel</button>
+                </div>
+              </form>
+            </div>
+            {% endif %}
             {% endif %}
           </td>
           <td class="cell-action">
