@@ -85,12 +85,24 @@ def test_pdp_requires_login(client):
     assert "/signin" in resp.headers["Location"]
 
 
-def test_pdp_get_renders_form(client, auth):
+def test_pdp_get_renders_form(client, auth, app):
+    from app import portfolio
+    from app.db import get_db
+
     auth.register()
+    with app.app_context():
+        db = get_db()
+        uid = db.execute("SELECT id FROM users LIMIT 1").fetchone()[0]
+        portfolio.add_item(db, uid, "Tabasco", "https://www.walmart.com/ip/10294528", None)
+        db.commit()
     resp = client.get("/app/pdp-scoring")
     assert resp.status_code == 200
     assert b"Score Items" in resp.data
-    assert b"walmart.com/ip/10294528" in resp.data
+    # Items are chosen from the managed-items dropdown; manual URL entry and CSV
+    # upload were removed (adding items lives on Portfolio Management).
+    assert b"Choose from your managed items" in resp.data
+    assert b'id="pf-managed-urls"' in resp.data
+    assert b'id="csv"' not in resp.data
     # The scoring intake has no brand field (brand is captured from the PDP by the
     # worker, not typed here).
     assert b'name="brand"' not in resp.data
@@ -111,22 +123,24 @@ def test_pdp_post_enqueues_and_redirects(client, auth):
     assert b"Queued" in results.data
 
 
-def test_pdp_post_csv_enqueues(client, auth):
+def test_pdp_post_csv_no_longer_accepted(client, auth):
+    # CSV upload was removed from the scoring intake — the only input is the
+    # managed-items dropdown — so a posted CSV is ignored and nothing enqueues.
     auth.register()
     resp = client.post(
         "/app/pdp-scoring",
         data={"csv": (io.BytesIO(b"https://www.walmart.com/ip/555\n"), "items.csv")},
         content_type="multipart/form-data",
     )
-    assert resp.status_code == 302
-    assert b"555" in client.get("/app/pdp-scoring/results").data
+    assert resp.status_code == 400
+    assert b"555" not in client.get("/app/pdp-scoring/results").data
 
 
 def test_pdp_post_empty_is_rejected(client, auth):
     auth.register()
     resp = client.post("/app/pdp-scoring", data={"urls": ["not-a-url"]})
     assert resp.status_code == 400
-    assert b"No valid item URLs" in resp.data
+    assert b"Select at least one managed item" in resp.data
 
 
 def test_pdp_status_reports_pending(client, auth):

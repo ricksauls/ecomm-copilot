@@ -1673,11 +1673,29 @@ def test_opportunities_group_idor_falls_back(client, auth, app):
 
 
 def test_opportunities_prefill_deep_links_into_fix_workflow(client, auth, app):
-    # A ?url= deep-link prefills the fix workflow's first URL field; a forged
-    # non-Walmart url falls back to the bare prefix (never seeds the junk value).
+    # A ?url= deep-link now PRE-SELECTS the matching managed item in the intake's
+    # dropdown (the intakes select only from the portfolio). An item the user
+    # doesn't manage, or a forged non-Walmart url, pre-selects nothing.
+    from app import portfolio
+    from app.db import get_db
+
     auth.register(email="opppf@example.com")
     _seed_opportunities(app, "opppf@example.com")
+    with app.app_context():
+        db = get_db()
+        uid = db.execute("SELECT id FROM users WHERE email = ?",
+                         ("opppf@example.com",)).fetchone()[0]
+        # Item 222 must be in the portfolio for the deep-link to have an option.
+        portfolio.add_item(db, uid, "Tabasco", "https://www.walmart.com/ip/222", None)
+        db.commit()
+
     good = client.get("/app/pdp-copy?url=https://www.walmart.com/ip/222").data
-    assert b"https://www.walmart.com/ip/222" in good
+    # The option for item 222 is rendered selected.
+    assert b'value="https://www.walmart.com/ip/222"' in good
+    assert b"selected" in good
+    # An unmanaged item (111 was scored but never added) pre-selects nothing.
+    other = client.get("/app/pdp-copy?url=https://www.walmart.com/ip/111").data
+    assert b"selected" not in other
+    # A forged non-Walmart url never appears in the page.
     forged = client.get("/app/pdp-copy?url=https://evil.example/x").data
     assert b"evil.example" not in forged

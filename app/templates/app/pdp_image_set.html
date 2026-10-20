@@ -11,9 +11,11 @@
 <div class="page-header">
   <div>
     <h1>Create a Product Detail Page Image Set</h1>
-    <p class="subtitle">Start from a Walmart product URL to pull in the details we can, or enter them
-      yourself. Upload one clean product photo (or we’ll use the product’s main image), and we’ll
-      generate a set of marketplace images grounded in the facts you confirm. Nothing is invented.</p>
+    <p class="subtitle">Pick one of your managed items, then Fetch details to pull in what we can —
+      or enter them yourself. Upload one clean product photo (or we’ll use the product’s main image),
+      and we’ll generate a set of marketplace images grounded in the facts you confirm. Nothing is
+      invented. Add new products on the
+      <a href="{{ url_for('pages.portfolio_home') }}">Portfolio Management</a> screen.</p>
   </div>
 </div>
 {{ ws.workspace_tabs('create', url_for('pages.imageset_intake'), url_for('pages.activity_all', kind='images'), 'History - Image Sets Created') }}
@@ -34,29 +36,23 @@
   </div>
 {% else %}
 
-  {# --- Choose a managed item (required) ------------------------------------ #}
-  {# Selected URL to pre-check: the just-submitted value on a validation re-render,
-     else the draft's product URL (set here or by a prefill of the same item). #}
-  {% set managed_selected = (form.get('managed_url') if form else None)
-        or (project['source_url'] if project and project['source_url'] else None) %}
+  {# --- Choose a managed item (required) + optional prefill ----------------- #}
+  {# The picker is the only way to choose the product now (the free-text URL box
+     was removed). "Fetch details" submits THIS main form to imageset_fetch via
+     formaction — so the chosen managed_url is reused to prefill from Walmart —
+     with formnovalidate so the still-empty required fields don't block the fetch.
+     Pre-selection (managed_selected_items) is computed in the route. #}
   <div class="card pdp-card">
-    {{ pfpick.portfolio_pick_single(portfolio_items, 'imageset-main-form', managed_selected) }}
-  </div>
-
-  {# --- Prefill from a product URL ------------------------------------------ #}
-  <div class="card pdp-card imageset-url-card">
-    <form method="post" action="{{ url_for('pages.imageset_fetch') }}" class="imageset-url-form">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-      <label class="field-label" for="url">Prefill From A Product URL <span class="field-optional">(optional)</span></label>
-      <p class="brand-hint">Paste a Walmart product link — just add the item number to the end — and
-        we’ll pull the name, brand, description, key features, and the product image, then you fill in the rest.</p>
-      <div class="imageset-url-row">
-        <input type="url" id="url" name="url" class="text-input"
-               placeholder="https://www.walmart.com/ip/10294528"
-               value="{{ project['source_url'] if project and project['source_url'] else url_prefix }}" />
-        <button type="submit" class="wbtn wbtn-secondary">Fetch details</button>
-      </div>
-    </form>
+    {{ pfpick.portfolio_pick_select_single(portfolio_items, 'imageset-main-form',
+                                           managed_selected_items | default(())) }}
+    {% if portfolio_items %}
+    <p class="brand-hint imageset-prefill-hint">Want the details filled in for you? Pick an item and
+      Fetch details — we’ll pull its name, brand, description, key features, and product image from Walmart.</p>
+    <button type="submit" class="wbtn wbtn-secondary" form="imageset-main-form"
+            formaction="{{ url_for('pages.imageset_fetch') }}" formmethod="post" formnovalidate>
+      Fetch details for this item
+    </button>
+    {% endif %}
   </div>
 
   {# --- Main intake form ---------------------------------------------------- #}
@@ -246,7 +242,6 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ static_url('js/portfolio.js') }}"></script>
 <script src="{{ static_url('js/imageset_intake.js') }}"></script>
 <script src="{{ static_url('js/imageset_fetch.js') }}"></script>
 {% endblock %}

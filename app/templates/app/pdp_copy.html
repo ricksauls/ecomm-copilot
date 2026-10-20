@@ -7,7 +7,9 @@
 <div class="page-header">
   <div>
     <h1>Create Product Detail Page Copy Content</h1>
-    <p class="subtitle">Add the Walmart items you want to rewrite, or upload a CSV. We’ll pull the current Title, Description, and Key Features so you can generate improved copy.</p>
+    <p class="subtitle">Choose the managed items you want to rewrite — we’ll pull the current Title,
+      Description, and Key Features so you can generate improved copy. Add new products on the
+      <a href="{{ url_for('pages.portfolio_home') }}">Portfolio Management</a> screen.</p>
   </div>
 </div>
 {{ ws.workspace_tabs('create', url_for('pages.pdp_copy'), url_for('pages.activity_all', kind='copy'), 'History - Copy Created') }}
@@ -16,76 +18,17 @@
 <div class="form-error" role="alert">{{ error }}</div>
 {% endif %}
 <div class="card pdp-card">
-  <form method="post" action="{{ url_for('pages.pdp_copy') }}" enctype="multipart/form-data"
-        class="pdp-form">
+  {# No file upload anymore — the only input is the managed-items dropdown, so the
+     form needs no multipart encoding. #}
+  <form method="post" action="{{ url_for('pages.pdp_copy') }}" class="pdp-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
 
-    {# Step 1 — pick from the user's managed portfolio (filterable). #}
-    {{ pf.portfolio_pick(portfolio_items) }}
-
-    <div class="form-divider"><span>or</span></div>
-
-    <div class="form-section">
-      <div class="section-head">
-        <span class="step">2</span>
-        <label class="field-label">Add item URLs</label>
-      </div>
-
-      {# No brand field here: these URLs are fetched, and the worker reads the brand
-         from the PDP (see copy_jobs.save_current_copy), so the user needn't type it. #}
-      {# JS clones a .url-row here; at least one always remains. #}
-      <div id="url-rows" class="url-rows">
-        <div class="url-row">
-          <span class="url-field">
-            {# Link glyph, purely decorative. #}
-            <svg class="url-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor"
-                 stroke-width="1.4" aria-hidden="true">
-              <path d="M6.5 9.5l3-3M7 4.5l.8-.8a2.5 2.5 0 013.5 3.5l-.8.8M9 11.5l-.8.8a2.5 2.5 0 01-3.5-3.5l.8-.8" />
-            </svg>
-            <input type="url" name="urls" class="url-input" value="{{ url_prefix }}"
-                   placeholder="https://www.walmart.com/ip/10294528 (use this format, with item number at the end)" />
-          </span>
-          <button type="button" class="row-remove" aria-label="Remove this URL">&times;</button>
-        </div>
-      </div>
-
-      <button type="button" id="add-url" class="add-more">+ Add Another Item</button>
-    </div>
-
-    <div class="form-divider"><span>or</span></div>
-
-    <div class="form-section">
-      <div class="section-head">
-        <span class="step">3</span>
-        <label class="field-label" for="csv">Upload a CSV</label>
-      </div>
-
-      {# Styled drop zone. The real <input type="file"> is visually hidden but
-         still the label's target, so click-to-browse works with no JS; the JS
-         adds drag-and-drop and the filename readout as enhancement. #}
-      <label id="csv-drop" class="csv-drop" for="csv">
-        <svg class="csv-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-             stroke-width="1.5" aria-hidden="true">
-          <path d="M12 15V4M8 8l4-4 4 4" />
-          <path d="M4 15v3a2 2 0 002 2h12a2 2 0 002-2v-3" />
-        </svg>
-        <span class="csv-drop-text">Drag a CSV here, or <span class="link">browse</span></span>
-        <span class="csv-drop-hint">Item URLs — one per row or in any column · up to {{ max_items }}</span>
-        <input type="file" id="csv" name="csv" accept=".csv,text/csv" class="csv-input-hidden" />
-      </label>
-      <p id="csv-filename" class="csv-filename" hidden></p>
-      <p class="csv-template-line">
-        Not sure of the format?
-        <a href="{{ url_for('pages.pdp_copy_template') }}">Download a template</a>.
-      </p>
-    </div>
+    {# Sole intake path: pick from the user's managed portfolio. Manual URL entry
+       and CSV upload were removed — items are added only on Portfolio Management.
+       Brand isn't collected here: the worker reads it from the PDP during fetch. #}
+    {{ pf.portfolio_pick_select(portfolio_items, selected_items | default(())) }}
 
     <button type="submit" class="wbtn wbtn-primary wbtn-lg">Get Current Copy Content</button>
   </form>
 </div>
-{% endblock %}
-
-{% block scripts %}
-<script src="{{ static_url('js/intake.js') }}"></script>
-<script src="{{ static_url('js/portfolio.js') }}"></script>
 {% endblock %}

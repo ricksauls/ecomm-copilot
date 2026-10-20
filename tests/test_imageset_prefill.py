@@ -168,10 +168,23 @@ def test_fetch_route_rejects_bare_prefix(client, auth):
     assert resp.status_code == 400
 
 
-def test_intake_url_field_autofills_prefix(client, auth):
+def test_intake_offers_managed_item_dropdown(client, auth, app):
+    # The free-text "Prefill from a product URL" box was removed: the product is
+    # chosen from the managed-items dropdown, which also drives "Fetch details".
+    from app import portfolio
+    from app.db import get_db
+
     auth.register()
+    with app.app_context():
+        db = get_db()
+        uid = db.execute("SELECT id FROM users LIMIT 1").fetchone()[0]
+        portfolio.add_item(db, uid, "Tabasco", "https://www.walmart.com/ip/10294528", None)
+        db.commit()
     resp = client.get("/app/pdp-image-set")
-    assert b'value="https://www.walmart.com/ip/"' in resp.data
+    assert b'id="pf-managed-url"' in resp.data
+    assert b"Fetch details for this item" in resp.data
+    # The old free-text URL input is gone.
+    assert b'name="url"' not in resp.data
 
 
 def test_edit_shows_fetching_then_prefilled(client, auth, tmp_path, monkeypatch):

@@ -16,15 +16,26 @@ def test_copy_routes_require_login(client):
     assert client.post("/app/pdp-scoring/create-copy").status_code == 302
 
 
-def test_copy_intake_renders(client, auth):
+def test_copy_intake_renders(client, auth, app):
+    from app import portfolio
+    from app.db import get_db
+
     auth.register()
+    with app.app_context():
+        db = get_db()
+        uid = db.execute("SELECT id FROM users LIMIT 1").fetchone()[0]
+        portfolio.add_item(db, uid, "Tabasco", "https://www.walmart.com/ip/10294528", None)
+        db.commit()
     resp = client.get("/app/pdp-copy")
     assert resp.status_code == 200
     assert b"Create Product Detail Page Copy Content" in resp.data
     # The fetch button carries the exact requested label.
     assert b"Get Current Copy Content" in resp.data
-    # CSV cap mirrors app.pdp.MAX_ITEMS (100).
-    assert b"up to 100" in resp.data
+    # Items are chosen from the managed-items dropdown (name="urls"); manual URL
+    # entry and CSV upload were removed.
+    assert b"Choose from your managed items" in resp.data
+    assert b'id="pf-managed-urls"' in resp.data
+    assert b'id="csv"' not in resp.data
     # No brand field on the copy intake: these URLs are fetched, so the worker reads
     # the brand from the PDP and the user doesn't type it.
     assert b'name="brand"' not in resp.data
@@ -61,7 +72,7 @@ def test_copy_intake_rejects_empty(client, auth):
     auth.register()
     resp = client.post("/app/pdp-copy", data={"urls": "not-a-url"})
     assert resp.status_code == 400
-    assert b"No valid item URLs" in resp.data
+    assert b"Select at least one managed item" in resp.data
 
 
 def test_copy_status_json(client, auth):

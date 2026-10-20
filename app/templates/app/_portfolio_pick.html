@@ -103,3 +103,84 @@
   {% endif %}
 </div>
 {%- endmacro %}
+
+{# ── Dropdown variants (Content Scoring / Product Copy / Image Set) ───────────
+   These three "run" screens select ONLY from the user's managed portfolio —
+   adding items now lives solely on Portfolio Management — so they use a native
+   <select> of managed items instead of the checkbox/radio pick-list above (which
+   the Seasonal and Tracking screens still use alongside their own entry paths).
+
+   An <option> is pre-selected by matching the Walmart item NUMBER, not the exact
+   URL string: `selected_items` is a set of item-number strings, the same stable
+   identity the portfolio de-dupes on, so a deep-link URL (built from the number)
+   and a stored portfolio URL (user-entered, maybe with a slug) still line up. #}
+
+{# One option's human label: brand, then #item number, then the backfilled title. #}
+{% macro _managed_option_label(it) -%}
+{{ it.brand or 'Unbranded' }}{% if it.item_id %} · #{{ it.item_id }}{% endif %}{% if it.title %} — {{ it.title }}{% endif %}
+{%- endmacro %}
+
+{# Multi-select dropdown. Each chosen row submits its Walmart URL under
+   name="urls" — the same field the batch intakes already collect — so the
+   server side is unchanged. Hold Ctrl/⌘ to pick several (native multi-select). #}
+{% macro portfolio_pick_select(items, selected_items=()) -%}
+<div class="form-section">
+  <div class="section-head">
+    <span class="step">1</span>
+    <label class="field-label" for="pf-managed-urls">Choose from your managed items</label>
+  </div>
+
+  {% if items %}
+  <p class="brand-hint">Select one or more of your managed products. Hold Ctrl (⌘ on Mac) to pick several.</p>
+  <select id="pf-managed-urls" name="urls" class="pf-select" multiple size="8"
+          aria-label="Managed items to run">
+    {% for it in items %}
+    <option value="{{ it.walmart_url }}"
+      {% if it.item_id and (it.item_id | string) in selected_items %}selected{% endif %}>
+      {{ _managed_option_label(it) }}
+    </option>
+    {% endfor %}
+  </select>
+  {% else %}
+  <p class="brand-hint">
+    You haven't added any managed items yet.
+    <a href="{{ url_for('pages.portfolio_home') }}">Set up your portfolio</a> to run them here.
+  </p>
+  {% endif %}
+</div>
+{%- endmacro %}
+
+{# Single-select dropdown for the Image Set Creator. Submits the chosen URL as
+   name="managed_url" with the main intake form (associated via `form=form_id`,
+   so the picker can sit in its own card above that form). `required` is set only
+   when there are items to pick — an empty portfolio can't satisfy it; the server
+   enforces the requirement regardless. The leading blank option is the unchosen
+   state so nothing is silently pre-selected. #}
+{% macro portfolio_pick_select_single(items, form_id, selected_items=()) -%}
+<div class="form-section">
+  <div class="section-head">
+    <span class="step">1</span>
+    <label class="field-label" for="pf-managed-url">Choose a managed item</label>
+  </div>
+
+  {% if items %}
+  <p class="brand-hint">Pick the product this image set is for — one of your managed items.</p>
+  <select id="pf-managed-url" name="managed_url" form="{{ form_id }}" class="pf-select"
+          aria-label="Managed item" required>
+    <option value="">— Select a managed item —</option>
+    {% for it in items %}
+    <option value="{{ it.walmart_url }}"
+      {% if it.item_id and (it.item_id | string) in selected_items %}selected{% endif %}>
+      {{ _managed_option_label(it) }}
+    </option>
+    {% endfor %}
+  </select>
+  {% else %}
+  <p class="brand-hint">
+    You haven't added any managed items yet.
+    <a href="{{ url_for('pages.portfolio_home') }}">Set up your portfolio</a>
+    first — an image set is created for one of your managed products.
+  </p>
+  {% endif %}
+</div>
+{%- endmacro %}

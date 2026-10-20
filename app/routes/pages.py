@@ -1915,50 +1915,67 @@ def ci_activity():
     )
 
 
-def _prefill_url_or_prefix() -> str:
-    """The first URL field's prefill value for an intake GET.
+def _deep_link_url_list() -> list[str]:
+    """A deep-link's ``?url=`` as a one-item list, for pre-selecting a dropdown.
 
-    When a deep-link passes ``?url=`` with a valid Walmart item URL (e.g. an
-    Opportunities row pointing at the product that needs work), prefill the whole
-    URL; otherwise fall back to the bare autofill prefix. Validating the item number
-    keeps a forged ``?url=`` from seeding the field with an arbitrary string.
+    An Opportunities row may deep-link an intake with ``?url=<walmart item url>``.
+    The intakes no longer have a URL field (selection is from the managed-items
+    dropdown), so this seeds the dropdown's pre-selection instead. Only a URL
+    carrying a valid item number is honored, so a forged ``?url=`` can't
+    pre-select anything meaningful.
     """
     raw = request.args.get("url")
-    if raw and pdp.item_number_from_url(raw):
-        return raw
-    return pdp.WALMART_IP_PREFIX
+    return [raw] if raw and pdp.item_number_from_url(raw) else []
 
 
-def _portfolio_pick_context() -> dict:
-    """Portfolio pick-list context shared by the scoring and copy intakes.
+def _item_ids_from_urls(urls) -> set[str]:
+    """Item numbers for ``urls`` — used to pre-select managed-item dropdown options.
 
-    Both screens offer the user's managed portfolio as a filterable checkbox list
-    above manual URL entry; this returns the items and their distinct brands (for
-    the brand filter). Scoped to the signed-in user so one user never sees
-    another's portfolio.
+    Options are matched on the Walmart item NUMBER (the stable identity the
+    portfolio de-dupes on) rather than the exact URL string, so a deep-link URL
+    (built from the number) and a stored portfolio URL (user-entered, maybe with a
+    slug) still line up. Empty/unparseable entries are dropped.
+    """
+    ids: set[str] = set()
+    for u in urls:
+        number = pdp.item_number_from_url(u) if u else None
+        if number:
+            ids.add(number)
+    return ids
+
+
+def _portfolio_pick_context(selected_urls=()) -> dict:
+    """Managed-items dropdown context shared by the scoring and copy intakes.
+
+    Returns the user's portfolio items (the dropdown's options) and, from
+    ``selected_urls``, the set of item numbers to pre-select — a validation
+    re-render keeps the user's choice, and a deep-link pre-selects its product.
+    Scoped to the signed-in user so one user never sees another's portfolio.
     """
     db = get_db()
     uid = g.user["id"]
-    return {"portfolio_items": portfolio.list_items(db, uid)}
+    return {"portfolio_items": portfolio.list_items(db, uid),
+            "selected_items": _item_ids_from_urls(selected_urls)}
 
 
 @bp.route("/app/pdp-scoring", methods=["GET", "POST"])
 @login_required
 def pdp_scoring():
-    """PDP Content Scoring intake: collect item URLs and enqueue them to score.
+    """PDP Content Scoring intake: collect managed-item selections and enqueue them.
 
-    A POST validates the submitted URLs / CSV, enqueues the accepted items as
-    scoring jobs, and redirects to the results page (which polls for progress).
-    The background worker does the actual fetch + score.
+    A POST validates the chosen managed items (submitted as ``urls`` by the
+    dropdown), enqueues the accepted items as scoring jobs, and redirects to the
+    results page (which polls for progress). The background worker does the actual
+    fetch + score.
     """
     if request.method == "POST":
         form_urls = request.form.getlist("urls")
-        csv_file = request.files.get("csv")
-        accepted, rejected = pdp.collect_items(form_urls, csv_file)
+        # No CSV path anymore — the only input is the managed-items dropdown.
+        accepted, rejected = pdp.collect_items(form_urls, None)
 
         if not accepted:
             # Nothing usable — re-render the form with a message instead of
-            # enqueuing an empty batch.
+            # enqueuing an empty batch, keeping any still-valid selection.
             return (
                 render_template(
                     "app/pdp_scoring.html",
@@ -1966,8 +1983,8 @@ def pdp_scoring():
                     active_nav="pdp-scoring",
                     submitted=False,
                     max_items=pdp.MAX_ITEMS,
-                    error="No valid item URLs were provided.",
-                    **_portfolio_pick_context(),
+                    error="Select at least one managed item to score.",
+                    **_portfolio_pick_context(selected_urls=form_urls),
                 ),
                 400,
             )
@@ -1992,8 +2009,8 @@ def pdp_scoring():
         active_nav="pdp-scoring",
         submitted=False,
         max_items=pdp.MAX_ITEMS,
-        url_prefix=pdp.WALMART_IP_PREFIX,
-        **_portfolio_pick_context(),
+        # A deep-link (e.g. an Opportunities row) may pre-select a managed item.
+        **_portfolio_pick_context(selected_urls=_deep_link_url_list()),
     )
 
 
@@ -2849,16 +2866,17 @@ def _copy_row_view(row) -> dict:
 @bp.route("/app/pdp-copy", methods=["GET", "POST"])
 @login_required
 def pdp_copy():
-    """Copy Content Creation intake: collect item URLs, then fetch current copy.
+    """Copy Content Creation intake: collect managed-item selections, fetch copy.
 
-    A POST enqueues the accepted items as copy jobs (fetch-only to start) and
-    redirects to the results page, where the user can review the current copy and
-    then request new copy. The background worker does the fetch.
+    A POST enqueues the chosen managed items (submitted as ``urls`` by the
+    dropdown) as copy jobs (fetch-only to start) and redirects to the results
+    page, where the user can review the current copy and then request new copy.
+    The background worker does the fetch.
     """
     if request.method == "POST":
         form_urls = request.form.getlist("urls")
-        csv_file = request.files.get("csv")
-        accepted, rejected = pdp.collect_items(form_urls, csv_file)
+        # No CSV path anymore — the only input is the managed-items dropdown.
+        accepted, rejected = pdp.collect_items(form_urls, None)
 
         if not accepted:
             return (
@@ -2867,8 +2885,8 @@ def pdp_copy():
                     breadcrumb="Copy Content Studio · Product Detail Page Copy Content Creation",
                     active_nav="pdp-copy",
                     max_items=pdp.MAX_ITEMS,
-                    error="No valid item URLs were provided.",
-                    **_portfolio_pick_context(),
+                    error="Select at least one managed item to rewrite.",
+                    **_portfolio_pick_context(selected_urls=form_urls),
                 ),
                 400,
             )
@@ -2895,10 +2913,9 @@ def pdp_copy():
         breadcrumb="Copy Content Studio · Product Detail Page Copy Content Creation",
         active_nav="pdp-copy",
         max_items=pdp.MAX_ITEMS,
-        # A deep-link (e.g. the Opportunities page) may prefill the first URL field
-        # with a specific product; otherwise just the autofill prefix.
-        url_prefix=_prefill_url_or_prefix(),
-        **_portfolio_pick_context(),
+        # A deep-link (e.g. an Opportunities "Fix copy" row) may pre-select the
+        # managed item it points at, if the user has it in their portfolio.
+        **_portfolio_pick_context(selected_urls=_deep_link_url_list()),
     )
 
 
@@ -3752,16 +3769,18 @@ def _validate_upload(file, label: str = "product photo") -> tuple[bytes | None, 
 def _imageset_intake_context(**extra):
     """Shared render context for the intake form.
 
-    Includes the user's managed portfolio for the required single-select picker
-    (``portfolio_items`` / ``portfolio_brands``), scoped to the signed-in user.
+    Includes the user's managed portfolio for the required single-select dropdown
+    (``portfolio_items``), scoped to the signed-in user. ``managed_selected_items``
+    is the set of item numbers to pre-select in that dropdown — empty by default;
+    each render site overrides it (the picked item, the draft's item, or a
+    deep-link) via ``extra``.
     """
     db, uid = get_db(), g.user["id"]
     ctx = {"breadcrumb": _IMGSET_BREADCRUMB, "active_nav": _IMGSET_NAV,
            "project": None, "features": [], "fetching": False, "has_image": False,
            "has_logo": False, "pf": {},
            "portfolio_items": portfolio.list_items(db, uid),
-           # The URL field autofills with this prefix so the user only types the item id.
-           "url_prefix": pdp.WALMART_IP_PREFIX}
+           "managed_selected_items": ()}
     ctx.update(extra)
     return ctx
 
@@ -3865,15 +3884,16 @@ _IMGSET_EDITABLE = {
 def imageset_intake():
     """Image-set intake: collect product facts + a photo, then cut out.
 
-    GET renders the blank form (with the optional "prefill from a product URL"
-    box). A POST creates a new project (manual entry) or updates a prefilled draft
-    (when a ``project_id`` is present), stores/keeps the product photo, and runs
-    background removal inline so the user lands on the cutout-approval gate.
+    GET renders the blank form (the managed-item dropdown + optional "Fetch
+    details"). A POST creates a new project (manual entry) or updates a prefilled
+    draft (when a ``project_id`` is present), stores/keeps the product photo, and
+    runs background removal inline so the user lands on the cutout-approval gate.
     """
     if request.method != "POST":
-        # A deep-link (e.g. an Opportunities image gap) may prefill the product URL.
-        return render_template("app/pdp_image_set.html",
-                               **_imageset_intake_context(url_prefix=_prefill_url_or_prefix()))
+        # A deep-link (e.g. an Opportunities image gap) may pre-select its product
+        # in the managed-item dropdown, if the user has it in their portfolio.
+        return render_template("app/pdp_image_set.html", **_imageset_intake_context(
+            managed_selected_items=_item_ids_from_urls(_deep_link_url_list())))
 
     db, uid, form = get_db(), g.user["id"], request.form
     fields = _parse_intake_fields(form)
@@ -3893,14 +3913,16 @@ def imageset_intake():
         return render_template("app/pdp_image_set.html", **_imageset_intake_context(
             error=message, form=form, project=proj, features=feats,
             has_image=bool(proj and proj["original_path"]),
-            has_logo=bool(proj and proj["logo_path"]))), code
+            has_logo=bool(proj and proj["logo_path"]),
+            # Keep the user's dropdown choice selected on a validation re-render.
+            managed_selected_items=_item_ids_from_urls([form.get("managed_url")]))), code
 
     if not fields["name"] or not fields["category"]:
         return _rerender("Product name and category are required.", 400)
 
     # A managed item is required: the image set is created for one of the user's
-    # managed products. Validated at the boundary (the radios also enforce it in
-    # the browser). Brand is NOT required here — it's prefilled from the fetch.
+    # managed products. Validated at the boundary (the dropdown's `required` also
+    # enforces it in the browser). Brand is NOT required here — it's prefilled.
     managed_url = pdp.validate_item_url((form.get("managed_url") or "").strip())
     if not managed_url:
         return _rerender("Select one of your managed items.", 400)
@@ -3974,13 +3996,18 @@ def imageset_intake():
 @bp.route("/app/pdp-image-set/fetch", methods=["POST"])
 @login_required
 def imageset_fetch():
-    """Start a Walmart prefill: validate the URL, create a draft, enqueue the fetch."""
-    url = pdp.validate_item_url((request.form.get("url") or "").strip())
-    # Require an item number so a bare prefix (the autofill, untouched) is rejected.
+    """Start a Walmart prefill for the selected managed item: draft + enqueue fetch.
+
+    The chosen managed item arrives as ``managed_url`` (the intake dropdown submits
+    this form here via the "Fetch details" button's formaction). ``url`` is still
+    accepted as a fallback for older callers.
+    """
+    raw = (request.form.get("managed_url") or request.form.get("url") or "").strip()
+    url = pdp.validate_item_url(raw)
+    # Require an item number so a blank selection (or bare prefix) is rejected.
     if not url or not pdp.item_number_from_url(url):
         return render_template("app/pdp_image_set.html", **_imageset_intake_context(
-            error="Enter a valid Walmart product URL — add the item number to the end "
-                  "(e.g. https://www.walmart.com/ip/10294528).")), 400
+            error="Select one of your managed items to fetch its details.")), 400
     db, uid = get_db(), g.user["id"]
     pid = imageset_store.create_draft_for_url(db, user_id=uid, url=url)
     logger.info("Image-set prefill queued project=%s user_id=%s", pid, uid)
@@ -4000,7 +4027,9 @@ def imageset_edit(pid):
     err = project["error"] if (not fetching and project["error"]) else None
     return render_template("app/pdp_image_set.html", **_imageset_intake_context(
         project=project, features=features, fetching=fetching, pf=pf,
-        has_image=bool(project["original_path"]), has_logo=bool(project["logo_path"]), error=err))
+        has_image=bool(project["original_path"]), has_logo=bool(project["logo_path"]), error=err,
+        # Keep the draft's own product selected in the dropdown.
+        managed_selected_items=_item_ids_from_urls([project["source_url"]])))
 
 
 @bp.route("/app/pdp-image-set/<int:pid>/fetch-status")

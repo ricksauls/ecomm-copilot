@@ -3563,6 +3563,28 @@ textarea.text-input { resize: vertical; line-height: 1.5; }
 }
 .pf-filter-bar .ci-input { min-width: 14ch; }
 
+/* Managed-items dropdowns on the Content Scoring / Product Copy / Image Set
+   intakes (native <select>, single or multi). Mirrors .text-input so it reads as
+   the app's standard field; the multi-select variant becomes a short scrolling
+   list (size="8") with padded option rows. */
+.pf-select {
+  width: 100%;
+  font-family: var(--font);
+  font-size: 13.5px;
+  color: var(--black);
+  background: var(--surface);
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-card);
+  padding: 10px 12px;
+}
+.pf-select:hover { border-color: var(--mid-gray); }
+.pf-select:focus { outline: none; border-color: var(--black); }
+select.pf-select[multiple] { padding: 4px; }
+select.pf-select[multiple] option { padding: 6px 8px; border-radius: 4px; }
+
+/* "Fetch details" sits just under the Image Set picker; a little breathing room. */
+.imageset-prefill-hint { margin-top: var(--space-12); }
+
 /* Managed-items card header: section title on the left, filter bar on the right
    when there's room; stacks on narrow panes. */
 .pf-list-head {
