@@ -16,20 +16,24 @@ def _insert(db, uid, *, brand, title, item_id):
     return db.execute("SELECT id FROM portfolio_items WHERE item_id = ?", (item_id,)).fetchone()["id"]
 
 
-def test_enable_by_prefix_matches_brand_or_title_case_insensitively(app):
+def test_enable_by_prefix_matches_brand_title_or_item_id(app):
     with app.app_context():
         db = get_db()
         uid = create_local_user("en@example.com", "password123")
         demo_brand = _insert(db, uid, brand="DEMO Tabasco", title="Hot Sauce", item_id="111")
         demo_title = _insert(db, uid, brand="Acme", title="demo Widget", item_id="222")  # lowercase
+        # The real demo-data shape: real-looking brand/title, synthetic DEMO item id.
+        demo_item = _insert(db, uid, brand="Tabasco", title="Tabasco Product 1",
+                            item_id="DEMO-tabasco-1")
         other = _insert(db, uid, brand="Frank's", title="Wing Sauce", item_id="333")
 
-        assert enable_tracking.enable_by_prefix(db, "DEMO") == 2
+        assert enable_tracking.enable_by_prefix(db, "DEMO") == 3
 
         tracked = {r["id"]: r["tracked"] for r in db.execute(
             "SELECT id, tracked FROM portfolio_items")}
         assert tracked[demo_brand] == 1
         assert tracked[demo_title] == 1   # matched on title, case-insensitive
+        assert tracked[demo_item] == 1    # matched on the DEMO- item id
         assert tracked[other] == 0        # untouched
 
         # Matched items got their 3 keyword rows seeded.

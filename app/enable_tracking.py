@@ -36,19 +36,22 @@ def _connect() -> sqlite3.Connection:
 
 
 def enable_by_prefix(conn: sqlite3.Connection, prefix: str) -> int:
-    """Set tracked=1 for items whose brand OR title starts with ``prefix``.
+    """Set tracked=1 for items whose brand, title, OR item # starts with ``prefix``.
 
-    Case-insensitive (SQLite ``LIKE`` is case-insensitive for ASCII). Seeds the 3
-    keyword rows for each matched item that lacks them, so newly-tracked items are
-    immediately ready for the daily sweep. Returns the number of items enabled.
+    Matching the Walmart item id too is what lets a tagged demo set be selected:
+    demo products carry a synthetic id like ``DEMO-tabasco-1`` while their brand and
+    title look real. Case-insensitive (SQLite ``LIKE`` is case-insensitive for
+    ASCII). Seeds the 3 keyword rows for each matched item that lacks them, so
+    newly-tracked items are immediately ready for the daily sweep. Returns the
+    number of items enabled.
     """
     from app import item_keywords
 
     like = f"{prefix}%"
     rows = conn.execute(
         "SELECT id, user_id, brand, title FROM portfolio_items "
-        "WHERE brand LIKE ? OR title LIKE ?",
-        (like, like),
+        "WHERE brand LIKE ? OR title LIKE ? OR item_id LIKE ?",
+        (like, like, like),
     ).fetchall()
 
     for row in rows:
