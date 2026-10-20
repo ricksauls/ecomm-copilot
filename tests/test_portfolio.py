@@ -368,6 +368,41 @@ def test_template_download_has_expected_headers(client, auth):
     assert b"Brand,Walmart Item URL,Amazon ASIN URL (Optional)" in resp.data
 
 
+def test_upload_tab_holds_the_forms_and_list_tab_does_not(client, auth):
+    # The screen is split into two tabs: Managed Items (the list) and Upload
+    # Items (the CSV import + single-add forms). The forms must live only on the
+    # Upload tab so the list stays uncluttered.
+    auth.register(email="tabs@example.com", password="password123")
+
+    upload = client.get("/app/portfolio/upload")
+    assert upload.status_code == 200
+    assert b"Upload Items" in upload.data  # the renamed second tab
+    assert b"Import items from a CSV" in upload.data
+    assert b"Add a single item" in upload.data
+
+    listing = client.get("/app/portfolio")
+    assert listing.status_code == 200
+    assert b"Import items from a CSV" not in listing.data
+    assert b"Add a single item" not in listing.data
+
+
+def test_list_orders_tracked_items_first(client, auth, app):
+    # Tracked items sort above untracked ones regardless of recency. Add two
+    # items (222 is newer, so newest-first alone would put it on top), then turn
+    # the newer one's tracking off — the older, still-tracked 111 must float above.
+    auth.register(email="sort@example.com", password="password123")
+    _add_one(client, "Alpha", "https://www.walmart.com/ip/111")
+    _add_one(client, "Bravo", "https://www.walmart.com/ip/222")
+    with app.app_context():
+        pid = get_db().execute(
+            "SELECT id FROM portfolio_items WHERE item_id = '222'").fetchone()["id"]
+    client.post(f"/app/portfolio/track/{pid}", data={"tracked": "0"},
+                follow_redirects=True)
+
+    html = client.get("/app/portfolio").data.decode()
+    assert html.index("111") < html.index("222")
+
+
 # ── Track toggle (item tracking) ──────────────────────────────────────────────
 
 def _add_one(client, brand, url):

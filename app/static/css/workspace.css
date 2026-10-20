@@ -2569,6 +2569,13 @@ body.cost-modal-open {
   text-align: right;
   white-space: nowrap;
 }
+/* Like cell-action but left-aligned, so the content lines up under its
+   left-aligned header (the Portfolio "Tracking" column: switch + label +
+   "View trends"). nowrap keeps the control on one line. */
+.admin-table .cell-track {
+  text-align: left;
+  white-space: nowrap;
+}
 .role-form,
 .delete-user-form {
   display: inline;
