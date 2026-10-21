@@ -17,7 +17,7 @@ urllib3==2.8.0
 # otherwise); Pillow measures image resolution. The Chrome binary and Xvfb
 # display are provided by the droplet (shared with the WM scraper), so only the
 # pip package is installed here.
-playwright==1.62.0
+playwright==1.64.0
 # Pillow 13.0.0: the 12.3.0 pin accrued 8 published CVEs (GHSA-p4wg-p73j-c528 et
 # al.), all fixed in 13.0.0, which the CI pip-audit gate now fails on. 13.0.0 is a
 # drop-in for our usage (resolution measurement + imageset compose) — image tests
