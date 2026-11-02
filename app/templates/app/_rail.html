@@ -110,13 +110,11 @@
     ('seasonal', 'Seasonal Campaigns', url_for('pages.seasonal_home')),
   ] %}
   {# Insights children, both real views now: Performance (how brands and items are
-     performing) and Opportunities (where they can improve). The three prior leaves
-     (One-Time Snapshot, Daily Monitoring, View All CI Activity) are HIDDEN — not
-     deleted — while the Insights area is reworked; their routes still exist and are
-     reachable (e.g. the dashboard cards' "Dig it" links reach Performance; the
-     competitive Opportunity still reaches ci_view). Restore them here if we bring
-     them back.
-       ('ci-snapshot', 'One-Time Snapshot', url_for('pages.ci_snapshot_home')),
+     performing) and Opportunities (where they can improve). The prior Daily
+     Monitoring / View All CI Activity leaves are HIDDEN — not deleted — while the
+     Insights area is reworked; their routes still exist and are reachable (e.g. the
+     dashboard cards' "Dig it" links reach Performance; the competitive Opportunity
+     still reaches ci_view). Restore them here if we bring them back.
        ('ci-monitoring', 'Daily Monitoring', url_for('pages.ci_monitoring_home')),
        ('ci-activity', 'View All Competitive Intelligence Activity', url_for('pages.ci_activity')), #}
   {% set reporting_items = [

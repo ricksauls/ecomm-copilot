@@ -1,9 +1,8 @@
 {% import "app/_ci_ads.html" as ci_ads %}
-{# Shared Competitive Intelligence results sections, rendered by both the View
-   Snapshot and View Monitoring screens (and mirroring the One-Time Snapshot
-   results page). Set `show_trend` before including: monitoring passes True to add
-   a "vs prior" delta column and a per-period trend sparkline; snapshot passes
-   False for current-state only.
+{# Shared Competitive Intelligence results sections, rendered by the View
+   Monitoring screen. Set `show_trend` before including: monitoring passes True to
+   add a "vs prior" delta column and a per-period trend sparkline (the current
+   caller always does; the flag is retained for a possible trend-free caller).
 
    Expects in context: config_summary, avg_ranks, rank_rows, sos_summary,
    share_rows, rank_map, sos_scale. When show_trend: also period_label, prior_label,

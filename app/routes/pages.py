@@ -242,7 +242,7 @@ def _acquire_activity_view(rows) -> list[dict]:
 
 
 def _ci_activity_view(db, uid, rows) -> list[dict]:
-    """Shape CI snapshot/monitoring activity rows with their brand config.
+    """Shape CI monitoring activity rows with their brand config.
 
     Each row gains the group's mine-vs-competitor brand names and tracked-item
     counts (from :func:`ci_config.list_brands`, which carries a per-brand product
@@ -283,15 +283,13 @@ _ACTIVITY_META = {
                       "No image sets created yet."),
     "acquired":      ("Images acquired", "acquired", False,
                       "No images acquired yet."),
-    "ci-snapshot":   ("Competitive Intelligence — One-Time Snapshot", "ci", False,
-                      "No snapshots run yet."),
     "ci-monitoring": ("Competitive Intelligence — Daily Monitoring", "ci", False,
                       "No monitoring groups yet."),
 }
 
 # Which rail item the View-All screen highlights, per activity kind. The three
 # content histories each map to their own rail sub-item (so "View Scoring
-# History" etc. light up); the CI histories map to the Reporting section's
+# History" etc. light up); the CI history maps to the Reporting section's
 # "View All Competitive Intelligence Activity" item. Unknown kinds never reach
 # here (activity_all 404s first), so a plain dict is sufficient.
 # History now lives inside each tool's workspace (Create New / History tabs), so
@@ -302,19 +300,17 @@ _ACTIVITY_ACTIVE_NAV = {
     "copy": "pdp-copy",
     "images": "pdp-image-set",
     "acquired": "import-images",
-    "ci-snapshot": "ci-activity",
     "ci-monitoring": "ci-activity",
 }
 
 # Topbar breadcrumb per activity kind, in the "<workspace> · History" form (the
-# content histories are the History tab of their workspace). The CI histories
-# (reached from the dashboard) use the closest Insights flow.
+# content histories are the History tab of their workspace). The CI history
+# (reached from the dashboard) uses the closest Insights flow.
 _ACTIVITY_BREADCRUMB = {
     "scored": "Content Scoring · History",
     "copy": "Product Copy · History",
     "images": "Product Image Set Creator · History",
     "acquired": "Product Image Import · History",
-    "ci-snapshot": "Insights · One-Time Snapshot",
     "ci-monitoring": "Insights · Daily Monitoring",
 }
 
@@ -384,11 +380,6 @@ def _activity_rows(db, uid, kind, since):
         rows = _acquire_activity_view(import_store.list_acquire_activity(db, uid, since))
         for r in rows:
             r["result_url"] = url_for("pages.import_images_run", run_id=r["id"])
-        return rows
-    if kind == "ci-snapshot":
-        rows = _ci_activity_view(db, uid, ci_jobs.list_snapshot_activity_for_user(db, uid, since))
-        for r in rows:
-            r["result_url"] = url_for("pages.ci_snapshot_results", group_id=r["group_id"])
         return rows
     if kind == "ci-monitoring":
         rows = _ci_activity_view(db, uid, ci_jobs.list_monitoring_activity_for_user(db, uid, since))
@@ -1980,12 +1971,11 @@ def activity_all(kind):
 @bp.route("/app/competitive-intel/activity")
 @login_required
 def ci_activity():
-    """View All Competitive Intelligence Activity: all-time snapshot + monitoring.
+    """View All Competitive Intelligence Activity: all-time Daily Monitoring.
 
-    The CI counterpart of View All Content Activity — the two CI tables (One-Time
-    Snapshot, Daily Monitoring), all-time, using the same dashboard-style tables
-    (collapsible, sortable, 10-row cap, row-click opens the group's results). Not
-    month-scoped — ``since=None``.
+    The CI counterpart of View All Content Activity — the Daily Monitoring table,
+    all-time, using the same dashboard-style table (collapsible, sortable, 10-row
+    cap, row-click opens the group's results). Not month-scoped — ``since=None``.
     """
     db = get_db()
     uid = g.user["id"]
@@ -1994,7 +1984,6 @@ def ci_activity():
         "app/ci_activity.html",
         breadcrumb="Insights · View All Competitive Intelligence Activity",
         active_nav="ci-activity",
-        snapshot=_activity_rows(db, uid, "ci-snapshot", since=None),
         monitoring=_activity_rows(db, uid, "ci-monitoring", since=None),
     )
 
@@ -3756,24 +3745,6 @@ def admin_copy():
     )
 
 
-@bp.route("/admin/ci-snapshots")
-@admin_required
-def admin_ci_snapshots():
-    """Admin: table of One-Time Snapshot runs across all users (Central-time)."""
-    logger.info("Admin CI snapshots view: admin_user_id=%s", g.user["id"])
-    runs = [
-        # Shape each run with a Central-time "ran" label (stored timestamps are UTC).
-        {**dict(r), "when_cst": _run_when_cst(r)}
-        for r in ci_jobs.list_snapshot_runs(get_db())
-    ]
-    return render_template(
-        "app/admin_ci_snapshots.html",
-        breadcrumb="Admin · Snapshots run",
-        active_nav="admin-ci-snapshots",
-        runs=runs,
-    )
-
-
 @bp.route("/admin/ci-monitoring")
 @admin_required
 def admin_ci_monitoring():
@@ -5363,15 +5334,6 @@ def _run_when_cst(run) -> str | None:
     return ci_analysis.format_run_time_cst(ts)
 
 
-def _ci_active_nav(mode: str) -> str:
-    """Rail slug for a group's mode (config screen highlights its parent menu).
-
-    Monitoring groups are reached through the "Competitive Tracking" rail leaf;
-    snapshot groups keep their (currently hidden) legacy slug.
-    """
-    return "competitive-tracking" if mode == "monitoring" else "ci-snapshot"
-
-
 def _slug(name: str) -> str:
     """Filesystem-safe slug for PDF filenames (alnum kept, else '-')."""
     return ("".join(c if c.isalnum() else "-" for c in (name or "ci")).strip("-").lower() or "ci")[:40]
@@ -5382,42 +5344,9 @@ def _slug(name: str) -> str:
 def ci_home():
     """Back-compat entry point: send the old CI link to Competitive Tracking.
 
-    (Previously landed on the One-Time Snapshot home, which is now hidden — the
-    product is monitoring-only. The snapshot routes/data remain but are no longer
-    surfaced; see ci_snapshot_home.)
+    (The product is monitoring-only; this keeps old bookmarks/links working.)
     """
     return redirect(url_for("pages.ci_monitoring_home"))
-
-
-# ── One-Time Snapshot ────────────────────────────────────────────────────────
-
-@bp.route("/app/competitive-intel/snapshot")
-@login_required
-def ci_snapshot_home():
-    """One-Time Snapshot home — HIDDEN. The product is monitoring-only, so this
-    route (list + create) is no longer surfaced; a stray bookmark or old link
-    lands on Competitive Tracking instead. The route, its template, the snapshot
-    create/results routes, and any existing snapshot groups are kept dormant (not
-    deleted) so this is fully reversible — restore the render below to bring it
-    back. See also ci_home (the back-compat redirect) and the rail (leaf hidden).
-    """
-    logger.info("CI snapshot home hidden — redirecting to monitoring user_id=%s", g.user["id"])
-    return redirect(url_for("pages.ci_monitoring_home"))
-
-
-@bp.route("/app/competitive-intel/snapshot/groups", methods=["POST"])
-@login_required
-def ci_create_snapshot_group():
-    """Create a snapshot group and jump to its config screen."""
-    try:
-        gid = ci_config.create_group(
-            get_db(), g.user["id"], request.form.get("name", ""),
-            request.form.get("description"), mode="snapshot",
-        )
-    except ci_config.ConfigError as e:
-        flash(str(e), "error")
-        return redirect(url_for("pages.ci_snapshot_home"))
-    return redirect(url_for("pages.ci_group_config", group_id=gid))
 
 
 # ── Monitoring Setup ─────────────────────────────────────────────────────────
@@ -5466,58 +5395,47 @@ def ci_create_monitoring_group():
 @bp.route("/app/competitive-intel/groups/<int:group_id>/delete", methods=["POST"])
 @login_required
 def ci_delete_group(group_id):
-    """Delete a group and all its children; return to its mode's home."""
+    """Delete a group and all its children; return to Competitive Tracking."""
     db = get_db()
     group = ci_config.get_group(db, group_id, g.user["id"])
     if group is None:
         abort(404)
-    mode = group["mode"]
     ci_config.delete_group(db, group_id, g.user["id"])
-    home = "pages.ci_monitoring_home" if mode == "monitoring" else "pages.ci_snapshot_home"
-    return redirect(url_for(home))
+    return redirect(url_for("pages.ci_monitoring_home"))
 
 
 @bp.route("/app/competitive-intel/groups/<int:group_id>")
 @login_required
 def ci_group_config(group_id):
-    """Config screen (shared): brands, products, keywords + a mode-aware action.
+    """Competitive Tracking setup screen: brands, products, keywords + schedule.
 
-    Snapshot groups show "Run snapshot"; monitoring groups show "Schedule & Run"
-    plus the next scheduled run time. A help panel explains the setup flow.
+    Shows "Schedule & Run" plus the next scheduled run time. A help panel explains
+    the setup flow.
     """
     group = _owned_group_or_404(group_id)
     db = get_db()
     latest_run = ci_jobs.latest_run(db, group_id)
     uid = g.user["id"]
-    is_monitoring = group["mode"] == "monitoring"
     brands = ci_config.list_brands(db, group_id, uid)
     products = ci_config.list_products(db, group_id, uid)
     keywords = ci_config.list_keywords(db, group_id, uid)
-    # Monitoring groups use the redesigned "Competitive Tracking" setup screen, which
-    # lets the user pick their products from the portfolio catalog; snapshot groups
-    # keep the original shared config screen (the portfolio list is unused there).
-    template = "app/tracking_config.html" if is_monitoring else "app/ci_group_config.html"
     # The setup screen is shared by Create (first setup) and the Set Up button on an
     # existing category, so the breadcrumb reads "Create New Tracking" only while the
     # category is genuinely untouched (nothing configured and never run).
-    is_new = is_monitoring and not (brands or products or keywords or latest_run)
-    if not is_monitoring:
-        breadcrumb = f"Insights · {group['name']}"
-    elif is_new:
-        breadcrumb = "Competitive Tracking - Create New Tracking"
-    else:
-        breadcrumb = f"Competitive Tracking · {group['name']}"
-    # The portfolio picker (monitoring only) shows each item's tracked keywords so the
-    # user can reuse them for this category; fetch them in one batched query.
-    portfolio_items = portfolio.list_items(db, uid) if is_monitoring else []
+    is_new = not (brands or products or keywords or latest_run)
+    breadcrumb = ("Competitive Tracking - Create New Tracking" if is_new
+                  else f"Competitive Tracking · {group['name']}")
+    # The portfolio picker shows each item's tracked keywords so the user can reuse
+    # them for this category; fetch them in one batched query.
+    portfolio_items = portfolio.list_items(db, uid)
     keywords_by_item = (
         item_keywords.list_keywords_by_item(db, uid, [it["id"] for it in portfolio_items])
         if portfolio_items else {}
     )
     return render_template(
-        template,
+        "app/tracking_config.html",
         breadcrumb=breadcrumb,
-        active_nav=_ci_active_nav(group["mode"]),
+        active_nav="competitive-tracking",
         group=group,
         is_new=is_new,
         brands=brands,
@@ -5747,50 +5665,6 @@ def ci_run_status(group_id):
     return jsonify(_run_status_view(ci_jobs.latest_run(get_db(), group_id)))
 
 
-# ── Snapshot run + results + PDF ─────────────────────────────────────────────
-
-@bp.route("/app/competitive-intel/groups/<int:group_id>/run", methods=["POST"])
-@login_required
-def ci_run_snapshot(group_id):
-    """Enqueue a one-time snapshot scrape and go to the (polling) results page."""
-    _owned_group_or_404(group_id)
-    db = get_db()
-    if ci_jobs.has_active_run(db, group_id):
-        flash("A run is already in progress for this group.", "error")
-    else:
-        # No success flash: the results page's own in-progress message ("Extracting
-        # data and creating the report…") already confirms the run started, so a
-        # separate banner would be redundant (and "worker" is internal jargon).
-        ci_jobs.enqueue_run(db, group_id, run_type="one_time")
-    return redirect(url_for("pages.ci_snapshot_results", group_id=group_id))
-
-
-@bp.route("/app/competitive-intel/groups/<int:group_id>/schedule-monitoring", methods=["POST"])
-@login_required
-def ci_schedule_from_snapshot(group_id):
-    """Clone a snapshot group into a monitoring group, then queue a baseline run.
-
-    The snapshot card's "Schedule for monitoring" action: promote a one-time
-    competitive set to ongoing daily tracking (one run/day at a rotating time)
-    without disturbing the snapshot. Lands on the new monitoring group's config so
-    the user can confirm the setup.
-    """
-    _owned_group_or_404(group_id)  # IDOR gate before we touch anything
-    db = get_db()
-    try:
-        new_group_id = ci_config.clone_group_as_monitoring(db, group_id, g.user["id"])
-    except ci_config.ConfigError as e:
-        flash(str(e), "error")
-        return redirect(url_for("pages.ci_snapshot_home"))
-
-    ci_jobs.enqueue_run(db, new_group_id, run_type="one_time")
-    flash("Monitoring group created from this snapshot — a baseline run is queued "
-          "and automatic checks run once a day at a rotating time.", "ok")
-    logger.info("CI schedule-from-snapshot src=%s new=%s user_id=%s",
-                group_id, new_group_id, g.user["id"])
-    return _config_redirect(new_group_id)
-
-
 def _product_views(products) -> list[dict]:
     """Shape tracked-product rows for the "What this group tracks" section.
 
@@ -5851,62 +5725,12 @@ def _sos_chart_scale(sos_rows) -> float:
     return max((r["organic_share"] + r["sponsored_share"] for r in sos_rows), default=0)
 
 
-def _snapshot_data(db, group_id):
-    """Gather every section the snapshot results page and its PDF render.
-
-    Returns a dict with the group's config summary plus, once a run is done, the
-    overall/per-keyword ranking and share rollups. Shared by the page route and
-    the PDF export so the two never drift.
-    """
-    run = ci_jobs.latest_run(db, group_id)
-
-    # Config summary — always available; user-scoped/IDOR-checked in ci_config.
-    brands = ci_config.list_brands(db, group_id, g.user["id"])
-    config_summary = {
-        "my_brands": [b["name"] for b in brands if b["type"] == "mine"],
-        "competitor_brands": [b["name"] for b in brands if b["type"] != "mine"],
-        "products": _product_views(ci_config.list_products(db, group_id, g.user["id"])),
-        "keywords": [k["keyword"] for k in ci_config.list_keywords(db, group_id, g.user["id"])],
-    }
-
-    sos_summary, brand_sos_summary, avg_ranks, rank_rows, share_rows = [], [], [], [], []
-    brand_ads = []
-    rank_map = None
-    if run and run["status"] == "done":
-        rid = run["id"]
-        sos_summary = ci_analysis.snapshot_share_of_shelf(db, group_id, rid)
-        # Brand-level share (all of a brand's SKUs, not just tracked) — the section
-        # appended at the end of the report.
-        brand_sos_summary = ci_analysis.snapshot_brand_share_of_shelf(db, group_id, rid)
-        avg_ranks = ci_analysis.snapshot_brand_avg_rank(db, group_id, rid)
-        rank_rows = ci_analysis.snapshot_rank_by_keyword_brand(db, group_id, rid)
-        share_rows = ci_analysis.snapshot_share_by_keyword(db, group_id, rid)
-        # Brand advertising presence (headline + sponsored-video ad sightings).
-        brand_ads = ci_analysis.snapshot_brand_ads(db, group_id, rid)
-        # Placement grid for the Overall Search Ranking section: each brand's
-        # average rank mapped onto a page-1 result grid (page + PDF share this).
-        depth = ci_analysis.snapshot_page1_depth(db, group_id, rid)
-        rank_map = ci_analysis.build_rank_placement_map(avg_ranks, depth)
-
-    return {
-        "run": run,
-        "config_summary": config_summary,
-        "sos_summary": sos_summary,
-        "brand_sos_summary": brand_sos_summary,
-        "avg_ranks": avg_ranks,
-        "rank_rows": rank_rows,
-        "share_rows": share_rows,
-        "brand_ads": brand_ads,
-        "rank_map": rank_map,
-    }
-
-
 def _monitoring_data(db, group_id, period):
     """Gather the Daily Monitoring view's sections for a completed calendar period.
 
     Each results table is aggregated over the last completed ``period`` (week /
     month / quarter / year) with a delta vs the prior period and a per-period trend
-    sparkline. The config summary and placement map mirror the snapshot layout.
+    sparkline, alongside a config summary and a page-1 placement map.
     """
     # Config summary — always available (it's configuration, not run output).
     brands = ci_config.list_brands(db, group_id, g.user["id"])
@@ -5935,76 +5759,6 @@ def _monitoring_data(db, group_id, period):
         "brand_ads": brand_ads,
         "rank_map": rank_map,
     }
-
-
-@bp.route("/app/competitive-intel/groups/<int:group_id>/results")
-@login_required
-def ci_snapshot_results(group_id):
-    """Current-state snapshot results (no trends); polls while a run is active."""
-    group = _owned_group_or_404(group_id)
-    db = get_db()
-    data = _snapshot_data(db, group_id)
-
-    # Stacked-bar chart scale: bars visualize the table's organic/sponsored share
-    # columns (not raw counts), so scale to the tallest organic+sponsored stack.
-    # The brand-level chart at the end of the report scales independently.
-    sos_scale = _sos_chart_scale(data["sos_summary"])
-    brand_sos_scale = _sos_chart_scale(data["brand_sos_summary"])
-
-    run = data["run"]
-    logger.info("CI snapshot results: group_id=%s user_id=%s run_id=%s rank_rows=%d",
-                group_id, g.user["id"], run["id"] if run else None,
-                len(data["rank_rows"]))
-    return render_template(
-        "app/ci_snapshot_results.html",
-        breadcrumb=f"Insights · {group['name']}",
-        active_nav="ci-snapshot",
-        group=group,
-        run=run,
-        sos_summary=data["sos_summary"],
-        brand_sos_summary=data["brand_sos_summary"],
-        config_summary=data["config_summary"],
-        avg_ranks=data["avg_ranks"],
-        rank_rows=data["rank_rows"],
-        share_rows=data["share_rows"],
-        brand_ads=data["brand_ads"],
-        rank_map=data["rank_map"],
-        sos_scale=sos_scale,
-        brand_sos_scale=brand_sos_scale,
-    )
-
-
-@bp.route("/app/competitive-intel/groups/<int:group_id>/results.pdf")
-@login_required
-def ci_snapshot_results_pdf(group_id):
-    """Download the snapshot's current-state results as a PDF."""
-    from datetime import date
-
-    from flask import Response
-
-    from app.pdf_export import build_ci_snapshot_pdf
-
-    group = _owned_group_or_404(group_id)
-    db = get_db()
-    data = _snapshot_data(db, group_id)
-    if not data["run"] or data["run"]["status"] != "done":
-        abort(404)  # nothing to export yet
-    # Mirror the page: config summary, both ranking tables, both share tables.
-    pdf = build_ci_snapshot_pdf(
-        dict(group),
-        config_summary=data["config_summary"],
-        avg_ranks=data["avg_ranks"],
-        rank_rows=data["rank_rows"],
-        sos_rows=data["sos_summary"],
-        share_rows=data["share_rows"],
-        brand_sos_rows=data["brand_sos_summary"],
-        brand_ads=data["brand_ads"],
-        rank_map=data["rank_map"],
-    )
-    filename = f"ci-snapshot-{_slug(group['name'])}-{date.today().isoformat()}.pdf"
-    logger.info("CI snapshot PDF: group_id=%s user_id=%s", group_id, g.user["id"])
-    return Response(pdf, mimetype="application/pdf",
-                    headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
 
 # ── Monitoring: schedule & run ───────────────────────────────────────────────
@@ -6046,65 +5800,13 @@ def _resolve_period(raw: str | None) -> str:
     return raw if raw in ci_analysis.PERIODS else ci_analysis.DEFAULT_PERIOD
 
 
-@bp.route("/app/competitive-intel/view-snapshot")
-@login_required
-def ci_view_snapshot():
-    """Pick a one-time snapshot group from a dropdown; show its current-state results.
-
-    The snapshot counterpart to :func:`ci_view`: same picker layout, rendering the
-    snapshot results sections (no trends, no period window) for the selected group's
-    latest completed run.
-    """
-    db = get_db()
-    groups = ci_config.list_groups(db, g.user["id"], mode="snapshot")
-
-    group_id = request.args.get("group_id", type=int)
-    selected = None
-    if group_id is not None:
-        selected = ci_config.get_group(db, group_id, g.user["id"])
-        if selected is not None and selected["mode"] != "snapshot":
-            selected = None
-    elif groups:
-        selected = groups[0]  # default to the newest snapshot group
-
-    data = {"run": None, "config_summary": None, "sos_summary": [], "brand_sos_summary": [],
-            "avg_ranks": [], "rank_rows": [], "share_rows": [], "brand_ads": [], "rank_map": None}
-    if selected is not None:
-        data = _snapshot_data(db, selected["id"])
-
-    sos_scale = _sos_chart_scale(data["sos_summary"])
-    brand_sos_scale = _sos_chart_scale(data["brand_sos_summary"])
-    logger.info("CI view-snapshot user_id=%s group_id=%s run_id=%s",
-                g.user["id"], selected["id"] if selected else None,
-                data["run"]["id"] if data["run"] else None)
-    return render_template(
-        "app/ci_view_snapshot.html",
-        breadcrumb="Insights · View Snapshot",
-        active_nav="ci-view-snapshot",
-        groups=groups,
-        selected=selected,
-        run=data["run"],
-        config_summary=data["config_summary"],
-        sos_summary=data["sos_summary"],
-        brand_sos_summary=data["brand_sos_summary"],
-        avg_ranks=data["avg_ranks"],
-        rank_rows=data["rank_rows"],
-        share_rows=data["share_rows"],
-        brand_ads=data["brand_ads"],
-        rank_map=data["rank_map"],
-        sos_scale=sos_scale,
-        brand_sos_scale=brand_sos_scale,
-    )
-
-
 @bp.route("/app/competitive-intel/view")
 @login_required
 def ci_view():
     """Pick a monitoring group from a dropdown; show its results dashboard.
 
-    Mirrors the One-Time Snapshot results layout (current-state ranking + share
-    sections from the latest completed run) with a per-row trend sparkline added,
-    over the selected period window.
+    Current-state ranking + share sections for the selected period window, each with
+    a per-row trend sparkline.
     """
     db = get_db()
     groups = ci_config.list_groups(db, g.user["id"], mode="monitoring")
@@ -6137,8 +5839,8 @@ def ci_view():
             prior_label = ci_analysis.period_label(period, 1)
 
     # Stacked-bar chart scale: scale to the tallest organic+sponsored stack, so the
-    # bars visualize the table's share columns (same as the snapshot page). The
-    # brand-level chart at the end of the report scales independently.
+    # bars visualize the table's share columns. The brand-level chart at the end of
+    # the report scales independently.
     sos_scale = _sos_chart_scale(data["sos_summary"])
     brand_sos_scale = _sos_chart_scale(data["brand_sos_summary"])
     logger.info("CI view user_id=%s group_id=%s period=%s available=%s",
@@ -6171,7 +5873,7 @@ def ci_view():
 @bp.route("/app/competitive-intel/view/<int:group_id>/results.pdf")
 @login_required
 def ci_view_pdf(group_id):
-    """Download the monitoring dashboard as a PDF (snapshot layout + trend lines)."""
+    """Download the monitoring dashboard as a PDF (results tables + trend lines)."""
     from datetime import date
 
     from flask import Response

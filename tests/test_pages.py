@@ -483,9 +483,9 @@ def test_history_views_render_named_history_labels(client, auth):
         assert label in resp.data, url
 
 
-def test_ci_activity_shows_both_ci_tables_all_time(client, auth, app):
-    # View All CI Activity: the two CI tables, all-time, with the new nav item, and
-    # the old View Snapshot / View Monitoring nav items removed from the rail.
+def test_ci_activity_shows_monitoring_table_all_time(client, auth, app):
+    # View All CI Activity: the Daily Monitoring table, all-time, with its nav item
+    # and the old View Snapshot / View Monitoring nav items removed from the rail.
     from app import ci_config, ci_jobs
     from app.db import get_db
 
@@ -493,18 +493,16 @@ def test_ci_activity_shows_both_ci_tables_all_time(client, auth, app):
     with app.app_context():
         db = get_db()
         uid = db.execute("SELECT id FROM users WHERE email = ?", ("cia@example.com",)).fetchone()["id"]
-        snap = ci_config.create_group(db, uid, "Snap Group", mode="snapshot")
-        ci_config.create_group(db, uid, "Mon Group", mode="monitoring")
-        ci_jobs.enqueue_run(db, snap, "one_time")  # gives the snapshot table a row
+        mon = ci_config.create_group(db, uid, "Mon Group", mode="monitoring")
+        ci_jobs.enqueue_run(db, mon, "monitoring", slot="morning")  # gives the table a row
 
     resp = client.get("/app/competitive-intel/activity")
     assert resp.status_code == 200
     assert b"View All Competitive Intelligence Activity" in resp.data
-    assert b"One-Time Snapshots" in resp.data
     assert b"Daily Monitoring" in resp.data
-    assert b"Snap Group" in resp.data  # the snapshot run's group row
-    # Snapshot rows link to that group's results.
-    assert f"/app/competitive-intel/groups/{snap}/results".encode() in resp.data
+    assert b"Mon Group" in resp.data  # the monitoring group's row
+    # Monitoring rows link to that group's View Monitoring dashboard.
+    assert f"/app/competitive-intel/view?group_id={mon}".encode() in resp.data
 
     # Rail (as of session 31): the Insights area was reworked, so the old
     # View-Snapshot/Monitoring leaves AND this View-All-CI-Activity leaf are all

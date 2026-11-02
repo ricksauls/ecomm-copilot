@@ -138,34 +138,6 @@ def test_monitoring_share_of_shelf_period_delta_and_trend(app):
         assert [r["type"] for r in rows] == ["mine", "competitor"]
 
 
-def test_snapshot_brand_share_of_shelf_counts_all_skus(app):
-    """Brand share counts a brand's UNTRACKED SKUs too (unlike tracked-only share),
-    reading ci_search_results directly; unattributed cards form the 'Other' bucket."""
-    with app.app_context():
-        db = get_db()
-        _, gid, mine, comp, _, kid, rid = _setup(db)  # mine tracks 10294528
-        # Tabasco: its tracked item PLUS an untracked SKU (both brand-attributed).
-        _result(db, rid, gid, kid, _iso(0), 1, "10294528", mine, ptype="organic")
-        _result(db, rid, gid, kid, _iso(0), 2, "t2", mine, ptype="organic")
-        # Frank's: one sponsored SKU. Plus a card tied to no tracked brand -> Other.
-        _result(db, rid, gid, kid, _iso(0), 3, "f1", comp, ptype="sponsored")
-        _result(db, rid, gid, kid, _iso(0), 4, "o1", None, ptype="organic")
-        db.commit()
-
-        rows = ci_analysis.snapshot_brand_share_of_shelf(db, gid, rid)
-        by = {r["brand_name"]: r for r in rows}
-        # 4 placements total; Tabasco 2 (incl. the untracked SKU) = 50%.
-        assert by["Tabasco"]["total"] == 2
-        assert by["Tabasco"]["total_share"] == 50.0
-        # Organic denominator is 3 (2 Tabasco + 1 Other); Tabasco organic share = 66.7%.
-        assert by["Tabasco"]["organic_share"] == 66.7
-        assert by["Frank's"]["total_share"] == 25.0
-        assert by["Frank's"]["sponsored_share"] == 100.0  # the only sponsored card
-        assert by["Other"]["total_share"] == 25.0
-        # Ordering: mine, competitor, then the Other bucket.
-        assert [r["type"] for r in rows] == ["mine", "competitor", "other"]
-
-
 def test_monitoring_brand_share_of_shelf_period_delta_and_trend(app):
     """Brand-level SoS aggregates ci_search_results over the completed period."""
     with app.app_context():
@@ -194,31 +166,6 @@ def test_monitoring_brand_share_of_shelf_period_delta_and_trend(app):
         assert [r["type"] for r in rows] == ["mine", "competitor"]
 
 
-def test_snapshot_brand_ads_counts_and_latest_image(app):
-    with app.app_context():
-        db = get_db()
-        _, gid, mine, comp, _, kid, rid = _setup(db)
-        # Tabasco: 2 headline sightings (2nd carries the image) + 1 video.
-        _ad(db, rid, gid, kid, _iso(0), "headline", mine, image_path=None)
-        _ad(db, rid, gid, kid, _iso(0), "headline", mine, image_path="ci_ads/x.jpg")
-        _ad(db, rid, gid, kid, _iso(0), "video", mine, image_path="ci_ads/v.jpg")
-        # Frank's: 1 headline. An untracked-brand ad (brand_id NULL) is ignored here.
-        _ad(db, rid, gid, kid, _iso(0), "headline", comp, image_path=None)
-        _ad(db, rid, gid, kid, _iso(0), "headline", None, image_path=None)
-        db.commit()
-
-        rows = ci_analysis.snapshot_brand_ads(db, gid, rid)
-        by = {r["brand_name"]: r for r in rows}
-        assert by["Tabasco"]["headline_count"] == 2
-        assert by["Tabasco"]["video_count"] == 1
-        # Latest image ref is the run/keyword that has an image.
-        assert by["Tabasco"]["headline_img"] == {"run_id": rid, "keyword_id": kid}
-        assert by["Frank's"]["headline_count"] == 1
-        assert by["Frank's"]["video_count"] == 0 and by["Frank's"]["video_img"] is None
-        # Only tracked brands surface; mine sorts before competitor.
-        assert [r["type"] for r in rows] == ["mine", "competitor"]
-
-
 def test_monitoring_brand_ads_counts_over_period(app):
     with app.app_context():
         db = get_db()
@@ -233,106 +180,6 @@ def test_monitoring_brand_ads_counts_over_period(app):
         rows = ci_analysis.monitoring_brand_ads(db, gid, "wow", today=T)
         by = {r["brand_name"]: r for r in rows}
         assert by["Tabasco"]["headline_count"] == 2  # only the completed-week sightings
-
-
-def test_snapshot_rank_splits_organic_and_sponsored(app):
-    with app.app_context():
-        db = get_db()
-        _, gid, mine, _comp, _, kid, rid = _setup(db)
-        _result(db, rid, gid, kid, _iso(0), 1, "x", mine, ptype="sponsored")
-        _result(db, rid, gid, kid, _iso(0), 6, "10294527", mine, ptype="organic")
-        db.commit()
-        rows = ci_analysis.snapshot_rank(db, gid, rid)
-        r = next(r for r in rows if r["brand_name"] == "Tabasco")
-        assert r["current_position"] == 1        # best overall (the sponsored #1)
-        assert r["organic_position"] == 6
-        assert r["sponsored_position"] == 1
-
-
-def test_snapshot_brand_avg_rank_averages_per_keyword_then_across_terms(app):
-    with app.app_context():
-        db = get_db()
-        uid, gid, mine, comp, _, kid, rid = _setup(db)
-        # Second keyword to exercise the two-stage average (per-keyword, then terms).
-        kid2 = ci_config.add_keyword(db, gid, uid, "chipotle sauce")
-        # Tabasco tracks x/y/z; Frank's tracks f (only tracked items are averaged).
-        _track(db, gid, mine, "x")
-        _track(db, gid, mine, "y")
-        _track(db, gid, mine, "z")
-        _track(db, gid, comp, "f")
-        # Tabasco kw1: #4 & #6 -> avg 5.0; kw2: #1 -> avg 1.0. Overall (5+1)/2 = 3.0.
-        _result(db, rid, gid, kid, _iso(0), 4, "x", mine)
-        _result(db, rid, gid, kid, _iso(0), 6, "y", mine)
-        _result(db, rid, gid, kid2, _iso(0), 1, "z", mine)
-        # Frank's kw1: #6 -> avg 6.0 over one term. Absent from kw2 (not penalized).
-        _result(db, rid, gid, kid, _iso(0), 6, "f", comp)
-        db.commit()
-
-        rows = ci_analysis.snapshot_brand_avg_rank(db, gid, rid)
-        by_brand = {r["brand_name"]: r for r in rows}
-        assert by_brand["Tabasco"]["avg_position"] == 3.0
-        assert by_brand["Frank's"]["avg_position"] == 6.0
-        # keyword_count column was removed from the payload.
-        assert "keyword_count" not in by_brand["Tabasco"]
-        # Mine sorts first, then best (lowest) average first.
-        assert rows[0]["type"] == "mine"
-
-
-def test_snapshot_share_by_keyword_uses_per_keyword_denominators(app):
-    with app.app_context():
-        db = get_db()
-        uid, gid, mine, comp, _, kid, rid = _setup(db)  # kid == "hot sauce"
-        kid2 = ci_config.add_keyword(db, gid, uid, "aaa sauce")
-        # hot sauce: Tabasco 9 organic + 6 sponsored (15); Frank's 3 organic + 2 sponsored (5).
-        _sos(db, rid, gid, kid, _iso(0), mine, 9, 6)
-        _sos(db, rid, gid, kid, _iso(0), comp, 3, 2)
-        # aaa sauce: Tabasco only, 3 organic.
-        _sos(db, rid, gid, kid2, _iso(0), mine, 3, 0)
-        db.commit()
-
-        rows = ci_analysis.snapshot_share_by_keyword(db, gid, rid)
-        # Ordered by keyword (aaa before hot).
-        assert rows[0]["keyword"] == "aaa sauce"
-        assert rows[0]["total_share"] == 100.0 and rows[0]["organic_share"] == 100.0
-
-        hot = [r for r in rows if r["keyword"] == "hot sauce"]
-        by = {r["brand_name"]: r for r in hot}
-        # Shares use this keyword's own slots: Tabasco 15 of 20 total = 75%.
-        assert by["Tabasco"]["total_share"] == 75.0
-        assert by["Tabasco"]["organic_share"] == 75.0    # 9 of 12 organic slots
-        assert by["Tabasco"]["sponsored_share"] == 75.0  # 6 of 8 sponsored slots
-        # Within a keyword, ordered by total share descending (Tabasco 75 > Frank's 25).
-        assert [r["brand_name"] for r in hot] == ["Tabasco", "Frank's"]
-
-
-def test_snapshot_rank_by_keyword_brand_orders_and_averages(app):
-    with app.app_context():
-        db = get_db()
-        uid, gid, mine, comp, _, kid, rid = _setup(db)  # kid == "hot sauce"
-        kid2 = ci_config.add_keyword(db, gid, uid, "aaa sauce")
-        # Tabasco tracks a/b; Frank's tracks c/d (only tracked items are averaged).
-        _track(db, gid, mine, "a")
-        _track(db, gid, mine, "b")
-        _track(db, gid, comp, "c")
-        _track(db, gid, comp, "d")
-        # hot sauce: Tabasco #2 & #4 -> avg 3.0; Frank's #5 -> 5.0.
-        _result(db, rid, gid, kid, _iso(0), 2, "a", mine)
-        _result(db, rid, gid, kid, _iso(0), 4, "b", mine)
-        _result(db, rid, gid, kid, _iso(0), 5, "c", comp)
-        # An untracked Frank's SKU at #1 must not pull the average down to 3.0.
-        _result(db, rid, gid, kid, _iso(0), 1, "zz", comp)
-        # aaa sauce: Frank's #1 -> 1.0.
-        _result(db, rid, gid, kid2, _iso(0), 1, "d", comp)
-        db.commit()
-
-        rows = ci_analysis.snapshot_rank_by_keyword_brand(db, gid, rid)
-        # Ordered by keyword (aaa before hot), then avg ranking ascending within a term.
-        assert [(r["keyword"], r["brand_name"], r["avg_ranking"]) for r in rows] == [
-            ("aaa sauce", "Frank's", 1.0),
-            ("hot sauce", "Tabasco", 3.0),
-            ("hot sauce", "Frank's", 5.0),
-        ]
-        assert rows[1]["type"] == "mine"
 
 
 def test_build_rank_placement_map_rounds_ties_and_sizes_grid():
@@ -364,19 +211,6 @@ def test_build_rank_placement_map_none_when_no_averages():
     assert ci_analysis.build_rank_placement_map([], depth=10) is None
     only_null = [{"brand_name": "X", "type": "mine", "avg_position": None}]
     assert ci_analysis.build_rank_placement_map(only_null, depth=10) is None
-
-
-def test_snapshot_page1_depth_returns_deepest_slot(app):
-    with app.app_context():
-        db = get_db()
-        _, gid, mine, comp, _, kid, rid = _setup(db)
-        _result(db, rid, gid, kid, _iso(0), 3, "a", mine)
-        _result(db, rid, gid, kid, _iso(0), 17, "b", comp)
-        db.commit()
-        assert ci_analysis.snapshot_page1_depth(db, gid, rid) == 17
-        # A run with nothing recorded reports depth 0.
-        empty_rid = ci_jobs.enqueue_run(db, gid)
-        assert ci_analysis.snapshot_page1_depth(db, gid, empty_rid) == 0
 
 
 def test_monitoring_avg_rank_empty_when_no_period_data(app):

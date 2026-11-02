@@ -1,5 +1,48 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
+_Last updated: 2026-11-02 (session 48 — **One-Time Snapshot product FULLY REMOVED** (the S47 deferred open item).
+Direct-pushed to `main` (user's choice); CI → Deploy triggered. 863 tests + ruff clean locally; no dependency changes.
+This block brings HANDOFF current through S48.)_
+
+_**S48 scope — full removal of the dormant One-Time Snapshot CI mode.** Snapshot was hidden in S45 but its
+routes/templates/analysis/data were kept dormant; this session deletes it outright while leaving Daily Monitoring fully
+intact. CI groups had two `ci_groups.mode` values ('snapshot' vs 'monitoring'); only 'monitoring' survives._
+
+_**1) Templates deleted (6):** `ci_snapshot_home`, `ci_snapshot_results`, `ci_view_snapshot`, `admin_ci_snapshots`, the
+old shared `ci_group_config`, and its `_ci_help` partial (the last two were snapshot-only once monitoring moved to
+`tracking_config.html`)._
+
+_**2) `pages.py`:** removed 9 snapshot routes/helpers — `ci_snapshot_home`, `ci_create_snapshot_group`,
+`ci_run_snapshot`, `ci_schedule_from_snapshot`, `ci_snapshot_results`, `ci_snapshot_results_pdf`, `ci_view_snapshot`,
+`admin_ci_snapshots`, and the `_snapshot_data` gatherer. `ci_group_config` simplified to monitoring-only (always renders
+`tracking_config.html`); `ci_delete_group`, the `_ACTIVITY_*` dicts, `_activity_rows`, `ci_activity`, and `_ci_active_nav`
+(inlined + deleted) stripped of their snapshot branch. Monitoring's `enqueue_run(run_type="one_time")` baseline path was
+verified still in use and KEPT._
+
+_**3) Logic modules:** `ci_analysis.py` — deleted 8 `snapshot_*` aggregations; kept shared `build_rank_placement_map`
+(+ `_nearest_tile`) and every `monitoring_*`/`_*_range` helper. `ci_config.py` — removed `clone_group_as_monitoring`,
+`GROUP_MODES`→`("monitoring",)`, `create_group` default mode flipped to 'monitoring'. `ci_jobs.py` — removed
+`list_snapshot_activity_for_user`, `list_snapshot_runs`, and the two already-dead `count_snapshot_runs*`. `pdf_export.py`
+— removed `build_ci_snapshot_pdf`; `_ci_results_flow`'s `with_trend` flag kept (monitoring passes True)._
+
+_**4) Schema (low-risk, no data migration):** `ci_groups.mode` column KEPT but its DEFAULT flipped `'snapshot'→
+'monitoring'` (table def + the `_migrate` add-column), so it's now a vestigial discriminator. The lone dormant
+snapshot-mode group in the dev DB simply becomes invisible (never listed by `list_groups(mode="monitoring")`); no
+rebuild, no row deletion._
+
+_**5) Shared templates tidied:** `_ci_results_sections`, `_ci_ads`, `ci_activity` (snapshot table dropped),
+`_rail` (dead commented snapshot leaf removed), `tracking_config` (stale comment). **`landing.html` LEFT UNTOUCHED** on
+purpose — its $250 one-time-snapshot marketing card belongs to the deferred landing redesign, not a piecemeal edit._
+
+_**Tests:** deleted ~22 snapshot-only tests and edited the mixed ones across `test_ci_pages`, `test_ci_analysis`,
+`test_ci_config`, `test_ci_jobs`, `test_admin`, `test_pages`. Full suite **863** + ruff clean. Browser-verified:
+`/competitive-intel`→Competitive Tracking, deleted `/snapshot` 404s, monitoring home + setup screen + activity page all
+render clean, no snapshot remnants._
+
+_**Open items after S48:** S44 `python -m app.suggest_keywords` droplet run; `landing.html` redesign (deferred — don't
+touch piecemeal; still advertises the removed snapshot card); the old `/products/bulk` route removal; Phase 2 follow-ups
+(retire item-page perf blocks / rename "View trends"→"View Keywords"). Net ~2,000 lines removed across 23 files._
+
 _Last updated: 2026-11-02 (session 47 — **Phase 2 SHIPPED: reorient Insights/Performance around per-item tracked
 data.** Direct-pushed to `main` (user's choice); CI → Deploy triggered. 884 tests + ruff clean locally; no dependency
 changes. This block brings HANDOFF current through S47.)_

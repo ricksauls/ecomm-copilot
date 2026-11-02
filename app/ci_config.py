@@ -33,8 +33,10 @@ MAX_KEYWORDS_PER_GROUP = 200
 MAX_COMPETITORS_PER_GROUP = 5
 
 BRAND_TYPES = ("mine", "competitor")
-# A group is either a one-time snapshot or an ongoing monitoring group.
-GROUP_MODES = ("snapshot", "monitoring")
+# Every group is an ongoing monitoring group. ``mode`` is retained on the row (and
+# validated here) as a vestigial discriminator from when one-time snapshots also
+# existed; it now only ever holds 'monitoring'.
+GROUP_MODES = ("monitoring",)
 
 
 class ConfigError(ValueError):
@@ -102,12 +104,12 @@ def _count(conn: sqlite3.Connection, table: str, group_id: int) -> int:
 # ── groups ──────────────────────────────────────────────────────────────────────
 
 def create_group(conn: sqlite3.Connection, user_id: int, name: str,
-                 description: str | None = None, mode: str = "snapshot") -> int:
+                 description: str | None = None, mode: str = "monitoring") -> int:
     """Create a group for ``user_id`` in the given mode; return its id."""
     name = _clean_text(name, max_len=MAX_NAME_LEN, field="Group name")
     description = _clean_text(description, max_len=MAX_DESC_LEN, field="Description", required=False)
     if mode not in GROUP_MODES:
-        raise ConfigError("Group mode must be 'snapshot' or 'monitoring'.")
+        raise ConfigError("Group mode must be 'monitoring'.")
 
     existing = conn.execute(
         "SELECT COUNT(*) FROM ci_groups WHERE user_id = ?", (user_id,)
@@ -129,8 +131,8 @@ def list_groups(conn: sqlite3.Connection, user_id: int,
                 mode: str | None = None) -> list[sqlite3.Row]:
     """Return the user's groups (newest first) with child counts for the list view.
 
-    ``mode`` optionally restricts to 'snapshot' or 'monitoring' groups (the two
-    setup menus each show their own).
+    ``mode`` optionally restricts by the group's ``mode`` column; callers pass
+    'monitoring' (the only mode in use).
     """
     sql = (
         "SELECT g.*, "
@@ -177,75 +179,6 @@ def set_monitoring(conn: sqlite3.Connection, group_id: int, user_id: int, enable
     )
     conn.commit()
     logger.info("CI group id=%s monitoring_enabled=%s (user_id=%s)", group_id, bool(enabled), user_id)
-
-
-def clone_group_as_monitoring(conn: sqlite3.Connection, group_id: int, user_id: int) -> int:
-    """Copy a snapshot group into a new monitoring group and return its id.
-
-    Powers "Schedule for monitoring" on the snapshot card: a user who likes a
-    one-time competitive read can promote that exact set to ongoing tracking. The
-    source group is left untouched; a fresh ``mode='monitoring'`` group is created
-    with monitoring already enabled (so the scheduled sweep picks it up) and every
-    brand, product, and keyword duplicated. Run history is *not* copied — the new
-    group starts its own baseline.
-
-    All inserts share one transaction so a failure can't leave a half-populated
-    group behind (the sweep would otherwise scrape an incomplete competitive set).
-    """
-    src = get_group(conn, group_id, user_id)
-    if src is None:
-        # Vague on purpose — don't reveal another user's group ids (IDOR gate).
-        raise ConfigError("Group not found.")
-    # Reuse the per-user cap check so cloning can't bypass the limit create_group enforces.
-    existing = conn.execute(
-        "SELECT COUNT(*) FROM ci_groups WHERE user_id = ?", (user_id,)
-    ).fetchone()[0]
-    if existing >= MAX_GROUPS_PER_USER:
-        raise ConfigError(f"You can have at most {MAX_GROUPS_PER_USER} groups.")
-
-    try:
-        cur = conn.execute(
-            "INSERT INTO ci_groups (user_id, name, description, mode, monitoring_enabled) "
-            "VALUES (?, ?, ?, 'monitoring', 1)",
-            (user_id, src["name"], src["description"]),
-        )
-        new_group_id = int(cur.lastrowid)
-
-        # Copy brands first, keeping an old->new id map so products re-point correctly.
-        brand_id_map: dict[int, int] = {}
-        for b in conn.execute("SELECT * FROM ci_brands WHERE group_id = ?", (group_id,)):
-            bc = conn.execute(
-                "INSERT INTO ci_brands (group_id, name, type, tracked) VALUES (?, ?, ?, ?)",
-                (new_group_id, b["name"], b["type"], b["tracked"]),
-            )
-            brand_id_map[b["id"]] = int(bc.lastrowid)
-
-        # Products carry already-validated item id + URL — copy verbatim under the
-        # remapped brand, preserving each row's active flag.
-        for p in conn.execute("SELECT * FROM ci_products WHERE group_id = ?", (group_id,)):
-            conn.execute(
-                "INSERT INTO ci_products "
-                "(group_id, brand_id, name, walmart_item_id, walmart_url, active) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (new_group_id, brand_id_map[p["brand_id"]], p["name"],
-                 p["walmart_item_id"], p["walmart_url"], p["active"]),
-            )
-
-        for k in conn.execute("SELECT * FROM ci_keywords WHERE group_id = ?", (group_id,)):
-            conn.execute(
-                "INSERT INTO ci_keywords (group_id, keyword, active) VALUES (?, ?, ?)",
-                (new_group_id, k["keyword"], k["active"]),
-            )
-        conn.commit()
-    except sqlite3.Error:
-        conn.rollback()  # keep the clone all-or-nothing
-        logger.exception("CI clone-to-monitoring failed src_group_id=%s user_id=%s",
-                         group_id, user_id)
-        raise
-
-    logger.info("CI group cloned to monitoring src=%s new=%s user_id=%s",
-                group_id, new_group_id, user_id)
-    return new_group_id
 
 
 def delete_group(conn: sqlite3.Connection, group_id: int, user_id: int) -> None:

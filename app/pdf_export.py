@@ -513,7 +513,7 @@ def _share_by_keyword_table(share_rows: list[dict], styles: dict, *, with_trend:
 def _sos_chart(sos_rows: list[dict]) -> Drawing | Spacer:
     """Stacked-bar chart of each brand's organic/sponsored share of the shelf.
 
-    Mirrors the on-screen chart (``ci_snapshot_results.html``): one vertical bar
+    Mirrors the on-screen chart (``ci_view.html``): one vertical bar
     per brand, organic (ink) at the base with sponsored (gray) stacked on top,
     every bar scaled to the tallest organic+sponsored stack, labeled with the
     brand's total share above and its name below. Drawn with reportlab shapes so
@@ -575,7 +575,7 @@ def _truncate(text: str, limit: int) -> str:
 def _rank_placement_grid(rank_map: dict | None) -> Drawing | Spacer:
     """Page-1 result grid marking each brand's *overall* average rank.
 
-    Mirrors the on-screen placement map (``ci_snapshot_results.html``): a
+    Mirrors the on-screen placement map (``ci_view.html``): a
     ``cols``-wide grid numbered left-to-right, top-to-bottom, every slot blank
     except the one a brand's average rounds onto — my brand in the signal-red
     accent, competitors in ink, tied brands sharing one outlined tile. Consumes
@@ -691,8 +691,7 @@ def _ci_results_flow(group: dict, subtitle: str, styles: dict, *, config_summary
     Brand Share of Digital Shelf (all of a brand's SKUs, not just tracked — table +
     its own stacked bar chart). Page breaks fall after the config summary and after
     per-keyword Search Ranking so each block starts fresh. ``with_trend`` adds a
-    trend sparkline column to every table — the only thing the Daily Monitoring
-    export adds over the snapshot.
+    trend sparkline column to every table (set for the Daily Monitoring export).
     """
     flow = _ci_header(group, subtitle, styles)
     flow += _summary_flow(config_summary, styles)
@@ -771,30 +770,6 @@ def _ci_results_flow(group: dict, subtitle: str, styles: dict, *, config_summary
     return flow
 
 
-def build_ci_snapshot_pdf(group: dict, *, config_summary: dict, avg_ranks: list[dict],
-                          rank_rows: list[dict], sos_rows: list[dict],
-                          share_rows: list[dict], brand_sos_rows: list[dict] | None = None,
-                          brand_ads: list[dict] | None = None,
-                          rank_map: dict | None = None) -> bytes:
-    """One-Time Snapshot PDF — mirrors the results page, current-state (no trends)."""
-    styles = _styles()
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(
-        buffer, pagesize=letter, title="CI Snapshot",
-        leftMargin=0.75 * inch, rightMargin=0.75 * inch,
-        topMargin=0.7 * inch, bottomMargin=0.7 * inch,
-    )
-    flow = _ci_results_flow(
-        group, "One-Time Snapshot — current state", styles,
-        config_summary=config_summary, avg_ranks=avg_ranks, rank_rows=rank_rows,
-        sos_rows=sos_rows, share_rows=share_rows, brand_sos_rows=brand_sos_rows or [],
-        brand_ads=brand_ads or [], rank_map=rank_map, with_trend=False,
-    )
-    doc.build(flow)
-    logger.info("Built CI snapshot PDF: group=%s", group.get("name"))
-    return buffer.getvalue()
-
-
 def build_ci_monitoring_pdf(group: dict, period: str, *, config_summary: dict,
                             avg_ranks: list[dict], rank_rows: list[dict], sos_rows: list[dict],
                             share_rows: list[dict], brand_sos_rows: list[dict] | None = None,
@@ -802,7 +777,7 @@ def build_ci_monitoring_pdf(group: dict, period: str, *, config_summary: dict,
                             rank_map: dict | None = None,
                             period_label: str | None = None,
                             prior_label: str | None = None) -> bytes:
-    """Daily Monitoring PDF — the snapshot layout, aggregated over a completed period.
+    """Daily Monitoring PDF — the CI results layout, aggregated over a completed period.
 
     Each table is aggregated over the last completed calendar period, with a
     "vs prior" delta and a per-period trend sparkline (rank sparklines read

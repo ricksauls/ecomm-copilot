@@ -125,8 +125,7 @@ def _shape_share_rows(counts: dict[int | None, dict], brand_meta: dict) -> list[
     whole page-1 shelf. A ``None`` brand_id (a placement attributed to no tracked
     brand) becomes the "Other" bucket. Ordered mine-first, then competitors, then
     Other, and within a tier by total share descending. Shared by every share
-    function (tracked-only and brand-level, snapshot and range) so their shaping
-    can't drift.
+    function (tracked-only and brand-level) so their shaping can't drift.
     """
     grand = {k: sum(b[k] for b in counts.values()) for k in ("organic", "sponsored", "total")}
     out = []
@@ -165,165 +164,6 @@ def _brand_level_counts(conn: sqlite3.Connection, where: str, params: tuple) -> 
             for r in rows}
 
 
-def snapshot_share_of_shelf(conn: sqlite3.Connection, group_id: int, run_id: int) -> list[dict]:
-    """Per-brand share of shelf for a single run (current-state, no deltas/trends).
-
-    Tracked-item-only (reads the ``ci_share_of_search`` rollup): a brand's share is
-    its tracked SKUs' slots ÷ all placements. Used by the One-Time Snapshot results —
-    one run, so trend/delta are meaningless. See :func:`snapshot_brand_share_of_shelf`
-    for the whole-brand counterpart.
-    """
-    rows = conn.execute(
-        "SELECT brand_id, SUM(organic_count) AS o, SUM(sponsored_count) AS s, "
-        "SUM(total_count) AS t FROM ci_share_of_search "
-        "WHERE group_id = ? AND run_id = ? GROUP BY brand_id",
-        (group_id, run_id),
-    ).fetchall()
-    counts = {r["brand_id"]: {"organic": r["o"] or 0, "sponsored": r["s"] or 0,
-                              "total": r["t"] or 0} for r in rows}
-    return _shape_share_rows(counts, _brand_meta(conn, group_id))
-
-
-def snapshot_brand_share_of_shelf(conn: sqlite3.Connection, group_id: int, run_id: int) -> list[dict]:
-    """Brand-level share of shelf for a single run: *all* of a brand's page-1 cards
-    (tracked + untracked) ÷ total placements.
-
-    The whole-brand counterpart to :func:`snapshot_share_of_shelf` (which counts
-    only tracked SKUs). Reads ``ci_search_results`` directly — every card already
-    carries a ``brand_id`` (untracked SKUs are brand-attributed by name in the
-    scraper), and a card matched to no tracked brand falls into the "Other" bucket,
-    so the denominator stays the whole page-1 shelf.
-    """
-    counts = _brand_level_counts(conn, "group_id = ? AND run_id = ?", (group_id, run_id))
-    return _shape_share_rows(counts, _brand_meta(conn, group_id))
-
-
-def snapshot_share_by_keyword(conn: sqlite3.Connection, group_id: int, run_id: int) -> list[dict]:
-    """Per-keyword, per-brand share of shelf for a single run.
-
-    Like :func:`snapshot_share_of_shelf` but broken out by keyword: shares are of
-    that keyword's own page-1 slots (so each keyword's total shares sum to ~100%,
-    including the untracked "Other" bucket). Ordered by keyword, then by total
-    share descending within each keyword (largest shelf holder first).
-    """
-    rows = conn.execute(
-        "SELECT k.keyword AS keyword, sos.brand_id AS brand_id, "
-        "  SUM(sos.organic_count) AS o, SUM(sos.sponsored_count) AS s, "
-        "  SUM(sos.total_count) AS t "
-        "FROM ci_share_of_search sos "
-        "JOIN ci_keywords k ON k.id = sos.keyword_id "
-        "WHERE sos.group_id = ? AND sos.run_id = ? "
-        "GROUP BY k.id, sos.brand_id",
-        (group_id, run_id),
-    ).fetchall()
-
-    brand_meta = _brand_meta(conn, group_id)
-    by_kw: dict = defaultdict(list)
-    for r in rows:
-        by_kw[r["keyword"]].append(r)
-
-    out = []
-    for kw in sorted(by_kw, key=str.lower):
-        krows = by_kw[kw]
-        # Per-keyword denominators so shares are of this keyword's own slots.
-        grand = {key: sum((r[col] or 0) for r in krows)
-                 for key, col in (("organic", "o"), ("sponsored", "s"), ("total", "t"))}
-        entries = []
-        for r in krows:
-            meta = brand_meta.get(r["brand_id"])
-            entries.append({
-                "keyword": kw,
-                "brand_name": meta["name"] if meta else "Other",
-                "type": meta["type"] if meta else "other",
-                "organic_share": _pct(r["o"] or 0, grand["organic"]),
-                "sponsored_share": _pct(r["s"] or 0, grand["sponsored"]),
-                "total_share": _pct(r["t"] or 0, grand["total"]),
-            })
-        entries.sort(key=lambda e: -e["total_share"])
-        out.extend(entries)
-    return out
-
-
-def snapshot_rank(conn: sqlite3.Connection, group_id: int, run_id: int) -> list[dict]:
-    """Best page-1 position per brand per keyword within a single run (no trend).
-
-    Brand-level (mine AND competitors) so the user can compare their standing to
-    rivals. ``current_position`` is the best (lowest) slot the brand holds for the
-    keyword across organic + sponsored; the split columns show each channel's best
-    (None when the brand had no slot of that type). Attribution is by brand_id,
-    which the scraper now sets via name matching, so sponsored slots are included.
-    """
-    rows = conn.execute(
-        "SELECT b.name AS brand_name, b.type AS brand_type, k.keyword AS keyword, "
-        "  MIN(sr.position) AS best, "
-        "  MIN(CASE WHEN sr.position_type = 'organic' THEN sr.position END) AS organic_best, "
-        "  MIN(CASE WHEN sr.position_type = 'sponsored' THEN sr.position END) AS sponsored_best "
-        "FROM ci_search_results sr "
-        "JOIN ci_keywords k ON k.id = sr.keyword_id "
-        "JOIN ci_brands b ON b.id = sr.brand_id "
-        "WHERE sr.group_id = ? AND sr.run_id = ? "
-        "GROUP BY b.id, k.id "
-        "ORDER BY CASE b.type WHEN 'mine' THEN 0 ELSE 1 END, "
-        "  b.name COLLATE NOCASE, k.keyword COLLATE NOCASE",
-        (group_id, run_id),
-    ).fetchall()
-    return [{
-        "brand_name": r["brand_name"],
-        "type": r["brand_type"],
-        "keyword": r["keyword"],
-        "current_position": r["best"],
-        "organic_position": r["organic_best"],
-        "sponsored_position": r["sponsored_best"],
-    } for r in rows]
-
-
-def snapshot_brand_avg_rank(conn: sqlite3.Connection, group_id: int, run_id: int) -> list[dict]:
-    """Average page-1 ranking per brand across the terms it appears on.
-
-    The headline "how am I doing overall" figure. Two-stage average so it reconciles
-    with the per-term table (:func:`snapshot_rank_by_keyword_brand`): first average
-    the brand's *tracked* placements within each keyword, then average those
-    per-keyword figures across every term the tracked item placed on. Terms with no
-    page-1 slot are excluded from the math, not scored as a penalty; untracked SKUs
-    are excluded too (see :data:`_TRACKED_ITEMS_FILTER`). Ordered mine-first, then
-    best (lowest) average first.
-    """
-    rows = conn.execute(
-        # Inner query: each brand's average tracked-item position within a keyword.
-        # Outer query: average those per-keyword figures into one per brand, so
-        # every term is weighted equally regardless of how many slots it held.
-        # The JOIN to ci_brands drops the untracked "Other" bucket (brand_id NULL).
-        "SELECT b.name AS brand_name, b.type AS brand_type, "
-        "  AVG(per_kw.avg_pos) AS overall_avg "
-        "FROM (SELECT brand_id, keyword_id, AVG(position) AS avg_pos "
-        "      FROM ci_search_results WHERE group_id = ? AND run_id = ? AND " + _TRACKED_ITEMS_FILTER + " "
-        "      GROUP BY brand_id, keyword_id) per_kw "
-        "JOIN ci_brands b ON b.id = per_kw.brand_id "
-        "GROUP BY b.id "
-        "ORDER BY CASE b.type WHEN 'mine' THEN 0 ELSE 1 END, overall_avg",
-        (group_id, run_id, group_id),
-    ).fetchall()
-    return [{
-        "brand_name": r["brand_name"],
-        "type": r["brand_type"],
-        "avg_position": round(r["overall_avg"], 1) if r["overall_avg"] is not None else None,
-    } for r in rows]
-
-
-def snapshot_page1_depth(conn: sqlite3.Connection, group_id: int, run_id: int) -> int:
-    """Deepest page-1 slot captured in a run (the number of placements to draw).
-
-    Sizes the "Overall Search Ranking" placement grid: rows are laid out to reach
-    at least this far so a brand's average tile always lands on a real placement.
-    Returns 0 when the run recorded nothing.
-    """
-    row = conn.execute(
-        "SELECT MAX(position) FROM ci_search_results WHERE group_id = ? AND run_id = ?",
-        (group_id, run_id),
-    ).fetchone()
-    return int(row[0]) if row and row[0] is not None else 0
-
-
 def _nearest_tile(avg_position: float) -> int:
     """Round an average rank to the placement tile it sits on (half-up, min 1)."""
     return max(1, int(avg_position + 0.5))
@@ -333,9 +173,9 @@ def build_rank_placement_map(avg_ranks: list[dict], depth: int, cols: int = 4) -
     """Lay each brand's *overall* average rank onto a page-1 placement grid.
 
     A pure transform (no DB) so the results page and its PDF render the exact same
-    grid. ``avg_ranks`` is :func:`snapshot_brand_avg_rank`'s output; ``depth`` is
-    :func:`snapshot_page1_depth`. Returns ``None`` when no brand has an average
-    (nothing to plot), else::
+    grid. ``avg_ranks`` is a per-brand average-rank list (from
+    :func:`monitoring_avg_rank`); ``depth`` is the deepest page-1 slot captured.
+    Returns ``None`` when no brand has an average (nothing to plot), else::
 
         {"cols", "total", "rows", "marks"}
 
@@ -362,33 +202,6 @@ def build_rank_placement_map(avg_ranks: list[dict], depth: int, cols: int = 4) -
             "avg_position": r["avg_position"],
         })
     return {"cols": cols, "total": total, "rows": total // cols, "marks": marks}
-
-
-def snapshot_rank_by_keyword_brand(conn: sqlite3.Connection, group_id: int, run_id: int) -> list[dict]:
-    """Average page-1 ranking per brand per keyword within a run.
-
-    One row per (keyword, brand) whose *tracked* product(s) placed on page 1;
-    ``avg_ranking`` averages those tracked items' organic slots for the keyword (see
-    :data:`_TRACKED_ITEMS_FILTER` for why untracked SKUs are excluded). Ordered by
-    keyword, then average ranking ascending (best standing first).
-    """
-    rows = conn.execute(
-        "SELECT k.keyword AS keyword, b.name AS brand_name, b.type AS brand_type, "
-        "  AVG(sr.position) AS avg_pos "
-        "FROM ci_search_results sr "
-        "JOIN ci_keywords k ON k.id = sr.keyword_id "
-        "JOIN ci_brands b ON b.id = sr.brand_id "
-        "WHERE sr.group_id = ? AND sr.run_id = ? AND sr." + _TRACKED_ITEMS_FILTER + " "
-        "GROUP BY k.id, b.id "
-        "ORDER BY k.keyword COLLATE NOCASE, avg_pos",
-        (group_id, run_id, group_id),
-    ).fetchall()
-    return [{
-        "keyword": r["keyword"],
-        "brand_name": r["brand_name"],
-        "type": r["brand_type"],
-        "avg_ranking": round(r["avg_pos"], 1),
-    } for r in rows]
 
 
 def _brand_meta(conn: sqlite3.Connection, group_id: int) -> dict[int, dict]:
@@ -485,7 +298,7 @@ def available_periods(conn: sqlite3.Connection, group_id: int,
     return [p for p in PERIODS if period_has_data(conn, group_id, p, 0, today)]
 
 
-# ── Period-range aggregations (mirror the run-scoped snapshot_* by date) ──────
+# ── Period-range aggregations (the monitoring tables, aggregated by date) ─────
 
 def _avg_rank_by_brand_range(conn, group_id, start, end) -> list[dict]:
     """Two-stage average tracked-item page-1 position per brand over a date range."""
@@ -860,12 +673,6 @@ def _brand_ad_rows(conn: sqlite3.Connection, where: str, params: tuple) -> list:
         "FROM ci_ad_units WHERE " + where + " AND brand_id IS NOT NULL ORDER BY id",
         params,
     ).fetchall()
-
-
-def snapshot_brand_ads(conn: sqlite3.Connection, group_id: int, run_id: int) -> list[dict]:
-    """Per-brand headline/video ad presence for a single run (One-Time Snapshot)."""
-    rows = _brand_ad_rows(conn, "group_id = ? AND run_id = ?", (group_id, run_id))
-    return _shape_brand_ads(rows, _brand_meta(conn, group_id))
 
 
 def _brand_ads_range(conn, group_id, start, end) -> list[dict]:

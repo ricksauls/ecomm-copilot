@@ -1,9 +1,9 @@
 {% extends "app/base.html" %}
 {% block title %}{{ group.name }} · Competitive Tracking — DISCOtech{% endblock %}
 
-{# Competitive-tracking setup for one monitoring group ("tracked category"). Unlike
-   the shared ci_group_config screen (still used for snapshot groups), this screen is
-   monitoring-only and reorganized around the user's mental model: flip tracking on/off
+{# Competitive-tracking setup for one monitoring group ("tracked category"). This is
+   the only CI setup screen, reorganized around the user's mental model: flip
+   tracking on/off
    (header), pick YOUR product from the portfolio (brand derived from the item), paste
    the COMPETITOR URLs, then the keywords. The run-status element id (#ci-run-status)
    and data-confirm buttons reuse ci_config.js; the portfolio search reuses portfolio.js

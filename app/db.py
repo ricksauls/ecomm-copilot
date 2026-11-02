@@ -303,10 +303,10 @@ CREATE TABLE IF NOT EXISTS ci_groups (
     user_id             INTEGER NOT NULL REFERENCES users(id),
     name                TEXT    NOT NULL,
     description         TEXT,
-    -- 'snapshot' (one-time, current-state) or 'monitoring' (scheduled 3x/day
-    -- over time). A group belongs to exactly one mode; the two setup menus each
-    -- manage their own.
-    mode                TEXT    NOT NULL DEFAULT 'snapshot',
+    -- Group mode. Only 'monitoring' (scheduled 3x/day over time) is in use now;
+    -- the column is retained as a vestigial discriminator from when one-time
+    -- 'snapshot' groups also existed (that product was removed).
+    mode                TEXT    NOT NULL DEFAULT 'monitoring',
     -- 1 => include this group in the scheduled 3x/day monitoring sweep.
     monitoring_enabled  INTEGER NOT NULL DEFAULT 0,
     active              INTEGER NOT NULL DEFAULT 1,
@@ -899,11 +899,12 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE users ADD COLUMN default_ci_group_id INTEGER")
         logger.info("Migrated users: added 'default_ci_group_id' column")
 
-    # ci_groups.mode distinguishes one-time snapshot groups from monitoring
-    # groups (added when the CI feature split into separate setup menus).
+    # ci_groups.mode is a vestigial discriminator (originally snapshot vs
+    # monitoring). The snapshot product was removed, so a freshly added column
+    # defaults every existing group to 'monitoring' — the only surviving mode.
     ci_group_cols = {row[1] for row in conn.execute("PRAGMA table_info(ci_groups)")}
     if ci_group_cols and "mode" not in ci_group_cols:
-        conn.execute("ALTER TABLE ci_groups ADD COLUMN mode TEXT NOT NULL DEFAULT 'snapshot'")
+        conn.execute("ALTER TABLE ci_groups ADD COLUMN mode TEXT NOT NULL DEFAULT 'monitoring'")
         logger.info("Migrated ci_groups: added 'mode' column")
 
     # image_jobs.priority orders the claim queue so main-image white-background
