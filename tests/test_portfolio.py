@@ -441,26 +441,20 @@ def test_list_shows_keyword_chips_for_tracked_items_only(client, auth, app):
 
 
 def test_inline_keyword_edit_returns_to_the_list(client, auth, app):
-    # The inline editor posts return_to=portfolio, so a save redirects back to the
-    # list (where scroll-restore keeps the user's place); the item-page editor
-    # omits it and still returns to that page.
+    # Keyword editing lives inline on the Portfolio list (the per-item page was retired
+    # in Phase 2), so a successful save always redirects back to the catalog.
     auth.register(email="inlinekw@example.com", password="password123")
     _add_one(client, "Tabasco", "https://www.walmart.com/ip/10294528")
     with app.app_context():
         pid = get_db().execute(
             "SELECT id FROM portfolio_items WHERE item_id = '10294528'").fetchone()["id"]
 
-    from_list = client.post(
+    saved = client.post(
         f"/app/portfolio/{pid}/keywords",
         data={"kw1": "Tabasco", "kw2": "Tabasco Hot Sauce", "kw3": "Hot Sauce",
               "return_to": "portfolio"})
-    assert from_list.status_code == 302
-    assert from_list.headers["Location"].endswith("/app/portfolio")
-
-    from_page = client.post(
-        f"/app/portfolio/{pid}/keywords",
-        data={"kw1": "Tabasco", "kw2": "x", "kw3": "y"})
-    assert from_page.headers["Location"].endswith(f"/app/portfolio/{pid}/tracking")
+    assert saved.status_code == 302
+    assert saved.headers["Location"].endswith("/app/portfolio")
 
 
 def test_list_orders_tracked_items_first(client, auth, app):
@@ -535,18 +529,6 @@ def test_portfolio_toggle_track_is_user_scoped(client, auth, app):
             "SELECT tracked FROM portfolio_items WHERE id = ?", (pid,)).fetchone()["tracked"] == 1
 
 
-def test_tracking_page_shows_keyword_editor(client, auth, app):
-    auth.register(email="kwpage@example.com", password="password123")
-    _add_one(client, "Tabasco", "https://www.walmart.com/ip/10294528")
-    with app.app_context():
-        pid = get_db().execute(
-            "SELECT id FROM portfolio_items WHERE item_id = '10294528'").fetchone()["id"]
-    page = client.get(f"/app/portfolio/{pid}/tracking").data
-    assert b"Tracking keywords" in page
-    assert b'name="kw1"' in page and b'name="kw2"' in page and b'name="kw3"' in page
-    assert b"Tabasco" in page  # KW1 default rendered in its field
-
-
 def test_edit_keywords_saves_and_pins(client, auth, app):
     auth.register(email="kwedit@example.com", password="password123")
     _add_one(client, "Tabasco", "https://www.walmart.com/ip/10294528")
@@ -567,43 +549,6 @@ def test_edit_keywords_saves_and_pins(client, auth, app):
         assert all(rows[s]["user_edited"] == 1 for s in (1, 2, 3))
 
 
-def test_tracking_page_collecting_state(client, auth, app):
-    auth.register(email="collect@example.com", password="password123")
-    _add_one(client, "Tabasco", "https://www.walmart.com/ip/10294528")
-    with app.app_context():
-        pid = get_db().execute(
-            "SELECT id FROM portfolio_items WHERE item_id = '10294528'").fetchone()["id"]
-    page = client.get(f"/app/portfolio/{pid}/tracking").data
-    assert b"Search tracking" in page
-    assert b"Collecting data" in page          # no readings yet
-    assert b"Weekly" in page and b"Monthly" in page and b"Quarterly" in page
-
-
-def test_tracking_page_renders_rollup(client, auth, app):
-    auth.register(email="roll2@example.com", password="password123")
-    _add_one(client, "Tabasco", "https://www.walmart.com/ip/10294528")
-    with app.app_context():
-        db = get_db()
-        item = db.execute(
-            "SELECT id, user_id FROM portfolio_items WHERE item_id = '10294528'").fetchone()
-        kid = db.execute(
-            "SELECT id FROM portfolio_keywords WHERE portfolio_item_id = ? AND slot = 1",
-            (item["id"],)).fetchone()["id"]
-        for when, rank in (("2026-01-02", 4), ("2026-01-05", 2)):
-            db.execute(
-                "INSERT INTO portfolio_rank_readings (portfolio_item_id, keyword_id, user_id, "
-                "walmart_item_id, captured_at, rank, item_slots, total_slots) "
-                "VALUES (?, ?, ?, '10294528', ?, ?, 1, 40)",
-                (item["id"], kid, item["user_id"], when, rank))
-        db.commit()
-        pid = item["id"]
-    page = client.get(f"/app/portfolio/{pid}/tracking?grain=week").data
-    assert b"Search tracking" in page
-    assert b"Collecting data" not in page
-    assert b"Avg rank" in page and b"Share of search" in page
-    assert b"Jan 1" in page  # the week bucket label in the picker
-
-
 def test_edit_keywords_is_user_scoped(client, auth, app):
     auth.register(email="kwowner@example.com", password="password123")
     _add_one(client, "Tabasco", "https://www.walmart.com/ip/10294528")
@@ -622,58 +567,6 @@ def test_edit_keywords_is_user_scoped(client, auth, app):
             (pid,)).fetchone()["keyword"] == "Tabasco"
 
 
-# ── Per-item tracking detail page (build #2b) ─────────────────────────────────
-
-def _seed_facts(app, pid, rows):
-    """Insert portfolio_item_facts snapshots directly. rows: (day, price, rating, reviews)."""
-    with app.app_context():
-        db = get_db()
-        for day, price, rating, reviews in rows:
-            db.execute(
-                "INSERT INTO portfolio_item_facts "
-                "(portfolio_item_id, user_id, walmart_item_id, captured_at, price, "
-                " price_string, in_stock, rating, review_count, image_count, has_video) "
-                "VALUES (?, 1, '10294528', ?, ?, ?, 1, ?, ?, 5, 0)",
-                (pid, day, price, f"${price:.2f}", rating, reviews),
-            )
-        db.commit()
-
-
-def test_item_tracking_page_renders_trends(client, auth, app):
-    auth.register(email="trkui@example.com", password="password123")
-    _add_one(client, "Tabasco", "https://www.walmart.com/ip/Tabasco/10294528")
-    with app.app_context():
-        pid = get_db().execute(
-            "SELECT id FROM portfolio_items WHERE item_id = '10294528'").fetchone()["id"]
-    _seed_facts(app, pid, [("2026-10-10", 3.98, 4.5, 100), ("2026-10-11", 3.50, 4.6, 120)])
-
-    page = client.get(f"/app/portfolio/{pid}/tracking")
-    assert page.status_code == 200
-    assert b"Current" in page.data
-    assert b"Snapshot history" in page.data
-    assert b"$3.50" in page.data  # latest price in the KPI/metric
-    assert b"trk-spark-line" in page.data  # a sparkline rendered (>=2 points)
-
-
-def test_item_tracking_page_empty_state(client, auth, app):
-    auth.register(email="trkempty@example.com", password="password123")
-    _add_one(client, "Tabasco", "https://www.walmart.com/ip/Tabasco/10294528")
-    with app.app_context():
-        pid = get_db().execute(
-            "SELECT id FROM portfolio_items WHERE item_id = '10294528'").fetchone()["id"]
-    page = client.get(f"/app/portfolio/{pid}/tracking")
-    assert page.status_code == 200
-    # Search tracking shows a collecting-data state; the weekly PDP block its own.
-    assert b"Collecting data" in page.data
-    assert b"No weekly PDP snapshot yet" in page.data
-
-
-def test_item_tracking_page_is_user_scoped(client, auth, app):
-    auth.register(email="trkowner@example.com", password="password123")
-    _add_one(client, "Tabasco", "https://www.walmart.com/ip/Tabasco/10294528")
-    with app.app_context():
-        pid = get_db().execute(
-            "SELECT id FROM portfolio_items WHERE item_id = '10294528'").fetchone()["id"]
-    auth.logout()
-    auth.register(email="trkattacker@example.com", password="password123")
-    assert client.get(f"/app/portfolio/{pid}/tracking").status_code == 404
+# The standalone per-item "View trends" page was retired in Phase 2: its contents
+# (per-keyword rank/share, commerce-fact trends, content-readiness history) now live
+# in the Performance per-item drill-down — see tests/test_pages.py.

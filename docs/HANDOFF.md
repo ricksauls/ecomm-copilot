@@ -1,5 +1,57 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
+_Last updated: 2026-11-02 (session 47 — **Phase 2 SHIPPED: reorient Insights/Performance around per-item tracked
+data.** Direct-pushed to `main` (user's choice); CI → Deploy triggered. 884 tests + ruff clean locally; no dependency
+changes. This block brings HANDOFF current through S47.)_
+
+_**S47 scope — the Discovery lane re-sourced onto per-item tracking, end to end.** Agreed data model with the user: a
+three-lane spine — **Discovery** (per-item rank + share-of-search, from `portfolio_rank_readings`), **Conversion**
+(content readiness, `jobs.*`), **Competition** (CI brand-vs-brand shelf share) — applied across the Dashboard cards,
+Opportunities, and the Performance drill. Only **Discovery** was mis-wired (its card + Performance tabs read CI data,
+and it had no Opportunities lane); Conversion + Competition already matched and were left untouched._
+
+_**1) New data layer — `app/portfolio_perf.py`.** No portfolio-wide aggregation existed before (every `item_rank`
+reader is single-item). New date-window roll-ups over `portfolio_rank_readings` joined to tracked `portfolio_items`:
+`portfolio_rank_summary`, `tracked_items_with_readings`, `item_window_summary`, `item_keyword_readings` — all
+`user_id`-scoped, tracked-only, parameterized. The **route layer owns period→window mapping**: it feeds
+`ci_analysis.period_bounds(period, i)` windows in (mirroring `_readiness_trend`), so the module stays period-agnostic.
+Per the user, Discovery tabs follow the **Dashboard-selected period** (`wow/mom/qoq/yoy`) — no separate grain/bucket
+picker. Brand scoping (**Assumption A**, approved on plan review): scoped to the selected group's "mine" brands,
+falling back to all tracked items._
+
+_**2) Dashboard Discoverability card** (`_performance_briefing`) re-sourced from `ci_analysis.monitoring_avg_rank` to
+`portfolio_perf.portfolio_rank_summary`; same card shape, delta framed positive=improved (rank fell). Independent of CI
+`has_data`._
+
+_**3) Performance** (`_performance_insights` + tab builders): rank tab + "shelf" tab (**relabeled "Share of Search"**)
+now read tracked-item data over the selected period; `_PERF_TAB_LABELS` updated. Period buttons are all live (any
+window rolls up); the page still requires a monitoring group (brand selector). Drill key changed from CI item_id string
+to **portfolio item pk** (IDOR via `portfolio.get_item`). The per-item drill is now **comprehensive + tab-independent**
+(`_perf_item_detail`): rank + share KPIs/trends, per-keyword rank+share table, commerce-fact cards + Current + Snapshot
+history, and the content-readiness dimension table — this is what absorbs the retired View-trends page._
+
+_**4) Opportunities** — new **Discovery ("Search") lane** on both the Dashboard briefing (`_opportunities`, a proportion
+meter of keywords on page 1) and the Opportunities Insights page (`_opportunities_insights`, a "Search" section listing
+items with off-page-1 keywords). New `opp_icon`/`gap_icon` 'discovery' glyph. Content + competitive lanes unchanged._
+
+_**5) View-trends page RETIRED** (user's call: "retire it"). Removed route `portfolio_item_tracking` + helpers
+`_search_tracking_context`/`_GRAIN_LABELS` + template `portfolio_item_tracking.html`; `item_rank` import dropped from
+`pages.py`. Portfolio list link "View trends" → **"View performance"** (→ the Performance drill `?item=<pk>`);
+`portfolio_edit_keywords` now always redirects to the catalog. Daily collection pipelines untouched — only the display
+page moved._
+
+_**Tests.** New `tests/test_portfolio_perf.py` (7, data-layer); updated `test_pages.py` (dashboard card, perf tabs/drill
+re-sourced via a new `_seed_performance` that seeds portfolio readings; new drill + Discovery-opportunity tests);
+removed the retired-page tests from `test_portfolio.py`. Full suite **884** + ruff clean. Browser-verified end to end
+(Dashboard #5.5/+1.0, Performance tabs + trend charts, drill with commerce facts + snapshot history, old `/tracking`
+404s, Portfolio "View performance" links); no CSP errors._
+
+_**Open items (S47).** (a) `pip-audit` locally flags CVEs in local-venv-only tooling (`filelock`/`joserfc`/`msgpack`/
+`werkzeug`) — NOT in pinned `requirements.txt`, so CI pip-audit is unaffected (unchanged deps). (b) Assumption A (brand
+scoping of Discovery) is live — flip to brand-agnostic if the user prefers the selector govern only Competition/
+Conversion. (c) Still open from before: S44 `python -m app.suggest_keywords` droplet run; full Snapshot removal;
+`landing.html` redesign (deferred — don't touch piecemeal); the old `/products/bulk` route removal._
+
 _Last updated: 2026-11-02 (session 46 — **Competitive Tracking SETUP-screen redesign + four follow-up refinements,
 shipped as FIVE commits DIRECT-PUSHED to `main` (user's choice each round). `origin/main` = `de56f7c`. Commits
 `0c9fc30` + `2a52d2c` + `333f6c4` + `e9bd04d` all have CI + Deploy CONFIRMED green + LIVE; the final `de56f7c` had CI

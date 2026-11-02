@@ -6,7 +6,9 @@
    `opp_icon` keys the leading glyph off the opportunity's workflow; `opp_meter`
    draws the proportion bar (how much is already in good shape) + its caption. #}
 {% macro opp_icon(name) -%}
-{%- if name == 'images' -%}
+{%- if name == 'discovery' -%}
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="6.5"/><path d="M15.6 15.6L20 20"/></svg>
+{%- elif name == 'images' -%}
 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.6"/><path d="M21 15l-5-4.5L6.5 20"/></svg>
 {%- elif name == 'copy' -%}
 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L18.5 9.5l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>

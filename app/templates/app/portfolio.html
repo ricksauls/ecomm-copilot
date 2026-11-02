@@ -161,9 +161,11 @@
               <span class="pf-switch-label">{{ 'Tracking' if it.tracked else 'Off' }}</span>
             </form>
             {% if it.tracked %}
-            {# Trends page only makes sense once an item is tracked. #}
-            <a href="{{ url_for('pages.portfolio_item_tracking', item_id=it.id) }}"
-               class="cell-muted pf-track-view">View trends</a>
+            {# Per-item detail (rank/share, commerce facts, readiness) now lives in the
+               Performance drill (the standalone trends page was retired); only tracked
+               items have it. #}
+            <a href="{{ url_for('pages.insights_performance', item=it.id, tab='rank') }}"
+               class="cell-muted pf-track-view">View performance</a>
 
             {# Tracking keywords for this item — the 3 search terms its daily rank &
                share of search are measured against. Shown only when tracking is on
@@ -172,8 +174,7 @@
                portfolio.js — CSP-safe, no inline handlers) swaps in inputs that
                POST to the shared edit route with return_to=portfolio so we come
                back to the list (scroll-restore keeps the user's place). With JS
-               off the chips stay visible and the form is reachable via the item's
-               own tracking page. #}
+               off the chips stay visible and the edit form stays in the DOM. #}
             {% set kws = keywords_by_item.get(it.id, []) %}
             {% if kws %}
             <div class="pf-kw" data-pf-kw>

@@ -41,11 +41,11 @@ from app import (
     image_enhance,
     image_jobs,
     item_keywords,
-    item_rank,
     jobs,
     messages,
     pdp,
     portfolio,
+    portfolio_perf,
     report,
     report_schedules,
     report_store,
@@ -585,6 +585,26 @@ def _opportunities(db, uid, gid, period, mine_brands, has_data) -> list[dict]:
     """
     opps: list[dict] = []
 
+    # ── Discovery gap: tracked keywords my items aren't on page 1 for ───────────
+    # From per-item tracking (portfolio_rank_readings) over the selected period — the
+    # Discovery lane's briefing entry. Shows a proportion METER (tracked keywords
+    # already holding a page-1 slot). Independent of CI has_data.
+    disc = portfolio_perf.portfolio_rank_summary(
+        db, uid, *ci_analysis.period_bounds(period, 0), brands=(mine_brands or None))
+    measured, no_rank = disc["keywords_total"], disc["keywords_no_rank"]
+    if measured and no_rank:
+        opps.append({
+            "key": "discovery", "icon": "discovery", "impact": no_rank,
+            "title": f"Win page-1 rankings on {no_rank} keyword{_s(no_rank)}",
+            "detail": (f"{no_rank} of {measured} tracked keyword{_s(measured)} "
+                       + ("has" if no_rank == 1 else "have")
+                       + " no page-1 ranking for your item. Improve rank to show up on the shelf."),
+            "meter": {"filled": measured - no_rank, "total": measured,
+                      "caption": f"{measured - no_rank}/{measured} on page 1"},
+            "cta_label": "See Search Rank →",
+            "cta_url": url_for("pages.insights_performance", group_id=gid, period=period, tab="rank"),
+        })
+
     # ── Content gaps: image vs. copy weaknesses on the brand's scored products ──
     # These show a proportion METER (share of products already strong) rather than a
     # trend — a point-in-time "how much is left to fix" read.
@@ -693,45 +713,42 @@ def _performance_briefing(db, uid) -> dict:
     explore_shelf = url_for("pages.insights_performance", group_id=gid, period=period, tab="shelf")
     gathering = "Gathering data — check back after the first full period."
 
-    # ── Discoverability: where the brand's tracked products rank on page 1 ─────
-    # Search Ranking — the average page-1 position of my tracked SKUs across the
-    # terms they appear on (lower is better; monitoring_avg_rank frames the delta
-    # so positive = moved up). Untracked/unauthorized listings and competitors are
-    # excluded by the tracked-items filter inside the aggregation.
-    if has_data:
-        ranks = ci_analysis.monitoring_avg_rank(db, gid, period)
-        mine_ranks = [r for r in ranks if r["type"] == "mine" and r["avg_position"] is not None]
-        if mine_ranks:
-            # One mine brand is the common case; average if a group tracks several.
-            avg_pos = round(sum(r["avg_position"] for r in mine_ranks) / len(mine_ranks), 1)
-            scored_deltas = [r["delta"] for r in mine_ranks if r["delta"] is not None]
-            rank_delta = round(sum(scored_deltas) / len(scored_deltas), 1) if scored_deltas else None
-
-            # Keywords my tracked products don't rank on at all (no page-1 slot).
-            kw_rows = ci_analysis.monitoring_share_by_keyword(db, gid, period)
-            measured = {r["keyword"] for r in kw_rows}
-            present = {r["keyword"] for r in kw_rows if r["type"] == "mine" and r["total_share"] > 0}
-            no_rank = len(measured) - len(present)
-
-            d_display, d_dir = _delta_pill(rank_delta, unit="spots")
-            narrative = (
-                f"Average page-1 rank of {avg_pos} across your tracked keywords. "
-                + (f"{no_rank} tracked keyword{_s(no_rank)} "
-                   + ("has" if no_rank == 1 else "have") + " no page-1 ranking."
-                   if no_rank else "They rank on page 1 for every measured keyword."))
-            discoverability = {
-                "key": "discoverability", "label": "Discoverability", "state": "ok",
-                "metric": f"#{avg_pos}",
-                "delta": d_display, "delta_dir": d_dir,
-                "headline": _headline(d_dir, "Rankings are improving.",
-                                      "Rankings are slipping.", "Rankings are holding."),
-                "narrative": narrative, "explore_url": explore_rank,
-            }
-        else:
-            # Monitoring is live but none of my tracked SKUs hold a page-1 slot yet.
-            discoverability = {"key": "discoverability", "label": "Discoverability",
-                               "state": "gathering", "explore_url": explore_rank,
-                               "narrative": "None of your tracked products rank on page 1 yet."}
+    # ── Discoverability (Discovery lane): where my tracked items rank on page 1 ─
+    # Re-sourced in Phase 2 onto per-item tracking (portfolio_rank_readings) over the
+    # selected period's date window — this card now reflects the user's OWN managed
+    # items on their OWN keywords, not the CI keyword group. Scoped to the selected
+    # brand's items (mine_brands), falling back to all tracked items when the group
+    # declares no mine-brand. Independent of CI ``has_data``: tracked-item collection
+    # runs on its own, so the card can show even before a CI period is ready.
+    disc_brands = mine_brands or None
+    disc_win = ci_analysis.period_bounds(period, 0)
+    cur_disc = portfolio_perf.portfolio_rank_summary(db, uid, *disc_win, brands=disc_brands)
+    if cur_disc["avg_rank"] is not None:
+        prior_disc = portfolio_perf.portfolio_rank_summary(
+            db, uid, *ci_analysis.period_bounds(period, 1), brands=disc_brands)
+        # Rank is "lower is better", so frame the delta positive = improved (rank fell).
+        rank_delta = (round(prior_disc["avg_rank"] - cur_disc["avg_rank"], 1)
+                      if prior_disc["avg_rank"] is not None else None)
+        no_rank = cur_disc["keywords_no_rank"]
+        d_display, d_dir = _delta_pill(rank_delta, unit="spots")
+        narrative = (
+            f"Average page-1 rank of {cur_disc['avg_rank']} across your tracked keywords. "
+            + (f"{no_rank} tracked keyword{_s(no_rank)} "
+               + ("has" if no_rank == 1 else "have") + " no page-1 ranking."
+               if no_rank else "They rank on page 1 for every measured keyword."))
+        discoverability = {
+            "key": "discoverability", "label": "Discoverability", "state": "ok",
+            "metric": f"#{cur_disc['avg_rank']}",
+            "delta": d_display, "delta_dir": d_dir,
+            "headline": _headline(d_dir, "Rankings are improving.",
+                                  "Rankings are slipping.", "Rankings are holding."),
+            "narrative": narrative, "explore_url": explore_rank,
+        }
+    elif cur_disc["n"]:
+        # Readings collected this window, but no tracked item holds a page-1 slot yet.
+        discoverability = {"key": "discoverability", "label": "Discoverability",
+                           "state": "gathering", "explore_url": explore_rank,
+                           "narrative": "None of your tracked products rank on page 1 yet."}
     else:
         discoverability = {"key": "discoverability", "label": "Discoverability",
                            "state": "gathering", "narrative": gathering, "explore_url": explore_rank}
@@ -1218,6 +1235,27 @@ def _opportunities_insights(db, uid) -> dict:
         for it in content["copy_items"]
     ]
 
+    # ── Discovery gaps: tracked keywords where my item isn't on page 1 ────────
+    # From per-item tracking (portfolio_rank_readings) over the selected period's
+    # window — the Discovery lane, parallel to the content + competitive gaps and
+    # independent of CI ``has_data``. Scoped to the selected brand's items
+    # (Assumption A), falling back to all tracked items. One row per item that has
+    # at least one measured keyword with no page-1 ranking.
+    disc_win = ci_analysis.period_bounds(period, 0)
+    discovery = []
+    for it in portfolio_perf.tracked_items_with_readings(db, uid, *disc_win,
+                                                         brands=(mine_brands or None)):
+        missing = [r["keyword"]
+                   for r in portfolio_perf.item_keyword_readings(db, uid, it["id"], *disc_win)
+                   if r["n"] and r["avg_rank"] is None]
+        if missing:
+            discovery.append({
+                "item_id": it["id"], "title": it["name"],
+                "keywords": missing, "count": len(missing),
+                "fix_url": url_for("pages.insights_performance", group_id=gid,
+                                   period=period, tab="rank", item=it["id"]),
+            })
+
     # ── Competitive gaps: keywords a competitor leads → the shelf detail view ──
     competitive = []
     if has_data:
@@ -1227,9 +1265,9 @@ def _opportunities_insights(db, uid) -> dict:
             for row in ci_analysis.monitoring_keyword_leaders(db, gid, period)
         ]
 
-    total = len(images) + len(copy) + len(competitive)
-    logger.info("Opportunities insights user_id=%s group_id=%s period=%s images=%d copy=%d comp=%d",
-                uid, gid, period, len(images), len(copy), len(competitive))
+    total = len(discovery) + len(images) + len(copy) + len(competitive)
+    logger.info("Opportunities insights user_id=%s group_id=%s period=%s disc=%d images=%d copy=%d comp=%d",
+                uid, gid, period, len(discovery), len(images), len(copy), len(competitive))
 
     return {
         "available": True,
@@ -1245,6 +1283,7 @@ def _opportunities_insights(db, uid) -> dict:
         "periods": [{"key": p, "label": ci_analysis.PERIOD_LABELS[p],
                      "enabled": p in available, "selected": p == period}
                     for p in ci_analysis.PERIODS],
+        "discovery": discovery,
         "images": images,
         "copy": copy,
         "competitive": competitive,
@@ -1275,7 +1314,7 @@ def insights_opportunities():
 # drill are plain ``?tab=``/``?item=`` navigation (server-rendered, deep-linkable,
 # CSP-safe); only the trend line is drawn client-side (performance.js).
 _PERF_TABS = ("rank", "shelf", "readiness")
-_PERF_TAB_LABELS = {"rank": "Search Rank", "shelf": "Share of Digital Shelf",
+_PERF_TAB_LABELS = {"rank": "Search Rank", "shelf": "Share of Search",
                     "readiness": "Content Readiness"}
 
 # Content Readiness colors a score green at/above the "strong" target, red below it
@@ -1339,7 +1378,9 @@ def _performance_insights(db, uid) -> dict:
         # No monitoring groups yet — nothing to report; prompt to set tracking up.
         return {"available": False, "setup_url": url_for("pages.ci_monitoring_home")}
 
-    # Brand (CI group): explicit id → saved default → newest monitoring group.
+    # Brand (CI group): explicit id → saved default → newest monitoring group. The
+    # group still drives the brand selector; Discovery data is scoped to that group's
+    # own ("mine") brands (Phase-2 Assumption A), falling back to all tracked items.
     group_id = request.args.get("group_id", type=int)
     selected = ci_config.get_group(db, group_id, uid) if group_id is not None else None
     if selected is not None and selected["mode"] != "monitoring":
@@ -1353,36 +1394,41 @@ def _performance_insights(db, uid) -> dict:
         selected = groups[0]
     gid = selected["id"]
     is_default = default_id == gid
+    mine_brands = [b["name"] for b in ci_config.list_brands(db, gid, uid) if b["type"] == "mine"]
+    disc_brands = mine_brands or None
 
-    # Tab + period, both validated against allow-lists (an unknown value falls back).
+    # Tab + period. Unlike the old CI-scoped page, Discovery and Conversion roll up to
+    # any period window, so every period button is live; the selected one defaults to
+    # the period carried over from the Dashboard, else the weekly view.
     tab = request.args.get("tab")
     if tab not in _PERF_TABS:
         tab = "rank"
-    available = ci_analysis.available_periods(db, gid)
     requested = request.args.get("period")
-    period = (requested if requested in available
-              else (available[0] if available else ci_analysis.DEFAULT_PERIOD))
-    has_data = bool(available)
+    period = requested if requested in ci_analysis.PERIODS else ci_analysis.DEFAULT_PERIOD
 
-    # Item drill: validate ?item= against the group's own tracked SKUs.
-    items = ci_analysis.mine_items(db, gid)
-    item_ids = {it["item_id"] for it in items}
-    item = request.args.get("item")
-    if item not in item_ids:  # "all", missing, or a forged id → brand (all-items) view
-        item = None
-    item_name = next((it["name"] for it in items if it["item_id"] == item), None)
+    # The tracked-item set (brand-scoped) powers both the Item picker and the brand
+    # view's products table; built once over the selected period's window.
+    win = ci_analysis.period_bounds(period, 0)
+    tracked = portfolio_perf.tracked_items_with_readings(db, uid, *win, brands=disc_brands)
 
-    logger.info("Performance insights user_id=%s group_id=%s tab=%s period=%s item=%s has_data=%s",
-                uid, gid, tab, period, item, has_data)
+    # Item drill: ?item= is a portfolio item id, IDOR-validated to one the user owns
+    # (a forged/foreign/absent id falls back to the brand all-items view).
+    item_pk = request.args.get("item", type=int)
+    item_row = portfolio.get_item(db, uid, item_pk) if item_pk is not None else None
+    item = item_row["id"] if item_row is not None else None
+    item_name = (item_row["title"] or item_row["item_id"]) if item_row is not None else None
+
+    logger.info("Performance insights user_id=%s group_id=%s tab=%s period=%s item=%s tracked=%d",
+                uid, gid, tab, period, item, len(tracked))
 
     data = {
         "available": True,
-        "has_data": has_data,
+        "has_data": True,
         "is_default": is_default,
         "brand_label": _group_brand_label(db, uid, gid, selected["name"]),
         "selected_group_id": gid,
         "period": period,
-        "period_label": ci_analysis.period_label(period) if has_data else None,
+        "period_label": ci_analysis.period_label(period),
         "tab": tab,
         "tab_labels": _PERF_TAB_LABELS,
         "tabs": list(_PERF_TABS),
@@ -1391,175 +1437,211 @@ def _performance_insights(db, uid) -> dict:
         "groups": [{"id": grp["id"],
                     "label": _group_brand_label(db, uid, grp["id"], grp["name"]),
                     "selected": grp["id"] == gid} for grp in groups],
-        "items": [{"item_id": it["item_id"], "name": it["name"],
-                   "selected": it["item_id"] == item} for it in items],
+        "items": [{"item_id": it["id"], "name": it["name"],
+                   "selected": it["id"] == item} for it in tracked],
         "periods": [{"key": p, "label": ci_analysis.PERIOD_LABELS[p],
-                     "enabled": p in available, "selected": p == period}
+                     "enabled": True, "selected": p == period}
                     for p in ci_analysis.PERIODS],
     }
 
-    if not has_data:
-        return data  # template shows a "no completed period yet" note
-
-    if tab == "rank":
-        data.update(_perf_rank_tab(db, uid, gid, period, item))
+    if item_row is not None:
+        # Drill: one comprehensive, tab-independent item detail (absorbs View-trends).
+        data.update(_perf_item_detail(db, uid, item_row, period))
+    elif tab == "rank":
+        data.update(_perf_rank_tab(db, uid, disc_brands, period, tracked))
     elif tab == "shelf":
-        data.update(_perf_shelf_tab(db, uid, gid, period, item))
+        data.update(_perf_shelf_tab(db, uid, disc_brands, period, tracked))
     else:
-        data.update(_perf_readiness_tab(db, uid, gid, period, item))
+        data.update(_perf_readiness_tab(db, uid, mine_brands, period))
     return data
 
 
-def _perf_rank_tab(db, uid, gid, period, item) -> dict:
-    """Search Rank tab data — brand view (all items) or one drilled SKU."""
-    if item is None:
-        head = ci_analysis.mine_avg_rank(db, gid, period)
-        kw = [{"keyword": r["keyword"], **_rank_cell(r["avg_ranking"])}
-              for r in ci_analysis.monitoring_rank_by_keyword(db, gid, period)
-              if r["type"] == "mine"]
-        products = [{"item_id": r["item_id"], "name": r["name"], **_rank_cell(r["avg_position"])}
-                    for r in ci_analysis.monitoring_item_avg_rank(db, gid, period)]
-        return {
-            "headline": {
-                "label": "Average Search Rank",
-                "metric": f"#{head['avg']}" if head["avg"] is not None else "—",
-                "delta": _perf_delta(head["delta"], unit="spots"),
-                "foot": "Avg page-1 position across tracked items · lower is better",
-            },
-            "trend": _perf_trend(head["trend"], head["trend_dates"], "rank"),
-            "trend_legend": "Average search rank (all tracked items)",
-            "products": products,
-            "products_label": "Avg Rank",
-            "keywords": kw,
-            "keywords_label": "Your Rank",
-        }
-    # Drilled: pick the item's row from the per-item list for the headline + trend.
-    row = next((r for r in ci_analysis.monitoring_item_avg_rank(db, gid, period)
-                if r["item_id"] == item), None)
-    kw = [{"keyword": r["keyword"], **_rank_cell(r["avg_ranking"])}
-          for r in ci_analysis.item_rank_by_keyword(db, gid, item, period)]
-    return {
-        "headline": {
-            "label": "This Item · Average Search Rank",
-            "metric": f"#{row['avg_position']}" if row and row["avg_position"] is not None else "—",
-            "delta": _perf_delta(row["delta"] if row else None, unit="spots"),
-            "foot": "This item's avg page-1 position · lower is better",
-        },
-        "trend": _perf_trend(row["trend"] if row else [], row["trend_dates"] if row else [], "rank"),
-        "trend_legend": "This item's search rank",
-        "item_kw": kw,
-        "item_kw_label": "Item Rank",
-        "item_kw_sub": "Where this item ranks on each tracked keyword",
-    }
+def _discovery_trend(db, uid, brands, period, metric):
+    """Portfolio rank or share over the last TREND_PERIODS completed periods.
 
-
-def _perf_shelf_tab(db, uid, gid, period, item) -> dict:
-    """Share of Digital Shelf tab data — brand view (all items) or one drilled SKU."""
-    if item is None:
-        head = ci_analysis.monitoring_tracked_shelf_share(db, gid, period)
-        kw = [{"keyword": r["keyword"], **_share_cell(r["total_share"])}
-              for r in ci_analysis.monitoring_share_by_keyword(db, gid, period)
-              if r["type"] == "mine"]
-        products = [{"item_id": r["item_id"], "name": r["name"], **_share_cell(r["share"])}
-                    for r in ci_analysis.monitoring_item_shelf_share(db, gid, period)]
-        return {
-            "headline": {
-                "label": "Share of Page 1",
-                "metric": f"{head['share']}%",
-                "delta": _perf_delta(head["delta"], unit="pts"),
-                "foot": "Your slots ÷ all page-1 slots across tracked keywords",
-            },
-            "trend": _perf_trend(head["trend"], head["trend_dates"], "share"),
-            "trend_legend": "Share of page-1 slots",
-            "products": products,
-            "products_label": "Shelf Share",
-            "keywords": kw,
-            "keywords_label": "Your Share",
-        }
-    row = next((r for r in ci_analysis.monitoring_item_shelf_share(db, gid, period)
-                if r["item_id"] == item), None)
-    kw = [{"keyword": r["keyword"], **_share_cell(r["share"])}
-          for r in ci_analysis.item_share_by_keyword(db, gid, item, period)]
-    return {
-        "headline": {
-            "label": "This Item · Share of Page 1",
-            "metric": f"{row['share']}%" if row else "0%",
-            "delta": _perf_delta(row["delta"] if row else None, unit="pts"),
-            "foot": "This item's slots ÷ all page-1 slots across tracked keywords",
-        },
-        "trend": _perf_trend(row["trend"] if row else [], row["trend_dates"] if row else [], "share"),
-        "trend_legend": "This item's share of page 1",
-        "item_kw": kw,
-        "item_kw_label": "Item Share",
-        "item_kw_sub": "This item's share of page 1 on each tracked keyword",
-    }
-
-
-def _perf_readiness_tab(db, uid, gid, period, item) -> dict:
-    """Content Readiness tab data — brand view (all scored products) or one SKU.
-
-    Unlike the CI-based tabs, readiness reads the brand's latest content scores
-    (jobs.*); it borrows the selected period only for the delta/trend, mirroring the
-    dashboard's Conversion card.
+    Oldest→newest, one point per period's date window; periods with no tracked
+    readings are skipped so the line doesn't dip to a false zero (this mirrors
+    :func:`_readiness_trend`). ``metric`` is 'rank' (avg page-1 position) or 'share'.
     """
-    mine_brands = [b["name"] for b in ci_config.list_brands(db, gid, uid) if b["type"] == "mine"]
-    prior_end = f"{ci_analysis.period_bounds(period, 1)[1]} 23:59:59"
-
-    if item is None:
-        cur = jobs.readiness_score(db, uid, mine_brands)
-        prior = jobs.readiness_score(db, uid, mine_brands, as_of=prior_end)
-        delta = (cur["avg"] - prior["avg"]
-                 if cur["avg"] is not None and prior["avg"] is not None else None)
-        values, dates = _readiness_trend(db, uid, mine_brands, period)
-        needs = cur["needs_attention_count"]
-        products = [{"item_id": p["item_id"], "name": p["title"] or p["item_id"],
-                     **_readiness_cell(p["score"])}
-                    for p in jobs.readiness_items(db, uid, mine_brands)]
-        return {
-            "headline": {
-                "label": "Content Readiness",
-                "metric": f"{cur['avg']}/100" if cur["avg"] is not None else "—",
-                "delta": _perf_delta(round(delta) if delta is not None else None, unit="pts"),
-                "foot": (f"Avg of each product's latest score · {needs} "
-                         f"need{'s' if needs == 1 else ''} attention"),
-            },
-            "trend": _perf_trend(values, dates, "score"),
-            "trend_legend": "Content readiness (all scored products)",
-            "products": products,
-            "products_label": "Readiness",
-            "keywords": None,  # readiness has no keyword table — products only
-        }
-
-    # Drilled: one product's overall + dimension breakdown + its score trend.
-    cur_item = jobs.readiness_item(db, uid, item)
-    prior_item = jobs.readiness_item(db, uid, item, as_of=prior_end)
-    overall = cur_item["overall"] if cur_item else None
-    prior_overall = prior_item["overall"] if prior_item else None
-    delta = overall - prior_overall if overall is not None and prior_overall is not None else None
-
     values, dates = [], []
     for i in range(ci_analysis.TREND_PERIODS - 1, -1, -1):
-        end = f"{ci_analysis.period_bounds(period, i)[1]} 23:59:59"
-        past = jobs.readiness_item(db, uid, item, as_of=end)
-        if past is None or past["overall"] is None:
+        start, end = ci_analysis.period_bounds(period, i)
+        s = portfolio_perf.portfolio_rank_summary(db, uid, start, end, brands=brands)
+        v = s["avg_rank"] if metric == "rank" else s["share"]
+        if v is None:
             continue
-        values.append(past["overall"])
+        values.append(v)
         dates.append(ci_analysis.period_label(period, i))
+    return values, dates
 
-    dims = [{"label": (d["label"] or "").replace("_", " ").title(), **_readiness_cell(d["score"])}
-            for d in (cur_item["dimensions"] if cur_item else [])]
+
+def _item_discovery_trend(db, uid, item_pk, period, metric):
+    """One item's rank or share over the last TREND_PERIODS periods (see :func:`_discovery_trend`)."""
+    values, dates = [], []
+    for i in range(ci_analysis.TREND_PERIODS - 1, -1, -1):
+        start, end = ci_analysis.period_bounds(period, i)
+        s = portfolio_perf.item_window_summary(db, uid, item_pk, start, end)
+        v = s["avg_rank"] if metric == "rank" else s["share"]
+        if v is None:
+            continue
+        values.append(v)
+        dates.append(ci_analysis.period_label(period, i))
+    return values, dates
+
+
+def _perf_rank_tab(db, uid, brands, period, tracked) -> dict:
+    """Search Rank brand view (Discovery): average page-1 rank across tracked items.
+
+    Sourced from per-item tracking (``portfolio_rank_readings``) over the selected
+    period's window; the products table drills into one item by its portfolio id.
+    """
+    cur = portfolio_perf.portfolio_rank_summary(db, uid, *ci_analysis.period_bounds(period, 0),
+                                                brands=brands)
+    prior = portfolio_perf.portfolio_rank_summary(db, uid, *ci_analysis.period_bounds(period, 1),
+                                                  brands=brands)
+    # Rank is "lower is better": frame the delta positive = improved (rank fell).
+    delta = (round(prior["avg_rank"] - cur["avg_rank"], 1)
+             if cur["avg_rank"] is not None and prior["avg_rank"] is not None else None)
+    values, dates = _discovery_trend(db, uid, brands, period, "rank")
     return {
         "headline": {
-            "label": "This Item · Content Readiness",
-            "metric": f"{overall}/100" if overall is not None else "—",
+            "label": "Average Search Rank",
+            "metric": f"#{cur['avg_rank']}" if cur["avg_rank"] is not None else "—",
+            "delta": _perf_delta(delta, unit="spots"),
+            "foot": "Avg page-1 position across tracked items · lower is better",
+        },
+        "trend": _perf_trend(values, dates, "rank"),
+        "trend_legend": "Average search rank (all tracked items)",
+        "products": [{"item_id": it["id"], "name": it["name"], **_rank_cell(it["avg_rank"])}
+                     for it in tracked],
+        "products_label": "Avg Rank",
+        "drillable": True,
+        "keywords": None,  # per-item keywords live in the item drill, not cross-item
+    }
+
+
+def _perf_shelf_tab(db, uid, brands, period, tracked) -> dict:
+    """Share of Search brand view (Discovery): tracked slots ÷ all page-1 slots."""
+    cur = portfolio_perf.portfolio_rank_summary(db, uid, *ci_analysis.period_bounds(period, 0),
+                                                brands=brands)
+    prior = portfolio_perf.portfolio_rank_summary(db, uid, *ci_analysis.period_bounds(period, 1),
+                                                  brands=brands)
+    delta = (cur["share"] - prior["share"]
+             if cur["share"] is not None and prior["share"] is not None else None)
+    values, dates = _discovery_trend(db, uid, brands, period, "share")
+    return {
+        "headline": {
+            "label": "Share of Search",
+            "metric": f"{cur['share']}%" if cur["share"] is not None else "—",
             "delta": _perf_delta(delta, unit="pts"),
-            "foot": "This item's latest overall content score",
+            "foot": "Your page-1 slots ÷ all page-1 slots across tracked keywords",
+        },
+        "trend": _perf_trend(values, dates, "share"),
+        "trend_legend": "Share of search (all tracked items)",
+        "products": [{"item_id": it["id"], "name": it["name"], **_share_cell(it["share"])}
+                     for it in tracked],
+        "products_label": "Share",
+        "drillable": True,
+        "keywords": None,
+    }
+
+
+def _perf_readiness_tab(db, uid, mine_brands, period) -> dict:
+    """Content Readiness brand view (Conversion): the brand's latest content scores.
+
+    Unchanged data source — it reads ``jobs.*`` latest scores and borrows the selected
+    period only for the delta/trend, mirroring the dashboard's Conversion card. Rows
+    aren't drill links: scored products are brand-scoped and need not be tracked
+    portfolio items, so the per-item drill (reached from the Discovery tabs / Item
+    picker) owns the single-item view.
+    """
+    prior_end = f"{ci_analysis.period_bounds(period, 1)[1]} 23:59:59"
+    cur = jobs.readiness_score(db, uid, mine_brands)
+    prior = jobs.readiness_score(db, uid, mine_brands, as_of=prior_end)
+    delta = (cur["avg"] - prior["avg"]
+             if cur["avg"] is not None and prior["avg"] is not None else None)
+    values, dates = _readiness_trend(db, uid, mine_brands, period)
+    needs = cur["needs_attention_count"]
+    return {
+        "headline": {
+            "label": "Content Readiness",
+            "metric": f"{cur['avg']}/100" if cur["avg"] is not None else "—",
+            "delta": _perf_delta(round(delta) if delta is not None else None, unit="pts"),
+            "foot": (f"Avg of each product's latest score · {needs} "
+                     f"need{'s' if needs == 1 else ''} attention"),
         },
         "trend": _perf_trend(values, dates, "score"),
-        "trend_legend": "This item's content readiness",
-        "item_dims": dims,
-        "item_dims_label": "Score",
-        "item_dims_sub": f"Each content dimension's latest score (target {_READINESS_TARGET})",
+        "trend_legend": "Content readiness (all scored products)",
+        "products": [{"item_id": p["item_id"], "name": p["title"] or p["item_id"],
+                      **_readiness_cell(p["score"])}
+                     for p in jobs.readiness_items(db, uid, mine_brands)],
+        "products_label": "Readiness",
+        "drillable": False,
+        "keywords": None,
+    }
+
+
+def _perf_item_detail(db, uid, item, period) -> dict:
+    """Comprehensive per-item detail shown on drill — one tracked item's Discovery +
+    Conversion data, gathering what used to live on the retired Portfolio "View
+    trends" page: per-keyword search rank + share over the selected period, commerce-
+    fact trends (price / rating / reviews), and content-readiness history.
+
+    ``item`` is the IDOR-validated ``portfolio_items`` row, so every read below is
+    already scoped to an item the user owns.
+    """
+    pk = item["id"]
+    cur = portfolio_perf.item_window_summary(db, uid, pk, *ci_analysis.period_bounds(period, 0))
+    prior = portfolio_perf.item_window_summary(db, uid, pk, *ci_analysis.period_bounds(period, 1))
+    rank_delta = (round(prior["avg_rank"] - cur["avg_rank"], 1)
+                  if cur["avg_rank"] is not None and prior["avg_rank"] is not None else None)
+    share_delta = (cur["share"] - prior["share"]
+                   if cur["share"] is not None and prior["share"] is not None else None)
+    keywords = [{"keyword": r["keyword"], "rank": _rank_cell(r["avg_rank"]),
+                 "share": _share_cell(r["share"]), "n": r["n"]}
+                for r in portfolio_perf.item_keyword_readings(
+                    db, uid, pk, *ci_analysis.period_bounds(period, 0))]
+    rank_values, rank_dates = _item_discovery_trend(db, uid, pk, period, "rank")
+    share_values, share_dates = _item_discovery_trend(db, uid, pk, period, "share")
+
+    # Commerce facts + content readiness, ported verbatim from the retired View-trends
+    # page: daily snapshots (price/rating/reviews, in-stock) and the weekly re-scores.
+    facts = tracking.list_facts(db, uid, pk)
+    price_vals = [f["price"] for f in facts if f["price"] is not None]
+    rating_vals = [f["rating"] for f in facts if f["rating"] is not None]
+    review_vals = [f["review_count"] for f in facts if f["review_count"] is not None]
+    readiness = jobs.readiness_history(db, uid, item["item_id"]) if item["item_id"] else []
+    readiness_vals = [r["score"] for r in readiness]
+    # Current per-dimension content scores (the readiness breakdown the old drill showed).
+    cur_item = jobs.readiness_item(db, uid, item["item_id"]) if item["item_id"] else None
+    readiness_dims = [{"label": (d["label"] or "").replace("_", " ").title(), **_readiness_cell(d["score"])}
+                      for d in (cur_item["dimensions"] if cur_item else [])]
+    latest = facts[-1] if facts else None
+    price_current = (latest["price_string"] if latest and latest["price_string"]
+                     else (f"${price_vals[-1]:.2f}" if price_vals else None))
+    metrics = [
+        _tracking_metric("Price", price_vals, kind="price", current_label=price_current),
+        _tracking_metric("Rating", rating_vals, kind="rating"),
+        _tracking_metric("Reviews", review_vals, kind="int"),
+        _tracking_metric("Content readiness", readiness_vals, kind="score"),
+    ]
+    return {
+        "detail": {
+            "rank_metric": f"#{cur['avg_rank']}" if cur["avg_rank"] is not None else "—",
+            "rank_delta": _perf_delta(rank_delta, unit="spots"),
+            "rank_trend": _perf_trend(rank_values, rank_dates, "rank"),
+            "share_metric": f"{cur['share']}%" if cur["share"] is not None else "—",
+            "share_delta": _perf_delta(share_delta, unit="pts"),
+            "share_trend": _perf_trend(share_values, share_dates, "share"),
+            "keywords": keywords,
+            "metrics": metrics,
+            "readiness_dims": readiness_dims,
+            "latest": latest,
+            "in_stock": latest["in_stock"] if latest else None,
+            "facts": list(reversed(facts)),  # table shows newest first
+            "has_any": bool(facts or readiness_vals),
+            "walmart_url": item["walmart_url"],
+        }
     }
 
 
@@ -3078,99 +3160,11 @@ def _tracking_metric(label: str, values: list, *, kind: str,
     }
 
 
-@bp.route("/app/portfolio/<int:item_id>/tracking")
-@login_required
-def portfolio_item_tracking(item_id: int):
-    """Per-item tracking detail: commerce-fact + readiness trends over time.
-
-    Reads the daily fact snapshots (:func:`app.tracking.list_facts`) and the
-    content-readiness history (:func:`app.jobs.readiness_history`) for one of the
-    user's managed items, both user-scoped. A forged/foreign id 404s (IDOR gate).
-    Series are trimmed to the snapshots that actually carried a value, so a metric
-    Walmart didn't expose simply shows no trend rather than a line of zeros.
-    """
-    uid = g.user["id"]
-    db = get_db()
-    item = portfolio.get_item(db, uid, item_id)
-    if item is None:
-        abort(404)
-
-    facts = tracking.list_facts(db, uid, item_id)  # oldest→newest
-    price_vals = [f["price"] for f in facts if f["price"] is not None]
-    rating_vals = [f["rating"] for f in facts if f["rating"] is not None]
-    review_vals = [f["review_count"] for f in facts if f["review_count"] is not None]
-    readiness = jobs.readiness_history(db, uid, item["item_id"]) if item["item_id"] else []
-    readiness_vals = [r["score"] for r in readiness]
-    latest = facts[-1] if facts else None
-
-    # Price prefers the PDP's formatted string ("$3.98") for the current value.
-    price_current = (latest["price_string"] if latest and latest["price_string"]
-                     else (f"${price_vals[-1]:.2f}" if price_vals else None))
-    metrics = [
-        _tracking_metric("Price", price_vals, kind="price", current_label=price_current),
-        _tracking_metric("Rating", rating_vals, kind="rating"),
-        _tracking_metric("Reviews", review_vals, kind="int"),
-        _tracking_metric("Content readiness", readiness_vals, kind="score"),
-    ]
-    return render_template(
-        "app/portfolio_item_tracking.html",
-        breadcrumb=f"Portfolio · {item['title'] or item['item_id'] or 'Item'}",
-        active_nav="portfolio",
-        item=item,
-        latest=latest,
-        in_stock=(latest["in_stock"] if latest else None),
-        metrics=metrics,
-        facts=list(reversed(facts)),  # table shows newest first
-        has_any=bool(facts or readiness_vals),
-        keywords=item_keywords.list_keywords(db, uid, item_id),
-        **_search_tracking_context(db, uid, item_id),
-    )
-
-
-# The grains the search-tracking view offers, with their selector labels.
-_GRAIN_LABELS = {"week": "Weekly", "month": "Monthly", "quarter": "Quarterly"}
-
-
-def _search_tracking_context(db, uid: int, item_id: int) -> dict:
-    """Build the Weekly/Monthly/Quarterly search-tracking view for the item.
-
-    Reads the chosen grain + bucket from the query string (defaulting to the most
-    recent bucket that holds data) and assembles the per-keyword rank + share rows,
-    each with a sparkline over the trailing buckets. When the item has no readings
-    for the chosen grain yet, ``search_collecting`` is True and the page shows a
-    'collecting data' state instead of empty tables — daily readings only surface
-    once their first bucket closes.
-    """
-    grain = request.args.get("grain", "week")
-    if grain not in item_rank.GRAINS:
-        grain = "week"
-    buckets = item_rank.available_buckets(db, item_id, grain)
-
-    selected, rows = None, []
-    if buckets:
-        # The selector submits the bucket as "<year>.<index>"; default to the most
-        # recent bucket that has data.
-        want = request.args.get("bucket", "")
-        selected = next((b for b in buckets if f"{b['year']}.{b['index']}" == want),
-                        buckets[0])
-        for row in item_rank.keyword_rollup(db, uid, item_id, grain,
-                                             selected["year"], selected["index"]):
-            rows.append({
-                **row,
-                "rank_spark": _sparkline(row["rank_series"]),
-                # Share is a fraction; scale to % for a legible sparkline (shape is
-                # scale-invariant, but keeps it consistent with the displayed value).
-                "share_spark": _sparkline([v * 100 for v in row["share_series"]]),
-            })
-
-    return {
-        "search_grain": grain,
-        "search_grain_labels": _GRAIN_LABELS,
-        "search_buckets": buckets,
-        "search_selected": selected,
-        "search_rows": rows,
-        "search_collecting": not buckets,
-    }
+# The per-item "View trends" page (portfolio_item_tracking) was retired in Phase 2:
+# its three surfaces — per-keyword search rank/share, commerce-fact trends, and
+# content-readiness history — now live in the Performance per-item drill-down
+# (_perf_item_detail), scoped to the Dashboard's selected period rather than a
+# separate grain/bucket picker.
 
 
 @bp.route("/app/portfolio/<int:item_id>/keywords", methods=["POST"])
@@ -3186,15 +3180,13 @@ def portfolio_edit_keywords(item_id: int):
     """
     values = {slot: request.form.get(f"kw{slot}") for slot in item_keywords.VALID_SLOTS}
     ok = item_keywords.set_keywords(get_db(), g.user["id"], item_id, values)
-    # The inline editor on the Portfolio list posts return_to=portfolio so we come
-    # back to the list (where scroll-restore keeps the user's place); the item
-    # page's editor omits it and returns to that page.
-    back_to_list = request.form.get("return_to") == "portfolio"
+    # Keyword editing lives inline on the Portfolio list (the per-item page was
+    # retired in Phase 2), so both outcomes return to the catalog.
     if ok:
         flash("Tracking keywords updated.", "ok")
-        if back_to_list:
-            return redirect(url_for("pages.portfolio_home"))
-        return redirect(url_for("pages.portfolio_item_tracking", item_id=item_id))
+        # The per-item tracking page was retired (Phase 2); keyword editing now lives
+        # inline on the Portfolio list, so every successful edit returns there.
+        return redirect(url_for("pages.portfolio_home"))
     # Foreign/absent id: the tracking page would 404, so bounce to the catalog with
     # a benign message (never confirm the item exists — IDOR gate).
     flash("That item is no longer in your portfolio.", "error")

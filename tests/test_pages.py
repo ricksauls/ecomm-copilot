@@ -1255,6 +1255,17 @@ def test_dashboard_briefing_renders_three_cards_with_data(client, auth, app):
         # A scored product for the brand so the Conversion card has a readiness score.
         db.execute("INSERT INTO scored_items (user_id, item_id, url, brand, overall) "
                    "VALUES (?,?,?,?,?)", (uid, "1", "u", "Tabasco", 85))
+        # Phase 2: Discoverability is sourced from per-item tracking. Add a tracked
+        # portfolio item (mine brand) with a page-1 reading in the current week.
+        from app import portfolio
+        portfolio.add_item(db, uid, "Tabasco", "https://www.walmart.com/ip/Item/9001", None)
+        p = db.execute("SELECT id FROM portfolio_items WHERE item_id = '9001'").fetchone()
+        pkid = db.execute("SELECT id FROM portfolio_keywords WHERE portfolio_item_id = ? AND slot = 1",
+                          (p["id"],)).fetchone()["id"]
+        db.execute(
+            "INSERT INTO portfolio_rank_readings (portfolio_item_id, keyword_id, user_id, "
+            "walmart_item_id, captured_at, rank, item_slots, total_slots) "
+            "VALUES (?,?,?,'9001',?,1,1,4)", (p["id"], pkid, uid, day))
         db.commit()
 
     body = client.get("/app").data
@@ -1443,31 +1454,40 @@ def test_dashboard_opportunities_empty_state_when_all_strong(client, auth, app):
 # ── Performance Insights screen ──────────────────────────────────────────────
 
 def _seed_performance(app, email):
-    """Give ``email`` a monitoring brand with two tracked SKUs and one completed
-    week of page-1 results, so the Performance screen has data to render. Returns
-    the monitoring group id."""
-    from app import ci_analysis, ci_config, ci_jobs
+    """Give ``email`` a monitoring brand (for the brand selector) plus two tracked
+    portfolio items, each with a page-1 reading in the current week, so the
+    Performance Discovery tabs have per-item tracking data. Returns the group id."""
+    from app import ci_analysis, ci_config, portfolio
     from app.db import get_db
     with app.app_context():
         db = get_db()
         uid = db.execute("SELECT id FROM users WHERE email = ?", (email,)).fetchone()[0]
         gid = ci_config.create_group(db, uid, "Hot Sauce", mode="monitoring")
-        mine = ci_config.add_brand(db, gid, uid, "Tabasco", "mine")
+        ci_config.add_brand(db, gid, uid, "Tabasco", "mine")
         ci_config.add_brand(db, gid, uid, "Frank's", "competitor")
-        kid = ci_config.add_keyword(db, gid, uid, "hot sauce")
-        for item, name in (("111", "Tabasco Original Sauce"), ("222", "Tabasco Green Pepper Sauce")):
-            db.execute(
-                "INSERT INTO ci_products (group_id, brand_id, name, walmart_item_id, walmart_url) "
-                "VALUES (?,?,?,?,?)", (gid, mine, name, item, f"https://www.walmart.com/ip/x/{item}"))
-        rid = ci_jobs.enqueue_run(db, gid, run_type="monitoring")
         day0 = ci_analysis.period_bounds("wow", 0)[0]
-        for pos, item in ((3, "111"), (5, "222")):
+        for item, name, rank in (("111", "Tabasco Original Sauce", 3),
+                                 ("222", "Tabasco Green Pepper Sauce", 5)):
+            portfolio.add_item(db, uid, "Tabasco", f"https://www.walmart.com/ip/Item/{item}", None)
+            p = db.execute("SELECT id FROM portfolio_items WHERE item_id = ?", (item,)).fetchone()
+            db.execute("UPDATE portfolio_items SET title = ? WHERE id = ?", (name, p["id"]))
+            kid = db.execute("SELECT id FROM portfolio_keywords WHERE portfolio_item_id = ? AND slot = 1",
+                             (p["id"],)).fetchone()["id"]
             db.execute(
-                "INSERT INTO ci_search_results (run_id, group_id, keyword_id, scraped_at, position, "
-                "position_type, item_id, brand_id, is_new_sku) VALUES (?,?,?,?,?,?,?,?,0)",
-                (rid, gid, kid, day0, pos, "organic", item, mine))
+                "INSERT INTO portfolio_rank_readings (portfolio_item_id, keyword_id, user_id, "
+                "walmart_item_id, captured_at, rank, item_slots, total_slots) "
+                "VALUES (?,?,?,?,?,?,1,4)", (p["id"], kid, uid, item, day0, rank))
         db.commit()
         return gid
+
+
+def _perf_item_pk(app, email, item_id):
+    """The portfolio-items id for one of _seed_performance's items (the drill key)."""
+    from app.db import get_db
+    with app.app_context():
+        return get_db().execute(
+            "SELECT p.id FROM portfolio_items p JOIN users u ON u.id = p.user_id "
+            "WHERE u.email = ? AND p.item_id = ?", (email, item_id)).fetchone()["id"]
 
 
 def test_performance_rank_tab_renders(client, auth, app):
@@ -1476,8 +1496,7 @@ def test_performance_rank_tab_renders(client, auth, app):
     body = client.get("/app/insights/performance").data
     assert b"Average Search Rank" in body
     assert b"Tabasco Green Pepper Sauce" in body   # a tracked product row
-    assert b"Tracked Keywords" in body
-    assert b"hot sauce" in body
+    assert b"Tracked Products" in body
     assert b"data-perf-trend" in body
 
 
@@ -1496,8 +1515,8 @@ def test_performance_shelf_tab(client, auth, app):
     auth.register(email="perfshelf@example.com")
     _seed_performance(app, "perfshelf@example.com")
     body = client.get("/app/insights/performance?tab=shelf").data
-    assert b"Share of Page 1" in body
-    assert b"Shelf Share" in body       # the products column label on the shelf tab
+    assert b"Share of Search" in body
+    assert b"Tracked Products" in body   # the all-items table on the share tab
 
 
 def test_performance_unknown_tab_falls_back_to_rank(client, auth, app):
@@ -1510,11 +1529,37 @@ def test_performance_unknown_tab_falls_back_to_rank(client, auth, app):
 def test_performance_item_drilldown_rescopes(client, auth, app):
     auth.register(email="perfdrill@example.com")
     gid = _seed_performance(app, "perfdrill@example.com")
-    body = client.get(f"/app/insights/performance?group_id={gid}&item=222").data
-    assert b"Keyword Performance" in body          # drilled view's single table
+    pk = _perf_item_pk(app, "perfdrill@example.com", "222")
+    body = client.get(f"/app/insights/performance?group_id={gid}&item={pk}").data
+    assert b"Keyword Performance" in body          # drilled view's per-keyword table
     assert b"All items" in body                    # back chip
     assert b"Tabasco Green Pepper Sauce" in body   # the drilled item in the bar
     assert b"Tracked Products" not in body         # products table is gone when drilled
+
+
+def test_performance_item_drill_shows_commerce_and_keywords(client, auth, app):
+    # The comprehensive drill folds in what the retired "View trends" page showed:
+    # per-keyword rank/share, plus the weekly commerce-fact snapshots.
+    auth.register(email="perfdetail@example.com")
+    gid = _seed_performance(app, "perfdetail@example.com")
+    pk = _perf_item_pk(app, "perfdetail@example.com", "222")
+    from app.db import get_db
+    with app.app_context():
+        db = get_db()
+        uid = db.execute("SELECT id FROM users WHERE email = ?",
+                         ("perfdetail@example.com",)).fetchone()[0]
+        for day, price in (("2026-10-10", 3.98), ("2026-10-11", 3.50)):
+            db.execute(
+                "INSERT INTO portfolio_item_facts (portfolio_item_id, user_id, walmart_item_id, "
+                "captured_at, price, price_string, in_stock, rating, review_count, image_count, "
+                "has_video) VALUES (?,?,?,?,?,?,1,4.5,120,5,0)",
+                (pk, uid, "222", day, price, f"${price:.2f}"))
+        db.commit()
+    body = client.get(f"/app/insights/performance?group_id={gid}&item={pk}").data
+    assert b"Keyword Performance" in body    # per-keyword rank + share
+    assert b"Snapshot history" in body       # commerce facts ported into the drill
+    assert b"$3.50" in body                  # latest price
+    assert b"trk-spark-line" in body         # a commerce sparkline (>=2 points)
 
 
 def test_performance_forged_item_falls_back_to_all_items(client, auth, app):
@@ -1583,8 +1628,11 @@ def test_performance_readiness_tab_brand_view(client, auth, app):
 def test_performance_readiness_item_drilldown_shows_dimensions(client, auth, app):
     auth.register(email="rddrill@example.com")
     gid = _seed_readiness(app, "rddrill@example.com")
-    body = client.get(f"/app/insights/performance?group_id={gid}&tab=readiness&item=222").data
-    assert b"Dimension Scores" in body
+    pk = _perf_item_pk(app, "rddrill@example.com", "222")
+    # The comprehensive drill is tab-independent; its Content Readiness section lists
+    # the item's per-dimension scores regardless of which tab it was reached from.
+    body = client.get(f"/app/insights/performance?group_id={gid}&item={pk}").data
+    assert b"Content Readiness" in body
     assert b"Imagery" in body and b"Description" in body
     assert b"All items" in body                       # the back chip
 
@@ -1635,6 +1683,39 @@ def _seed_opportunities(app, email):
         score("222", "Tabasco Sriracha Sauce", [("imagery", 100), ("description", 48)])  # copy gap
         db.commit()
         return gid
+
+
+def test_discovery_opportunity_lane(client, auth, app):
+    # A tracked item with a keyword off page 1 produces a Discovery ("Search") gap on
+    # both the dashboard briefing and the Opportunities page — the new Discovery lane.
+    auth.register(email="discopp@example.com")
+    from app import ci_analysis, ci_config, portfolio
+    from app.db import get_db
+    with app.app_context():
+        db = get_db()
+        uid = db.execute("SELECT id FROM users WHERE email = ?",
+                         ("discopp@example.com",)).fetchone()[0]
+        gid = ci_config.create_group(db, uid, "Hot Sauce", mode="monitoring")
+        ci_config.add_brand(db, gid, uid, "Tabasco", "mine")
+        portfolio.add_item(db, uid, "Tabasco", "https://www.walmart.com/ip/Item/7777", None)
+        p = db.execute("SELECT id FROM portfolio_items WHERE item_id = '7777'").fetchone()
+        db.execute("UPDATE portfolio_items SET title = 'Tabasco Scorpion Sauce' WHERE id = ?", (p["id"],))
+        kid = db.execute("SELECT id FROM portfolio_keywords WHERE portfolio_item_id = ? AND slot = 1",
+                         (p["id"],)).fetchone()["id"]
+        day = ci_analysis.period_bounds("wow", 0)[0]
+        # Measured but off page 1: rank NULL, zero own slots out of a measured shelf.
+        db.execute(
+            "INSERT INTO portfolio_rank_readings (portfolio_item_id, keyword_id, user_id, "
+            "walmart_item_id, captured_at, rank, item_slots, total_slots) "
+            "VALUES (?,?,?,'7777',?,NULL,0,6)", (p["id"], kid, uid, day))
+        db.commit()
+
+    dash = client.get(f"/app?group_id={gid}").data
+    assert b"Win page-1 rankings" in dash          # the Discovery briefing opportunity
+
+    opps = client.get(f"/app/insights/opportunities?group_id={gid}").data
+    assert b"Search gap" in opps                    # the Discovery summary chip
+    assert b"Tabasco Scorpion Sauce" in opps        # the off-page-1 item
 
 
 def test_opportunities_renders_grouped_gaps(client, auth, app):
