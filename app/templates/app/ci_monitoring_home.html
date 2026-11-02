@@ -80,10 +80,7 @@
           </td>
           <td class="cell-action">
             <a href="{{ url_for('pages.ci_group_config', group_id=gr.id) }}"
-               class="wbtn wbtn-primary wbtn-sm">Set Up</a>
-            {# Report lives in the Competitive Intelligence Insights screen, scoped to this group. #}
-            <a href="{{ url_for('pages.insights_competitive', group_id=gr.id) }}"
-               class="wbtn wbtn-secondary wbtn-sm">View in Insights</a>
+               class="wbtn wbtn-primary wbtn-sm">Edit</a>
             <form method="post" action="{{ url_for('pages.ci_delete_group', group_id=gr.id) }}"
                   class="ci-delete-form">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />

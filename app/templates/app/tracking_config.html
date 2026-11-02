@@ -195,19 +195,6 @@
     Search terms to track on Walmart.com. Add several at once by putting a comma after
     each one — e.g. <em>hot sauce, chipotle sauce, wing sauce,</em>
   </p>
-  {% if keywords %}
-  <div class="ci-chips">
-    {% for k in keywords %}
-    <span class="ci-chip">{{ k.keyword }}
-      <form method="post" action="{{ url_for('pages.ci_delete_keyword', keyword_id=k.id) }}">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-        <input type="hidden" name="group_id" value="{{ group.id }}" />
-        <button type="submit" aria-label="Remove keyword">&times;</button>
-      </form>
-    </span>
-    {% endfor %}
-  </div>
-  {% endif %}
   {# Staged keywords from "Use the same keywords for this competitive tracking":
      tracking_config.js fills these (and the input below) from the picked item's
      tracked keywords. Client-side only until committed with "Use These Keywords";
@@ -222,6 +209,27 @@
            placeholder="e.g. hot sauce, chipotle sauce," maxlength="1000" required />
     <button type="submit" class="wbtn wbtn-secondary">Use These Keywords</button>
   </form>
+
+  {# Committed keywords live BELOW the input so clicking "Use These Keywords" visibly
+     moves them into this "in use" list — the keyword counterpart to the products /
+     competitors tables, which is how the user sees what is actually being tracked.
+     Each × untracks the keyword. #}
+  {% if keywords %}
+  <p class="ci-section-hint" style="margin-top:18px; margin-bottom:8px">
+    Tracking these keywords:
+  </p>
+  <div class="ci-chips" style="margin-top:0">
+    {% for k in keywords %}
+    <span class="ci-chip">{{ k.keyword }}
+      <form method="post" action="{{ url_for('pages.ci_delete_keyword', keyword_id=k.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+        <input type="hidden" name="group_id" value="{{ group.id }}" />
+        <button type="submit" aria-label="Remove keyword">&times;</button>
+      </form>
+    </span>
+    {% endfor %}
+  </div>
+  {% endif %}
 </div>
 
 {# ── Competitors ────────────────────────────────────────────────────────────── #}
