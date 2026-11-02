@@ -1,5 +1,32 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
+_Last updated: 2026-11-02 (session 49 — **verified S48's deploy, then removed the dead `/products/bulk` route.**
+`origin/main` = `edaf2c9`; CI + Deploy CONFIRMED green + LIVE. 858 tests + ruff clean; no dependency changes.
+This block brings HANDOFF current through S49.)_
+
+_**1) Verified S48 first (it had been pushed with CI/Deploy unconfirmed).** Both the CI run ("Remove the One-Time
+Snapshot CI product") and its chained Deploy are green; live site confirms it — the deleted snapshot routes
+(`/snapshot`, `/competitive-intel/snapshot`, `/ci/snapshot`) 404, the surviving monitoring routes
+(`/app/competitive-intel`, `/monitoring`, `/app/insights/competitive`) 302 to sign-in, landing is 200._
+
+_**2) Removed the orphaned `/products/bulk` flow (`edaf2c9`).** The S46 setup-screen redesign had already replaced the
+multi-item product picker with a single-item portfolio selector (`ci_add_owned_item`) + a separate competitor-URL flow
+(`ci_add_competitors`), leaving the bulk route with no template caller or `url_for` reference. Deleted: the
+`ci_add_products` route (`/app/competitive-intel/groups/<id>/products/bulk`, `pages.py`), the now-orphaned
+`ci_config.add_products` helper (its shared validators — `_require_group`, `pdp.validate_item_url` /
+`item_number_from_url`, `MAX_PRODUCTS_PER_GROUP` — are KEPT, still used by `add_product`/`add_owned_item`/
+`add_competitor_urls`), and the 5 bulk-specific tests in `test_ci_pages.py` (test count 863→858). Live-verified: a GET on
+the removed route now 404s in prod (was 405 while the route existed). Note: `seasonal_add_products` in `pages.py` is an
+unrelated seasonal-content function — not touched._
+
+_**3) Env gotcha carried forward:** an invalid `GITHUB_TOKEN` is exported in the user's shell and shadows the good
+keyring login, so bare `gh` commands return `401 Bad credentials`. Workaround used all session: `unset GITHUB_TOKEN`
+before each `gh` call. Cleaning up where it's exported (a shell profile) is an offered, not-yet-done fixup._
+
+_**Open items after S49 (unchanged from S48 minus `/products/bulk`):** Phase 2 follow-ups (retire the remaining
+item-page perf blocks); `landing.html` redesign (deferred 2026-11-02 — don't touch piecemeal; still advertises the
+removed $250 snapshot card); S44 `python -m app.suggest_keywords` droplet run (regen the 8 tracked items 3→5 keywords)._
+
 _Last updated: 2026-11-02 (session 48 — **One-Time Snapshot product FULLY REMOVED** (the S47 deferred open item).
 Direct-pushed to `main` (user's choice); CI → Deploy triggered. 863 tests + ruff clean locally; no dependency changes.
 This block brings HANDOFF current through S48.)_
