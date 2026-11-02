@@ -1,14 +1,20 @@
 // Setup-screen enhancements for Competitive Tracking (tracking_config.html).
 //
-// Three independent behaviours, all CSP-safe (external file, no inline handlers)
-// and progressive — with JS off the forms still submit and validate server-side:
+// All CSP-safe (external file, no inline handlers) and progressive — with JS off
+// the forms still submit and validate server-side. Four behaviours:
 //
 //   1. Keyword-reuse panel — when the picked portfolio item is already tracked,
 //      reveal its keywords and the "use the same keywords" checkbox.
-//   2. Keyword staging — ticking that checkbox copies the item's keywords into the
-//      Keywords section's input (comma-separated) and shows them as removable
-//      chips above it; the user edits, then commits with "Use These Keywords".
-//   3. Submit-button gating — "Use The Selected Item" stays disabled until an item
+//   2. Keyword chips — the Keywords input is the source of truth; its comma-
+//      separated terms are mirrored as removable chips above it (× drops a term).
+//      Ticking the reuse checkbox appends the picked item's keywords; unticking
+//      removes them. The user edits, then commits with "Use These Keywords".
+//   3. Draft persistence — every other action on this screen POSTs and reloads,
+//      which would wipe an uncommitted keyword draft. We stash the input in
+//      sessionStorage before such a reload and restore it after (same idea as
+//      portfolio.js's scroll-restore), clearing it once the keywords are
+//      committed. Keyed per group so drafts don't bleed across categories.
+//   4. Submit-button gating — "Use The Selected Item" stays disabled until an item
 //      is picked, "Use These Competing Items" until at least one URL is entered.
 (function () {
   "use strict";
@@ -17,25 +23,25 @@
   var panel = document.querySelector("[data-reuse-panel]");
   var copyBox = panel ? panel.querySelector("[data-reuse-copy]") : null;
   var kwInput = document.querySelector("[data-kw-input]");
-  var staged = document.querySelector("[data-kw-staged]");
+  var chips = document.querySelector("[data-kw-staged]");
   var itemBtn = document.querySelector("[data-item-submit]");
 
-  // The Keywords input is a comma-separated list; treat it as the source of truth
-  // and keep the staged chips in sync with it.
+  // ── keyword helpers: the input is a comma-separated list, the source of truth.
   function parseTerms(value) {
     return (value || "").split(",").map(function (t) { return t.trim(); }).filter(Boolean);
   }
-  function setInputTerms(terms) {
+  function inputTerms() {
+    return parseTerms(kwInput ? kwInput.value : "");
+  }
+  function setTerms(terms) {
     if (kwInput) { kwInput.value = terms.join(", "); }
   }
 
-  // Terms added by the reuse checkbox, so uncheck / × can remove exactly those.
-  var stagedTerms = [];
-
-  function renderStaged() {
-    if (!staged) { return; }
-    staged.textContent = "";
-    stagedTerms.forEach(function (term) {
+  function renderChips() {
+    if (!chips) { return; }
+    var terms = inputTerms();
+    chips.textContent = "";
+    terms.forEach(function (term) {
       var chip = document.createElement("span");
       chip.className = "ci-chip";
       chip.appendChild(document.createTextNode(term + " "));
@@ -45,56 +51,72 @@
       x.setAttribute("data-kw-remove", term);
       x.textContent = "×";
       chip.appendChild(x);
-      staged.appendChild(chip);
+      chips.appendChild(chip);
     });
-    staged.hidden = stagedTerms.length === 0;
+    chips.hidden = terms.length === 0;
   }
 
-  function lowers(list) {
-    return list.map(function (t) { return t.toLowerCase(); });
-  }
-
-  function addStaged(terms) {
-    var current = parseTerms(kwInput ? kwInput.value : "");
-    var seen = lowers(current);
-    var stagedLower = lowers(stagedTerms);
+  function addTerms(terms) {
+    var current = inputTerms();
+    var seen = current.map(function (t) { return t.toLowerCase(); });
     terms.forEach(function (term) {
       if (seen.indexOf(term.toLowerCase()) === -1) {
         current.push(term);
         seen.push(term.toLowerCase());
       }
-      if (stagedLower.indexOf(term.toLowerCase()) === -1) {
-        stagedTerms.push(term);
-        stagedLower.push(term.toLowerCase());
-      }
     });
-    setInputTerms(current);
-    renderStaged();
+    setTerms(current);
+    renderChips();
   }
 
-  function removeTerm(term) {
-    var keep = function (t) { return t.toLowerCase() !== term.toLowerCase(); };
-    setInputTerms(parseTerms(kwInput ? kwInput.value : "").filter(keep));
-    stagedTerms = stagedTerms.filter(keep);
-    renderStaged();
-  }
-
-  function clearStaged() {
-    stagedTerms.slice().forEach(removeTerm);
+  function removeTerms(terms) {
+    var drop = terms.map(function (t) { return t.toLowerCase(); });
+    setTerms(inputTerms().filter(function (t) { return drop.indexOf(t.toLowerCase()) === -1; }));
+    renderChips();
   }
 
   function selectedKeywords() {
     if (!picker) { return []; }
     var opt = picker.options[picker.selectedIndex];
-    var raw = opt ? opt.getAttribute("data-keywords") || "" : "";
-    return raw.split(",").map(function (t) { return t.trim(); }).filter(Boolean);
+    return parseTerms(opt ? opt.getAttribute("data-keywords") || "" : "");
   }
 
-  // 1 + item-button gating: react to the picker selection.
+  // ── 3: draft persistence across this screen's reloads. ──────────────────────
+  var groupMatch = window.location.pathname.match(/\/groups\/(\d+)/);
+  var draftKey = "ci-kw-draft:" + (groupMatch ? groupMatch[1] : "x");
+
+  function saveDraft() {
+    try { sessionStorage.setItem(draftKey, kwInput ? kwInput.value : ""); } catch (e) { /* no-op */ }
+  }
+  function clearDraft() {
+    try { sessionStorage.removeItem(draftKey); } catch (e) { /* no-op */ }
+  }
+  function restoreDraft() {
+    try {
+      var saved = sessionStorage.getItem(draftKey);
+      if (saved !== null && kwInput) {
+        kwInput.value = saved;
+        sessionStorage.removeItem(draftKey);
+      }
+    } catch (e) { /* private mode / storage disabled — just skip restore */ }
+  }
+
+  // Before any of this screen's POSTs reload the page, stash the draft — except
+  // the keyword form itself, whose submit commits the draft (so we clear it).
+  document.addEventListener("submit", function (ev) {
+    var form = ev.target;
+    if (!form || form.tagName !== "FORM") { return; }
+    if (form.hasAttribute("data-kw-form")) {
+      clearDraft();
+    } else {
+      saveDraft();
+    }
+  }, true);
+
+  // ── 1 + item-button gating: react to the picker selection. ──────────────────
   function syncPicker() {
     var opt = picker ? picker.options[picker.selectedIndex] : null;
-    var hasValue = !!(opt && opt.value);
-    if (itemBtn) { itemBtn.disabled = !hasValue; }
+    if (itemBtn) { itemBtn.disabled = !(opt && opt.value); }
 
     if (panel) {
       var tracked = opt && opt.getAttribute("data-tracked") === "1";
@@ -107,39 +129,40 @@
         panel.hidden = true;
       }
     }
-    // Changing the item resets any staging from a previous pick.
+    // Reset the checkbox for the newly-selected item, but leave any staged
+    // keywords in the input (switching items should not discard them).
     if (copyBox) { copyBox.checked = false; }
-    clearStaged();
   }
 
   if (picker) {
     picker.addEventListener("change", syncPicker);
-    syncPicker();
   }
 
-  // 2: checkbox stages / unstages the selected item's keywords.
+  // ── 2: checkbox stages / unstages the selected item's keywords. ─────────────
   if (copyBox) {
     copyBox.addEventListener("change", function () {
       if (copyBox.checked) {
-        addStaged(selectedKeywords());
+        addTerms(selectedKeywords());
       } else {
-        clearStaged();
+        removeTerms(selectedKeywords());
       }
     });
   }
-
-  // × on a staged chip removes that term (event-delegated).
-  if (staged) {
-    staged.addEventListener("click", function (ev) {
+  // Chips mirror the input; keep them in sync as the user types, and let × drop a term.
+  if (kwInput) { kwInput.addEventListener("input", renderChips); }
+  if (chips) {
+    chips.addEventListener("click", function (ev) {
       var btn = ev.target && ev.target.closest ? ev.target.closest("[data-kw-remove]") : null;
-      if (!btn) { return; }
-      removeTerm(btn.getAttribute("data-kw-remove"));
-      // If every staged term is gone, drop the "use the same keywords" tick too.
-      if (stagedTerms.length === 0 && copyBox) { copyBox.checked = false; }
+      if (btn) { removeTerms([btn.getAttribute("data-kw-remove")]); }
     });
   }
 
-  // 3: gate the competitors button on at least one non-empty URL.
+  // Initial paint: restore any draft first, then derive chips + picker state.
+  restoreDraft();
+  renderChips();
+  if (picker) { syncPicker(); }
+
+  // ── 4: gate the competitors button on at least one non-empty URL. ───────────
   var compForm = document.querySelector("[data-comp-form]");
   var compBtn = document.querySelector("[data-comp-submit]");
   if (compForm && compBtn) {

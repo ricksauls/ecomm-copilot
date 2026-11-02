@@ -59,7 +59,7 @@
       CST, varying day to day). Next check:
       <strong>{{ next_run.strftime('%a %b %-d, %-I:%M %p') }} CST</strong>.
     {% else %}
-      Tracking is off. Add your product, competitors, and keywords below, then use
+      Tracking is off. Add your products, keywords, and competitors below, then use
       <strong>Enable Tracking</strong> (top right) to start automatic checks (once a
       day at a rotating time — 7 AM, 3 PM, or 11 PM CST) and run a baseline now.
     {% endif %}
@@ -186,6 +186,44 @@
   {% endif %}
 </div>
 
+{# ── Keywords ───────────────────────────────────────────────────────────────── #}
+{# Sits between "your products" and "competitors" to match the setup order the
+   Tracking hint describes (products → keywords → competitors). #}
+<div class="ci-section card card-pad">
+  <div class="ci-section-title">Keywords</div>
+  <p class="ci-section-hint">
+    Search terms to track on Walmart.com. Add several at once by putting a comma after
+    each one — e.g. <em>hot sauce, chipotle sauce, wing sauce,</em>
+  </p>
+  {% if keywords %}
+  <div class="ci-chips">
+    {% for k in keywords %}
+    <span class="ci-chip">{{ k.keyword }}
+      <form method="post" action="{{ url_for('pages.ci_delete_keyword', keyword_id=k.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+        <input type="hidden" name="group_id" value="{{ group.id }}" />
+        <button type="submit" aria-label="Remove keyword">&times;</button>
+      </form>
+    </span>
+    {% endfor %}
+  </div>
+  {% endif %}
+  {# Staged keywords from "Use the same keywords for this competitive tracking":
+     tracking_config.js fills these (and the input below) from the picked item's
+     tracked keywords. Client-side only until committed with "Use These Keywords";
+     each × drops the term from both the chip row and the input. #}
+  <div class="ci-chips" data-kw-staged hidden style="margin-bottom:12px"></div>
+  {# data-kw-form marks the commit action: tracking_config.js preserves an uncommitted
+     keyword draft across this screen's other reloads, and clears it on this submit. #}
+  <form method="post" action="{{ url_for('pages.ci_add_keyword', group_id=group.id) }}"
+        class="ci-inline-form" data-kw-form>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+    <input type="text" name="keyword" class="ci-input grow" data-kw-input
+           placeholder="e.g. hot sauce, chipotle sauce," maxlength="1000" required />
+    <button type="submit" class="wbtn wbtn-secondary">Use These Keywords</button>
+  </form>
+</div>
+
 {# ── Competitors ────────────────────────────────────────────────────────────── #}
 <div class="ci-section card card-pad">
   <div class="ci-section-title">Competitors</div>
@@ -243,39 +281,6 @@
     Maximum of {{ max_competitors }} competitors reached. Delete one to add another.
   </p>
   {% endif %}
-</div>
-
-{# ── Keywords ───────────────────────────────────────────────────────────────── #}
-<div class="ci-section card card-pad">
-  <div class="ci-section-title">Keywords</div>
-  <p class="ci-section-hint">
-    Search terms to track on Walmart.com. Add several at once by putting a comma after
-    each one — e.g. <em>hot sauce, chipotle sauce, wing sauce,</em>
-  </p>
-  {% if keywords %}
-  <div class="ci-chips">
-    {% for k in keywords %}
-    <span class="ci-chip">{{ k.keyword }}
-      <form method="post" action="{{ url_for('pages.ci_delete_keyword', keyword_id=k.id) }}">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-        <input type="hidden" name="group_id" value="{{ group.id }}" />
-        <button type="submit" aria-label="Remove keyword">&times;</button>
-      </form>
-    </span>
-    {% endfor %}
-  </div>
-  {% endif %}
-  {# Staged keywords from "Use the same keywords for this competitive tracking":
-     tracking_config.js fills these (and the input below) from the picked item's
-     tracked keywords. Client-side only until committed with "Use These Keywords";
-     each × drops the term from both the chip row and the input. #}
-  <div class="ci-chips" data-kw-staged hidden style="margin-bottom:12px"></div>
-  <form method="post" action="{{ url_for('pages.ci_add_keyword', group_id=group.id) }}" class="ci-inline-form">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-    <input type="text" name="keyword" class="ci-input grow" data-kw-input
-           placeholder="e.g. hot sauce, chipotle sauce," maxlength="1000" required />
-    <button type="submit" class="wbtn wbtn-secondary">Use These Keywords</button>
-  </form>
 </div>
 {% endblock %}
 
