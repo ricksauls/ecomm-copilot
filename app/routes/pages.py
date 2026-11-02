@@ -5494,51 +5494,6 @@ def ci_add_product(group_id):
     return _config_redirect(group_id)
 
 
-@bp.route("/app/competitive-intel/groups/<int:group_id>/products/bulk", methods=["POST"])
-@login_required
-def ci_add_products(group_id):
-    """Add several products under one brand at once (the portfolio multi-picker
-    plus an optional manual URL), reporting how many were added vs. skipped.
-
-    The picker's checkboxes post their Walmart URLs under ``urls`` (the same field
-    the other intakes use), and the manual entry posts a single ``url``; both are
-    unioned and de-duped by :func:`ci_config.add_products`.
-    """
-    _owned_group_or_404(group_id)  # IDOR gate before touching the group's data
-    db = get_db()
-    brand_id = request.form.get("brand_id", type=int)
-    if not brand_id:
-        flash("Choose which of your brands these products belong to.", "error")
-        return _config_redirect(group_id)
-
-    urls = request.form.getlist("urls")
-    manual = request.form.get("url", "").strip()
-    if manual:
-        urls.append(manual)
-    if not any(u.strip() for u in urls):
-        flash("Pick at least one managed item or paste a product URL.", "error")
-        return _config_redirect(group_id)
-
-    try:
-        result = ci_config.add_products(db, group_id, brand_id, g.user["id"], urls)
-    except ci_config.ConfigError as e:
-        flash(str(e), "error")
-        return _config_redirect(group_id)
-
-    # Surface a per-category summary so the user sees exactly what happened to a
-    # multi-item submission (added, silently-skipped duplicates, invalid URLs).
-    if result["added"]:
-        flash(f"Added {result['added']} product{'' if result['added'] == 1 else 's'}.", "ok")
-    if result["skipped_duplicate"]:
-        n = result["skipped_duplicate"]
-        flash(f"{n} product{'' if n == 1 else 's'} already tracked — skipped.", "ok")
-    for err in result["errors"]:
-        flash(err, "error")
-    if not (result["added"] or result["skipped_duplicate"] or result["errors"]):
-        flash("No products were added.", "error")
-    return _config_redirect(group_id)
-
-
 @bp.route("/app/competitive-intel/groups/<int:group_id>/owned-item", methods=["POST"])
 @login_required
 def ci_add_owned_item(group_id):

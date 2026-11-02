@@ -230,7 +230,7 @@ def test_format_run_time_cst_converts_utc_to_central():
     assert ci_analysis.format_run_time_cst("garbage") == "garbage"
 
 
-# ── Competitive Tracking setup: portfolio-backed bulk product add ─────────────
+# ── Competitive Tracking setup screen ────────────────────────────────────────
 
 def _monitoring_group(client):
     """Create a monitoring group via HTTP; return its id (test user is user 1)."""
@@ -263,97 +263,6 @@ def test_tracking_config_renders_setup_sections(client, auth):
     assert b"Use These Competing Items" in cfg.data
     assert b"data-kw-staged" in cfg.data
     assert b"Use These Keywords" in cfg.data
-
-
-def test_add_products_bulk_and_dedupe(client, auth):
-    # The picker posts several `urls`; duplicates (repeated or already tracked) are
-    # skipped rather than creating double rows, since ci_products has no DB uniqueness.
-    auth.register()
-    gid = _monitoring_group(client)
-    with client.application.app_context():
-        brand_id = ci_config.add_brand(get_db(), gid, 1, "Tabasco", "mine")
-
-    u1 = "https://www.walmart.com/ip/Tabasco-Original/10294528"
-    u2 = "https://www.walmart.com/ip/Tabasco-Chipotle/20857711518"
-    resp = client.post(
-        f"/app/competitive-intel/groups/{gid}/products/bulk",
-        data={"brand_id": brand_id, "urls": [u1, u2, u1]},  # u1 repeated in one submit
-    )
-    assert resp.status_code in (302, 303)
-    with client.application.app_context():
-        ids = {p["walmart_item_id"] for p in ci_config.list_products(get_db(), gid, 1)}
-    assert ids == {"10294528", "20857711518"}  # repeat collapsed to one
-
-    # Re-submitting an already-tracked item adds nothing.
-    client.post(
-        f"/app/competitive-intel/groups/{gid}/products/bulk",
-        data={"brand_id": brand_id, "urls": [u1]},
-    )
-    with client.application.app_context():
-        count = len(ci_config.list_products(get_db(), gid, 1))
-    assert count == 2
-
-
-def test_add_products_manual_field_unions_with_picker(client, auth):
-    # The manual `url` field is added alongside the picker's `urls` in one submit.
-    auth.register()
-    gid = _monitoring_group(client)
-    with client.application.app_context():
-        brand_id = ci_config.add_brand(get_db(), gid, 1, "Tabasco", "mine")
-    client.post(
-        f"/app/competitive-intel/groups/{gid}/products/bulk",
-        data={"brand_id": brand_id,
-              "urls": ["https://www.walmart.com/ip/a/10294528"],
-              "url": "https://www.walmart.com/ip/b/20857711518"},
-    )
-    with client.application.app_context():
-        ids = {p["walmart_item_id"] for p in ci_config.list_products(get_db(), gid, 1)}
-    assert ids == {"10294528", "20857711518"}
-
-
-def test_add_products_requires_brand(client, auth):
-    # Without a brand_id nothing is added (products must attach to a brand).
-    auth.register()
-    gid = _monitoring_group(client)
-    resp = client.post(
-        f"/app/competitive-intel/groups/{gid}/products/bulk",
-        data={"urls": ["https://www.walmart.com/ip/a/10294528"]},
-        follow_redirects=True,
-    )
-    assert b"Choose which of your brands" in resp.data
-    with client.application.app_context():
-        assert ci_config.list_products(get_db(), gid, 1) == []
-
-
-def test_add_products_reports_invalid_url(client, auth):
-    # A URL with no trailing item number is reported invalid and not added.
-    auth.register()
-    gid = _monitoring_group(client)
-    with client.application.app_context():
-        brand_id = ci_config.add_brand(get_db(), gid, 1, "Tabasco", "mine")
-    resp = client.post(
-        f"/app/competitive-intel/groups/{gid}/products/bulk",
-        data={"brand_id": brand_id, "urls": ["https://www.walmart.com/ip/no-number"]},
-        follow_redirects=True,
-    )
-    assert b"Not a valid Walmart product URL" in resp.data
-    with client.application.app_context():
-        assert ci_config.list_products(get_db(), gid, 1) == []
-
-
-def test_add_products_bulk_idor_guard(client, auth, app):
-    # A user cannot bulk-add products to another user's group.
-    owner_uid, gid = _make_group(app, "owner@example.com", "monitoring")
-    with app.app_context():
-        brand_id = ci_config.add_brand(get_db(), gid, owner_uid, "B", "mine")
-    auth.register()  # logs in as a second, unrelated user — the group isn't theirs
-    resp = client.post(
-        f"/app/competitive-intel/groups/{gid}/products/bulk",
-        data={"brand_id": brand_id, "urls": ["https://www.walmart.com/ip/a/10294528"]},
-    )
-    assert resp.status_code == 404
-    with client.application.app_context():
-        assert ci_config.list_products(get_db(), gid, owner_uid) == []
 
 
 # ── Setup screen: single-item picker + URL competitors + disable ─────────────────
