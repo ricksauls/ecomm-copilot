@@ -5388,8 +5388,13 @@ def _slug(name: str) -> str:
 @bp.route("/app/competitive-intel")
 @login_required
 def ci_home():
-    """Back-compat entry point: send the old CI link to the Snapshot home."""
-    return redirect(url_for("pages.ci_snapshot_home"))
+    """Back-compat entry point: send the old CI link to Competitive Tracking.
+
+    (Previously landed on the One-Time Snapshot home, which is now hidden — the
+    product is monitoring-only. The snapshot routes/data remain but are no longer
+    surfaced; see ci_snapshot_home.)
+    """
+    return redirect(url_for("pages.ci_monitoring_home"))
 
 
 # ── One-Time Snapshot ────────────────────────────────────────────────────────
@@ -5397,14 +5402,15 @@ def ci_home():
 @bp.route("/app/competitive-intel/snapshot")
 @login_required
 def ci_snapshot_home():
-    """Home for one-time snapshot groups: list + create."""
-    logger.info("Serving CI snapshot home user_id=%s", g.user["id"])
-    return render_template(
-        "app/ci_snapshot_home.html",
-        breadcrumb="Insights · One-Time Snapshot",
-        active_nav="ci-snapshot",
-        groups=ci_config.list_groups(get_db(), g.user["id"], mode="snapshot"),
-    )
+    """One-Time Snapshot home — HIDDEN. The product is monitoring-only, so this
+    route (list + create) is no longer surfaced; a stray bookmark or old link
+    lands on Competitive Tracking instead. The route, its template, the snapshot
+    create/results routes, and any existing snapshot groups are kept dormant (not
+    deleted) so this is fully reversible — restore the render below to bring it
+    back. See also ci_home (the back-compat redirect) and the rail (leaf hidden).
+    """
+    logger.info("CI snapshot home hidden — redirecting to monitoring user_id=%s", g.user["id"])
+    return redirect(url_for("pages.ci_monitoring_home"))
 
 
 @bp.route("/app/competitive-intel/snapshot/groups", methods=["POST"])
@@ -5442,11 +5448,20 @@ def ci_monitoring_home():
 @bp.route("/app/competitive-intel/monitoring/groups", methods=["POST"])
 @login_required
 def ci_create_monitoring_group():
-    """Create a monitoring group and jump to its config screen."""
+    """Create a monitoring group and jump to its config screen.
+
+    Description is required here (the HTML form also marks it required, but the
+    server is the real guard): every tracked category must carry one so the
+    Competitive Tracking list can show what each category is for.
+    """
+    description = (request.form.get("description") or "").strip()
+    if not description:
+        flash("Description is required.", "error")
+        return redirect(url_for("pages.ci_monitoring_home"))
     try:
         gid = ci_config.create_group(
             get_db(), g.user["id"], request.form.get("name", ""),
-            request.form.get("description"), mode="monitoring",
+            description, mode="monitoring",
         )
     except ci_config.ConfigError as e:
         flash(str(e), "error")

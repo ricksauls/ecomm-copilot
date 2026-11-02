@@ -31,45 +31,69 @@
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
     <input type="text" name="name" class="ci-input grow" placeholder="Category name (e.g. Hot Sauce)"
            maxlength="255" required />
-    <input type="text" name="description" class="ci-input grow" placeholder="Description (optional)"
-           maxlength="1000" />
+    {# Description is required (server-enforced in ci_create_monitoring_group too) so
+       every tracked category shows what it's for in the list. #}
+    <input type="text" name="description" class="ci-input grow" placeholder="Description"
+           maxlength="1000" required />
     <button type="submit" class="wbtn wbtn-primary">Create</button>
   </form>
 </div>
 
 {% if groups %}
-<div class="ci-group-grid">
-  {% for gr in groups %}
-  <div class="card card-pad ci-group-card">
-    <div>
-      <div class="name">{{ gr.name }}
-        {% if gr.monitoring_enabled %}
-        <span class="ci-type mine">Tracking on</span>
-        {% else %}
-        <span class="ci-type">Not tracking yet</span>
-        {% endif %}
-      </div>
-      {% if gr.description %}<div class="meta">{{ gr.description }}</div>{% endif %}
-    </div>
-    <div class="meta">
-      {{ gr.brand_count }} brand{{ '' if gr.brand_count == 1 else 's' }} ·
-      {{ gr.product_count }} product{{ '' if gr.product_count == 1 else 's' }} ·
-      {{ gr.keyword_count }} keyword{{ '' if gr.keyword_count == 1 else 's' }}
-    </div>
-    <div class="actions">
-      <a href="{{ url_for('pages.ci_group_config', group_id=gr.id) }}" class="wbtn wbtn-primary">Set Up</a>
-      {# Report lives in the Competitive Intelligence Insights screen, scoped to this group. #}
-      <a href="{{ url_for('pages.insights_competitive', group_id=gr.id) }}"
-         class="wbtn wbtn-secondary">View in Insights</a>
-      <form method="post" action="{{ url_for('pages.ci_delete_group', group_id=gr.id) }}"
-            style="margin-left:auto">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-        <button type="submit" class="btn-delete"
-                data-confirm="Delete '{{ gr.name }}' and all its tracking data?">Delete</button>
-      </form>
-    </div>
+{# Tracked categories as a compact table (mirrors the Portfolio managed-items list:
+   shared .card > .table-scroll > .admin-table). The combined "Brands · Products ·
+   Keywords" count column keeps rows scannable; per-row actions sit right-aligned. #}
+<div class="card card-pad">
+  <div class="ci-section-title">
+    Tracked categories <span class="cell-muted">({{ groups | length }})</span>
   </div>
-  {% endfor %}
+  <div class="table-scroll">
+    <table class="admin-table ci-group-table">
+      <thead>
+        <tr>
+          <th>Category</th>
+          <th class="col-desc">Description</th>
+          <th>Status</th>
+          <th>Brands · Products · Keywords</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for gr in groups %}
+        <tr>
+          <td>
+            <div class="ci-group-name">{{ gr.name }}</div>
+          </td>
+          {# Description is required on create, so every row has one. #}
+          <td class="cell-muted col-desc ci-group-desc">{{ gr.description }}</td>
+          <td>
+            {% if gr.monitoring_enabled %}
+            <span class="status-badge status-tracking">Tracking on</span>
+            {% else %}
+            <span class="status-badge">Not tracking yet</span>
+            {% endif %}
+          </td>
+          <td class="cell-muted ci-group-counts">
+            {{ gr.brand_count }} · {{ gr.product_count }} · {{ gr.keyword_count }}
+          </td>
+          <td class="cell-action">
+            <a href="{{ url_for('pages.ci_group_config', group_id=gr.id) }}"
+               class="wbtn wbtn-primary wbtn-sm">Set Up</a>
+            {# Report lives in the Competitive Intelligence Insights screen, scoped to this group. #}
+            <a href="{{ url_for('pages.insights_competitive', group_id=gr.id) }}"
+               class="wbtn wbtn-secondary wbtn-sm">View in Insights</a>
+            <form method="post" action="{{ url_for('pages.ci_delete_group', group_id=gr.id) }}"
+                  class="ci-delete-form">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+              <button type="submit" class="btn-delete"
+                      data-confirm="Delete '{{ gr.name }}' and all its tracking data?">Delete</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </div>
 {% else %}
 <div class="card card-pad ci-empty">

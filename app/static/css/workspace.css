@@ -2862,6 +2862,32 @@ body.cost-modal-open {
    row instead of squeezing (and hyphenating) their labels. */
 .ci-group-card .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: auto; align-items: center; }
 
+/* Competitive Tracking home — tracked categories as a table (reuses .admin-table).
+   The name is the row's key field, so give it weight above the dense 9px body;
+   the description sits muted just beneath it, and the count column never wraps. */
+.ci-group-table .ci-group-name { font-weight: 600; }
+/* Description is its own column (after Category). A min-width keeps it from
+   collapsing to a sliver on a narrow pane (the table-scroll wrapper scrolls
+   instead); max-width caps it so a long description wraps at word boundaries
+   rather than pushing status/counts/actions off-screen. break-word (not
+   anywhere) avoids per-character stacking. */
+.ci-group-table .col-desc {
+  min-width: 180px;
+  max-width: 260px;
+  white-space: normal;
+  overflow-wrap: break-word;
+}
+.ci-group-table .ci-group-counts { white-space: nowrap; }
+/* Keep each status pill on one line — a narrow Status column otherwise wraps
+   "Not tracking yet" across three lines. */
+.ci-group-table .status-badge { white-space: nowrap; }
+/* Keep the Delete form on the same line as the Set Up / View in Insights links
+   in the right-aligned actions cell (the links are inline-block anchors). */
+.ci-delete-form { display: inline; margin-left: 6px; }
+/* "Tracking on" reads as active — black like .status-scored; "Not tracking yet"
+   keeps the muted base .status-badge. */
+.status-badge.status-tracking { color: var(--black); border-color: var(--black); }
+
 /* Small type pill for brand type (mine|competitor) — reuses chip radius. */
 .ci-type {
   display: inline-block;

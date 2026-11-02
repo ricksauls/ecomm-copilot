@@ -46,16 +46,28 @@ def test_ci_requires_login(client):
         assert "/signin" in resp.headers["Location"]
 
 
-def test_old_ci_link_redirects_to_snapshot(client, auth):
+def test_old_ci_link_redirects_to_monitoring(client, auth):
+    # Snapshot is hidden (monitoring-only product), so the back-compat bare CI
+    # link now lands on Competitive Tracking instead of the snapshot home.
     auth.register()
     resp = client.get("/app/competitive-intel")
     assert resp.status_code == 302
-    assert resp.headers["Location"].endswith("/app/competitive-intel/snapshot")
+    assert resp.headers["Location"].endswith("/app/competitive-intel/monitoring")
+
+
+def test_snapshot_home_hidden_redirects_to_monitoring(client, auth):
+    # The snapshot home (list + create) is hidden: a direct hit redirects to
+    # Competitive Tracking. The underlying snapshot routes/data stay dormant.
+    auth.register()
+    resp = client.get("/app/competitive-intel/snapshot")
+    assert resp.status_code == 302
+    assert resp.headers["Location"].endswith("/app/competitive-intel/monitoring")
 
 
 def test_snapshot_create_and_config(client, auth):
+    # Snapshot groups remain creatable at the route level (dormant path kept for
+    # existing data); the shared config screen still renders snapshot copy for them.
     auth.register()
-    assert client.get("/app/competitive-intel/snapshot").status_code == 200
     gid = _snapshot_group(client)
     cfg = client.get(f"/app/competitive-intel/groups/{gid}")
     assert cfg.status_code == 200
@@ -78,7 +90,7 @@ def test_add_multiple_keywords_comma_separated(client, auth):
 
 def test_monitoring_create_shows_tracking_setup(client, auth):
     auth.register()
-    resp = client.post("/app/competitive-intel/monitoring/groups", data={"name": "Mon"})
+    resp = client.post("/app/competitive-intel/monitoring/groups", data={"name": "Mon", "description": "Test category"})
     gid = int(resp.headers["Location"].rstrip("/").split("/")[-1])
     cfg = client.get(f"/app/competitive-intel/groups/{gid}")
     assert cfg.status_code == 200
@@ -91,6 +103,21 @@ def test_monitoring_create_shows_tracking_setup(client, auth):
     # The setup sections (your brand, competitors, keywords) are all present.
     assert b"Your brand" in cfg.data
     assert b"Competitors" in cfg.data
+
+
+def test_monitoring_create_requires_description(client, auth):
+    """Description is required: a create POST without one is rejected (flashed
+    back to the Competitive Tracking home) and no group is created."""
+    auth.register()
+    resp = client.post("/app/competitive-intel/monitoring/groups", data={"name": "NoDesc"})
+    # Rejected → bounced back to the monitoring home, not the config screen.
+    assert resp.status_code == 302
+    assert resp.headers["Location"].endswith("/app/competitive-intel/monitoring")
+    with client.application.app_context():
+        assert ci_config.list_groups(get_db(), 1, mode="monitoring") == []
+    # The error message surfaces on the home.
+    home = client.get("/app/competitive-intel/monitoring")
+    assert b"Description is required" in home.data
 
 
 def test_snapshot_results_render_without_trend_markup(client, auth):
@@ -272,7 +299,7 @@ def test_snapshot_pdf_downloads(client, auth):
 
 def test_schedule_run_enables_monitoring_and_enqueues(client, auth):
     auth.register()
-    resp = client.post("/app/competitive-intel/monitoring/groups", data={"name": "Mon"})
+    resp = client.post("/app/competitive-intel/monitoring/groups", data={"name": "Mon", "description": "Test category"})
     gid = int(resp.headers["Location"].rstrip("/").split("/")[-1])
     client.post(f"/app/competitive-intel/groups/{gid}/schedule-run")
     with client.application.app_context():
@@ -313,7 +340,7 @@ def test_view_dropdown_lists_only_monitoring_groups(client, auth):
     # One snapshot + one monitoring group; only the monitoring one appears in View.
     # Distinctive name so the assertion can't collide with the rail's "Snapshot" label.
     client.post("/app/competitive-intel/snapshot/groups", data={"name": "ZzzSnapOnlyGrp"})
-    resp = client.post("/app/competitive-intel/monitoring/groups", data={"name": "MonView"})
+    resp = client.post("/app/competitive-intel/monitoring/groups", data={"name": "MonView", "description": "Test category"})
     mgid = int(resp.headers["Location"].rstrip("/").split("/")[-1])
     view = client.get("/app/competitive-intel/view")
     assert view.status_code == 200
@@ -325,7 +352,7 @@ def test_view_dropdown_lists_only_monitoring_groups(client, auth):
 
 def test_monitoring_view_matches_snapshot_layout_with_trends(client, auth):
     auth.register()
-    resp = client.post("/app/competitive-intel/monitoring/groups", data={"name": "MonTrend"})
+    resp = client.post("/app/competitive-intel/monitoring/groups", data={"name": "MonTrend", "description": "Test category"})
     gid = int(resp.headers["Location"].rstrip("/").split("/")[-1])
     # Seed data inside the last *completed* week (the route uses the real "today"),
     # so the aggregated tables + week button are available.
@@ -368,7 +395,7 @@ def test_monitoring_view_matches_snapshot_layout_with_trends(client, auth):
 def test_view_snapshot_dropdown_and_results_without_trends(client, auth):
     auth.register()
     # One snapshot + one monitoring group; only the snapshot one appears in View Snapshot.
-    client.post("/app/competitive-intel/monitoring/groups", data={"name": "ZzzMonOnlyGrp"})
+    client.post("/app/competitive-intel/monitoring/groups", data={"name": "ZzzMonOnlyGrp", "description": "Test category"})
     resp = client.post("/app/competitive-intel/snapshot/groups", data={"name": "SnapView"})
     sgid = int(resp.headers["Location"].rstrip("/").split("/")[-1])
     with client.application.app_context():
@@ -411,7 +438,7 @@ def test_view_snapshot_rejects_monitoring_group(client, auth, app):
 
 def test_monitoring_pdf_downloads(client, auth):
     auth.register()
-    resp = client.post("/app/competitive-intel/monitoring/groups", data={"name": "Mon"})
+    resp = client.post("/app/competitive-intel/monitoring/groups", data={"name": "Mon", "description": "Test category"})
     gid = int(resp.headers["Location"].rstrip("/").split("/")[-1])
     pdf = client.get(f"/app/competitive-intel/view/{gid}/results.pdf?period=mom")
     assert pdf.status_code == 200
@@ -499,7 +526,7 @@ def test_snapshot_analysis_is_run_scoped(app):
 
 def _monitoring_group(client):
     """Create a monitoring group via HTTP; return its id (test user is user 1)."""
-    resp = client.post("/app/competitive-intel/monitoring/groups", data={"name": "Track"})
+    resp = client.post("/app/competitive-intel/monitoring/groups", data={"name": "Track", "description": "Test category"})
     return int(resp.headers["Location"].rstrip("/").split("/")[-1])
 
 
