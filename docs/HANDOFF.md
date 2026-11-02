@@ -1,6 +1,72 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-11-02 (session 45 — **Competitive Tracking UI pass: card grid → compact TABLE, Description now
+_Last updated: 2026-11-02 (session 46 — **Competitive Tracking SETUP-screen redesign + four follow-up refinements,
+shipped as FIVE commits DIRECT-PUSHED to `main` (user's choice each round). `origin/main` = `de56f7c`. Commits
+`0c9fc30` + `2a52d2c` + `333f6c4` + `e9bd04d` all have CI + Deploy CONFIRMED green + LIVE; the final `de56f7c` had CI
+running at handoff with Deploy set to auto-run on green. 881 tests + ruff clean locally; no dependency changes. NEXT =
+Phase 2 (unchanged). This block brings HANDOFF current through S46.**)_
+
+_**S46 scope — the monitoring-group SETUP screen, reached by Create or the row "Edit" button on Competitive Tracking
+(`tracking_config.html`, route `ci_group_config`). Five commits:**_
+
+_**1) Setup screen redesign (`0c9fc30`).** Breadcrumb reads "Competitive Tracking - Create New Tracking" while a
+category is untouched (no brands/products/keywords AND no runs — `is_new` computed in `ci_group_config`), else the
+category name; the H1 now shows the category + the description entered on create. Header gained an **Enable / Disable
+Tracking** button (replacing "View in Insights") — new route **`ci_disable_monitoring`** (`set_monitoring(False)`, no
+run); Enable reuses `ci_schedule_run` (on + baseline); the Tracking section stays for status + "Run now". **"Your brand
+& products"** = a searchable single-item portfolio picker; the user's brand is DERIVED from the picked item
+(`ci_config.resolve_mine_brand` / `add_owned_item`, new route **`ci_add_owned_item`**). **Competitors** = up to 5 bare
+Walmart URLs, one competitor brand per URL labelled from the slug (`ci_config.add_competitor_urls` / `_slug_label`,
+route **`ci_add_competitors`**, cap **`MAX_COMPETITORS_PER_GROUP=5`**); delete uses the brand-delete route to free a
+slot._
+
+_**2) Listbox + wording (`2a52d2c`).** Per review, the search box and picker are kept SEPARATE (NOT merged into a
+combobox); the `<select>` is a multi-row **listbox** (`size` = min(items+1, 10)) so items stay visible while the search
+filters. Buttons: "Add to Tracking"→**"Use The Selected Item"**, "Add Competitors"→**"Use These Competing Items"**;
+reuse checkbox "…for this category"→"…for this competitive tracking"._
+
+_**3) Button gating + keyword staging (`333f6c4`).** `tracking_config.js` disables "Use The Selected Item" until an
+item is picked and "Use These Competing Items" until ≥1 URL is entered (new `.wbtn:disabled`; JS-off fallback =
+enabled). Keyword reuse moved from a SERVER auto-copy to CLIENT staging: ticking the reuse checkbox (no longer
+submitted — `name="copy_keywords"` dropped, the copy branch in `ci_add_owned_item` REMOVED) drops the item's keywords
+into the Keywords input + removable chips; committed via the keyword form, button "Add Keywords"→**"Use These
+Keywords"**. So `ci_add_owned_item` now only adds the product (adds NO keywords)._
+
+_**4) Keyword draft persistence + reorder (`e9bd04d`).** BUG FIX: an uncommitted keyword draft was wiped by ANY
+POST+reload on the screen (item add, competitor add, deletes, tracking toggle), not just "Use The Selected Item".
+`tracking_config.js` now stashes the Keywords input in **`sessionStorage`** (key `ci-kw-draft:<group_id>`) before such
+reloads and restores it on load, clearing it on the keyword-commit submit (`data-kw-form`) — same idea as the
+`portfolio.js` scroll-restore. (NB `form.submit()` bypasses the submit event; real button clicks fire it.) Keyword
+chips now mirror the input (source of truth); × removes a term. Section order is now **products → keywords →
+competitors** (Keywords moved above Competitors); the "Tracking is off" hint was reworded to match._
+
+_**5) Keywords "in use" list + home table (`de56f7c`).** Committed keywords now render BELOW the keyword input under a
+"Tracking these keywords:" label (the in-use counterpart to the products/competitors areas) — staged chips stay above
+the input. Competitive Tracking home table (`ci_monitoring_home.html`): per-row **"View in Insights" REMOVED** and
+**"Set Up" renamed to "Edit"** (rows are now just Edit + Delete)._
+
+_**New/changed surfaces (S46 overall).** New routes: `ci_add_owned_item`, `ci_add_competitors`, `ci_disable_monitoring`.
+`ci_config.py`: `resolve_mine_brand`, `add_owned_item`, `add_competitor_urls`, `_slug_label`,
+`MAX_COMPETITORS_PER_GROUP`. New file `app/static/js/tracking_config.js`. New CSS `.ci-reuse-panel` / `.ci-check` /
+`.wbtn:disabled`. Tests: +10 net in `test_ci_pages.py` (owned-item add + IDOR, competitor URLs + cap + delete,
+disable, breadcrumb, gating/staging render asserts); full suite now **881**._
+
+_**Open items / gotchas (S46).** (a) The old **`/products/bulk` route + `ci_config.add_products`** are now UNUSED by
+the UI but kept + still tested (removal was offered; user hasn't decided). (b) An invalid **`GITHUB_TOKEN` env var
+shadows the keyring `gh` login** → run `env -u GITHUB_TOKEN gh …` to read CI. (c) Local `app.db` was scratched during
+in-browser verification (temp portfolio items + group-6 test rows inserted then removed; `preview@example.com`/u3 is
+the dev login) — gitignored, not committed. (d) `ci_add_owned_item` still accepts the legacy `copy_keywords` form
+field but ignores it._
+
+_**Next session (unchanged) — Phase 2:** reorient Insights/Performance around per-item tracked data (item-primary,
+competitive secondary; rework not move), then retire item-page perf blocks / rename "View trends" → "View Keywords".
+Other open items: the S44 `python -m app.suggest_keywords` droplet run; the FULL Snapshot removal (routes/templates/
+`mode` column + data, deferred in favor of "just hide it"); the `landing.html` snapshot marketing line; and the
+**landing-page REDESIGN the user deferred (2026-11-02) — do NOT touch `landing.html` piecemeal.**_
+
+---
+
+_Session 45 (2026-11-02) — **Competitive Tracking UI pass: card grid → compact TABLE, Description now
 REQUIRED + its own column, and One-Time Snapshot HIDDEN (product is monitoring-only). All three shipped in ONE commit
 DIRECT-PUSHED to `main` (`05ac27c`, user's choice); `origin/main` = `05ac27c`; 872 tests + ruff clean locally, CI
 running at push (run 41507416784), Deploy auto-runs on green. This session also CONFIRMED the S44 pending verification:
