@@ -7,8 +7,8 @@
     <h1>Competitive Tracking</h1>
     <p class="subtitle">
       Track your brand against competitors on Walmart.com — search ranking, share of
-      digital shelf, and ad presence, checked automatically 3×/day (7 AM / 3 PM / 11 PM
-      CST). Each tracked category feeds your Insights.
+      digital shelf, and ad presence, checked automatically once a day at a rotating time
+      (7 AM, 3 PM, or 11 PM CST, varying day to day). Each tracked category feeds your Insights.
     </p>
   </div>
 </div>
@@ -24,16 +24,18 @@
 <div class="card card-pad">
   <div class="ci-section-title">New tracked category</div>
   <p class="ci-section-hint">
-    Name a category you compete in (e.g. <em>Hot Sauce</em>). Next, you'll add your
-    products, the competitors to watch, and the keywords to track.
+    Name a category you compete in (e.g. <em>Hot Sauce</em>) and enter the competitor
+    name / description. Next, you'll add your products, the competitors to watch, and
+    the keywords to track.
   </p>
   <form method="post" action="{{ url_for('pages.ci_create_monitoring_group') }}" class="ci-inline-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
     <input type="text" name="name" class="ci-input grow" placeholder="Category name (e.g. Hot Sauce)"
            maxlength="255" required />
-    {# Description is required (server-enforced in ci_create_monitoring_group too) so
-       every tracked category shows what it's for in the list. #}
-    <input type="text" name="description" class="ci-input grow" placeholder="Description"
+    {# The description field doubles as the competitor name / description; required
+       (server-enforced in ci_create_monitoring_group too) so every row shows what
+       it's for in the list. #}
+    <input type="text" name="description" class="ci-input grow" placeholder="Competitor name / Description"
            maxlength="1000" required />
     <button type="submit" class="wbtn wbtn-primary">Create</button>
   </form>
@@ -52,7 +54,7 @@
       <thead>
         <tr>
           <th>Category</th>
-          <th class="col-desc">Description</th>
+          <th class="col-desc">Competitor / Description</th>
           <th>Status</th>
           <th>Brands · Products · Keywords</th>
           <th></th>
