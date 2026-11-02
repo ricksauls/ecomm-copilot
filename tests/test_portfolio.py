@@ -220,11 +220,15 @@ def test_add_item_tracks_on_add_and_seeds_keywords(app):
         kws = db.execute(
             "SELECT slot, kind, keyword FROM portfolio_keywords "
             "WHERE portfolio_item_id = ? ORDER BY slot", (item["id"],)).fetchall()
+        # Five positional slots now (slots 4-5 are the extra AI-filled ones; blank
+        # in the mechanical seed at add-time).
         assert [(r["slot"], r["kind"]) for r in kws] == [
-            (1, "brand"), (2, "brand_product_size"), (3, "category")]
+            (1, "brand"), (2, "brand_product_size"), (3, "category"),
+            (4, "search"), (5, "search")]
         assert kws[0]["keyword"] == "Tabasco"       # KW1 known at add
         assert kws[1]["keyword"] == "Tabasco"       # KW2 brand-only until the PDP fetch
         assert kws[2]["keyword"] is None            # KW3 category filled later / by the user
+        assert kws[3]["keyword"] is None and kws[4]["keyword"] is None  # KW4/5 blank until AI
 
 
 def test_import_rows_tracks_and_seeds_keywords(app):
@@ -241,10 +245,12 @@ def test_import_rows_tracks_and_seeds_keywords(app):
         assert item["tracked"] == 1
         assert db.execute(
             "SELECT COUNT(*) c FROM portfolio_keywords WHERE portfolio_item_id = ?",
-            (item["id"],)).fetchone()["c"] == 3
+            (item["id"],)).fetchone()["c"] == 5
 
 
-def test_worker_backfills_descriptors(app, monkeypatch):
+def test_worker_backfills_descriptors_mechanical_fallback(app, monkeypatch):
+    # AI off -> the backfill falls back to the mechanical KW2/KW3 refinement.
+    monkeypatch.setenv("KEYWORD_AI_ENABLED", "0")
     import worker
     with app.app_context():
         db = get_db()
@@ -269,6 +275,32 @@ def test_worker_backfills_descriptors(app, monkeypatch):
         assert kws[1] == "Tabasco"
         assert kws[2] == "Tabasco Original Hot Sauce 12 oz"
         assert kws[3] == "Hot Sauce"
+
+
+def test_worker_backfills_descriptors_with_ai(app, monkeypatch):
+    # AI on -> the backfill writes the AI-chosen terms into the five slots.
+    from app import keyword_ai
+    import worker
+    monkeypatch.setattr(
+        keyword_ai, "suggest_keywords",
+        lambda brand, title, size, category, **kw: [
+            "hot sauce", "tabasco hot sauce", "pepper sauce", "cayenne sauce", "louisiana hot sauce"])
+    with app.app_context():
+        db = get_db()
+        uid = create_local_user("wai@example.com", "password123")
+        portfolio.add_item(db, uid, "Tabasco", "https://www.walmart.com/ip/10294528", None)
+        item = portfolio.claim_next_title(db)
+        monkeypatch.setattr(worker, "fetch_item_descriptors",
+                            lambda url, item_id: {"title": "Original Hot Sauce",
+                                                  "brand": "Tabasco", "size": "12 oz",
+                                                  "category": "Hot Sauce"})
+        worker.process_portfolio_descriptors_one(db, item)
+        kws = {r["slot"]: r["keyword"]
+               for r in db.execute(
+                   "SELECT slot, keyword FROM portfolio_keywords WHERE portfolio_item_id = ?",
+                   (item["id"],))}
+        assert [kws[s] for s in (1, 2, 3, 4, 5)] == [
+            "hot sauce", "tabasco hot sauce", "pepper sauce", "cayenne sauce", "louisiana hot sauce"]
 
 
 def test_worker_marks_error_when_fetch_blocked(app, monkeypatch):

@@ -111,7 +111,9 @@
           <th>Item #</th>
           <th class="col-product">Product</th>
           <th class="col-product">Walmart URL</th>
-          <th>Amazon</th>
+          {# Amazon column hidden for now to give the Tracking column (keyword
+             chips) more width — the amazon_url is still stored, imported, and
+             editable on the Upload tab; only this list view omits it. #}
           <th>Tracking</th>
           <th></th>
         </tr>
@@ -136,12 +138,7 @@
             <a href="{{ it.walmart_url }}" target="_blank" rel="noopener noreferrer"
                class="cell-muted">{{ it.walmart_url }}</a>
           </td>
-          <td>
-            {% if it.amazon_url %}
-            <a href="{{ it.amazon_url }}" target="_blank" rel="noopener noreferrer"
-               class="cell-muted">link</a>
-            {% else %}—{% endif %}
-          </td>
+          {# Amazon column hidden (see the header comment) — td omitted to match. #}
           {# Tracking toggle — a sliding switch. The form posts the DESIRED new
              state so the one route handles both directions: an on item posts 0
              (disable), an off item posts 1 (enable). The switch is a submit button
@@ -181,11 +178,14 @@
             {% if kws %}
             <div class="pf-kw" data-pf-kw>
               <div class="pf-kw-view" data-pf-kw-view>
+                {# Type labels (brand / product / category) dropped — keywords are
+                   now AI-chosen shopper terms with no fixed kind, so each chip is
+                   just the term, giving it the full chip width. A blank slot (not
+                   scraped) still shows as an em dash, flagged in the tooltip. #}
                 <ul class="pf-kw-chips">
                   {% for kw in kws %}
                   <li class="pf-kw-chip"
-                      title="{{ keyword_labels.get(kw.kind, kw.kind) }}: {{ kw.keyword or '(blank — not scraped)' }}">
-                    <span class="pf-kw-tag">{{ keyword_labels.get(kw.kind, kw.kind) }}</span>
+                      title="{{ kw.keyword or '(blank — not scraped)' }}">
                     <span class="pf-kw-term{{ ' is-blank' if not kw.keyword else '' }}">{{ kw.keyword or '—' }}</span>
                   </li>
                   {% endfor %}
@@ -197,9 +197,12 @@
                     action="{{ url_for('pages.portfolio_edit_keywords', item_id=it.id) }}">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
                 <input type="hidden" name="return_to" value="portfolio" />
+                {# Positional labels now ("Keyword 1…5") — the slots no longer carry
+                   a fixed kind, so the editor just numbers them; a blank field
+                   clears that keyword (so it isn't scraped). #}
                 {% for kw in kws %}
                 <div class="pf-kw-field">
-                  <label class="field-sublabel" for="kw-{{ it.id }}-{{ kw.slot }}">{{ keyword_labels.get(kw.kind, kw.kind) }}</label>
+                  <label class="field-sublabel" for="kw-{{ it.id }}-{{ kw.slot }}">Keyword {{ kw.slot }}</label>
                   <input type="text" id="kw-{{ it.id }}-{{ kw.slot }}" name="kw{{ kw.slot }}"
                          class="text-input pf-kw-input" maxlength="120" autocomplete="off"
                          value="{{ kw.keyword or '' }}" />
@@ -225,7 +228,7 @@
         {% endfor %}
         {# Shown by the search JS when no row matches; hidden otherwise. #}
         <tr class="pf-empty-filtered" hidden>
-          <td colspan="7" class="results-count">No items match that search.</td>
+          <td colspan="6" class="results-count">No items match that search.</td>
         </tr>
       </tbody>
     </table>

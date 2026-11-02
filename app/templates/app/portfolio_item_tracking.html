@@ -37,24 +37,26 @@
   {% endfor %}
 {% endwith %}
 
-{# Tracking keywords — the 3 search terms this item's daily rank & share of search
-   are measured against. Auto-filled best-effort from the product; editable, and an
-   edit is kept (the backfill won't overwrite it). A blank field means that keyword
-   isn't scraped. Always shown — the user curates these before data accrues. #}
+{# Tracking keywords — the search terms this item's daily rank & share of search
+   are measured against. AI-chosen from the product (see app.keyword_ai); editable,
+   and an edit is kept (neither the backfill nor the AI step overwrites it). A blank
+   field means that keyword isn't scraped. The slots are positional now (no fixed
+   kind), so they're numbered. Always shown — the user curates these before data
+   accrues. #}
 {% if keywords %}
 <div class="card card-pad">
   <div class="ci-section-title">Tracking keywords</div>
   <p class="brand-hint">The search terms this item's daily rank &amp; share of search are
-    measured against. Auto-filled from the product — edit any of them; leave one blank to skip it.</p>
+    measured against. Chosen for you from the product — edit any of them; leave one blank to skip it.</p>
   <form method="post" action="{{ url_for('pages.portfolio_edit_keywords', item_id=item.id) }}"
         class="pf-kw-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
     {% for kw in keywords %}
     <div class="pf-kw-row">
-      <label class="field-sublabel" for="kw{{ kw.slot }}">{{ keyword_labels.get(kw.kind, kw.kind) }}</label>
+      <label class="field-sublabel" for="kw{{ kw.slot }}">Keyword {{ kw.slot }}</label>
       <input type="text" id="kw{{ kw.slot }}" name="kw{{ kw.slot }}" class="text-input"
              maxlength="120" value="{{ kw.keyword or '' }}"
-             placeholder="{% if kw.kind == 'category' %}e.g. Hot Sauce{% elif kw.kind == 'brand' %}e.g. Tabasco{% else %}e.g. Tabasco Original Hot Sauce 12 oz{% endif %}" />
+             placeholder="e.g. hot sauce" />
     </div>
     {% endfor %}
     <button type="submit" class="wbtn wbtn-primary">Save keywords</button>
@@ -101,9 +103,10 @@
   <div class="trk-search-grid">
     {% for row in search_rows %}
     <div class="trk-metric">
+      {# The keyword itself is the label now — the old kind sub-line is dropped
+         (slots are positional, no fixed kind). #}
       <div class="trk-metric-head">
         <span class="trk-metric-label">{{ row.keyword }}</span>
-        <span class="cell-muted">{{ keyword_labels.get(row.kind, row.kind) }}</span>
       </div>
       <div class="trk-search-pair">
         <div class="trk-search-cell">

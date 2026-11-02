@@ -195,14 +195,15 @@ CREATE INDEX IF NOT EXISTS idx_portfolio_item_facts_series
     ON portfolio_item_facts(portfolio_item_id, captured_at);
 
 -- Per-item keyword tracking (daily search rank + share of search). Each tracked
--- portfolio item carries 3 keywords; the daily sweep scrapes each keyword's page-1
--- SERP and records where the item places and how many of the page's slots are its
--- own (the share-of-search numerator; total slots = the denominator). The app
--- rolls these daily readings up to the Weekly/Monthly/Quarterly views — it never
--- shows a daily figure. Distinct from the commerce-facts pipeline above.
---   • portfolio_keywords — the 3 editable keywords per item (brand / brand+product
---     +size / category). Auto-generated best-effort, then user-editable; a row the
---     user has edited (user_edited=1) is never overwritten by the backfill.
+-- portfolio item carries up to 5 keywords; the daily sweep scrapes each keyword's
+-- page-1 SERP and records where the item places and how many of the page's slots
+-- are its own (the share-of-search numerator; total slots = the denominator). The
+-- app rolls these daily readings up to the Weekly/Monthly/Quarterly views — it
+-- never shows a daily figure. Distinct from the commerce-facts pipeline above.
+--   • portfolio_keywords — the up-to-5 editable keywords per item. AI-chosen
+--     shopper search terms (see app.keyword_ai), with a mechanical fallback; the
+--     `kind` tag is now vestigial (slots are positional). User-editable; a row the
+--     user has edited (user_edited=1) is never overwritten by the backfill/AI step.
 --   • portfolio_rank_jobs — the daily scrape queue (one row per item×keyword per
 --     sweep; worker drains queued -> fetching -> done|error, self-heals on startup).
 --   • portfolio_rank_readings — one dated result per item×keyword; the series the
@@ -212,8 +213,8 @@ CREATE TABLE IF NOT EXISTS portfolio_keywords (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
     portfolio_item_id INTEGER NOT NULL REFERENCES portfolio_items(id) ON DELETE CASCADE,
     user_id           INTEGER NOT NULL REFERENCES users(id),
-    slot              INTEGER NOT NULL,                  -- 1|2|3
-    kind              TEXT    NOT NULL,                  -- brand|brand_product_size|category
+    slot              INTEGER NOT NULL,                  -- 1..5 (positional)
+    kind              TEXT    NOT NULL,                  -- vestigial tag (brand|brand_product_size|category|search)
     keyword           TEXT,                              -- NULL until generated/backfilled
     user_edited       INTEGER NOT NULL DEFAULT 0,        -- 1 => don't clobber on backfill
     created_at        TEXT    NOT NULL DEFAULT (datetime('now')),
@@ -999,11 +1000,11 @@ def _migrate(conn: sqlite3.Connection) -> None:
         )
 
     # Per-item keyword tracking backfill (one-time). New portfolio rows get their
-    # tracked flag + 3 keyword rows at add-time (see app.portfolio.add_item); this
+    # tracked flag + 5 keyword rows at add-time (see app.portfolio.add_item); this
     # catches items that predate the feature. Gated on portfolio_keywords being
-    # empty so it runs exactly once. It seeds best-effort keyword defaults (KW1
-    # brand, KW2 brand+title, KW3 category left blank for the user/descriptors
-    # backfill to fill) but does NOT change the tracked flag — existing items stay
+    # empty so it runs exactly once. It seeds best-effort mechanical defaults (KW1
+    # brand, KW2 brand+title, KW3-5 blank for the descriptors backfill / AI step to
+    # fill — see app.keyword_ai) but does NOT change the tracked flag — existing items stay
     # at their current state (off by default) and are opted in individually via the
     # Portfolio pill or the `python -m app.enable_tracking <prefix>` admin command.
     # New items are tracked on add (app.portfolio.add_item). On a fresh DB there are
@@ -1023,11 +1024,14 @@ def _migrate(conn: sqlite3.Connection) -> None:
                 title = (row["title"] or "").strip()
                 kw1 = brand or None
                 kw2 = (f"{brand} {title}".strip() or None)
-                # (item_id, user_id, slot, kind, keyword) — KW3 category stays NULL.
+                # (slot, kind, keyword) — KW3 category and the extra search slots
+                # 4-5 stay NULL for the descriptors backfill / AI step to fill.
                 seeds = (
                     (1, "brand", kw1),
                     (2, "brand_product_size", kw2),
                     (3, "category", None),
+                    (4, "search", None),
+                    (5, "search", None),
                 )
                 for slot, kind, keyword in seeds:
                     conn.execute(

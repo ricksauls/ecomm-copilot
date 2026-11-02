@@ -1,18 +1,25 @@
 """Per-item tracking keywords for portfolio products.
 
-Every tracked portfolio item carries three keywords that the daily search sweep
-(:mod:`app.item_rank`) scrapes for rank + share of search:
+Every tracked portfolio item carries up to five keywords that the daily search
+sweep (:mod:`app.item_rank`) scrapes for rank + share of search. The keywords are
+the real shopper **search terms** the item is measured against; they're AI-chosen
+(see :mod:`app.keyword_ai`) from the product's brand/title/size/category by the
+descriptors backfill (:func:`app.portfolio.save_descriptors`).
+
+Until the backfill runs — or if AI selection is disabled or errors — the slots
+fall back to best-effort mechanical defaults, which is why slots 1-3 still carry
+the historical ``kind`` tags:
 
 1. **brand** — the item's brand (e.g. ``Tabasco``).
 2. **brand_product_size** — brand + product name + size (e.g. ``Tabasco Original
    Hot Sauce 12 oz``).
 3. **category** — the category / shopper intent (e.g. ``Hot Sauce``).
+4-5. **search** — extra slots, blank in the mechanical fallback, filled by AI.
 
-They're auto-generated as *best-effort defaults* when an item is added (brand is
-known immediately; product/size/category are filled by the descriptors backfill
-once the PDP is fetched — see :func:`app.portfolio.save_descriptors`). The user
-can then edit any of them; an edited row (``user_edited = 1``) is never
-overwritten by the backfill.
+The ``kind`` column is now vestigial (the UI no longer labels chips by kind); it
+is kept only so the fallback can compose sensible slot-1-3 defaults. The user can
+edit any slot; an edited row (``user_edited = 1``) is never overwritten by the
+backfill or the AI step.
 
 This module owns the ``portfolio_keywords`` table only. Every request-reachable
 read/write is scoped by ``user_id`` (the IDOR boundary); all SQL is
@@ -30,8 +37,16 @@ logger = logging.getLogger(__name__)
 # the SERP query. Blank is allowed and stored as NULL ("don't scrape this slot").
 MAX_KEYWORD_LEN = 120
 
-# The three fixed slots, in display order: (slot number, kind label).
-SLOTS = ((1, "brand"), (2, "brand_product_size"), (3, "category"))
+# The five slots, in display order: (slot number, kind tag). Slots 1-3 keep the
+# historical kinds so the mechanical fallback can compose them; 4-5 are generic
+# "search" slots the AI step fills (blank in the fallback). `kind` is no longer
+# shown in the UI — it only steers the fallback composition below.
+SLOTS = ((1, "brand"), (2, "brand_product_size"), (3, "category"),
+         (4, "search"), (5, "search"))
+
+# The set of valid slot numbers, derived from SLOTS so adding/removing a slot is a
+# one-line change here. Used to reject a forged slot in `set_keywords`.
+VALID_SLOTS = frozenset(slot for slot, _ in SLOTS)
 
 
 def _clean(keyword: str | None) -> str | None:
@@ -74,13 +89,16 @@ def _compose_product_keyword(brand: str | None, title: str | None,
 def generate_defaults(conn: sqlite3.Connection, user_id: int, portfolio_item_id: int,
                       brand: str | None, *, title: str | None = None,
                       size: str | None = None, category: str | None = None) -> None:
-    """Seed the three keyword rows for an item if they don't exist yet.
+    """Seed the five keyword rows for an item if they don't exist yet.
 
     Called at add-time (brand only, usually) and safe to call again — the
     ``UNIQUE(portfolio_item_id, slot)`` constraint means ``INSERT OR IGNORE`` never
-    duplicates or clobbers an existing (possibly user-edited) row. Later refinement
-    of KW2/KW3 from the fetched PDP goes through :func:`apply_descriptors`.
+    duplicates or clobbers an existing (possibly user-edited) row. These are only
+    the mechanical fallback values; the descriptors backfill upgrades them to
+    AI-chosen terms via :func:`set_ai_keywords` (falling back to
+    :func:`apply_descriptors` when AI is off/unavailable).
     """
+    # Mechanical fallback values per slot; slots 4-5 start blank (AI fills them).
     keywords = {
         1: _clean(brand),
         2: _compose_product_keyword(brand, title, size),
@@ -90,7 +108,7 @@ def generate_defaults(conn: sqlite3.Connection, user_id: int, portfolio_item_id:
         conn.execute(
             "INSERT OR IGNORE INTO portfolio_keywords "
             "(portfolio_item_id, user_id, slot, kind, keyword) VALUES (?, ?, ?, ?, ?)",
-            (portfolio_item_id, user_id, slot, kind, keywords[slot]),
+            (portfolio_item_id, user_id, slot, kind, keywords.get(slot)),
         )
     conn.commit()
     logger.info("Seeded tracking keywords for portfolio_item_id=%s user_id=%s",
@@ -126,9 +144,51 @@ def apply_descriptors(conn: sqlite3.Connection, portfolio_item_id: int, *,
     conn.commit()
 
 
+def set_ai_keywords(conn: sqlite3.Connection, portfolio_item_id: int,
+                    terms: list[str], *, user_id: int) -> int:
+    """Write AI-chosen keywords into the item's slots, preserving user edits.
+
+    ``terms`` is the ordered list from :func:`app.keyword_ai.suggest_keywords`
+    (already cleaned/capped). Each term fills the next slot (1, 2, 3, …); any slot
+    beyond the supplied terms is blanked (so a stale mechanical default doesn't
+    linger and get scraped). Only rows the user hasn't edited (``user_edited = 0``)
+    are touched — a hand-edited keyword is never overwritten.
+
+    Ensures all :data:`SLOTS` rows exist first (``INSERT OR IGNORE`` needs the
+    ``user_id`` for any missing slot — e.g. slots 4-5 on an item that predates the
+    five-slot model), then updates the keyword text. Worker/command context (keyed
+    off a row the caller already owns), so the UPDATE is scoped by
+    ``portfolio_item_id`` like :func:`apply_descriptors`. Returns the number of
+    slots written (filled + blanked). All writes are parameterized.
+    """
+    # Make sure every slot row exists so the UPDATEs below have something to hit.
+    for slot, kind in SLOTS:
+        conn.execute(
+            "INSERT OR IGNORE INTO portfolio_keywords "
+            "(portfolio_item_id, user_id, slot, kind, keyword) VALUES (?, ?, ?, ?, NULL)",
+            (portfolio_item_id, user_id, slot, kind),
+        )
+
+    written = 0
+    for slot, _ in SLOTS:
+        # terms[0] -> slot 1, etc.; slots past the supplied terms are blanked.
+        value = _clean(terms[slot - 1]) if slot - 1 < len(terms) else None
+        cur = conn.execute(
+            "UPDATE portfolio_keywords "
+            "SET keyword = ?, updated_at = datetime('now') "
+            "WHERE portfolio_item_id = ? AND slot = ? AND user_edited = 0",
+            (value, portfolio_item_id, slot),
+        )
+        written += cur.rowcount
+    conn.commit()
+    logger.info("Applied %d AI keyword(s) to portfolio_item_id=%s (slots written=%d)",
+                len([t for t in terms if t]), portfolio_item_id, written)
+    return written
+
+
 def list_keywords(conn: sqlite3.Connection, user_id: int,
                   portfolio_item_id: int) -> list[sqlite3.Row]:
-    """The item's three keyword rows (slot order), scoped to the signed-in user."""
+    """The item's keyword rows (slot order), scoped to the signed-in user."""
     return conn.execute(
         "SELECT id, slot, kind, keyword, user_edited FROM portfolio_keywords "
         "WHERE portfolio_item_id = ? AND user_id = ? ORDER BY slot",
@@ -184,7 +244,7 @@ def set_keywords(conn: sqlite3.Connection, user_id: int, portfolio_item_id: int,
         return False
 
     for slot, raw in values.items():
-        if slot not in (1, 2, 3):
+        if slot not in VALID_SLOTS:
             continue
         conn.execute(
             "UPDATE portfolio_keywords "

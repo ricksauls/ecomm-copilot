@@ -20,7 +20,7 @@ import sqlite3
 
 from werkzeug.datastructures import FileStorage
 
-from app import item_keywords, pdp
+from app import item_keywords, keyword_ai, pdp
 
 logger = logging.getLogger(__name__)
 
@@ -309,16 +309,19 @@ def save_title(conn: sqlite3.Connection, item_id: int, title: str | None) -> Non
 
 
 def save_descriptors(conn: sqlite3.Connection, item_id: int, descriptors: dict) -> None:
-    """Store the fetched title and refine the item's keyword defaults, settle 'done'.
+    """Store the fetched title and (re)generate the item's keywords, settle 'done'.
 
     ``descriptors`` is the :func:`app.fetch.fetch_item_descriptors` result
     (``{title, brand, size, category}``). The name backfill behaviour is unchanged
-    (title + ``title_status='done'``); on top of it the product name, size, and
-    category refine the auto-generated KW2/KW3 keywords, never overwriting a
-    keyword the user has already edited (see
-    :func:`app.item_keywords.apply_descriptors`). KW2 is composed from the item's
-    OWN stored brand (the authoritative KW1), not the fetched brand, so the three
-    keywords stay consistent.
+    (title + ``title_status='done'``). On top of it the keywords are chosen by
+    OpenAI from the item's OWN stored brand (the authoritative KW1, not the fetched
+    brand) plus the fetched title/size/category — see :mod:`app.keyword_ai`. If AI
+    selection is disabled or fails, it falls back to the mechanical KW2/KW3
+    refinement (:func:`app.item_keywords.apply_descriptors`). Either way a keyword
+    the user has already edited (``user_edited = 1``) is never overwritten.
+
+    Worker-only: AI selection makes an external call, so this must run in the
+    background descriptors backfill, never inline in a request.
     """
     title = (descriptors.get("title") or "").strip() or None
     conn.execute(
@@ -326,14 +329,28 @@ def save_descriptors(conn: sqlite3.Connection, item_id: int, descriptors: dict) 
         "updated_at = datetime('now') WHERE id = ?",
         (title, item_id),
     )
-    row = conn.execute("SELECT brand FROM portfolio_items WHERE id = ?", (item_id,)).fetchone()
+    row = conn.execute(
+        "SELECT user_id, brand FROM portfolio_items WHERE id = ?", (item_id,)
+    ).fetchone()
     brand = row["brand"] if row else None
-    item_keywords.apply_descriptors(
-        conn, item_id, brand=brand,
-        title=descriptors.get("title"),
-        size=descriptors.get("size"),
-        category=descriptors.get("category"),
-    )  # commits (title UPDATE above rides the same connection)
+    user_id = row["user_id"] if row else None
+
+    try:
+        terms = keyword_ai.suggest_keywords(
+            brand, descriptors.get("title"),
+            descriptors.get("size"), descriptors.get("category"),
+        )
+        item_keywords.set_ai_keywords(conn, item_id, terms, user_id=user_id)
+    except keyword_ai.KeywordAIError as e:
+        # Fail-safe: an item is never left keyword-less. Log the reason (the message
+        # never carries the API key) and fall back to the mechanical defaults.
+        logger.info("AI keywords unavailable for item_id=%s (%s); using defaults", item_id, e)
+        item_keywords.apply_descriptors(
+            conn, item_id, brand=brand,
+            title=descriptors.get("title"),
+            size=descriptors.get("size"),
+            category=descriptors.get("category"),
+        )  # commits (title UPDATE above rides the same connection)
 
 
 def fail_title(conn: sqlite3.Connection, item_id: int) -> None:

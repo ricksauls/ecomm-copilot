@@ -2951,7 +2951,6 @@ def portfolio_home():
         view="items",
         items=items,
         keywords_by_item=item_keywords.list_keywords_by_item(db, uid, tracked_ids),
-        keyword_labels=_KEYWORD_SLOT_LABELS,
     )
 
 
@@ -3124,7 +3123,6 @@ def portfolio_item_tracking(item_id: int):
         facts=list(reversed(facts)),  # table shows newest first
         has_any=bool(facts or readiness_vals),
         keywords=item_keywords.list_keywords(db, uid, item_id),
-        keyword_labels=_KEYWORD_SLOT_LABELS,
         **_search_tracking_context(db, uid, item_id),
     )
 
@@ -3175,26 +3173,18 @@ def _search_tracking_context(db, uid: int, item_id: int) -> dict:
     }
 
 
-# Human labels for the three keyword slots, shown beside each editor field.
-_KEYWORD_SLOT_LABELS = {
-    "brand": "Brand",
-    "brand_product_size": "Brand + product + size",
-    "category": "Category / intent",
-}
-
-
 @bp.route("/app/portfolio/<int:item_id>/keywords", methods=["POST"])
 @login_required
 def portfolio_edit_keywords(item_id: int):
     """Save user edits to one managed item's three tracking keywords.
 
-    The editor on the item's tracking page posts ``kw1``/``kw2``/``kw3``; a blank
-    field clears that keyword (so it isn't scraped). ``set_keywords`` is user-scoped
-    and returns False for a forged/foreign id — surfaced as a benign message, never
-    a leak (IDOR gate). An edited keyword is pinned so the descriptors backfill
-    won't overwrite it.
+    The editor posts ``kw1``…``kw5`` (one per slot); a blank field clears that
+    keyword (so it isn't scraped). ``set_keywords`` is user-scoped and returns
+    False for a forged/foreign id — surfaced as a benign message, never a leak
+    (IDOR gate). An edited keyword is pinned so the descriptors backfill and the AI
+    step won't overwrite it.
     """
-    values = {slot: request.form.get(f"kw{slot}") for slot in (1, 2, 3)}
+    values = {slot: request.form.get(f"kw{slot}") for slot in item_keywords.VALID_SLOTS}
     ok = item_keywords.set_keywords(get_db(), g.user["id"], item_id, values)
     # The inline editor on the Portfolio list posts return_to=portfolio so we come
     # back to the list (where scroll-restore keeps the user's place); the item

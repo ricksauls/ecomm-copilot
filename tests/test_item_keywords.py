@@ -1,8 +1,8 @@
 """Tests for per-item tracking keywords (app.item_keywords).
 
-Covers default generation (brand / brand+product+size / category), the
-user-edited protection the descriptors backfill must respect, the edit API with
-its length/blank validation, and the user-scoped IDOR gate.
+Covers default generation (five slots), the AI-write path and its user-edit
+protection / missing-slot backfill, the edit API with its length/blank
+validation, and the user-scoped IDOR gate.
 """
 
 from app import item_keywords, portfolio
@@ -37,15 +37,58 @@ def test_compose_avoids_duplicate_brand_and_appends_size():
     assert item_keywords._compose_product_keyword(None, None, None) is None
 
 
-def test_generate_defaults_seeds_three_slots(app):
+def test_generate_defaults_seeds_five_slots(app):
     with app.app_context():
         db = get_db()
         uid = create_local_user("g@example.com", "password123")
         item_id = _add(db, uid)  # add_item already seeds; assert the shape
         rows = item_keywords.list_keywords(db, uid, item_id)
-        assert [r["slot"] for r in rows] == [1, 2, 3]
-        assert [r["kind"] for r in rows] == ["brand", "brand_product_size", "category"]
+        assert [r["slot"] for r in rows] == [1, 2, 3, 4, 5]
+        assert [r["kind"] for r in rows] == [
+            "brand", "brand_product_size", "category", "search", "search"]
         assert rows[0]["keyword"] == "Tabasco"
+        assert rows[3]["keyword"] is None and rows[4]["keyword"] is None  # KW4/5 blank
+
+
+def test_set_ai_keywords_fills_then_blanks_extra_slots(app):
+    with app.app_context():
+        db = get_db()
+        uid = create_local_user("ai@example.com", "password123")
+        item_id = _add(db, uid)
+        # Three terms -> slots 1-3 filled, 4-5 blanked (no stale default lingers).
+        written = item_keywords.set_ai_keywords(
+            db, item_id, ["hot sauce", "pepper sauce", "cayenne"], user_id=uid)
+        assert written == 5
+        kws = _kw(db, item_id)
+        assert [kws[s] for s in (1, 2, 3, 4, 5)] == [
+            "hot sauce", "pepper sauce", "cayenne", None, None]
+
+
+def test_set_ai_keywords_preserves_user_edits(app):
+    with app.app_context():
+        db = get_db()
+        uid = create_local_user("aiu@example.com", "password123")
+        item_id = _add(db, uid)
+        assert item_keywords.set_keywords(db, uid, item_id, {2: "My Pick"}) is True
+        item_keywords.set_ai_keywords(
+            db, item_id, ["a", "b", "c", "d", "e"], user_id=uid)
+        kws = _kw(db, item_id)
+        assert kws[2] == "My Pick"              # user edit never overwritten
+        assert kws[1] == "a" and kws[5] == "e"  # non-edited slots take the AI terms
+
+
+def test_set_ai_keywords_adds_missing_slots(app):
+    with app.app_context():
+        db = get_db()
+        uid = create_local_user("aim@example.com", "password123")
+        item_id = _add(db, uid)
+        # Simulate a legacy three-slot item by removing slots 4-5.
+        db.execute("DELETE FROM portfolio_keywords WHERE portfolio_item_id = ? AND slot IN (4,5)",
+                   (item_id,))
+        db.commit()
+        item_keywords.set_ai_keywords(db, item_id, ["a", "b", "c", "d", "e"], user_id=uid)
+        rows = item_keywords.list_keywords(db, uid, item_id)
+        assert [r["slot"] for r in rows] == [1, 2, 3, 4, 5]  # slots 4-5 re-created
 
 
 def test_apply_descriptors_fills_kw2_kw3_but_not_user_edited(app):

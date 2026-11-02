@@ -36,10 +36,10 @@ def test_enable_by_prefix_matches_brand_title_or_item_id(app):
         assert tracked[demo_item] == 1    # matched on the DEMO- item id
         assert tracked[other] == 0        # untouched
 
-        # Matched items got their 3 keyword rows seeded.
+        # Matched items got their 5 keyword rows seeded.
         assert db.execute(
             "SELECT COUNT(*) c FROM portfolio_keywords WHERE portfolio_item_id = ?",
-            (demo_brand,)).fetchone()["c"] == 3
+            (demo_brand,)).fetchone()["c"] == 5
         # The non-matching item was left without keywords.
         assert db.execute(
             "SELECT COUNT(*) c FROM portfolio_keywords WHERE portfolio_item_id = ?",

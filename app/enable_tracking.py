@@ -41,7 +41,7 @@ def enable_by_prefix(conn: sqlite3.Connection, prefix: str) -> int:
     Matching the Walmart item id too is what lets a tagged demo set be selected:
     demo products carry a synthetic id like ``DEMO-tabasco-1`` while their brand and
     title look real. Case-insensitive (SQLite ``LIKE`` is case-insensitive for
-    ASCII). Seeds the 3 keyword rows for each matched item that lacks them, so
+    ASCII). Seeds the keyword rows for each matched item that lacks them, so
     newly-tracked items are immediately ready for the daily sweep. Returns the
     number of items enabled.
     """
