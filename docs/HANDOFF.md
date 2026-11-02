@@ -1,10 +1,62 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-11-02 (session 44 — **Portfolio AI-keyword feature + an Authlib CVE bump, PUSHED to `main`
-(`fc973a9`). ⚠️ CI/Deploy NOT verified from this session (invalid gh token → couldn't read Actions); 870 tests
-pass + ruff clean + pip-audit clean in a CI-matching clean venv locally. USER TO CONFIRM CI run #385 green + the
-droplet is at `fc973a9`, then run the one-time `python -m app.suggest_keywords` on the droplet. NEXT SESSION =
-Phase 2 (reorient Insights/Performance around per-item tracked data) — unchanged — see "Next session" below.**)_
+_Last updated: 2026-11-02 (session 45 — **Competitive Tracking UI pass: card grid → compact TABLE, Description now
+REQUIRED + its own column, and One-Time Snapshot HIDDEN (product is monitoring-only). All three shipped in ONE commit
+DIRECT-PUSHED to `main` (`05ac27c`, user's choice); `origin/main` = `05ac27c`; 872 tests + ruff clean locally, CI
+running at push (run 41507416784), Deploy auto-runs on green. This session also CONFIRMED the S44 pending verification:
+CI for the S44 code (`fc973a9`) passed + Deploy SUCCEEDED (droplet on the fixed code). STILL PENDING from S44: run the
+one-time `python -m app.suggest_keywords` on the droplet (regen the 8 tracked items 3→5). NEXT = Phase 2 (reorient
+Insights/Performance around per-item tracked data) — unchanged — see "Next session" below.**)_
+
+_**1) Competitive Tracking home: card grid → compact table (`main` `05ac27c`).** The tracked-categories card grid in
+`ci_monitoring_home.html` (`.ci-group-grid`/`.ci-group-card`) is now a compact **table** reusing the Portfolio
+managed-items pattern (`.card` > `.table-scroll` > `.admin-table`). Columns: **Category** · **Description** ·
+**Status** · **Brands · Products · Keywords** (combined count) · right-aligned **Set Up / View in Insights / Delete**
+(`wbtn-sm`; new `.ci-delete-form` keeps the delete form inline). Status is a pill: "Tracking on" = black (new
+`.status-tracking`, same look as `.status-scored`), "Not tracking yet" = muted base `.status-badge`. NEW CSS in
+`workspace.css` (`.ci-group-table`, `.col-desc`, `.status-tracking`, inline delete form). The sibling **CI Snapshot
+home shares the `.ci-group-*` card CSS → LEFT INTACT** (that screen is hidden now anyway; see item 3). App is
+light-theme only, so no dark-mode concern._
+
+_**2) Description now REQUIRED + shown as its own column (`main` `05ac27c`).** The "New tracked category" form field
+dropped "(optional)", gained HTML `required`, and **`ci_create_monitoring_group` server-enforces** a non-blank
+description (flash + redirect back — the server is the real guard, enforced at the route NOT the shared
+`ci_config.create_group` model, so the dozens of tests that create groups without a description still pass). The
+description renders as its **own column right after Category** (capped width + word-wrap via `.col-desc`), replacing
+the earlier muted sub-line. NEW `test_monitoring_create_requires_description`; the 7 existing monitoring create-POST
+tests in `test_ci_pages.py` gained a `description`._
+
+_**3) One-Time Snapshot HIDDEN — monitoring-only (`main` `05ac27c`). "Just hide it", NOT full removal (user's
+explicit choice).** The rail / dashboard / config-help panel were ALREADY monitoring-only (hidden a prior session —
+`_rail.html` shows only "Competitive Tracking"; `_ci_help.html` shows snapshot copy only for `mode != 'monitoring'`
+groups). This session closed the last reachable snapshot surfaces: **`ci_snapshot_home`**
+(`/app/competitive-intel/snapshot`, the list+create screen) and the **legacy bare `ci_home`**
+(`/app/competitive-intel`) now **redirect to `ci_monitoring_home`**. The snapshot routes
+(`ci_create_snapshot_group`, `ci_run_snapshot`, `ci_snapshot_results`, `ci_view_snapshot`), their templates, the
+`ci_groups.mode` column, and any existing snapshot groups are **kept DORMANT (not deleted) → fully reversible**
+(restore the `render_template` in `ci_snapshot_home` to bring it back). **LEFT IN PLACE on purpose** (would be
+full-removal, not a hide): admin **`/admin/ci-snapshots`** (admin tooling, not user nav); `landing.html` still has ONE
+marketing line mentioning a one-time snapshot. Tests: renamed → `test_old_ci_link_redirects_to_monitoring`, NEW
+`test_snapshot_home_hidden_redirects_to_monitoring`, and `test_snapshot_create_and_config` dropped its home-GET-200
+assertion (the create ROUTE still works, exercising the dormant path for existing data)._
+
+_**4) Commit + push + verification state.** ONE commit `05ac27c` (table + required Description + snapshot hide),
+DIRECT-PUSHED to `main`. `origin/main` = `05ac27c`; CI run 41507416784 was in progress at handoff; Deploy auto-runs
+on green (no PR → nothing to bind). **872 tests + ruff clean** locally in the working venv; no dependency changes
+(pip-audit unaffected). Verified in-browser (dev server, light theme): table at desktop width, required Description
+column, both snapshot URLs redirecting to Competitive Tracking. ⚠️ Local `app.db` was mutated for that verification
+(set a password on user `preview@example.com` / u3, varied two of its monitoring groups' states) — NOT committed
+(`app.db` is gitignored); harmless dev-DB scratch._
+
+_**Next session (unchanged) — Phase 2:** reorient Insights/Performance around per-item tracked data (item-primary,
+competitive secondary) — see the session-44 "Next session" block below. Other open items: the S44
+`python -m app.suggest_keywords` droplet run; the `landing.html` snapshot marketing line; and the eventual FULL
+Snapshot removal (routes/templates/`mode` column + data migration) that the user deferred in favor of "just hide it"._
+
+_**Prior: session 44 (2026-11-02) — Portfolio AI-keyword feature + an Authlib CVE bump, PUSHED to `main` (`fc973a9`).
+[UPDATE from S45: the ⚠️ "CI/Deploy NOT verified" below is now RESOLVED — S45 confirmed CI `fc973a9` green + Deploy
+succeeded; the only remaining S44 to-do is the droplet `suggest_keywords` run.] 870 tests pass + ruff clean +
+pip-audit clean in a CI-matching clean venv locally. NEXT SESSION = Phase 2 — see "Next session" below.**)_
 
 _**1) Portfolio Managed-Items list: Amazon column hidden + keyword type-labels dropped (`main` `00b6d9c`).** Three
 user-requested list/keyword changes. (a) **Amazon column hidden** from the Managed Items table (`portfolio.html`) —
