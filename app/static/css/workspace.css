@@ -2925,6 +2925,25 @@ body.cost-modal-open {
 }
 .ci-chip button:hover { color: var(--signal-red); }
 
+/* Keyword-reuse panel on the Competitive Tracking setup screen: shown (via
+   tracking_config.js) when the picked portfolio item is already tracked, offering
+   to copy its keywords into this category. A soft inset card so it reads as a
+   contextual aside under the dropdown rather than a new section. */
+.ci-reuse-panel {
+  padding: 10px 12px;
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-chip);
+  background: var(--canvas);
+}
+.ci-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.ci-check input { margin: 0; }
+
 /* Period selector on the dashboard. */
 /* Header action buttons (e.g. Download PDF + Set up & run). Kept distinct from
    .ci-periods so the pill-link styling below never bleeds onto .wbtn buttons —

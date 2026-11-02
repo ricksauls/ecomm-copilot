@@ -13,6 +13,7 @@ is parameterized (never build query strings from input — see security-standard
 
 import logging
 import sqlite3
+from urllib.parse import urlparse
 
 from app import pdp
 
@@ -27,6 +28,9 @@ MAX_GROUPS_PER_USER = 50
 MAX_BRANDS_PER_GROUP = 100
 MAX_PRODUCTS_PER_GROUP = 500
 MAX_KEYWORDS_PER_GROUP = 200
+# The redesigned setup screen enters competitors as bare URLs (one brand each), so
+# the competitor count is capped here rather than by the looser per-group brand cap.
+MAX_COMPETITORS_PER_GROUP = 5
 
 BRAND_TYPES = ("mine", "competitor")
 # A group is either a one-time snapshot or an ongoing monitoring group.
@@ -49,6 +53,27 @@ def _clean_text(raw: str | None, *, max_len: int, field: str, required: bool = T
     if len(value) > max_len:
         raise ConfigError(f"{field} must be {max_len} characters or fewer.")
     return value
+
+
+def _slug_label(url: str) -> str:
+    """Derive a readable competitor label from a Walmart ``/ip/<slug>/<id>`` URL.
+
+    The setup screen asks only for a URL, but a competitor still needs a name to
+    show in the list and to seed the scraper's brand-name matcher. Walmart slugs
+    lead with the brand/product words (``Frank-s-RedHot-Original-...``), so the
+    first few, de-hyphenated, make a serviceable placeholder the user can see and
+    the scrape refines by item id later. Falls back to "Competitor" when the URL
+    carries no usable slug.
+    """
+    segments = [s for s in urlparse(url).path.split("/") if s]
+    slug = ""
+    if len(segments) >= 2 and segments[-1].isdigit():
+        slug = segments[-2]  # the slug sits just before the numeric item id
+    elif segments and segments[0] != "ip":
+        slug = segments[0]
+    words = slug.replace("-", " ").replace("_", " ").split()
+    label = " ".join(words[:6]).strip()
+    return (label or "Competitor")[:MAX_NAME_LEN]
 
 
 def owns_group(conn: sqlite3.Connection, group_id: int, user_id: int) -> bool:
@@ -324,6 +349,41 @@ def _item_tracked(conn: sqlite3.Connection, group_id: int, item_id: str) -> bool
     ).fetchone() is not None
 
 
+def resolve_mine_brand(conn: sqlite3.Connection, group_id: int, user_id: int,
+                       brand_name: str) -> int:
+    """Return the id of the group's own ("mine") brand named ``brand_name``.
+
+    Creates it if absent. The redesigned setup screen derives the user's brand
+    from the portfolio item they pick rather than a separate brand-entry step, so
+    repeated picks under the same brand reuse one brand row (matched
+    case-insensitively) instead of piling up duplicates.
+    """
+    _require_group(conn, group_id, user_id)
+    name = _clean_text(brand_name, max_len=MAX_NAME_LEN, field="Brand name")
+    row = conn.execute(
+        "SELECT id FROM ci_brands WHERE group_id = ? AND type = 'mine' "
+        "AND name = ? COLLATE NOCASE",
+        (group_id, name),
+    ).fetchone()
+    if row is not None:
+        return int(row["id"])
+    return add_brand(conn, group_id, user_id, name, "mine")
+
+
+def add_owned_item(conn: sqlite3.Connection, group_id: int, user_id: int, *,
+                   url: str, brand_name: str | None) -> int:
+    """Add one of the user's portfolio items as a tracked product under their brand.
+
+    Resolves (or creates) the "mine" brand from ``brand_name`` — falling back to a
+    slug-derived label when the item carries no brand — then adds the product,
+    returning its id. Validation, de-duping, and the product cap all come from
+    :func:`add_product`.
+    """
+    label = (brand_name or "").strip() or _slug_label(url)
+    brand_id = resolve_mine_brand(conn, group_id, user_id, label)
+    return add_product(conn, group_id, brand_id, user_id, url)
+
+
 def add_products(conn: sqlite3.Connection, group_id: int, brand_id: int, user_id: int,
                  urls: list[str]) -> dict:
     """Add several products under one brand in a single pass, de-duping by item id.
@@ -401,6 +461,84 @@ def add_products(conn: sqlite3.Connection, group_id: int, brand_id: int, user_id
     logger.info(
         "CI add_products group_id=%s brand_id=%s (user_id=%s) added=%d skipped=%d invalid=%d",
         group_id, brand_id, user_id, added, skipped, invalid,
+    )
+    return {"added": added, "skipped_duplicate": skipped, "invalid": invalid, "errors": errors}
+
+
+def add_competitor_urls(conn: sqlite3.Connection, group_id: int, user_id: int,
+                        urls: list[str]) -> dict:
+    """Add competitors from bare Walmart URLs — one competitor brand per URL.
+
+    Backs the redesigned setup screen's "enter up to five URLs" competitor box.
+    Each URL becomes its own competitor brand (labelled from the URL slug) with a
+    single product under it, so the analysis can still break share-of-shelf out
+    per competitor (a competitor's own slots are attributed by item id at scrape
+    time; the slug label is a readable placeholder the brand-name matcher refines
+    later). The group is capped at :data:`MAX_COMPETITORS_PER_GROUP` competitors;
+    a URL whose item is already tracked here — or repeated within this submit — is
+    skipped rather than duplicated.
+
+    Returns:
+        Summary dict: ``added``, ``skipped_duplicate``, ``invalid`` (ints) and
+        ``errors`` (human-readable notes for the caller to flash).
+
+    Raises:
+        ConfigError: the caller doesn't own the group. (Per-URL problems are
+            reported in the summary, not raised, so one bad URL can't discard the
+            rest of the batch.)
+    """
+    _require_group(conn, group_id, user_id)
+    existing = conn.execute(
+        "SELECT COUNT(*) AS n FROM ci_brands WHERE group_id = ? AND type = 'competitor'",
+        (group_id,),
+    ).fetchone()["n"]
+    room = MAX_COMPETITORS_PER_GROUP - existing
+    # Snapshot tracked item ids once so de-dupe is a set lookup, not a query per URL.
+    tracked = {
+        row["walmart_item_id"]
+        for row in conn.execute(
+            "SELECT walmart_item_id FROM ci_products WHERE group_id = ?", (group_id,)
+        )
+    }
+
+    added = skipped = invalid = 0
+    errors: list[str] = []
+    seen: set[str] = set()
+    for raw in urls:
+        raw = (raw or "").strip()
+        if not raw:
+            continue
+        clean_url = pdp.validate_item_url(raw)
+        item_id = pdp.item_number_from_url(clean_url) if clean_url else None
+        if not item_id:
+            invalid += 1
+            if len(errors) < 3:
+                errors.append(f"Not a valid Walmart product URL: {raw[:80]}")
+            continue
+        if item_id in tracked or item_id in seen:
+            skipped += 1
+            continue
+        if added >= room:
+            errors.append(
+                f"Competitor limit ({MAX_COMPETITORS_PER_GROUP}) reached — "
+                "some weren't added."
+            )
+            break
+        # One brand per competitor (each URL is a distinct rival in the user's
+        # mental model). add_brand commits per call; the product insert follows.
+        brand_id = add_brand(conn, group_id, user_id, _slug_label(clean_url), "competitor")
+        conn.execute(
+            "INSERT INTO ci_products (group_id, brand_id, name, walmart_item_id, walmart_url) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (group_id, brand_id, None, item_id, clean_url),
+        )
+        conn.commit()
+        seen.add(item_id)
+        added += 1
+
+    logger.info(
+        "CI add_competitor_urls group_id=%s user_id=%s added=%d skipped=%d invalid=%d",
+        group_id, user_id, added, skipped, invalid,
     )
     return {"added": added, "skipped_duplicate": skipped, "invalid": invalid, "errors": errors}
 

@@ -1,30 +1,46 @@
 {% extends "app/base.html" %}
-{% import "app/_portfolio_pick.html" as pick %}
 {% block title %}{{ group.name }} · Competitive Tracking — DISCOtech{% endblock %}
 
 {# Competitive-tracking setup for one monitoring group ("tracked category"). Unlike
    the shared ci_group_config screen (still used for snapshot groups), this screen is
-   monitoring-only and reorganized around the user's mental model: turn tracking on,
-   set up YOUR brand + products (picked from the portfolio), set up the COMPETITORS,
-   then the keywords. The run-status element id (#ci-run-status) and data-confirm
-   buttons reuse ci_config.js; the portfolio picker reuses portfolio.js. #}
+   monitoring-only and reorganized around the user's mental model: flip tracking on/off
+   (header), pick YOUR product from the portfolio (brand derived from the item), paste
+   the COMPETITOR URLs, then the keywords. The run-status element id (#ci-run-status)
+   and data-confirm buttons reuse ci_config.js; the portfolio search reuses portfolio.js
+   (the dropdown's <option> rows share the [data-portfolio-row] filter contract);
+   tracking_config.js reveals the keyword-reuse panel for an already-tracked item. #}
 
 {# Split the flat brand/product lists by side so each section shows only its own. #}
-{% set mine_brands = brands | selectattr('type', 'equalto', 'mine') | list %}
-{% set comp_brands = brands | rejectattr('type', 'equalto', 'mine') | list %}
 {% set mine_products = products | selectattr('brand_type', 'equalto', 'mine') | list %}
+{% set comp_brands = brands | rejectattr('type', 'equalto', 'mine') | list %}
 {% set comp_products = products | rejectattr('brand_type', 'equalto', 'mine') | list %}
+{% set comp_slots_left = max_competitors - (comp_brands | length) %}
 
 {% block pane_content %}
 <div class="page-header">
   <div>
+    {# Title carries the category; the description (entered on Create) sits beneath it
+       so the screen names what this tracking is for, not just the category. #}
     <h1>{{ group.name }}</h1>
-    <p class="subtitle">Set up what to track in this category — your products, the
-      competitors to measure against, and the search terms to watch.</p>
+    {% if group.description %}<p class="subtitle">{{ group.description }}</p>{% endif %}
   </div>
   <div class="header-actions">
-    <a href="{{ url_for('pages.insights_competitive', group_id=group.id) }}"
-       class="wbtn wbtn-primary">View in Insights</a>
+    {# Enable/Disable replaces the old "View in Insights" link. Enabling reuses the
+       schedule-run path (turns tracking on AND queues a baseline); disabling flips
+       the flag only. #}
+    {% if group.monitoring_enabled %}
+    <form method="post" action="{{ url_for('pages.ci_disable_monitoring', group_id=group.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+      <button type="submit" class="wbtn wbtn-secondary"
+              data-confirm="Turn tracking off for '{{ group.name }}'? Setup and history are kept.">
+        Disable Tracking</button>
+    </form>
+    {% else %}
+    <form method="post" action="{{ url_for('pages.ci_schedule_run', group_id=group.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+      <button type="submit" class="wbtn wbtn-primary">Enable Tracking</button>
+    </form>
+    {% endif %}
   </div>
 </div>
 
@@ -34,32 +50,32 @@
   {% endfor %}
 {% endwith %}
 
-{# ── Monitoring control ─────────────────────────────────────────────────────── #}
+{# ── Tracking status ────────────────────────────────────────────────────────── #}
 <div class="ci-section card card-pad">
-  <div class="ci-inline-form" style="margin-top:0; justify-content:space-between">
-    <div>
-      <div class="ci-section-title">Tracking</div>
-      <p class="ci-section-hint" style="margin-bottom:0">
-        {% if group.monitoring_enabled %}
-          Automatic checks are on — once a day at a rotating time (7 AM, 3 PM, or
-          11 PM CST, varying day to day). Next check:
-          <strong>{{ next_run.strftime('%a %b %-d, %-I:%M %p') }} CST</strong>.
-        {% else %}
-          Turn tracking on to start automatic checks (once a day at a rotating time —
-          7 AM, 3 PM, or 11 PM CST) and run a baseline now. Add your products,
-          competitors, and keywords below first.
-        {% endif %}
-      </p>
-    </div>
-    <div>
-      <form method="post" action="{{ url_for('pages.ci_schedule_run', group_id=group.id) }}">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-        <button type="submit" class="wbtn wbtn-primary">
-          {% if group.monitoring_enabled %}Run now{% else %}Turn on tracking &amp; run baseline{% endif %}
-        </button>
-      </form>
-    </div>
+  <div class="ci-section-title">Tracking</div>
+  <p class="ci-section-hint" style="margin-bottom:0">
+    {% if group.monitoring_enabled %}
+      Automatic checks are on — once a day at a rotating time (7 AM, 3 PM, or 11 PM
+      CST, varying day to day). Next check:
+      <strong>{{ next_run.strftime('%a %b %-d, %-I:%M %p') }} CST</strong>.
+    {% else %}
+      Tracking is off. Add your product, competitors, and keywords below, then use
+      <strong>Enable Tracking</strong> (top right) to start automatic checks (once a
+      day at a rotating time — 7 AM, 3 PM, or 11 PM CST) and run a baseline now.
+    {% endif %}
+  </p>
+
+  {% if group.monitoring_enabled %}
+  {# "Run now" is only meaningful while tracking is on; enabling from the header
+     already queues the first baseline, so there's no run button when it's off. #}
+  <div class="ci-inline-form" style="margin-top:12px">
+    <form method="post" action="{{ url_for('pages.ci_schedule_run', group_id=group.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+      <button type="submit" class="wbtn wbtn-secondary">Run now</button>
+    </form>
   </div>
+  {% endif %}
+
   <p class="ci-section-hint" id="ci-run-status"
      data-status-url="{{ url_for('pages.ci_run_status', group_id=group.id) }}"
      style="margin-top:12px; margin-bottom:0">
@@ -74,37 +90,15 @@
 </div>
 
 {# ── Your brand & products ──────────────────────────────────────────────────── #}
-<div class="ci-section card card-pad">
+{# data-portfolio-filter + data-filter-search + the <option data-portfolio-row>s let
+   portfolio.js filter the dropdown in place (same contract as the Portfolio list). #}
+<div class="ci-section card card-pad" data-portfolio-filter>
   <div class="ci-section-title">Your brand &amp; products</div>
   <p class="ci-section-hint">
-    Add your brand, then the products you sell in this category — pick them from your
-    portfolio or paste a Walmart URL.
+    Search your portfolio and pick the product you sell in this category. Your brand
+    is taken from the item you choose.
   </p>
 
-  {# Brand(s) you own in this category. Most categories have one; several are allowed. #}
-  {% if mine_brands %}
-  <div class="ci-chips">
-    {% for b in mine_brands %}
-    <span class="ci-chip">{{ b.name }}
-      <form method="post" action="{{ url_for('pages.ci_delete_brand', brand_id=b.id) }}">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-        <input type="hidden" name="group_id" value="{{ group.id }}" />
-        <button type="submit" aria-label="Remove brand"
-                data-confirm="Delete brand '{{ b.name }}' and its products?">&times;</button>
-      </form>
-    </span>
-    {% endfor %}
-  </div>
-  {% endif %}
-  <form method="post" action="{{ url_for('pages.ci_add_brand', group_id=group.id) }}" class="ci-inline-form">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-    <input type="hidden" name="type" value="mine" />
-    <input type="text" name="name" class="ci-input grow" placeholder="Your brand name" maxlength="255" required />
-    <button type="submit" class="wbtn wbtn-secondary">Add Your Brand</button>
-  </form>
-
-  {# Your products — listed, then an add form that pairs the portfolio picker with a
-     manual URL. Products can only attach to a brand, so this needs a brand first. #}
   {% if mine_products %}
   <div class="table-scroll" style="margin-top:18px">
     <table class="admin-table">
@@ -132,69 +126,68 @@
   </div>
   {% endif %}
 
-  {% if mine_brands %}
-  <form method="post" action="{{ url_for('pages.ci_add_products', group_id=group.id) }}"
+  {% if portfolio_items %}
+  <form method="post" action="{{ url_for('pages.ci_add_owned_item', group_id=group.id) }}"
         style="margin-top:18px">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-    {# One "mine" brand → attach silently; several → let the user choose which. #}
-    {% if mine_brands | length == 1 %}
-    <input type="hidden" name="brand_id" value="{{ mine_brands[0].id }}" />
-    {% else %}
-    <div class="ci-inline-form" style="margin-top:0">
-      <label class="field-label" for="mine-brand">Add under brand</label>
-      <select name="brand_id" id="mine-brand" class="ci-select" required>
-        {% for b in mine_brands %}<option value="{{ b.id }}">{{ b.name }}</option>{% endfor %}
-      </select>
+    <div class="pf-filter-bar">
+      <input type="search" class="ci-input grow" data-filter-search
+             placeholder="Search your portfolio — brand, item #, title, URL…"
+             aria-label="Search your portfolio" />
     </div>
-    {% endif %}
+    {# Single-select picker. Each option carries the search haystack (data-brand/item/
+       title/url, lowercased) and the tracked flag + keywords the reuse panel reads. #}
+    <select name="portfolio_item_id" class="ci-select grow" data-item-picker required
+            aria-label="Select a product from your portfolio" style="margin-top:10px">
+      <option value="" disabled selected>Select a product…</option>
+      {% for it in portfolio_items %}
+      <option value="{{ it.id }}" data-portfolio-row
+              data-brand="{{ (it.brand or '') | lower }}"
+              data-item="{{ it.item_id or '' }}"
+              data-title="{{ (it.title or '') | lower }}"
+              data-url="{{ it.walmart_url | lower }}"
+              data-tracked="{{ 1 if it.tracked else 0 }}"
+              data-keywords="{{ keywords_by_item.get(it.id, []) | map(attribute='keyword') | select | join(', ') }}">
+        {{ it.brand or '—' }} · {{ it.title or it.item_id or it.walmart_url }}
+      </option>
+      {% endfor %}
+    </select>
 
-    {# Portfolio multi-picker (checkboxes post as `urls`; filtered by portfolio.js). #}
-    {{ pick.portfolio_pick(portfolio_items) }}
+    {# Shown by tracking_config.js only when the picked item is already tracked. #}
+    <div class="ci-reuse-panel" data-reuse-panel hidden style="margin-top:10px">
+      <p class="ci-section-hint" style="margin:0 0 6px">
+        This item is already tracked. Keywords: <strong data-reuse-keywords></strong>
+      </p>
+      <label class="ci-check">
+        <input type="checkbox" name="copy_keywords" value="1" data-reuse-copy />
+        Use the same keywords for this category
+      </label>
+    </div>
 
-    <div class="ci-inline-form">
-      <input type="url" name="url" class="ci-input grow"
-             placeholder="…or paste a Walmart product URL" maxlength="2048" />
+    <div class="ci-inline-form" style="margin-top:12px">
       <button type="submit" class="wbtn wbtn-primary">Add to Tracking</button>
     </div>
   </form>
   {% else %}
-  <p class="ci-section-hint" style="margin-top:14px">Add your brand first, then you can add products under it.</p>
+  <p class="ci-section-hint" style="margin-top:14px">
+    You have no portfolio items yet. Add products in
+    <a href="{{ url_for('pages.portfolio_home') }}">Portfolio</a> first, then pick them here.
+  </p>
   {% endif %}
 </div>
 
-{# ── Competitors & their products ───────────────────────────────────────────── #}
+{# ── Competitors ────────────────────────────────────────────────────────────── #}
 <div class="ci-section card card-pad">
   <div class="ci-section-title">Competitors</div>
   <p class="ci-section-hint">
-    Add the rival brands you want to measure against, then their products. Competitor
-    products are entered by Walmart URL (they aren't in your portfolio).
+    Add up to {{ max_competitors }} competitors — paste each one's Walmart product URL.
+    We label each from its URL; the check attributes its shelf position by item.
   </p>
-
-  {% if comp_brands %}
-  <div class="ci-chips">
-    {% for b in comp_brands %}
-    <span class="ci-chip">{{ b.name }}
-      <form method="post" action="{{ url_for('pages.ci_delete_brand', brand_id=b.id) }}">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-        <input type="hidden" name="group_id" value="{{ group.id }}" />
-        <button type="submit" aria-label="Remove competitor"
-                data-confirm="Delete competitor '{{ b.name }}' and its products?">&times;</button>
-      </form>
-    </span>
-    {% endfor %}
-  </div>
-  {% endif %}
-  <form method="post" action="{{ url_for('pages.ci_add_brand', group_id=group.id) }}" class="ci-inline-form">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-    <input type="hidden" name="type" value="competitor" />
-    <input type="text" name="name" class="ci-input grow" placeholder="Competitor brand name" maxlength="255" required />
-    <button type="submit" class="wbtn wbtn-secondary">Add Competitor</button>
-  </form>
 
   {% if comp_products %}
   <div class="table-scroll" style="margin-top:18px">
     <table class="admin-table">
-      <thead><tr><th>Item #</th><th>Product</th><th>Brand</th><th></th></tr></thead>
+      <thead><tr><th>Item #</th><th>Product</th><th>Competitor</th><th></th></tr></thead>
       <tbody>
         {% for p in comp_products %}
         <tr>
@@ -205,10 +198,12 @@
           </td>
           <td>{{ p.brand_name }}</td>
           <td class="cell-action">
-            <form method="post" action="{{ url_for('pages.ci_delete_product', product_id=p.id) }}">
+            {# Deleting removes the competitor (its brand + product), freeing a slot. #}
+            <form method="post" action="{{ url_for('pages.ci_delete_brand', brand_id=p.brand_id) }}">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
               <input type="hidden" name="group_id" value="{{ group.id }}" />
-              <button type="submit" class="btn-delete" data-confirm="Delete this product?">Delete</button>
+              <button type="submit" class="btn-delete"
+                      data-confirm="Delete this competitor?">Delete</button>
             </form>
           </td>
         </tr>
@@ -218,21 +213,24 @@
   </div>
   {% endif %}
 
-  {% if comp_brands %}
-  <form method="post" action="{{ url_for('pages.ci_add_product', group_id=group.id) }}"
-        class="ci-inline-form" style="margin-top:18px">
+  {% if comp_slots_left > 0 %}
+  <form method="post" action="{{ url_for('pages.ci_add_competitors', group_id=group.id) }}"
+        style="margin-top:18px">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-    <select name="brand_id" class="ci-select" required>
-      <option value="" disabled selected>Competitor…</option>
-      {% for b in comp_brands %}<option value="{{ b.id }}">{{ b.name }}</option>{% endfor %}
-    </select>
-    <input type="url" name="url" class="ci-input grow"
-           placeholder="https://www.walmart.com/ip/…" maxlength="2048" required />
-    <input type="text" name="name" class="ci-input grow" placeholder="Label (optional)" maxlength="255" />
-    <button type="submit" class="wbtn wbtn-secondary">Add Product</button>
+    {% for _ in range(comp_slots_left) %}
+    <div class="ci-inline-form" style="margin-top:8px">
+      <input type="url" name="urls" class="ci-input grow"
+             placeholder="https://www.walmart.com/ip/…" maxlength="2048" />
+    </div>
+    {% endfor %}
+    <div class="ci-inline-form" style="margin-top:12px">
+      <button type="submit" class="wbtn wbtn-secondary">Add Competitors</button>
+    </div>
   </form>
   {% else %}
-  <p class="ci-section-hint" style="margin-top:14px">Add a competitor brand first, then you can add its products.</p>
+  <p class="ci-section-hint" style="margin-top:14px">
+    Maximum of {{ max_competitors }} competitors reached. Delete one to add another.
+  </p>
   {% endif %}
 </div>
 
@@ -268,4 +266,5 @@
 {% block scripts %}
 <script src="{{ static_url('js/portfolio.js') }}"></script>
 <script src="{{ static_url('js/ci_config.js') }}"></script>
+<script src="{{ static_url('js/tracking_config.js') }}"></script>
 {% endblock %}

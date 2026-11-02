@@ -5498,27 +5498,47 @@ def ci_group_config(group_id):
     latest_run = ci_jobs.latest_run(db, group_id)
     uid = g.user["id"]
     is_monitoring = group["mode"] == "monitoring"
+    brands = ci_config.list_brands(db, group_id, uid)
+    products = ci_config.list_products(db, group_id, uid)
+    keywords = ci_config.list_keywords(db, group_id, uid)
     # Monitoring groups use the redesigned "Competitive Tracking" setup screen, which
     # lets the user pick their products from the portfolio catalog; snapshot groups
     # keep the original shared config screen (the portfolio list is unused there).
     template = "app/tracking_config.html" if is_monitoring else "app/ci_group_config.html"
-    breadcrumb = (f"Competitive Tracking · {group['name']}" if is_monitoring
-                  else f"Insights · {group['name']}")
+    # The setup screen is shared by Create (first setup) and the Set Up button on an
+    # existing category, so the breadcrumb reads "Create New Tracking" only while the
+    # category is genuinely untouched (nothing configured and never run).
+    is_new = is_monitoring and not (brands or products or keywords or latest_run)
+    if not is_monitoring:
+        breadcrumb = f"Insights · {group['name']}"
+    elif is_new:
+        breadcrumb = "Competitive Tracking - Create New Tracking"
+    else:
+        breadcrumb = f"Competitive Tracking · {group['name']}"
+    # The portfolio picker (monitoring only) shows each item's tracked keywords so the
+    # user can reuse them for this category; fetch them in one batched query.
+    portfolio_items = portfolio.list_items(db, uid) if is_monitoring else []
+    keywords_by_item = (
+        item_keywords.list_keywords_by_item(db, uid, [it["id"] for it in portfolio_items])
+        if portfolio_items else {}
+    )
     return render_template(
         template,
         breadcrumb=breadcrumb,
         active_nav=_ci_active_nav(group["mode"]),
         group=group,
-        brands=ci_config.list_brands(db, group_id, uid),
-        products=ci_config.list_products(db, group_id, uid),
-        keywords=ci_config.list_keywords(db, group_id, uid),
+        is_new=is_new,
+        brands=brands,
+        products=products,
+        keywords=keywords,
         latest_run=latest_run,
         latest_run_when=_run_when_cst(latest_run),
         brand_types=ci_config.BRAND_TYPES,
         next_run=ci_analysis.next_monitoring_run(),
         url_prefix=pdp.WALMART_IP_PREFIX,
-        # Only the redesigned monitoring screen renders the portfolio picker.
-        portfolio_items=portfolio.list_items(db, uid) if is_monitoring else [],
+        portfolio_items=portfolio_items,
+        keywords_by_item=keywords_by_item,
+        max_competitors=ci_config.MAX_COMPETITORS_PER_GROUP,
     )
 
 
@@ -5606,6 +5626,90 @@ def ci_add_products(group_id):
         flash(err, "error")
     if not (result["added"] or result["skipped_duplicate"] or result["errors"]):
         flash("No products were added.", "error")
+    return _config_redirect(group_id)
+
+
+@bp.route("/app/competitive-intel/groups/<int:group_id>/owned-item", methods=["POST"])
+@login_required
+def ci_add_owned_item(group_id):
+    """Add one of the user's portfolio items as their tracked product in this category.
+
+    The redesigned setup screen picks a single portfolio item (searchable dropdown)
+    rather than typing a brand + URL: the brand is derived from the item, and when
+    the item is already tracked the user can opt to copy its keywords into this
+    category (``copy_keywords``). The keyword copy is a one-time seed — later edits
+    to either list stay independent.
+    """
+    _owned_group_or_404(group_id)  # IDOR gate before touching the group's data
+    db = get_db()
+    uid = g.user["id"]
+    item_pk = request.form.get("portfolio_item_id", type=int)
+    item = portfolio.get_item(db, uid, item_pk) if item_pk else None
+    if item is None:
+        flash("Pick one of your portfolio items.", "error")
+        return _config_redirect(group_id)
+
+    try:
+        ci_config.add_owned_item(
+            db, group_id, uid, url=item["walmart_url"], brand_name=item["brand"],
+        )
+    except ci_config.ConfigError as e:
+        flash(str(e), "error")
+        return _config_redirect(group_id)
+    flash("Added your product.", "ok")
+
+    # Optional: seed this category's keywords from the item's tracked keywords.
+    if request.form.get("copy_keywords"):
+        terms = [
+            kw["keyword"]
+            for kw in item_keywords.list_keywords_by_item(db, uid, [item_pk]).get(item_pk, [])
+            if kw["keyword"]
+        ]
+        copied = 0
+        for term in terms:
+            try:
+                ci_config.add_keyword(db, group_id, uid, term)
+                copied += 1
+            except ci_config.ConfigError:
+                # Duplicates / cap hits are expected when re-seeding — skip quietly.
+                continue
+        if copied:
+            flash(f"Copied {copied} keyword{'' if copied == 1 else 's'} from this item.", "ok")
+    logger.info("CI add-owned-item group_id=%s user_id=%s item_pk=%s", group_id, uid, item_pk)
+    return _config_redirect(group_id)
+
+
+@bp.route("/app/competitive-intel/groups/<int:group_id>/competitors", methods=["POST"])
+@login_required
+def ci_add_competitors(group_id):
+    """Add up to five competitors from bare Walmart URLs (one brand each).
+
+    The setup screen posts the URL inputs under ``urls``; empty fields are ignored.
+    Per-URL outcomes (added / skipped duplicate / invalid / limit) are summarized
+    back to the user via flashes, mirroring the bulk product add.
+    """
+    _owned_group_or_404(group_id)  # IDOR gate before touching the group's data
+    db = get_db()
+    urls = request.form.getlist("urls")
+    if not any(u.strip() for u in urls):
+        flash("Paste at least one competitor product URL.", "error")
+        return _config_redirect(group_id)
+
+    try:
+        result = ci_config.add_competitor_urls(db, group_id, g.user["id"], urls)
+    except ci_config.ConfigError as e:
+        flash(str(e), "error")
+        return _config_redirect(group_id)
+
+    if result["added"]:
+        flash(f"Added {result['added']} competitor{'' if result['added'] == 1 else 's'}.", "ok")
+    if result["skipped_duplicate"]:
+        n = result["skipped_duplicate"]
+        flash(f"{n} URL{'' if n == 1 else 's'} already tracked — skipped.", "ok")
+    for err in result["errors"]:
+        flash(err, "error")
+    if not (result["added"] or result["skipped_duplicate"] or result["errors"]):
+        flash("No competitors were added.", "error")
     return _config_redirect(group_id)
 
 
@@ -5944,6 +6048,21 @@ def ci_schedule_run(group_id):
         ci_jobs.enqueue_run(db, group_id, run_type="one_time")
         flash("Monitoring scheduled and a baseline run has been queued.", "ok")
     logger.info("CI schedule-run group_id=%s user_id=%s", group_id, g.user["id"])
+    return _config_redirect(group_id)
+
+
+@bp.route("/app/competitive-intel/groups/<int:group_id>/disable", methods=["POST"])
+@login_required
+def ci_disable_monitoring(group_id):
+    """Turn monitoring off for a group (the setup screen's header Disable button).
+
+    Flips the flag only — no run is queued and the existing config/history is kept,
+    so re-enabling later resumes the same setup.
+    """
+    _owned_group_or_404(group_id)
+    ci_config.set_monitoring(get_db(), group_id, g.user["id"], False)
+    flash("Tracking turned off.", "ok")
+    logger.info("CI disable group_id=%s user_id=%s", group_id, g.user["id"])
     return _config_redirect(group_id)
 
 

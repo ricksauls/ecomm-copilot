@@ -10,7 +10,7 @@ from datetime import date, timedelta
 
 import io
 
-from app import ci_analysis, ci_config, ci_images, ci_jobs
+from app import ci_analysis, ci_config, ci_images, ci_jobs, item_keywords, portfolio
 from app.db import get_db
 from app.users import create_local_user
 
@@ -95,8 +95,9 @@ def test_monitoring_create_shows_tracking_setup(client, auth):
     cfg = client.get(f"/app/competitive-intel/groups/{gid}")
     assert cfg.status_code == 200
     # A fresh monitoring group lands on the redesigned Competitive Tracking setup
-    # screen: tracking is off, so it offers to turn it on and names the schedule.
-    assert b"Turn on tracking" in cfg.data
+    # screen: tracking is off, so the header offers to enable it and the status
+    # section names the schedule.
+    assert b"Enable Tracking" in cfg.data
     # The sweep now runs once a day at a rotating time (not 3x/day).
     assert b"rotating time" in cfg.data
     assert b"7 AM, 3 PM, or 11 PM CST" in cfg.data
@@ -539,11 +540,15 @@ def test_tracking_config_renders_setup_sections(client, auth):
     assert b"Your brand" in cfg.data
     assert b"Competitors" in cfg.data
     assert b"Keywords" in cfg.data
-    # The portfolio picker only appears once a brand exists (products attach to one).
+    # With no portfolio items the picker is replaced by a prompt to add some first.
+    assert b"no portfolio items" in cfg.data
+    # Once the user owns a portfolio item, the searchable single-select picker renders.
     with client.application.app_context():
-        ci_config.add_brand(get_db(), gid, 1, "Tabasco", "mine")
+        portfolio.add_item(get_db(), 1, "Tabasco",
+                           "https://www.walmart.com/ip/Tabasco-Original/10294528", None)
     cfg = client.get(f"/app/competitive-intel/groups/{gid}")
-    assert b"managed items" in cfg.data  # the portfolio picker macro's label
+    assert b"data-item-picker" in cfg.data
+    assert b"Search your portfolio" in cfg.data
 
 
 def test_add_products_bulk_and_dedupe(client, auth):
@@ -635,3 +640,171 @@ def test_add_products_bulk_idor_guard(client, auth, app):
     assert resp.status_code == 404
     with client.application.app_context():
         assert ci_config.list_products(get_db(), gid, owner_uid) == []
+
+
+# ── Setup screen: single-item picker + URL competitors + disable ─────────────────
+
+def _add_portfolio_item(client, brand, url):
+    """Add one managed item for the test user (1) and return its pk."""
+    with client.application.app_context():
+        portfolio.add_item(get_db(), 1, brand, url, None)
+        return portfolio.list_items(get_db(), 1)[0]["id"]
+
+
+def test_add_owned_item_derives_brand_from_portfolio(client, auth):
+    # Picking a portfolio item adds it as a product under a "mine" brand derived
+    # from the item (no separate brand entry).
+    auth.register()
+    gid = _monitoring_group(client)
+    pk = _add_portfolio_item(client, "Tabasco",
+                             "https://www.walmart.com/ip/Tabasco-Original/10294528")
+    resp = client.post(
+        f"/app/competitive-intel/groups/{gid}/owned-item",
+        data={"portfolio_item_id": pk},
+    )
+    assert resp.status_code in (302, 303)
+    with client.application.app_context():
+        prods = ci_config.list_products(get_db(), gid, 1)
+        brands = ci_config.list_brands(get_db(), gid, 1)
+    assert {p["walmart_item_id"] for p in prods} == {"10294528"}
+    assert any(b["type"] == "mine" and b["name"] == "Tabasco" for b in brands)
+
+
+def test_add_owned_item_copies_keywords_when_opted_in(client, auth):
+    # Opting in copies the item's tracked keywords into the category.
+    auth.register()
+    gid = _monitoring_group(client)
+    pk = _add_portfolio_item(client, "Tabasco",
+                             "https://www.walmart.com/ip/Tabasco-Original/10294528")
+    with client.application.app_context():
+        seeded = {kw["keyword"]
+                  for kw in item_keywords.list_keywords_by_item(get_db(), 1, [pk]).get(pk, [])
+                  if kw["keyword"]}  # unseeded slots are None — ignore them
+    assert seeded  # the item seeds at least its brand keyword on add
+
+    client.post(
+        f"/app/competitive-intel/groups/{gid}/owned-item",
+        data={"portfolio_item_id": pk, "copy_keywords": "1"},
+    )
+    with client.application.app_context():
+        ci_kws = {k["keyword"] for k in ci_config.list_keywords(get_db(), gid, 1)}
+    assert seeded <= ci_kws
+
+
+def test_add_owned_item_without_copy_leaves_keywords_empty(client, auth):
+    auth.register()
+    gid = _monitoring_group(client)
+    pk = _add_portfolio_item(client, "Tabasco",
+                             "https://www.walmart.com/ip/Tabasco-Original/10294528")
+    client.post(
+        f"/app/competitive-intel/groups/{gid}/owned-item",
+        data={"portfolio_item_id": pk},  # no copy_keywords
+    )
+    with client.application.app_context():
+        assert ci_config.list_keywords(get_db(), gid, 1) == []
+
+
+def test_add_owned_item_rejects_foreign_item(client, auth, app):
+    # A portfolio item the user doesn't own can't be attached (get_item IDOR gate).
+    owner_uid, _ = _make_group(app, "owner2@example.com", "monitoring")
+    with app.app_context():
+        portfolio.add_item(get_db(), owner_uid, "Theirs",
+                           "https://www.walmart.com/ip/Theirs/999", None)
+        foreign_pk = portfolio.list_items(get_db(), owner_uid)[0]["id"]
+    auth.register()  # a different user
+    gid = _monitoring_group(client)
+    resp = client.post(
+        f"/app/competitive-intel/groups/{gid}/owned-item",
+        data={"portfolio_item_id": foreign_pk},
+        follow_redirects=True,
+    )
+    assert b"Pick one of your portfolio items" in resp.data
+    # The client owns gid; assert no product was attached (query directly — the
+    # client's uid isn't 1 here since _make_group registered the first user).
+    with client.application.app_context():
+        n = get_db().execute(
+            "SELECT COUNT(*) AS n FROM ci_products WHERE group_id = ?", (gid,)
+        ).fetchone()["n"]
+    assert n == 0
+
+
+def test_add_competitors_from_urls(client, auth):
+    # Each non-empty URL becomes its own competitor brand + product; blanks ignored.
+    auth.register()
+    gid = _monitoring_group(client)
+    resp = client.post(
+        f"/app/competitive-intel/groups/{gid}/competitors",
+        data={"urls": ["https://www.walmart.com/ip/Franks-RedHot-Original/111",
+                       "https://www.walmart.com/ip/Cholula-Original/222",
+                       ""]},
+    )
+    assert resp.status_code in (302, 303)
+    with client.application.app_context():
+        comp = [b for b in ci_config.list_brands(get_db(), gid, 1) if b["type"] == "competitor"]
+        prods = ci_config.list_products(get_db(), gid, 1)
+    assert len(comp) == 2  # one competitor brand per URL
+    assert {p["walmart_item_id"] for p in prods} == {"111", "222"}
+    assert any("Franks" in b["name"] or "RedHot" in b["name"] for b in comp)
+
+
+def test_add_competitors_capped_at_five(client, auth):
+    auth.register()
+    gid = _monitoring_group(client)
+    urls = [f"https://www.walmart.com/ip/Rival-{i}/{1000 + i}" for i in range(7)]
+    client.post(f"/app/competitive-intel/groups/{gid}/competitors", data={"urls": urls})
+    with client.application.app_context():
+        comp = [b for b in ci_config.list_brands(get_db(), gid, 1) if b["type"] == "competitor"]
+    assert len(comp) == ci_config.MAX_COMPETITORS_PER_GROUP
+
+
+def test_delete_competitor_frees_a_slot(client, auth):
+    # Deleting a competitor removes its brand + product (via the brand-delete route).
+    auth.register()
+    gid = _monitoring_group(client)
+    client.post(f"/app/competitive-intel/groups/{gid}/competitors",
+                data={"urls": ["https://www.walmart.com/ip/Franks/111"]})
+    with client.application.app_context():
+        bid = [b for b in ci_config.list_brands(get_db(), gid, 1)
+               if b["type"] == "competitor"][0]["id"]
+    client.post(f"/app/competitive-intel/brands/{bid}/delete", data={"group_id": gid})
+    with client.application.app_context():
+        comp = [b for b in ci_config.list_brands(get_db(), gid, 1) if b["type"] == "competitor"]
+        prods = ci_config.list_products(get_db(), gid, 1)
+    assert comp == [] and prods == []
+
+
+def test_add_competitors_idor_guard(client, auth, app):
+    owner_uid, gid = _make_group(app, "owner3@example.com", "monitoring")
+    auth.register()  # a different user
+    resp = client.post(
+        f"/app/competitive-intel/groups/{gid}/competitors",
+        data={"urls": ["https://www.walmart.com/ip/a/111"]},
+    )
+    assert resp.status_code == 404
+    with client.application.app_context():
+        assert ci_config.list_products(get_db(), gid, owner_uid) == []
+
+
+def test_disable_monitoring_flips_flag(client, auth):
+    auth.register()
+    gid = _monitoring_group(client)
+    with client.application.app_context():
+        ci_config.set_monitoring(get_db(), gid, 1, True)
+    resp = client.post(f"/app/competitive-intel/groups/{gid}/disable")
+    assert resp.status_code in (302, 303)
+    with client.application.app_context():
+        assert ci_config.get_group(get_db(), gid, 1)["monitoring_enabled"] == 0
+
+
+def test_setup_breadcrumb_create_then_category(client, auth):
+    # Breadcrumb reads "Create New Tracking" while the category is untouched, then
+    # switches to the category name once it has config.
+    auth.register()
+    gid = _monitoring_group(client)
+    cfg = client.get(f"/app/competitive-intel/groups/{gid}")
+    assert b"Create New Tracking" in cfg.data
+    with client.application.app_context():
+        ci_config.add_keyword(get_db(), gid, 1, "hot sauce")
+    cfg = client.get(f"/app/competitive-intel/groups/{gid}")
+    assert b"Create New Tracking" not in cfg.data
+    assert b"Competitive Tracking \xc2\xb7 Track" in cfg.data  # "· Track" (group name)
