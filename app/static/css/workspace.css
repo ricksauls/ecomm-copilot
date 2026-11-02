@@ -514,6 +514,14 @@ body.workspace {
 .wbtn-secondary:hover {
   border-color: var(--black);
 }
+/* Disabled action buttons (e.g. "Use The Selected Item" before an item is picked):
+   dimmed and non-interactive, with hover affordances neutralized. */
+.wbtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.wbtn-primary:disabled:hover { background: var(--black); }
+.wbtn-secondary:disabled:hover { border-color: var(--control-border); }
 .wbtn-full {
   width: 100%;
   padding: 10px 14px;

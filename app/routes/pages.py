@@ -5635,10 +5635,10 @@ def ci_add_owned_item(group_id):
     """Add one of the user's portfolio items as their tracked product in this category.
 
     The redesigned setup screen picks a single portfolio item (searchable dropdown)
-    rather than typing a brand + URL: the brand is derived from the item, and when
-    the item is already tracked the user can opt to copy its keywords into this
-    category (``copy_keywords``). The keyword copy is a one-time seed — later edits
-    to either list stay independent.
+    rather than typing a brand + URL: the brand is derived from the item. Reusing the
+    item's tracked keywords is handled on the client (the setup screen stages them
+    into the Keywords section for the user to edit, then commit via "Use These
+    Keywords"), so this route only adds the product.
     """
     _owned_group_or_404(group_id)  # IDOR gate before touching the group's data
     db = get_db()
@@ -5657,24 +5657,6 @@ def ci_add_owned_item(group_id):
         flash(str(e), "error")
         return _config_redirect(group_id)
     flash("Added your product.", "ok")
-
-    # Optional: seed this category's keywords from the item's tracked keywords.
-    if request.form.get("copy_keywords"):
-        terms = [
-            kw["keyword"]
-            for kw in item_keywords.list_keywords_by_item(db, uid, [item_pk]).get(item_pk, [])
-            if kw["keyword"]
-        ]
-        copied = 0
-        for term in terms:
-            try:
-                ci_config.add_keyword(db, group_id, uid, term)
-                copied += 1
-            except ci_config.ConfigError:
-                # Duplicates / cap hits are expected when re-seeding — skip quietly.
-                continue
-        if copied:
-            flash(f"Copied {copied} keyword{'' if copied == 1 else 's'} from this item.", "ok")
     logger.info("CI add-owned-item group_id=%s user_id=%s item_pk=%s", group_id, uid, item_pk)
     return _config_redirect(group_id)
 

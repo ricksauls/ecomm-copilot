@@ -10,7 +10,7 @@ from datetime import date, timedelta
 
 import io
 
-from app import ci_analysis, ci_config, ci_images, ci_jobs, item_keywords, portfolio
+from app import ci_analysis, ci_config, ci_images, ci_jobs, portfolio
 from app.db import get_db
 from app.users import create_local_user
 
@@ -549,6 +549,13 @@ def test_tracking_config_renders_setup_sections(client, auth):
     cfg = client.get(f"/app/competitive-intel/groups/{gid}")
     assert b"data-item-picker" in cfg.data
     assert b"Search your portfolio" in cfg.data
+    # Gated submit buttons + staged-keyword hooks the client enhances.
+    assert b"data-item-submit" in cfg.data
+    assert b"Use The Selected Item" in cfg.data
+    assert b"data-comp-submit" in cfg.data
+    assert b"Use These Competing Items" in cfg.data
+    assert b"data-kw-staged" in cfg.data
+    assert b"Use These Keywords" in cfg.data
 
 
 def test_add_products_bulk_and_dedupe(client, auth):
@@ -670,35 +677,17 @@ def test_add_owned_item_derives_brand_from_portfolio(client, auth):
     assert any(b["type"] == "mine" and b["name"] == "Tabasco" for b in brands)
 
 
-def test_add_owned_item_copies_keywords_when_opted_in(client, auth):
-    # Opting in copies the item's tracked keywords into the category.
-    auth.register()
-    gid = _monitoring_group(client)
-    pk = _add_portfolio_item(client, "Tabasco",
-                             "https://www.walmart.com/ip/Tabasco-Original/10294528")
-    with client.application.app_context():
-        seeded = {kw["keyword"]
-                  for kw in item_keywords.list_keywords_by_item(get_db(), 1, [pk]).get(pk, [])
-                  if kw["keyword"]}  # unseeded slots are None — ignore them
-    assert seeded  # the item seeds at least its brand keyword on add
-
-    client.post(
-        f"/app/competitive-intel/groups/{gid}/owned-item",
-        data={"portfolio_item_id": pk, "copy_keywords": "1"},
-    )
-    with client.application.app_context():
-        ci_kws = {k["keyword"] for k in ci_config.list_keywords(get_db(), gid, 1)}
-    assert seeded <= ci_kws
-
-
-def test_add_owned_item_without_copy_leaves_keywords_empty(client, auth):
+def test_add_owned_item_adds_no_keywords(client, auth):
+    # Adding the item never touches the category's keywords — reusing the item's
+    # tracked keywords is a client-side stage-into-the-Keywords-section step, then
+    # committed separately via the keyword form.
     auth.register()
     gid = _monitoring_group(client)
     pk = _add_portfolio_item(client, "Tabasco",
                              "https://www.walmart.com/ip/Tabasco-Original/10294528")
     client.post(
         f"/app/competitive-intel/groups/{gid}/owned-item",
-        data={"portfolio_item_id": pk},  # no copy_keywords
+        data={"portfolio_item_id": pk, "copy_keywords": "1"},  # legacy field ignored now
     )
     with client.application.app_context():
         assert ci_config.list_keywords(get_db(), gid, 1) == []

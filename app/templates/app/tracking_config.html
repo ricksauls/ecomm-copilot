@@ -164,13 +164,18 @@
         This item is already tracked. Keywords: <strong data-reuse-keywords></strong>
       </p>
       <label class="ci-check">
-        <input type="checkbox" name="copy_keywords" value="1" data-reuse-copy />
+        {# No name: this only STAGES the item's keywords into the Keywords section
+           below (client-side, via tracking_config.js) so the user can edit them
+           before committing with "Use These Keywords" — it is not submitted here. #}
+        <input type="checkbox" value="1" data-reuse-copy />
         Use the same keywords for this competitive tracking
       </label>
     </div>
 
     <div class="ci-inline-form" style="margin-top:12px">
-      <button type="submit" class="wbtn wbtn-primary">Use The Selected Item</button>
+      {# Disabled by tracking_config.js until an item is picked (enabled fallback
+         when JS is off). #}
+      <button type="submit" class="wbtn wbtn-primary" data-item-submit>Use The Selected Item</button>
     </div>
   </form>
   {% else %}
@@ -220,7 +225,7 @@
 
   {% if comp_slots_left > 0 %}
   <form method="post" action="{{ url_for('pages.ci_add_competitors', group_id=group.id) }}"
-        style="margin-top:18px">
+        style="margin-top:18px" data-comp-form>
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
     {% for _ in range(comp_slots_left) %}
     <div class="ci-inline-form" style="margin-top:8px">
@@ -229,7 +234,8 @@
     </div>
     {% endfor %}
     <div class="ci-inline-form" style="margin-top:12px">
-      <button type="submit" class="wbtn wbtn-secondary">Use These Competing Items</button>
+      {# Disabled by tracking_config.js until at least one URL is entered. #}
+      <button type="submit" class="wbtn wbtn-secondary" data-comp-submit>Use These Competing Items</button>
     </div>
   </form>
   {% else %}
@@ -259,11 +265,16 @@
     {% endfor %}
   </div>
   {% endif %}
+  {# Staged keywords from "Use the same keywords for this competitive tracking":
+     tracking_config.js fills these (and the input below) from the picked item's
+     tracked keywords. Client-side only until committed with "Use These Keywords";
+     each × drops the term from both the chip row and the input. #}
+  <div class="ci-chips" data-kw-staged hidden style="margin-bottom:12px"></div>
   <form method="post" action="{{ url_for('pages.ci_add_keyword', group_id=group.id) }}" class="ci-inline-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-    <input type="text" name="keyword" class="ci-input grow"
+    <input type="text" name="keyword" class="ci-input grow" data-kw-input
            placeholder="e.g. hot sauce, chipotle sauce," maxlength="1000" required />
-    <button type="submit" class="wbtn wbtn-secondary">Add Keywords</button>
+    <button type="submit" class="wbtn wbtn-secondary">Use These Keywords</button>
   </form>
 </div>
 {% endblock %}
