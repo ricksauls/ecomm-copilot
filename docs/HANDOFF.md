@@ -1,9 +1,81 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-10-20 (session 43 — **TWO Portfolio features SHIPPED + LIVE (PR #55, PR #56) + a pillow CVE
-bump + the session-42 pending ops item CLOSED. `main` = `065101f`, pushed + deployed (CI→Deploy green, droplet
-verified at `065101f`, web+worker active, pillow 13.0.0 live), 857 tests passing, ruff clean. NEXT SESSION = Phase 2
-(reorient Insights/Performance around per-item tracked data) — see "Next session" below.**)_
+_Last updated: 2026-11-02 (session 44 — **Portfolio AI-keyword feature + an Authlib CVE bump, PUSHED to `main`
+(`fc973a9`). ⚠️ CI/Deploy NOT verified from this session (invalid gh token → couldn't read Actions); 870 tests
+pass + ruff clean + pip-audit clean in a CI-matching clean venv locally. USER TO CONFIRM CI run #385 green + the
+droplet is at `fc973a9`, then run the one-time `python -m app.suggest_keywords` on the droplet. NEXT SESSION =
+Phase 2 (reorient Insights/Performance around per-item tracked data) — unchanged — see "Next session" below.**)_
+
+_**1) Portfolio Managed-Items list: Amazon column hidden + keyword type-labels dropped (`main` `00b6d9c`).** Three
+user-requested list/keyword changes. (a) **Amazon column hidden** from the Managed Items table (`portfolio.html`) —
+list view only; the `amazon_url` is still stored, imported via CSV, and editable on the Upload tab. Empty-filter
+row colspan 7→6. (b) **Keyword type-labels dropped:** read-view chips show ONLY the term (removed the
+`pf-kw-tag` Brand/Product/Category tag) so each term gets full chip width; the inline + item-page editors now use
+**positional** labels ("Keyword 1…5"). `_KEYWORD_SLOT_LABELS` and the `keyword_labels` template arg were removed
+(the rollup table's per-keyword `kind` sub-line is gone too). (c) See item 2 for the keyword-model change that
+makes the labels vestigial._
+
+_**2) Tracking keywords 3 → 5, now AI-chosen (`main` `00b6d9c`).** The user asked for OpenAI to pick the keywords.
+Tracking grew from **3 fixed-kind** keywords to **5 positional** slots holding **AI-chosen free shopper search
+terms**. NEW **`app/keyword_ai.py`** — OpenAI chat-completions over HTTPS with `requests` (dependency-light, like
+the gpt-image provider), structured JSON output of up to 5 cleaned/deduped terms, key read from `OPENAI_API_KEY`
+and **never logged**. **Worker-only** (external call): hooked into `portfolio.save_descriptors` (the descriptors
+backfill) — AI picks 5 terms from the item's stored brand + fetched title/size/category. **Gated by env
+`KEYWORD_AI_ENABLED` (DEFAULT ON — the user asked to ship it on) + `KEYWORD_AI_MODEL` (default `gpt-4o-mini`).**
+**Fail-safe:** on disabled / missing key / any error it falls back to the mechanical `item_keywords.apply_descriptors`
+defaults, so an item is never left keyword-less; a **user-edited** slot (`user_edited=1`) is never overwritten by
+AI or the backfill._
+_- **`item_keywords.py`:** `SLOTS` is now 5 (1-3 keep the historical `brand`/`brand_product_size`/`category` kinds so
+  the mechanical fallback can compose them; 4-5 are generic `search` slots). `kind` is **vestigial** (UI no longer
+  labels by kind). NEW `VALID_SLOTS`; NEW `set_ai_keywords()` (writes AI terms into non-edited slots, blanks extra
+  slots, ensures missing slot rows exist via INSERT OR IGNORE — so legacy 3-slot items gain slots 4-5);
+  `generate_defaults` seeds 5; `set_keywords` accepts 1-5._
+_- **`portfolio_edit_keywords` route** reads `kw1`…`kw5` (via `VALID_SLOTS`). **`db.py`:** schema comments updated
+  (slot 1..5, kind vestigial); the one-time legacy keyword backfill now seeds 5 slots._
+_- **NEW admin command `app/suggest_keywords.py`** — one-off regen of existing items' keywords from their
+  **already-stored** brand/title (NO Walmart re-scrape, so no Oxylabs cost). `python -m app.suggest_keywords`
+  (tracked items), `--all`, or a `PREFIX`. Gated by `KEYWORD_AI_ENABLED`. **PENDING: run this on the droplet after
+  deploy to regenerate the 8 tracked items (3→5 keywords); new items get AI keywords automatically.**_
+_- **Verified in-app** (dev server): Amazon column gone, chips label-free (5 slots, 2 seeded + 3 blank), editor shows
+  "Keyword 1-5". **Tests:** NEW `tests/test_keyword_ai.py` (faked HTTP session — offline); `test_item_keywords` /
+  `test_portfolio` / `test_enable_tracking` updated for 5 slots + the AI write path._
+
+_**3) Authlib 1.8.0 → 1.9.1 — CI `pip-audit` CVE bump (`main` `fc973a9`, SEPARATE commit).** The FIRST deploy of
+this session FAILED: push of `00b6d9c` → **CI #384 red on `pip-audit`** (NOT the feature — ruff clean, 870 tests
+pass), so **Deploy #306 was correctly SKIPPED** (the gate held; the feature never reached production on that push).
+Root cause: **Authlib 1.8.0 accrued 8 published CVEs** (PYSEC-2026-4355..4360 + GHSA-6v38-4h7w-rj9h /
+GHSA-c73q-w75p-j82v) since the Oct-20 green build — an unrelated **dependabot PR #383** went red for the same
+reason, confirming it's environmental. All 8 fixed in **1.9.1**. Our only Authlib use is
+`authlib.integrations.flask_client.OAuth` (Google SSO), unchanged 1.8→1.9; verified with an oauth import smoke
+test + clean `pip-audit` + the full 870-test suite in a **clean CI-matching venv**. Same pattern as the S43 pillow
+bump and the urllib3 pin. **NOTE: a local `.venv` may show extra stale-version pip-audit findings (certifi/filelock/
+joserfc/msgpack/werkzeug) that CI does NOT — CI installs fresh and resolves patched transitive versions. Reproduce
+CI in a clean venv, not the working `.venv`.**_
+
+_**4) Commits + push state.** Feature `00b6d9c` + Authlib bump `fc973a9`, both **direct-pushed to `main`** (no PR —
+the user chose "push to main and deploy"; local `main` in sync with `origin/main` at `fc973a9`). The push re-triggers
+CI (#385) → Deploy on green. **Deploy of the fixed code is NOT confirmed from this session** — verify Actions +
+droplet SHA next session._
+
+_**5) Cost impact (see [[project-ecomm-cost-architecture]], updated).** (a) **3→5 keywords** raises the item-tracking
+daily-rank Oxylabs volume **~40-67% per tracked item** once `suggest_keywords` regens the 8 (baseline ~24/sweep →
+~40/sweep; AI also fills slots that were blank before). (b) **NEW THIRD cost event: AI keyword selection** — an
+OpenAI chat call per item at backfill + the one-off regen. Cheap (gpt-4o-mini, a few terms) and low-frequency
+(per-add / per-regen, NOT per view), but a real new USE cost beyond the prior TWO events. Neither is metered in-app._
+
+_**6) Investigation (no code): Oxylabs day-to-day request variation explained.** The user asked why daily Oxylabs
+request counts swing (near-0 days next to 50-79 days) when they expected a flat line + a weekly PDP bump. **It's a
+UTC-vs-Central bucketing artifact, not a bug.** The daily rank sweep runs **once/day at a day-of-week-dependent
+Central time** (`ecomm-copilot-track-daily.timer`: Mon/Thu 6a · Tue/Fri 2p · Wed/Sat/Sun **10p** CT). The 10p runs
+(Wed/Sat/Sun) execute after **midnight UTC**, so the UTC dashboard counts them the NEXT day → **Wed/Sat UTC read ~0**
+and **Mon/Thu UTC read double** (two sweeps). Monday is tallest because the **weekly PDP snapshot** (Mon 5a CT) also
+lands then. On-demand scoring/copy/image runs add noise; "successful results" excludes bot-blocked requests. The
+user's daily table matched this pattern almost exactly (7-day-apart pairs: 0/8, 56/52, 28/24, 0/8, 32/28, 77/79).
+**Fix for clarity: view the Oxylabs dashboard in America/Chicago — it flattens to ~24-28/day + a Monday bump.**_
+
+_**Prior: session 43 (2026-10-20) — TWO Portfolio features SHIPPED + LIVE (PR #55, PR #56) + a pillow CVE bump +
+the session-42 pending ops item CLOSED. `main` = `065101f`, pushed + deployed (CI→Deploy green, droplet verified at
+`065101f`, web+worker active, pillow 13.0.0 live), 857 tests passing, ruff clean.**_
 
 _**1) Portfolio Management reworked (PR #55, `main` 127c0de, live).** Three user-requested changes: (a) **two
 server-rendered tabs** — "Managed Items" (the list + filter, `/app/portfolio`) and "Upload Items" (CSV import +
