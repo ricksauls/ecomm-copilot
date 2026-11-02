@@ -6,7 +6,13 @@ python-dotenv==1.2.4
 
 # Auth: Werkzeug (ships with Flask) hashes passwords; Authlib + requests power
 # optional Google SSO.
-Authlib==1.8.0
+# Authlib 1.9.1: the 1.8.0 pin accrued 8 published CVEs (PYSEC-2026-4355..4360,
+# GHSA-6v38-4h7w-rj9h, GHSA-c73q-w75p-j82v), all fixed by 1.9.1, which the CI
+# pip-audit gate now fails on. Our only use is the high-level
+# authlib.integrations.flask_client.OAuth (Google SSO) — unchanged across 1.8→1.9;
+# full suite + oauth import verified. Bumped because it blocks CI; unrelated to
+# this PR's feature (see the Pillow/urllib3 notes below for the same pattern).
+Authlib==1.9.1
 requests==2.34.2
 # urllib3 comes in transitively via requests; pinned up to 2.8.0 to clear
 # PYSEC-2026-4175/4176/4177 (published 2026-10, fixed in 2.8.0). requests 2.34.2
