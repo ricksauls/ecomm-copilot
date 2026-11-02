@@ -135,10 +135,15 @@
              placeholder="Search your portfolio — brand, item #, title, URL…"
              aria-label="Search your portfolio" />
     </div>
-    {# Single-select picker. Each option carries the search haystack (data-brand/item/
-       title/url, lowercased) and the tracked flag + keywords the reuse panel reads. #}
+    {# Single-select picker, shown as a multi-row listbox so several items stay
+       visible while the search box above filters them (portfolio.js hides the
+       non-matching options). `size` shows up to 10 rows (one is the placeholder),
+       shrinking to fit when the user has fewer items. Each option carries the
+       search haystack (data-brand/item/url, lowercased) and the tracked flag +
+       keywords the reuse panel reads. #}
     <select name="portfolio_item_id" class="ci-select grow" data-item-picker required
-            aria-label="Select a product from your portfolio" style="margin-top:10px">
+            size="{{ [portfolio_items | length + 1, 10] | min }}"
+            aria-label="Select a product from your portfolio" style="margin-top:10px; width:100%">
       <option value="" disabled selected>Select a product…</option>
       {% for it in portfolio_items %}
       <option value="{{ it.id }}" data-portfolio-row
@@ -160,12 +165,12 @@
       </p>
       <label class="ci-check">
         <input type="checkbox" name="copy_keywords" value="1" data-reuse-copy />
-        Use the same keywords for this category
+        Use the same keywords for this competitive tracking
       </label>
     </div>
 
     <div class="ci-inline-form" style="margin-top:12px">
-      <button type="submit" class="wbtn wbtn-primary">Add to Tracking</button>
+      <button type="submit" class="wbtn wbtn-primary">Use The Selected Item</button>
     </div>
   </form>
   {% else %}
@@ -224,7 +229,7 @@
     </div>
     {% endfor %}
     <div class="ci-inline-form" style="margin-top:12px">
-      <button type="submit" class="wbtn wbtn-secondary">Add Competitors</button>
+      <button type="submit" class="wbtn wbtn-secondary">Use These Competing Items</button>
     </div>
   </form>
   {% else %}
