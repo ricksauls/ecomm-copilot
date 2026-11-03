@@ -223,13 +223,15 @@ body.workspace .ci-select:focus {
   outline-color: var(--ds-blue);
 }
 
-/* --- Insights header Brand / Item dropdowns (dashboard parity) ------------
-   Match the dashboard's .briefing-select exactly: a custom chevron inset from
-   the right edge (the native arrow hugs the border and ignores padding), the
-   soft card shadow, and the blue focus ring. Scoped to .perf-controls, the
-   shared header-controls cluster on Performance, Opportunities and Competitive
-   Intelligence, so all three screens' Brand/Item selectors read identically. */
-body.workspace .perf-controls .ci-select {
+/* --- Premium dropdowns: Insights headers + Reports (dashboard parity) ------
+   Match the dashboard's select exactly: a custom chevron inset from the right
+   edge (the native arrow hugs the border and ignores padding), the soft card
+   shadow, and the blue focus ring. Covers the Insights header cluster
+   (Performance, Opportunities, Competitive Intelligence) and the Reports
+   Create-New + Schedules dropdowns, so every one reads identically. */
+body.workspace .perf-controls .ci-select,
+body.workspace .report-create .briefing-select,
+body.workspace .report-schedule-form .briefing-select {
   appearance: none;
   -webkit-appearance: none;
   font-size: 13.5px;
@@ -247,7 +249,9 @@ body.workspace .perf-controls .ci-select {
   cursor: pointer;
   transition: border-color var(--ds-fast) var(--ds-ease), box-shadow var(--ds-fast) var(--ds-ease);
 }
-body.workspace .perf-controls .ci-select:hover {
+body.workspace .perf-controls .ci-select:hover,
+body.workspace .report-create .briefing-select:hover,
+body.workspace .report-schedule-form .briefing-select:hover {
   border-color: var(--ds-border-strong);
 }
 /* Keep the Brand (+ Period) cluster on a single row. In the space-between
@@ -260,9 +264,13 @@ body.workspace .perf-controls .ci-select:hover {
 body.workspace .perf-controls-inline {
   flex-shrink: 0;
 }
-/* Overrides the flat .ci-select:focus outline (workspace.css) with the ring. */
+/* Overrides the flat :focus outline (workspace.css) with the blue ring. */
 body.workspace .perf-controls .ci-select:focus,
-body.workspace .perf-controls .ci-select:focus-visible {
+body.workspace .perf-controls .ci-select:focus-visible,
+body.workspace .report-create .briefing-select:focus,
+body.workspace .report-create .briefing-select:focus-visible,
+body.workspace .report-schedule-form .briefing-select:focus,
+body.workspace .report-schedule-form .briefing-select:focus-visible {
   outline: none;
   border-color: var(--ds-blue);
   box-shadow: 0 0 0 3px rgba(53, 109, 255, 0.18);
@@ -303,6 +311,48 @@ body.workspace .ci-periods a.active {
   font-weight: 600;
 }
 body.workspace .ci-periods .disabled {
+  color: var(--ds-faint);
+  opacity: 0.6;
+}
+
+/* --- Reports: Create-New period toggle (dashboard parity) -----------------
+   The Reports scope card reuses .briefing-periods/.briefing-period (same as the
+   dashboard), but on body.workspace it falls back to the flat full-width bar.
+   Re-skin to the dashboard's segmented pill: a content-width track (width:
+   fit-content, not the stretched bar) with a solid-blue active segment. overflow
+   is reset from the base's hidden so the focus ring/rounded ends aren't clipped. */
+body.workspace .report-periods {
+  display: flex;
+  width: fit-content;
+  gap: 2px;
+  padding: 3px;
+  background: var(--ds-surface);
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius-sm);
+  box-shadow: var(--ds-shadow-card);
+  overflow: visible;
+}
+body.workspace .report-periods .briefing-period {
+  border: 0;
+  border-radius: 6px;
+  padding: 7px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  color: var(--ds-muted);
+  background: transparent;
+  transition: background var(--ds-fast) var(--ds-ease), color var(--ds-fast) var(--ds-ease);
+}
+body.workspace .report-periods .briefing-period:hover {
+  color: var(--ds-ink);
+}
+body.workspace .report-periods .briefing-period.is-active {
+  background: var(--ds-blue);
+  color: #fff;
+  font-weight: 600;
+}
+body.workspace .report-periods .briefing-period.is-disabled {
   color: var(--ds-faint);
   opacity: 0.6;
 }
