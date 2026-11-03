@@ -1,8 +1,39 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-11-02 (session 51 — **Premium visual redesign of the dashboard (`/app`, "Portfolio Overview") —
-one commit `6bee561`, CI + Deploy CONFIRMED green + LIVE.** 858 tests + ruff clean. No dependency changes. This block
-brings HANDOFF current through S51.)_
+_Last updated: 2026-11-03 (session 52 — **Cosmetic polish across the dashboard, Insights and Reports —
+two commits `81a1bd3` + `6311aa1`, both CI + Deploy CONFIRMED green + LIVE. main=`6311aa1`.** 858 tests + ruff
+clean. No dependency changes. This block brings HANDOFF current through S52.)_
+
+_**S52 scope — visual-only cosmetic pass (user-driven, iterative), direct-pushed to `main`.** Six small changes,
+all in CSS (+ two small Jinja edits for labels/one class). No routes/data/JS changes._
+
+_**Commit 1 `81a1bd3` — Dashboard + Insights header controls.** (a) Dashboard cards made flex columns so each card's
+"Dig it" deep-link pins to the bottom-left and the three align regardless of content height (`margin-top:auto` +
+`align-self:flex-start`, dashboard.css). (b) Dashboard brand `<select>` given a custom chevron (appearance:none + inline
+SVG data-URI, inset `right 14px`) because the native arrow hugs the edge and ignores padding. (c) "Brand" / "Period"
+field labels added above the dashboard controls (new `.briefing-field` / `.briefing-field-label`, `briefing-controls`
+set to `align-items:flex-end` so the unlabeled "Set as default" star aligns on the controls' baseline; dashboard.html +
+dashboard.css). (d) Insights Brand/Item dropdowns (Performance, Opportunities, Competitive Intelligence) matched to the
+dashboard select style via `body.workspace .perf-controls .ci-select` (premium.css). (e) Competitive Intelligence's
+Brand+Period kept inline (one row, parity with Opportunities) via a shared `perf-controls-inline` class = `flex-shrink:0`
+on BOTH Opportunities + Competitive `.perf-controls`; its longer title/subtitle otherwise stole header width (the header
+is `justify-content:space-between`) and wrapped the cluster to two rows. Performance's wider three-control row is left to
+wrap as the intended narrow-width fallback (flex-shrink:0 there risks overflow < ~1200px)._
+
+_**Commit 2 `6311aa1` — Reports screen dropdowns.** The Reports Create-New + Schedules controls reuse `.briefing-select`
+and `.briefing-periods`, but on `body.workspace` (not `page-dashboard`) they fell back to the flat native-arrow /
+full-width-bar style. (a) Extended the shared premium-select rule to the Reports selects — Create-New Brand + all four
+Schedules selects (brand, cadence, day-of-week, day-of-month) — scoped to `.report-create` + `.report-schedule-form`.
+(b) Create-New period toggle (`.report-periods`) re-skinned into the dashboard's content-width segmented pill
+(`display:flex; width:fit-content`, solid-blue active segment). All premium.css._
+
+_**Verification.** Browser-checked on a local fresh server (demo@test.local, LOCAL app.db) at desktop/narrow/mobile
+widths — note `briefing-period`/`report-periods` active (blue) state only shows for brands with completed-period data;
+demo brands show the "gathering/disabled" state, so the segmented pills render but no segment is blue locally (blue
+confirmed via computed style). CI (41579805891, 41581223542) + Deploy (41580125213, 41581551737) CONFIRMED green; live
+`ecomm-copilot.com/static/css/premium.css` serves the new `perf-controls-inline` + `report-periods` rules, dashboard.css
+serves `briefing-field-label`, landing 200. No console/CSP errors (the chevron is an inline data-URI, CSP is script-src
+only)._
 
 _**S51 scope — DASHBOARD ONLY (user-chosen), visual-only.** Redesigned `/app` to a premium "commerce intelligence" look
 (soft shadows, 12–16px radii, `#356DFF` blue / `#8B5CF6` purple palette, in-card trend charts, a polished "Recommended
