@@ -81,7 +81,7 @@
     page-1 placement are excluded). Lower is better.{% if show_trend %} Aggregated over {{ period_label }}; Δ vs {{ prior_label }}; trend over recent {{ period_word }}s.{% endif %}
   </p>
   <div class="table-scroll">
-    <table class="admin-table">
+    <table class="admin-table table-readable">
       <thead><tr><th>Brand</th><th>Type</th><th>Avg ranking</th>{% if show_trend %}<th>vs prior</th><th>Trend</th>{% endif %}</tr></thead>
       <tbody>
         {% for r in avg_ranks %}
@@ -144,7 +144,7 @@
     Average page-1 ranking per brand for each keyword. Lower is better.{% if show_trend %} Aggregated over {{ period_label }}; Δ vs {{ prior_label }}; trend over recent {{ period_word }}s.{% endif %}
   </p>
   <div class="table-scroll">
-    <table class="admin-table">
+    <table class="admin-table table-readable">
       <thead><tr><th>Keyword</th><th>Brand</th><th>Type</th><th>Avg ranking</th>{% if show_trend %}<th>vs prior</th><th>Trend</th>{% endif %}</tr></thead>
       <tbody>
         {% for r in rank_rows %}
@@ -172,7 +172,7 @@
     Based on {{ sos_summary | sum(attribute='total') }} page-1 placements.{% if show_trend %} Aggregated over {{ period_label }}; Δ vs {{ prior_label }}; trend over recent {{ period_word }}s.{% endif %}
   </p>
   <div class="table-scroll">
-    <table class="admin-table">
+    <table class="admin-table table-readable">
       <thead><tr><th>Brand</th><th>Type</th><th>Organic</th><th>Sponsored</th><th>Total share</th><th></th>{% if show_trend %}<th>vs prior</th><th>Trend</th>{% endif %}</tr></thead>
       <tbody>
         {% for r in sos_summary %}
@@ -233,7 +233,7 @@
     sponsored are shares of that channel's slots for the keyword.{% if show_trend %} Aggregated over {{ period_label }}; Δ vs {{ prior_label }}; trend over recent {{ period_word }}s.{% endif %}
   </p>
   <div class="table-scroll">
-    <table class="admin-table">
+    <table class="admin-table table-readable">
       <thead><tr><th>Keyword</th><th>Brand</th><th>Type</th><th>Organic</th><th>Sponsored</th><th>Total share</th>{% if show_trend %}<th>vs prior</th><th>Trend</th>{% endif %}</tr></thead>
       <tbody>
         {% for r in share_rows %}
@@ -267,7 +267,7 @@
     Based on {{ brand_sos_summary | sum(attribute='total') }} page-1 placements.{% if show_trend %} Aggregated over {{ period_label }}; Δ vs {{ prior_label }}; trend over recent {{ period_word }}s.{% endif %}
   </p>
   <div class="table-scroll">
-    <table class="admin-table">
+    <table class="admin-table table-readable">
       <thead><tr><th>Brand</th><th>Type</th><th>Organic</th><th>Sponsored</th><th>Total share</th><th></th>{% if show_trend %}<th>vs prior</th><th>Trend</th>{% endif %}</tr></thead>
       <tbody>
         {% for r in brand_sos_summary %}

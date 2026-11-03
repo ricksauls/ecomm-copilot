@@ -104,7 +104,12 @@
   </div>
 
   <div class="table-scroll">
-    <table class="admin-table">
+    {# table-readable lifts this table off the dense 9px .admin-table base to a
+       readable ~12px scale: Portfolio Management is a primary workspace (not a
+       cramped admin grid), and it puts the data columns on the same scale as the
+       Tracking column's controls (switch label / keyword chips), which already
+       render ~12px. Scoped here so the shared admin tables stay compact. #}
+    <table class="admin-table table-readable">
       <thead>
         <tr>
           <th>Brand</th>

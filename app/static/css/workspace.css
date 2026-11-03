@@ -2584,6 +2584,15 @@ body.cost-modal-open {
   text-align: left;
   white-space: nowrap;
 }
+/* Primary workspace tables (Portfolio Management, Competitive Tracking) opt out
+   of the dense 9px .admin-table base onto a readable ~12px scale — those screens
+   are everyday workspaces, not cramped admin grids. On Portfolio this also
+   unifies the row: the data columns match the Tracking column's controls
+   (.pf-switch-label 12.5px, .pf-kw-term 12px), which otherwise stood out against
+   9px data. Scoped to .table-readable so User Management and the other shared
+   admin tables stay compact. */
+.admin-table.table-readable { font-size: 12.5px; }
+.admin-table.table-readable th { font-size: 11px; }
 .role-form,
 .delete-user-form {
   display: inline;
