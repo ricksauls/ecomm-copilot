@@ -44,7 +44,10 @@
            is a GET form (Apply re-scopes, no-JS-safe); Period items are links that
            navigate on click — same split as the dashboard briefing. #}
         <div class="report-scope-controls">
-          <form method="get" action="{{ url_for('pages.reports_home') }}" class="report-scope-form">
+          {# Brand is a GET form; the Apply submit sits at the END of the row (after
+             Period) via the form= attribute, so the row reads Brand · Period · Apply
+             while Apply still re-scopes the brand. #}
+          <form id="report-scope-form" method="get" action="{{ url_for('pages.reports_home') }}" class="report-scope-form">
             <input type="hidden" name="tab" value="create">
             <input type="hidden" name="period" value="{{ selection.period }}">
             <label class="report-field">
@@ -55,7 +58,6 @@
                 {% endfor %}
               </select>
             </label>
-            <button type="submit" class="wbtn wbtn-secondary">Apply</button>
           </form>
           <div class="report-field">
             <span class="report-field-label">Period</span>
@@ -71,6 +73,7 @@
               {% endfor %}
             </div>
           </div>
+          <button type="submit" form="report-scope-form" class="wbtn wbtn-secondary report-apply">Apply</button>
         </div>
       </div>
 

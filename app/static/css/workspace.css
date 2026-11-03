@@ -4175,15 +4175,22 @@ select.pf-select[size] option { padding: 6px 8px; border-radius: 4px; }
   align-items: flex-end;
   gap: var(--space-12);
 }
-/* Brand + Period as one inline row of labeled fields, sharing a bottom baseline
-   so the captions float above their controls (parity with the dashboard /
-   Insights header clusters). flex-wrap lets Period drop below Brand on a narrow
-   pane instead of overflowing. */
+/* Brand + Period + Apply as one inline row, sharing a bottom baseline so the
+   captions float above their controls (parity with the dashboard / Insights
+   header clusters). flex-wrap lets items drop to a second line on a narrow pane
+   instead of overflowing. margin-top gives the row breathing room below the
+   "Report scope" caption. */
 .report-scope-controls {
   display: flex;
   align-items: flex-end;
   flex-wrap: wrap;
   gap: var(--space-16);
+  margin-top: var(--space-14);
+}
+/* The Apply submit matches the height of the Brand select and the Period toggle
+   (~40px) so the row reads as one even set of controls, not a short button. */
+.report-apply {
+  height: 40px;
 }
 .report-field {
   display: flex;
