@@ -15,13 +15,17 @@
   "use strict";
 
   var SVGNS = "http://www.w3.org/2000/svg";
-  // Premium chart palette (matches the dashboard's in-card trend charts): a
-  // blue line over a soft dashed grid with a faint blue area fill. Kept in sync
-  // with dashboard.css's --ds-blue / --ds-border so Insights reads the same.
+  // Premium chart palette (matches the dashboard's in-card trend charts): a blue
+  // line over a soft dashed grid, filling to a vertical gradient that fades to
+  // transparent (see makeAreaGradient). Kept in sync with dashboard.css's
+  // --ds-blue / --ds-border so Insights reads the same.
   var LINE = "#356dff";      // --ds-blue ("mine" series)
   var GRID = "#e2e8f0";      // --ds-border (drawn dashed below)
   var LABEL = "#94a3b8";     // --ds-faint
-  var AREA = "rgba(53,109,255,0.12)"; // faint blue fill under the line
+
+  // Per-chart counter so each SVG's area-gradient gets a unique id (multiple
+  // trend charts can share one page via the tabbed views).
+  var gradSeq = 0;
 
   var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
                 "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -49,6 +53,20 @@
     }
     // De-dup consecutive equal rounded ticks (tiny domains).
     return out.filter(function (v, i) { return i === 0 || v !== out[i - 1]; });
+  }
+
+  // Build a <defs> holding a vertical gradient that fades the area fill from a
+  // soft blue at the line down to transparent at the axis — the same treatment
+  // as the dashboard's .ds-area (dashboard.css ds-grad-a/ds-grad-b: 0.18 -> 0).
+  // Returns the defs node to append and the paint url to reference it.
+  function makeAreaGradient(color) {
+    var id = "perf-grad-" + (++gradSeq);
+    var defs = el("defs", {});
+    var grad = el("linearGradient", { id: id, x1: "0", y1: "0", x2: "0", y2: "1" });
+    grad.appendChild(el("stop", { offset: "0%", "stop-color": color, "stop-opacity": "0.18" }));
+    grad.appendChild(el("stop", { offset: "100%", "stop-color": color, "stop-opacity": "0" }));
+    defs.appendChild(grad);
+    return { defs: defs, fill: "url(#" + id + ")" };
   }
 
   function drawTrend(container) {
@@ -94,6 +112,10 @@
       role: "img",
       "aria-label": (isRank ? "Search rank" : isScore ? "Content readiness" : "Share") + " trend" });
 
+    // Gradient paint for the area fill (fades to transparent, like the dashboard).
+    var area = makeAreaGradient(LINE);
+    svg.appendChild(area.defs);
+
     // Gridlines + y labels.
     ticks(lo, hi, isPct).forEach(function (tv) {
       var yy = y(tv);
@@ -118,7 +140,7 @@
     svg.appendChild(el("path", {
       d: "M" + x(0).toFixed(1) + "," + (padT + plotH) + " L" + pts.join(" L ") +
          " L" + x(vals.length - 1).toFixed(1) + "," + (padT + plotH) + " Z",
-      fill: AREA, stroke: "none" }));
+      fill: area.fill, stroke: "none" }));
     svg.appendChild(el("path", { d: "M" + pts.join(" L "), fill: "none", stroke: LINE,
       "stroke-width": 2.25, "stroke-linejoin": "round", "stroke-linecap": "round" }));
 
