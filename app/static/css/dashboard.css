@@ -51,26 +51,21 @@ body.page-dashboard {
   --ds-tint: rgba(53, 109, 255, 0.10);   /* soft icon-container fill (blue) */
 }
 
-/* The light workspace surface + comfortable 32px gutters. The rail (dark navy)
-   is left to workspace.css; only the content column is relit here. */
+/* Dashboard-specific layout only: comfortable 32px gutters and a wider content
+   column. The lit canvas background is now set app-wide by premium.css. */
 body.page-dashboard .pane {
-  background: var(--ds-canvas);
   padding: 8px 32px 64px;
-}
-body.page-dashboard .content-col,
-body.page-dashboard .topbar {
-  background: var(--ds-canvas);
 }
 body.page-dashboard .pane-inner {
   max-width: 1280px;
 }
 
-/* --- Topbar: slim and seamless on the dashboard ---------------------------
-   The redesign puts the breadcrumb in the page header (below), so the topbar's
-   own breadcrumb is hidden; the bar stays for its notification chips, which
-   float right against the canvas with no divider. */
+/* --- Topbar: slim on the dashboard ----------------------------------------
+   The borderless, canvas-colored topbar and the rounded notification chips are
+   now set app-wide by premium.css. Dashboard-specific here: the slimmer
+   padding/height, and hiding the topbar breadcrumb (the redesign moves the
+   breadcrumb into the page header below). */
 body.page-dashboard .topbar {
-  border-bottom: none;
   padding: 10px 32px 0;
   height: auto;
   min-height: 40px;
@@ -78,29 +73,10 @@ body.page-dashboard .topbar {
 body.page-dashboard .topbar .breadcrumb {
   display: none;
 }
-body.page-dashboard .topbar-notify {
-  border-radius: var(--ds-radius-sm);
-  transition: background var(--ds-fast) var(--ds-ease), color var(--ds-fast) var(--ds-ease);
-}
 
-/* --- Nav rail refinements (scoped to the dashboard only) -------------------
-   Preserve the dark navy rail; just polish the active + hover states to the new
-   blue. Scoped under body.page-dashboard so other screens' rail is untouched —
-   rolling this app-wide later is a one-line change (drop the scope prefix). */
-body.page-dashboard .rail-leaf,
-body.page-dashboard .rail-group-head {
-  border-radius: 10px;
-  transition: background var(--ds-fast) var(--ds-ease), color var(--ds-fast) var(--ds-ease);
-}
-body.page-dashboard .rail-leaf:hover,
-body.page-dashboard .rail-group-head:hover {
-  background: rgba(53, 109, 255, 0.12);
-}
-body.page-dashboard .rail-leaf.active {
-  /* Refined blue active background with a subtle depth, replacing flat graphite. */
-  background: linear-gradient(180deg, #3b74ff 0%, #2f62e6 100%);
-  box-shadow: 0 2px 8px rgba(47, 98, 230, 0.35);
-}
+/* The nav-rail refinements (rounded leaves, blue hover tint, depth-lit blue
+   active state) are now promoted app-wide in premium.css, so they are no longer
+   defined here. */
 
 /* --- Page header ----------------------------------------------------------
    Breadcrumb · large title · brand + period controls on one baseline. */
