@@ -64,7 +64,7 @@
       var val = lo + (g / 2) * (hi - lo);
       var gy = y(val);
       svg.appendChild(el("line", { x1: PAD_L, y1: gy, x2: W - PAD_R, y2: gy,
-        stroke: "#eef2f8", "stroke-width": 1 }));
+        stroke: "#e2e8f0", "stroke-width": 1, "stroke-dasharray": "2 4" }));
       var lab = isPct ? val.toFixed(0) + "%" : "#" + val.toFixed(1);
       var tx = el("text", { x: PAD_L - 6, y: gy + 3, "text-anchor": "end",
         "font-size": 9, fill: "#94a3b8" });
@@ -85,16 +85,17 @@
     // Series: one polyline per unbroken run of non-null points, plus an endpoint dot.
     series.forEach(function (s) {
       var w = s.mine ? 2.4 : 1.6;
+      var col = s.color;
       var run = [];
       var lastIdx = -1, lastVal = null;
       function flush() {
         if (run.length >= 2) {
           svg.appendChild(el("polyline", { points: run.join(" "), fill: "none",
-            stroke: s.color, "stroke-width": w, "stroke-linejoin": "round",
+            stroke: col, "stroke-width": w, "stroke-linejoin": "round",
             "stroke-linecap": "round" }));
         } else if (run.length === 1) {
           var p = run[0].split(",");
-          svg.appendChild(el("circle", { cx: p[0], cy: p[1], r: w, fill: s.color }));
+          svg.appendChild(el("circle", { cx: p[0], cy: p[1], r: w, fill: col }));
         }
         run = [];
       }
@@ -105,7 +106,7 @@
       });
       flush();
       if (lastIdx >= 0) {
-        svg.appendChild(el("circle", { cx: x(lastIdx), cy: y(lastVal), r: w + 1.2, fill: s.color }));
+        svg.appendChild(el("circle", { cx: x(lastIdx), cy: y(lastVal), r: w + 1.2, fill: col }));
       }
     });
 

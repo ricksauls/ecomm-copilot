@@ -1761,9 +1761,11 @@ _CI_TAB_LABELS = {
 }
 _CI_LEADERBOARD_LIMIT = 5   # top-N competitors on each leaderboard
 _CI_CHART_LINES = 4         # mine brand(s) + top competitors drawn on a trend chart
-# Competitor trend lines, in draw order (the mine line is always near-black on top).
+# Competitor trend lines, in draw order; the mine line is the premium blue on top
+# (--ds-blue, matching the dashboard's charts). This single constant colors both
+# the trend line and the legend swatch, so they always agree.
 _CI_COMPETITOR_COLORS = ("#64748b", "#94a3b8", "#b9c3d2")
-_CI_MINE_COLOR = "#0b1220"
+_CI_MINE_COLOR = "#356dff"
 
 
 def _ci_chart(trend: dict, mine_names: set, unit: str) -> dict:

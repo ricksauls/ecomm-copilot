@@ -15,10 +15,13 @@
   "use strict";
 
   var SVGNS = "http://www.w3.org/2000/svg";
-  var LINE = "#0b1220";      // --black ("mine" series)
-  var GRID = "#eef2f8";      // --divider
-  var LABEL = "#94a3b8";     // --cool-gray
-  var AREA = "rgba(46,109,255,0.08)"; // faint --accent fill
+  // Premium chart palette (matches the dashboard's in-card trend charts): a
+  // blue line over a soft dashed grid with a faint blue area fill. Kept in sync
+  // with dashboard.css's --ds-blue / --ds-border so Insights reads the same.
+  var LINE = "#356dff";      // --ds-blue ("mine" series)
+  var GRID = "#e2e8f0";      // --ds-border (drawn dashed below)
+  var LABEL = "#94a3b8";     // --ds-faint
+  var AREA = "rgba(53,109,255,0.12)"; // faint blue fill under the line
 
   var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
                 "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -95,7 +98,7 @@
     ticks(lo, hi, isPct).forEach(function (tv) {
       var yy = y(tv);
       svg.appendChild(el("line", { x1: padL, y1: yy, x2: W - padR, y2: yy,
-        stroke: GRID, "stroke-width": 1 }));
+        stroke: GRID, "stroke-width": 1, "stroke-dasharray": "2 4" }));
       var lab = el("text", { x: padL - 8, y: yy + 3.5, "text-anchor": "end",
         "font-size": 11, fill: LABEL });
       lab.textContent = isPct ? tv + "%" : "" + tv;
@@ -119,10 +122,10 @@
     svg.appendChild(el("path", { d: "M" + pts.join(" L "), fill: "none", stroke: LINE,
       "stroke-width": 2.25, "stroke-linejoin": "round", "stroke-linecap": "round" }));
 
-    // Emphasized endpoint.
+    // Emphasized endpoint (blue fill, white ring — matches the dashboard dot).
     svg.appendChild(el("circle", { cx: x(vals.length - 1).toFixed(1),
-      cy: y(vals[vals.length - 1]).toFixed(1), r: 5, fill: "#ffffff",
-      stroke: LINE, "stroke-width": 2.25 }));
+      cy: y(vals[vals.length - 1]).toFixed(1), r: 5, fill: LINE,
+      stroke: "#ffffff", "stroke-width": 2 }));
 
     // y-axis title.
     var title = isRank ? "Avg rank (lower = better)"
