@@ -111,16 +111,43 @@ body.page-dashboard .dash-header .subtitle {
 }
 
 /* Controls cluster: brand selector, default star, period segmented control —
-   made to read as one integrated group of controls, not stray form widgets. */
+   made to read as one integrated group of controls, not stray form widgets.
+   align-items:flex-end so the controls share a baseline while the "Brand" /
+   "Period" field labels float above; the unlabeled star aligns with them. */
 body.page-dashboard .briefing-controls {
   gap: 10px;
+  align-items: flex-end;
+}
+/* A labeled control: caption on top, control below, both left-aligned. */
+body.page-dashboard .briefing-field {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+body.page-dashboard .briefing-field-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ds-muted);
+  padding-left: 1px;
 }
 body.page-dashboard .briefing-select {
   font-size: 13.5px;
   font-weight: 500;
   color: var(--ds-ink);
-  padding: 9px 30px 9px 13px;
-  background: var(--ds-surface);
+  /* Custom chevron (the native arrow ignores padding and hugs the edge).
+     appearance:none drops the native arrow; the SVG is inset 14px from the
+     right, with padding-right reserving room so the label can't overlap it. */
+  appearance: none;
+  -webkit-appearance: none;
+  padding: 9px 36px 9px 13px;
+  background-color: var(--ds-surface);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none' stroke='%2364748B' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 4.5 6 7.5 9 4.5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+  background-size: 12px 12px;
   border: 1px solid var(--ds-border);
   border-radius: var(--ds-radius-sm);
   box-shadow: var(--ds-shadow-card);
@@ -222,6 +249,10 @@ body.page-dashboard .briefing-cards {
   gap: 18px;
 }
 body.page-dashboard .briefing-card {
+  /* Flex column so the "Dig it" deep-link can sit at the card's bottom edge.
+     The three cards are equal height (grid stretch), so their links align. */
+  display: flex;
+  flex-direction: column;
   background: var(--ds-surface);
   border: 1px solid var(--ds-border);
   border-radius: var(--ds-radius-lg);
@@ -408,11 +439,16 @@ body.page-dashboard .briefing-narrative {
   margin: 4px 0 0;
 }
 body.page-dashboard .briefing-explore {
+  /* margin-top:auto drops the link to the card's bottom; align-self keeps it
+     at its natural width (left-aligned) instead of stretching across the card.
+     padding-top guarantees a gap above it even on the tallest card. */
   display: inline-block;
+  align-self: flex-start;
   font-size: 12.5px;
   font-weight: 600;
   color: var(--ds-blue);
-  margin-top: 14px;
+  margin-top: auto;
+  padding-top: 14px;
 }
 body.page-dashboard .briefing-metric-muted {
   color: var(--ds-faint);

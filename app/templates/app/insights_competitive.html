@@ -28,8 +28,10 @@
 
   {% if available %}
   {# Brand selector auto-submits via competitive.js (CSP forbids inline handlers);
-     the Go button is the no-JS fallback. Period is a set of links. #}
-  <div class="perf-controls">
+     the Go button is the no-JS fallback. Period is a set of links.
+     perf-controls-inline keeps Brand + Period on one row (parity with
+     Opportunities) despite this screen's longer title/subtitle. #}
+  <div class="perf-controls perf-controls-inline">
     <form method="get" action="{{ url_for('pages.insights_competitive') }}" class="perf-controls-form">
       <input type="hidden" name="tab" value="{{ tab }}">
       <input type="hidden" name="period" value="{{ period }}">

@@ -28,7 +28,9 @@
   </div>
 
   {% if available %}
-  <div class="perf-controls">
+  <div class="perf-controls perf-controls-inline">
+    {# perf-controls-inline keeps Brand + Period on one row; shared with
+       Competitive Intelligence so the two screens' controls align identically. #}
     {# Brand auto-submits via performance.js (CSP-safe external file); Go is the no-JS fallback. #}
     <form method="get" action="{{ url_for('pages.insights_opportunities') }}" class="perf-controls-form">
       <input type="hidden" name="period" value="{{ period }}">

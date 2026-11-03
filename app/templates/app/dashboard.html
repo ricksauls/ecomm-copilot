@@ -101,15 +101,19 @@
   {# Brand selector + set-default + period toggle. Auto-submits via briefing.js
      (CSP forbids inline scripts); the Go button is the no-JS fallback. #}
   <div class="briefing-controls">
-    <form method="get" action="{{ url_for('pages.dashboard') }}" class="briefing-brand-form">
-      <input type="hidden" name="period" value="{{ briefing.period }}">
-      <select name="group_id" class="briefing-select" aria-label="Brand">
-        {% for opt in briefing.groups %}
-        <option value="{{ opt.id }}" {{ 'selected' if opt.selected }}>{{ opt.label }}</option>
-        {% endfor %}
-      </select>
-      <button type="submit" class="briefing-go">Go</button>
-    </form>
+    {# Each labeled control is a vertical field (label on top, left-aligned). #}
+    <div class="briefing-field">
+      <label class="briefing-field-label" for="briefing-brand-select">Brand</label>
+      <form method="get" action="{{ url_for('pages.dashboard') }}" class="briefing-brand-form">
+        <input type="hidden" name="period" value="{{ briefing.period }}">
+        <select name="group_id" id="briefing-brand-select" class="briefing-select" aria-label="Brand">
+          {% for opt in briefing.groups %}
+          <option value="{{ opt.id }}" {{ 'selected' if opt.selected }}>{{ opt.label }}</option>
+          {% endfor %}
+        </select>
+        <button type="submit" class="briefing-go">Go</button>
+      </form>
+    </div>
     {% if briefing.is_default %}
       <span class="briefing-default is-default" title="Loads by default">★ Default</span>
     {% else %}
@@ -119,16 +123,19 @@
         <button type="submit" class="briefing-default">☆ Set as default</button>
       </form>
     {% endif %}
-    <div class="briefing-periods" role="group" aria-label="Reporting period">
-      {% for p in briefing.periods %}
-        {% if p.enabled %}
-          <a class="briefing-period {{ 'is-active' if p.selected }}"
-             href="{{ url_for('pages.dashboard', group_id=briefing.selected_group_id, period=p.key) }}"
-          >{{ p.label }}</a>
-        {% else %}
-          <span class="briefing-period is-disabled" title="No data yet">{{ p.label }}</span>
-        {% endif %}
-      {% endfor %}
+    <div class="briefing-field">
+      <span class="briefing-field-label">Period</span>
+      <div class="briefing-periods" role="group" aria-label="Reporting period">
+        {% for p in briefing.periods %}
+          {% if p.enabled %}
+            <a class="briefing-period {{ 'is-active' if p.selected }}"
+               href="{{ url_for('pages.dashboard', group_id=briefing.selected_group_id, period=p.key) }}"
+            >{{ p.label }}</a>
+          {% else %}
+            <span class="briefing-period is-disabled" title="No data yet">{{ p.label }}</span>
+          {% endif %}
+        {% endfor %}
+      </div>
     </div>
   </div>
   {% endif %}

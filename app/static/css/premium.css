@@ -223,6 +223,51 @@ body.workspace .ci-select:focus {
   outline-color: var(--ds-blue);
 }
 
+/* --- Insights header Brand / Item dropdowns (dashboard parity) ------------
+   Match the dashboard's .briefing-select exactly: a custom chevron inset from
+   the right edge (the native arrow hugs the border and ignores padding), the
+   soft card shadow, and the blue focus ring. Scoped to .perf-controls, the
+   shared header-controls cluster on Performance, Opportunities and Competitive
+   Intelligence, so all three screens' Brand/Item selectors read identically. */
+body.workspace .perf-controls .ci-select {
+  appearance: none;
+  -webkit-appearance: none;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--ds-ink);
+  padding: 9px 36px 9px 13px;
+  background-color: var(--ds-surface);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none' stroke='%2364748B' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 4.5 6 7.5 9 4.5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+  background-size: 12px 12px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius-sm);
+  box-shadow: var(--ds-shadow-card);
+  cursor: pointer;
+  transition: border-color var(--ds-fast) var(--ds-ease), box-shadow var(--ds-fast) var(--ds-ease);
+}
+body.workspace .perf-controls .ci-select:hover {
+  border-color: var(--ds-border-strong);
+}
+/* Keep the Brand (+ Period) cluster on a single row. In the space-between
+   header, a long title/subtitle (notably "Competitive Intelligence") otherwise
+   steals width and the controls wrap — Brand over Period — which read
+   inconsistently against Opportunities. flex-shrink:0 holds the cluster's width
+   so the title/subtitle wrap instead. Applied only to these two-control screens
+   (Opportunities, Competitive), never Performance's wider three-control row,
+   whose natural wrap is the intended narrow-width fallback. */
+body.workspace .perf-controls-inline {
+  flex-shrink: 0;
+}
+/* Overrides the flat .ci-select:focus outline (workspace.css) with the ring. */
+body.workspace .perf-controls .ci-select:focus,
+body.workspace .perf-controls .ci-select:focus-visible {
+  outline: none;
+  border-color: var(--ds-blue);
+  box-shadow: 0 0 0 3px rgba(53, 109, 255, 0.18);
+}
+
 /* --- Insights period control (parity with the dashboard) ------------------
    The Insights screens use .ci-periods (a row of bordered pill-links) for their
    period toggle, where the dashboard uses the segmented .briefing-periods. Re-
