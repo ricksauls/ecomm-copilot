@@ -14,7 +14,7 @@
     <link rel="stylesheet" href="{{ static_url('css/workspace.css') }}" />
     {% block head_extra %}{% endblock %}
   </head>
-  <body class="workspace">
+  <body class="workspace {% block body_class %}{% endblock %}">
     <div class="shell">
       {% include "app/_rail.html" %}
       <div class="content-col">

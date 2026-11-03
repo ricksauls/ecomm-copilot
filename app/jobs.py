@@ -311,6 +311,43 @@ def readiness_score(conn: sqlite3.Connection, user_id: int, brands: list[str],
     return {"avg": avg, "scored_count": len(scores), "needs_attention_count": needs_attention}
 
 
+def readiness_missing_count(conn: sqlite3.Connection, user_id: int,
+                            brands: list[str]) -> int:
+    """Count a brand's managed products that have no readiness score yet.
+
+    The "Missing" block on the dashboard's Conversion card: products in the user's
+    portfolio for these brands whose item has never been scored. Scoped the same
+    way as :func:`readiness_score` (case/space-insensitive brand match on
+    ``portfolio_items``), so the three blocks — Strong, Needs work, Missing — read
+    off a consistent brand context. An empty brand set can't match anything, so it
+    short-circuits to ``0`` rather than building a degenerate ``IN ()`` clause.
+    """
+    # Normalize to match the LOWER(TRIM(...)) comparison in SQL; an empty scope
+    # means "no brand selected", which can own no products.
+    wanted = [b.strip().lower() for b in brands if b and b.strip()]
+    if not wanted:
+        return 0
+
+    placeholders = ",".join("?" for _ in wanted)
+    # Portfolio products for these brands with no scored_items row — i.e. nothing
+    # has been scored for that item id yet. Rows without an item id (a failed URL
+    # parse) can't be matched to a score, so they're excluded from the count.
+    row = conn.execute(
+        "SELECT COUNT(*) FROM portfolio_items p "
+        "WHERE p.user_id = ? "
+        "  AND p.item_id IS NOT NULL AND p.item_id != '' "
+        "  AND LOWER(TRIM(p.brand)) IN (" + placeholders + ") "
+        "  AND NOT EXISTS ("
+        "    SELECT 1 FROM scored_items s "
+        "    WHERE s.user_id = p.user_id AND s.item_id = p.item_id "
+        "      AND s.overall IS NOT NULL)",
+        [user_id, *wanted],
+    ).fetchone()
+    missing = int(row[0])
+    logger.debug("Readiness missing user_id=%s brands=%s → %d", user_id, wanted, missing)
+    return missing
+
+
 def readiness_items(conn: sqlite3.Connection, user_id: int, brands: list[str]) -> list[dict]:
     """Every scored product for a set of brands at its latest overall score.
 

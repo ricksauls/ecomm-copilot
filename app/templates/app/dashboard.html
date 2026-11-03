@@ -1,10 +1,57 @@
 {% extends "app/base.html" %}
 {% block title %}Dashboard — DISCOtech{% endblock %}
+{# Premium "Portfolio Overview" redesign. Scoped styles live in dashboard.css and
+   apply only under body.page-dashboard, so no other workspace screen is touched.
+   This template is presentation-only: all data (cards, charts, opportunities) is
+   assembled in _performance_briefing(); all routes/forms are unchanged. #}
+{% block body_class %}page-dashboard{% endblock %}
+{% block head_extra %}
+<link rel="stylesheet" href="{{ static_url('css/dashboard.css') }}" />
+{% endblock %}
 
-{# --- Opportunity row helpers ---
-   Inline SVG only (the dashboard ships no JS, and CSP blocks inline styles/scripts).
-   `opp_icon` keys the leading glyph off the opportunity's workflow; `opp_meter`
-   draws the proportion bar (how much is already in good shape) + its caption. #}
+{# --- Icon helpers (inline SVG only; the dashboard ships no JS and CSP blocks
+   inline styles/scripts). `card_icon` is the summary-card glyph; the opportunity
+   `opp_icon`/`opp_meter`/`opp_spark` macros are unchanged from before. --- #}
+{% macro card_icon(key) -%}
+{%- if key == 'discoverability' -%}
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="6.5"/><path d="M15.6 15.6L20 20"/></svg>
+{%- elif key == 'conversion' -%}
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="20" r="1.3"/><circle cx="17" cy="20" r="1.3"/><path d="M3 4h2l2.2 10.2a1 1 0 0 0 1 .8h7.8a1 1 0 0 0 1-.78L20 7H6"/></svg>
+{%- elif key == 'competition' -%}
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16"/><rect x="6" y="11" width="3" height="7" rx="0.6"/><rect x="10.5" y="7" width="3" height="11" rx="0.6"/><rect x="15" y="9" width="3" height="9" rx="0.6"/></svg>
+{%- endif -%}
+{%- endmacro %}
+
+{# Area+line trend chart for a summary card. Coordinates, gridline y's and axis
+   labels are precomputed in _card_chart() for the matching viewBox; the fill
+   gradient + line are colored per card key in dashboard.css. #}
+{% macro card_chart(ch, key) -%}
+<svg class="ds-chart ds-chart-{{ key }}" viewBox="0 0 {{ ch.w }} {{ ch.h }}" role="img" aria-hidden="true">
+  <defs>
+    <linearGradient id="ds-grad-{{ key }}" x1="0" y1="0" x2="0" y2="1">
+      <stop class="ds-grad-a" offset="0%"/>
+      <stop class="ds-grad-b" offset="100%"/>
+    </linearGradient>
+  </defs>
+  {% for t in ch.y_ticks %}<line class="ds-grid" x1="{{ ch.x0 }}" y1="{{ t.y }}" x2="{{ ch.x1 }}" y2="{{ t.y }}"/>{% endfor %}
+  <path class="ds-area" d="{{ ch.area }}" fill="url(#ds-grad-{{ key }})"/>
+  <polyline class="ds-line" points="{{ ch.line }}"/>
+  <circle class="ds-dot" cx="{{ ch.dot.x }}" cy="{{ ch.dot.y }}" r="3.4"/>
+  {% for t in ch.y_ticks %}<text class="ds-ytick" x="{{ ch.x0 - 6 }}" y="{{ t.y + 3 }}" text-anchor="end">{{ t.value }}{{ ch.unit }}</text>{% endfor %}
+  {% for xl in ch.x_labels %}<text class="ds-xtick" x="{{ xl.x }}" y="{{ ch.h - 7 }}" text-anchor="middle">{{ xl.text }}</text>{% endfor %}
+</svg>
+{%- endmacro %}
+
+{# Small state glyph for a card footer: a check when steady/improving, an alert
+   when the metric is sliding. #}
+{% macro state_glyph(dir) -%}
+{%- if dir == 'down' -%}
+<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="8"/><path d="M10 6v5"/><path d="M10 13.6h.01"/></svg>
+{%- else -%}
+<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="8"/><path d="M6.4 10.4l2.3 2.3 4.9-5.1"/></svg>
+{%- endif -%}
+{%- endmacro %}
+
 {% macro opp_icon(name) -%}
 {%- if name == 'discovery' -%}
 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="6.5"/><path d="M15.6 15.6L20 20"/></svg>
@@ -13,16 +60,11 @@
 {%- elif name == 'copy' -%}
 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L18.5 9.5l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>
 {%- elif name == 'competitive' -%}
-<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16"/><rect x="6" y="11.5" width="3" height="6.5" rx="0.6"/><rect x="10.5" y="7" width="3" height="11" rx="0.6"/><rect x="15" y="9.5" width="3" height="8.5" rx="0.6"/></svg>
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="7.5"/><circle cx="12" cy="12" r="3.5"/><circle cx="12" cy="12" r="0.6" fill="currentColor"/></svg>
 {%- endif -%}
 {%- endmacro %}
 
-{# An opportunity's indicator is EITHER a proportion meter (content gaps: how much
-   is already strong) OR a trend sparkline (the competitive gap: lead rate over
-   time). Both sit in the same fixed column so rows line up. #}
 {% macro opp_meter(m) -%}
-{# Fill width is proportional within the fixed 120-unit viewBox; the SVG scales to
-   its container, so rounded ends stay crisp (unlike a stretched percent-width). #}
 {% set fw = (120.0 * m.filled / m.total) if m.total else 0 %}
 <span class="opp-meter-wrap">
   <svg class="opp-bar" viewBox="0 0 120 8" aria-hidden="true">
@@ -34,10 +76,6 @@
 {%- endmacro %}
 
 {% macro opp_spark(s, caption) -%}
-{# Trend sparkline over the last few periods above a state caption. Coordinates are
-   precomputed in _sparkline() for the matching 120x28 viewBox; `dir` (up/down/flat)
-   colors the line. A single-point series shows just the end dot; a missing series
-   (no history yet) leaves the caption standing alone. #}
 <span class="opp-spark-wrap">
   {% if s %}
   <svg class="opp-spark spark-{{ s.dir }}" viewBox="0 0 120 28" aria-hidden="true">
@@ -50,11 +88,12 @@
 {%- endmacro %}
 
 {% block pane_content %}
-{# --- Page header: Portfolio title + brand/period controls (lifted up here so the
-   summary strip and cards sit directly beneath, filling the old top whitespace). --- #}
+{# --- Page header: in-content breadcrumb, large title + brand/period controls. --- #}
 <div class="page-header dash-header">
   <div>
-    <h1>Portfolio</h1>
+    <p class="ds-crumb">Dashboard <span aria-hidden="true">/</span>
+       <span class="ds-crumb-here">Portfolio</span></p>
+    <h1>Portfolio Overview</h1>
     <p class="subtitle">{{ portfolio.brands }} brand{{ 's' if portfolio.brands != 1 }} ·
        {{ portfolio.products }} product{{ 's' if portfolio.products != 1 }}</p>
   </div>
@@ -95,15 +134,9 @@
   {% endif %}
 </div>
 
-{# --- Performance briefing ---
-   The three cards (Discoverability / Conversion / Competition): a per-brand
-   "how are we doing" read, scoped to one monitoring CI group over one completed
-   period. Selectors switch brand (group) and period; each card deep-links into
-   its detailed workspace via Explore. The Opportunities area will be built below
-   this section. Built in _performance_briefing() so this stays presentation-only. #}
+{# --- Performance briefing: the three cards + the Recommended Actions panel. --- #}
 {% if not briefing.available %}
-  {# No monitoring groups yet — the cards have nothing to report, so point the
-     user at setting up tracking instead of showing empty gauges. #}
+  {# No monitoring groups yet — point the user at setting up tracking. #}
   <div class="card card-pad briefing-setup">
     <div class="label">Your performance briefing</div>
     <p>Set up Competitive Tracking for a brand to unlock Discoverability, Conversion
@@ -112,24 +145,59 @@
   </div>
 {% else %}
   <section class="briefing">
-    {# Which brand + window the cards below are scoped to. The selector/period
-       controls now live up in the page header, so this is just a quiet label. #}
+    {# Snapshot label above the cards: which window the read covers. #}
     <p class="briefing-context">
-      <span class="label eyebrow">Your summary</span>
-      <strong class="briefing-context-brand">{{ briefing.brand_label }}</strong>{% if briefing.period_label %}<span class="briefing-context-period"> · {{ briefing.period_label }}</span>{% endif %}
+      <span class="label eyebrow">Performance Snapshot</span>
+      {% if briefing.period_label %}<span class="briefing-context-period">· {{ briefing.period_label }}</span>{% endif %}
     </p>
 
     <div class="briefing-cards">
       {% for c in briefing.cards %}
       <div class="card briefing-card briefing-{{ c.key }}">
-        <div class="label">{{ c.label }}</div>
+        <div class="ds-card-head">
+          <span class="ds-card-ico">{{ card_icon(c.key) }}</span>
+          <span class="label">{{ c.label }}</span>
+        </div>
         {% if c.state == 'ok' %}
           <div class="briefing-metric">
             {{ c.metric }}
             {% if c.delta %}<span class="briefing-delta {{ c.delta_dir }}">{{ c.delta }}</span>{% endif %}
           </div>
-          <div class="briefing-headline">{{ c.headline }}</div>
-          <p class="briefing-narrative">{{ c.narrative }}</p>
+          {% if c.key == 'conversion' %}
+            {# Conversion: gradient readiness bar + three buckets. The fill width is
+               an SVG rect ATTRIBUTE (= the 0–100 score), not a CSS width — CSP
+               forbids inline styles, so this mirrors the opp_meter approach. The
+               rounded ends come from the container clipping, not a distorted rx. #}
+            <svg class="ds-progress" viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true">
+              <defs>
+                <linearGradient id="ds-prog-fill" x1="0" y1="0" x2="1" y2="0">
+                  <stop class="ds-prog-a" offset="0%"/>
+                  <stop class="ds-prog-b" offset="100%"/>
+                </linearGradient>
+              </defs>
+              <rect class="ds-prog-track" x="0" y="0" width="100" height="10"/>
+              <rect x="0" y="0" width="{{ c.progress }}" height="10" fill="url(#ds-prog-fill)"/>
+            </svg>
+            {% if c.blocks %}
+            <div class="ds-blocks">
+              {% for b in c.blocks %}
+              <div class="ds-block">
+                <div class="ds-block-value">{{ b.value }}</div>
+                <div class="ds-block-label">{{ b.label }}</div>
+              </div>
+              {% endfor %}
+            </div>
+            {% endif %}
+          {% elif c.chart %}
+            {{ card_chart(c.chart, c.key) }}
+          {% endif %}
+          <div class="ds-card-foot {{ 'is-down' if c.delta_dir == 'down' }}">
+            <span class="ds-state-dot">{{ state_glyph(c.delta_dir) }}</span>
+            <div>
+              <p class="briefing-headline">{{ c.headline }}</p>
+              <p class="briefing-narrative">{{ c.narrative }}</p>
+            </div>
+          </div>
           <a class="briefing-explore" href="{{ c.explore_url }}">Dig it →</a>
         {% elif c.state == 'empty' %}
           <div class="briefing-metric briefing-metric-muted">—</div>
@@ -143,16 +211,20 @@
       {% endfor %}
     </div>
 
-    {# --- Opportunities ---
-       The ranked, deep-linked action list below the cards. Each row is a whole-row
-       link into the workflow that closes the gap, with a proportion meter showing
-       how much of that dimension is already strong. No open gaps = an "all caught
-       up" note rather than an empty void. Built in _opportunities(). #}
+    {# --- Recommended Actions: the ranked, deep-linked opportunity rows. --- #}
     <div class="opportunities">
       <div class="opp-eyebrow-row">
-        <p class="label eyebrow opp-eyebrow">Opportunities</p>
-        {# The dashboard shows the top few; the Insights page is the full worklist. #}
-        <a class="opp-seeall" href="{{ url_for('pages.insights_opportunities', group_id=briefing.selected_group_id, period=briefing.period) }}">See all →</a>
+        <div class="ds-actions-head">
+          <span class="ds-spark-ico" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l1.6 4.4L18 8l-4.4 1.6L12 14l-1.6-4.4L6 8z"/><path d="M19 13l.7 2L22 16l-2.3.7L19 19l-.7-2.3L16 16l2.3-.7z"/></svg>
+          </span>
+          <h2 class="ds-actions-title">Recommended Actions</h2>
+        </div>
+        <div class="ds-actions-right">
+          {% if briefing.opportunities %}<span class="ds-actions-count">{{ briefing.opportunities | length }}
+             opportunit{{ 'y' if briefing.opportunities | length == 1 else 'ies' }}</span>{% endif %}
+          <a class="opp-seeall" href="{{ url_for('pages.insights_opportunities', group_id=briefing.selected_group_id, period=briefing.period) }}">See all →</a>
+        </div>
       </div>
       {% if briefing.opportunities %}
         <div class="opp-list">
@@ -160,7 +232,13 @@
           <a class="opp-row opp-{{ o.key }}" href="{{ o.cta_url }}">
             <span class="opp-icon">{{ opp_icon(o.icon) }}</span>
             <span class="opp-body">
-              <span class="opp-title">{{ o.title }}</span>
+              <span class="opp-title">{{ o.title }}
+                {% if loop.first %}<span class="ds-badge ds-badge-priority">High Priority</span>
+                {% elif o.key == 'copy' %}<span class="ds-badge ds-badge-content">Content</span>
+                {% elif o.key == 'images' %}<span class="ds-badge ds-badge-creative">Creative</span>
+                {% elif o.key == 'competitive' %}<span class="ds-badge ds-badge-default">Competitive</span>
+                {% else %}<span class="ds-badge ds-badge-default">Discovery</span>{% endif %}
+              </span>
               <span class="opp-detail">{{ o.detail }}</span>
             </span>
             {% if o.meter %}{{ opp_meter(o.meter) }}{% else %}{{ opp_spark(o.spark, o.caption) }}{% endif %}

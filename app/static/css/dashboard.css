@@ -1,0 +1,646 @@
+/* ============================================================================
+   dashboard.css — Premium "Portfolio Overview" redesign (the /app dashboard).
+
+   WHY THIS FILE EXISTS, SEPARATELY:
+   The rest of the authenticated workspace uses a deliberately FLAT system
+   (tokens.css: "nothing rounder than 4px; no shadows anywhere"). This redesign
+   gives the dashboard a premium, elevated look (soft shadows, 12–16px radii, a
+   refined blue/purple palette) WITHOUT disturbing any other screen. To keep that
+   promise, every rule here is scoped under `body.page-dashboard`, and this
+   stylesheet loads ONLY on the dashboard (via dashboard.html's head_extra). It
+   loads after workspace.css, so these scoped selectors win on specificity and
+   override the flat defaults just for this page. Deleting this file + the markup
+   hooks fully reverts the dashboard — nothing else depends on it.
+
+   CSP note: the app's CSP is `script-src 'self'` and forbids inline styles, so
+   there are NO inline style="" attributes anywhere; chart labels are SVG <text>
+   positioned with presentation attributes, colored by the classes below.
+   ========================================================================== */
+
+/* --- Design tokens (dashboard-scoped) -------------------------------------
+   The palette + scale from the redesign brief. Defined on the page wrapper so
+   they resolve only here; the global tokens.css is untouched. */
+body.page-dashboard {
+  --ds-canvas: #f6f8fc;      /* main workspace surface */
+  --ds-surface: #ffffff;     /* cards */
+  --ds-ink: #111827;         /* primary text */
+  --ds-muted: #64748b;       /* secondary text */
+  --ds-faint: #94a3b8;       /* tertiary / axis text */
+  --ds-blue: #356dff;        /* primary actions + analytical highlights */
+  --ds-purple: #8b5cf6;      /* AI accents + competition */
+  --ds-green: #16a34a;       /* positive */
+  --ds-amber: #f59e0b;       /* warning */
+  --ds-red: #ef4444;         /* negative */
+  --ds-border: #e2e8f0;      /* subtle borders */
+  --ds-border-strong: #cbd5e1;
+
+  /* Soft, purposeful elevation — the whole departure from the flat system. */
+  --ds-shadow-card: 0 1px 2px rgba(16, 24, 40, 0.04), 0 4px 12px rgba(16, 24, 40, 0.06);
+  --ds-shadow-lift: 0 2px 6px rgba(16, 24, 40, 0.06), 0 12px 28px rgba(16, 24, 40, 0.10);
+  --ds-shadow-panel: 0 1px 2px rgba(16, 24, 40, 0.03), 0 8px 24px rgba(16, 24, 40, 0.06);
+
+  --ds-radius-sm: 8px;
+  --ds-radius: 12px;
+  --ds-radius-lg: 16px;
+
+  /* Fast, restrained motion (brief: 150–250ms). */
+  --ds-ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --ds-fast: 160ms;
+  --ds-med: 220ms;
+
+  --ds-tint: rgba(53, 109, 255, 0.10);   /* soft icon-container fill (blue) */
+}
+
+/* The light workspace surface + comfortable 32px gutters. The rail (dark navy)
+   is left to workspace.css; only the content column is relit here. */
+body.page-dashboard .pane {
+  background: var(--ds-canvas);
+  padding: 8px 32px 64px;
+}
+body.page-dashboard .content-col,
+body.page-dashboard .topbar {
+  background: var(--ds-canvas);
+}
+body.page-dashboard .pane-inner {
+  max-width: 1280px;
+}
+
+/* --- Topbar: slim and seamless on the dashboard ---------------------------
+   The redesign puts the breadcrumb in the page header (below), so the topbar's
+   own breadcrumb is hidden; the bar stays for its notification chips, which
+   float right against the canvas with no divider. */
+body.page-dashboard .topbar {
+  border-bottom: none;
+  padding: 10px 32px 0;
+  height: auto;
+  min-height: 40px;
+}
+body.page-dashboard .topbar .breadcrumb {
+  display: none;
+}
+body.page-dashboard .topbar-notify {
+  border-radius: var(--ds-radius-sm);
+  transition: background var(--ds-fast) var(--ds-ease), color var(--ds-fast) var(--ds-ease);
+}
+
+/* --- Nav rail refinements (scoped to the dashboard only) -------------------
+   Preserve the dark navy rail; just polish the active + hover states to the new
+   blue. Scoped under body.page-dashboard so other screens' rail is untouched —
+   rolling this app-wide later is a one-line change (drop the scope prefix). */
+body.page-dashboard .rail-leaf,
+body.page-dashboard .rail-group-head {
+  border-radius: 10px;
+  transition: background var(--ds-fast) var(--ds-ease), color var(--ds-fast) var(--ds-ease);
+}
+body.page-dashboard .rail-leaf:hover,
+body.page-dashboard .rail-group-head:hover {
+  background: rgba(53, 109, 255, 0.12);
+}
+body.page-dashboard .rail-leaf.active {
+  /* Refined blue active background with a subtle depth, replacing flat graphite. */
+  background: linear-gradient(180deg, #3b74ff 0%, #2f62e6 100%);
+  box-shadow: 0 2px 8px rgba(47, 98, 230, 0.35);
+}
+
+/* --- Page header ----------------------------------------------------------
+   Breadcrumb · large title · brand + period controls on one baseline. */
+body.page-dashboard .dash-header {
+  align-items: flex-end;
+  gap: 24px;
+  margin-bottom: 20px;
+}
+body.page-dashboard .ds-crumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--ds-muted);
+  margin: 0 0 10px;
+}
+body.page-dashboard .ds-crumb .ds-crumb-here {
+  color: var(--ds-ink);
+  font-weight: 600;
+}
+body.page-dashboard .dash-header h1 {
+  font-size: 34px;
+  font-weight: 650;
+  letter-spacing: -0.025em;
+  line-height: 1.05;
+  color: var(--ds-ink);
+}
+body.page-dashboard .dash-header .subtitle {
+  font-size: 14px;
+  color: var(--ds-muted);
+  margin-top: 8px;
+}
+
+/* Controls cluster: brand selector, default star, period segmented control —
+   made to read as one integrated group of controls, not stray form widgets. */
+body.page-dashboard .briefing-controls {
+  gap: 10px;
+}
+body.page-dashboard .briefing-select {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--ds-ink);
+  padding: 9px 30px 9px 13px;
+  background: var(--ds-surface);
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius-sm);
+  box-shadow: var(--ds-shadow-card);
+  cursor: pointer;
+  transition: border-color var(--ds-fast) var(--ds-ease), box-shadow var(--ds-fast) var(--ds-ease);
+}
+body.page-dashboard .briefing-select:hover {
+  border-color: var(--ds-border-strong);
+}
+body.page-dashboard .briefing-select:focus-visible {
+  outline: none;
+  border-color: var(--ds-blue);
+  box-shadow: 0 0 0 3px rgba(53, 109, 255, 0.18);
+}
+body.page-dashboard .briefing-go {
+  padding: 9px 13px;
+  border-radius: var(--ds-radius-sm);
+  background: var(--ds-blue);
+  border-color: var(--ds-blue);
+}
+body.page-dashboard .briefing-default {
+  font-size: 12.5px;
+  padding: 9px 12px;
+  border-radius: var(--ds-radius-sm);
+  background: var(--ds-surface);
+  border: 1px solid var(--ds-border);
+  box-shadow: var(--ds-shadow-card);
+  color: var(--ds-muted);
+  transition: color var(--ds-fast) var(--ds-ease), border-color var(--ds-fast) var(--ds-ease);
+}
+body.page-dashboard button.briefing-default:hover {
+  color: var(--ds-blue);
+  border-color: var(--ds-border-strong);
+}
+body.page-dashboard .briefing-default.is-default {
+  color: var(--ds-blue);
+  background: rgba(53, 109, 255, 0.10);
+  border-color: transparent;
+  box-shadow: none;
+}
+/* Segmented period control: a pill track with a solid-blue active segment. */
+body.page-dashboard .briefing-periods {
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius-sm);
+  background: var(--ds-surface);
+  box-shadow: var(--ds-shadow-card);
+  padding: 3px;
+  gap: 2px;
+}
+body.page-dashboard .briefing-period {
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  padding: 7px 14px;
+  border-radius: 6px;
+  color: var(--ds-muted);
+  background: transparent;
+  transition: background var(--ds-fast) var(--ds-ease), color var(--ds-fast) var(--ds-ease);
+}
+body.page-dashboard .briefing-period:hover {
+  color: var(--ds-ink);
+}
+body.page-dashboard .briefing-period.is-active {
+  background: var(--ds-blue);
+  color: #fff;
+  font-weight: 600;
+}
+body.page-dashboard .briefing-period.is-disabled {
+  color: var(--ds-faint);
+  opacity: 0.6;
+}
+
+/* Snapshot line above the cards (replaces the old "Your summary" eyebrow). */
+body.page-dashboard .briefing-context {
+  gap: 7px;
+  margin: 2px 0 18px;
+}
+body.page-dashboard .briefing-context .eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.09em;
+  color: var(--ds-muted);
+}
+body.page-dashboard .briefing-context-brand {
+  color: var(--ds-ink);
+  font-weight: 600;
+  font-size: 14px;
+}
+body.page-dashboard .briefing-context-period {
+  color: var(--ds-muted);
+}
+
+/* --- Summary cards --------------------------------------------------------
+   Three equal white cards: icon + label, big metric + delta pill, a trend
+   chart, then a status headline + narrative. */
+body.page-dashboard .briefing {
+  margin-bottom: 28px;
+}
+body.page-dashboard .briefing-cards {
+  gap: 18px;
+}
+body.page-dashboard .briefing-card {
+  background: var(--ds-surface);
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius-lg);
+  box-shadow: var(--ds-shadow-card);
+  padding: 22px 24px 20px;
+  transition: box-shadow var(--ds-med) var(--ds-ease), transform var(--ds-med) var(--ds-ease);
+}
+body.page-dashboard .briefing-card:hover {
+  box-shadow: var(--ds-shadow-lift);
+  transform: translateY(-2px);
+}
+
+/* Card head: a softly tinted icon container + uppercase category label. */
+body.page-dashboard .ds-card-head {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  margin-bottom: 16px;
+}
+body.page-dashboard .ds-card-ico {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: var(--ds-tint);
+  color: var(--ds-blue);
+  flex-shrink: 0;
+}
+body.page-dashboard .ds-card-ico svg {
+  width: 18px;
+  height: 18px;
+}
+body.page-dashboard .briefing-card .label {
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ds-muted);
+  margin: 0;
+}
+/* Per-card accent: discoverability + conversion blue, competition purple. */
+body.page-dashboard .briefing-competition .ds-card-ico {
+  background: rgba(139, 92, 246, 0.12);
+  color: var(--ds-purple);
+}
+
+body.page-dashboard .briefing-metric {
+  font-size: 44px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  color: var(--ds-ink);
+  margin: 0;
+  gap: 12px;
+}
+/* Delta pill: a tinted rounded pill with a directional arrow (via ::before). */
+body.page-dashboard .briefing-delta {
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 999px;
+  align-self: center;
+}
+body.page-dashboard .briefing-delta.up {
+  color: var(--ds-green);
+  background: rgba(22, 163, 74, 0.12);
+}
+body.page-dashboard .briefing-delta.up::before { content: "\2197\00a0"; }
+body.page-dashboard .briefing-delta.down {
+  color: var(--ds-red);
+  background: rgba(239, 68, 68, 0.12);
+}
+body.page-dashboard .briefing-delta.down::before { content: "\2198\00a0"; }
+body.page-dashboard .briefing-delta.flat {
+  color: var(--ds-muted);
+  background: rgba(100, 116, 139, 0.12);
+}
+
+/* The in-card trend chart (server-rendered inline SVG from _card_chart). */
+body.page-dashboard .ds-chart {
+  width: 100%;
+  height: auto;
+  display: block;
+  margin: 16px 0 4px;
+  overflow: visible;
+}
+body.page-dashboard .ds-grid {
+  stroke: var(--ds-border);
+  stroke-width: 1;
+  stroke-dasharray: 2 4;
+}
+body.page-dashboard .ds-line {
+  fill: none;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+body.page-dashboard .ds-dot {
+  stroke: #fff;
+  stroke-width: 1.5;
+}
+body.page-dashboard .ds-ytick,
+body.page-dashboard .ds-xtick {
+  font-family: inherit;
+  font-size: 9px;
+  font-weight: 500;
+  fill: var(--ds-faint);
+}
+/* Blue series (discoverability). */
+body.page-dashboard .ds-chart-discoverability .ds-line { stroke: var(--ds-blue); }
+body.page-dashboard .ds-chart-discoverability .ds-dot { fill: var(--ds-blue); }
+body.page-dashboard .ds-chart-discoverability .ds-grad-a { stop-color: var(--ds-blue); stop-opacity: 0.18; }
+body.page-dashboard .ds-chart-discoverability .ds-grad-b { stop-color: var(--ds-blue); stop-opacity: 0; }
+/* Purple series (competition). */
+body.page-dashboard .ds-chart-competition .ds-line { stroke: var(--ds-purple); }
+body.page-dashboard .ds-chart-competition .ds-dot { fill: var(--ds-purple); }
+body.page-dashboard .ds-chart-competition .ds-grad-a { stop-color: var(--ds-purple); stop-opacity: 0.20; }
+body.page-dashboard .ds-chart-competition .ds-grad-b { stop-color: var(--ds-purple); stop-opacity: 0; }
+
+/* Conversion: gradient progress bar + three readiness blocks. */
+body.page-dashboard .ds-progress {
+  display: block;
+  width: 100%;
+  height: 10px;
+  border-radius: 999px;   /* the container clips the SVG fill to rounded ends */
+  overflow: hidden;
+  margin: 18px 0 16px;
+}
+body.page-dashboard .ds-prog-track { fill: var(--ds-border); }
+body.page-dashboard .ds-prog-a { stop-color: var(--ds-blue); }
+body.page-dashboard .ds-prog-b { stop-color: var(--ds-purple); }
+body.page-dashboard .ds-blocks {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 4px;
+}
+body.page-dashboard .ds-block {
+  text-align: center;
+  padding: 10px 6px;
+  border-radius: var(--ds-radius-sm);
+  background: var(--ds-canvas);
+  border: 1px solid var(--ds-border);
+}
+body.page-dashboard .ds-block-value {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--ds-ink);
+  line-height: 1;
+}
+body.page-dashboard .ds-block-label {
+  font-size: 11px;
+  color: var(--ds-muted);
+  margin-top: 5px;
+}
+
+/* Status footer: a small state dot + headline, then the narrative + deep-link. */
+body.page-dashboard .ds-card-foot {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin-top: 14px;
+}
+body.page-dashboard .ds-state-dot {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: var(--ds-green);
+}
+body.page-dashboard .ds-card-foot.is-down .ds-state-dot { color: var(--ds-amber); }
+body.page-dashboard .briefing-headline {
+  font-size: 15px;
+  font-weight: 650;
+  color: var(--ds-ink);
+  margin: 0;
+}
+body.page-dashboard .briefing-narrative {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ds-muted);
+  margin: 4px 0 0;
+}
+body.page-dashboard .briefing-explore {
+  display: inline-block;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ds-blue);
+  margin-top: 14px;
+}
+body.page-dashboard .briefing-metric-muted {
+  color: var(--ds-faint);
+}
+
+/* --- Recommended Actions (the opportunities panel) ------------------------
+   One elevated white container holding the section header + action rows. */
+body.page-dashboard .opportunities {
+  background: var(--ds-surface);
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius-lg);
+  box-shadow: var(--ds-shadow-panel);
+  padding: 24px 24px 22px;
+  margin-top: 28px;
+}
+body.page-dashboard .opp-eyebrow-row {
+  align-items: center;
+  margin-bottom: 18px;
+}
+body.page-dashboard .ds-actions-head {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+body.page-dashboard .ds-spark-ico {
+  color: var(--ds-purple);
+  display: inline-flex;
+}
+body.page-dashboard .ds-spark-ico svg { width: 20px; height: 20px; }
+body.page-dashboard .ds-actions-title {
+  font-size: 19px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--ds-ink);
+  margin: 0;
+}
+body.page-dashboard .ds-ai-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ds-purple);
+  background: rgba(139, 92, 246, 0.12);
+  padding: 4px 10px;
+  border-radius: 999px;
+}
+body.page-dashboard .ds-actions-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-left: auto;
+}
+body.page-dashboard .ds-actions-count {
+  font-size: 13px;
+  color: var(--ds-muted);
+}
+body.page-dashboard .opp-seeall {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ds-blue);
+}
+
+body.page-dashboard .opp-list { gap: 12px; }
+body.page-dashboard .opp-row {
+  grid-template-columns: 44px minmax(0, 1fr) 150px auto;
+  gap: 18px;
+  padding: 16px 18px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius);
+  background: var(--ds-surface);
+  transition: border-color var(--ds-fast) var(--ds-ease), box-shadow var(--ds-fast) var(--ds-ease), transform var(--ds-fast) var(--ds-ease);
+}
+body.page-dashboard .opp-row:hover {
+  border-color: var(--ds-border-strong);
+  box-shadow: var(--ds-shadow-card);
+  transform: translateY(-1px);
+}
+/* Icon chip, tinted by the workflow the action routes to. */
+body.page-dashboard .opp-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: var(--ds-tint);
+  color: var(--ds-blue);
+}
+body.page-dashboard .opp-competitive .opp-icon { background: rgba(239, 68, 68, 0.12); color: var(--ds-red); }
+body.page-dashboard .opp-copy .opp-icon { background: rgba(53, 109, 255, 0.12); color: var(--ds-blue); }
+body.page-dashboard .opp-images .opp-icon { background: rgba(139, 92, 246, 0.12); color: var(--ds-purple); }
+body.page-dashboard .opp-discovery .opp-icon { background: rgba(53, 109, 255, 0.12); color: var(--ds-blue); }
+
+body.page-dashboard .opp-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 14.5px;
+  font-weight: 650;
+  color: var(--ds-ink);
+}
+body.page-dashboard .opp-detail {
+  font-size: 12.5px;
+  color: var(--ds-muted);
+  margin-top: 3px;
+}
+/* Category / priority badges beside the action title. */
+body.page-dashboard .ds-badge {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+body.page-dashboard .ds-badge-priority { color: var(--ds-red); background: rgba(239, 68, 68, 0.12); }
+body.page-dashboard .ds-badge-content { color: var(--ds-blue); background: rgba(53, 109, 255, 0.12); }
+body.page-dashboard .ds-badge-creative { color: var(--ds-purple); background: rgba(139, 92, 246, 0.12); }
+body.page-dashboard .ds-badge-default { color: var(--ds-muted); background: rgba(100, 116, 139, 0.12); }
+
+/* Progress meter colored per workflow (content green, images amber). */
+body.page-dashboard .opp-bar-track { fill: var(--ds-border); }
+body.page-dashboard .opp-copy .opp-bar-fill { fill: var(--ds-green); }
+body.page-dashboard .opp-images .opp-bar-fill { fill: var(--ds-amber); }
+body.page-dashboard .opp-bar-caption {
+  font-size: 11.5px;
+  color: var(--ds-muted);
+}
+/* Competitive row keeps its trend sparkline, tinted purple to match its chip. */
+body.page-dashboard .opp-competitive .opp-spark-line,
+body.page-dashboard .opp-competitive .opp-spark-dot { stroke: var(--ds-purple); fill: var(--ds-purple); }
+body.page-dashboard .opp-competitive .opp-spark-line { fill: none; }
+
+/* Action CTA as a bordered button. */
+body.page-dashboard .opp-cta {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 14px;
+  border: 1px solid var(--ds-border-strong);
+  border-radius: var(--ds-radius-sm);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ds-blue);
+  background: var(--ds-surface);
+  transition: border-color var(--ds-fast) var(--ds-ease), background var(--ds-fast) var(--ds-ease);
+}
+body.page-dashboard .opp-row:hover .opp-cta {
+  border-color: var(--ds-blue);
+  background: rgba(53, 109, 255, 0.06);
+}
+
+/* --- Empty / setup state --------------------------------------------------- */
+body.page-dashboard .briefing-setup {
+  background: var(--ds-surface);
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius-lg);
+  box-shadow: var(--ds-shadow-card);
+  padding: 28px;
+}
+body.page-dashboard .briefing-setup .label {
+  color: var(--ds-muted);
+}
+body.page-dashboard .briefing-setup p {
+  color: var(--ds-muted);
+  font-size: 14px;
+}
+body.page-dashboard .briefing-setup .wbtn-primary {
+  background: var(--ds-blue);
+  border-radius: var(--ds-radius-sm);
+  padding: 10px 18px;
+}
+body.page-dashboard .opp-empty {
+  border-radius: var(--ds-radius);
+}
+
+/* --- Responsive ------------------------------------------------------------
+   The brief prioritizes desktop; below these widths cards/actions stack so
+   nothing overflows on tablet/phone. */
+@media (max-width: 920px) {
+  body.page-dashboard .briefing-cards { grid-template-columns: 1fr; }
+  body.page-dashboard .dash-header { align-items: flex-start; flex-direction: column; }
+}
+@media (max-width: 760px) {
+  body.page-dashboard .pane { padding: 4px 18px 48px; }
+  body.page-dashboard .topbar { padding: 10px 18px 0; }
+  body.page-dashboard .opportunities { padding: 18px 16px; }
+  body.page-dashboard .opp-row {
+    grid-template-columns: 44px minmax(0, 1fr);
+    grid-template-areas: "icon body" "meter meter" "cta cta";
+    gap: 12px;
+  }
+  body.page-dashboard .opp-row .opp-icon { grid-area: icon; }
+  body.page-dashboard .opp-row .opp-body { grid-area: body; }
+  body.page-dashboard .opp-row .opp-meter-wrap,
+  body.page-dashboard .opp-row .opp-spark-wrap { grid-area: meter; }
+  body.page-dashboard .opp-row .opp-cta { grid-area: cta; justify-self: start; }
+}
+
+/* Respect reduced-motion: keep the look, drop the movement. */
+@media (prefers-reduced-motion: reduce) {
+  body.page-dashboard .briefing-card,
+  body.page-dashboard .opp-row {
+    transition: none;
+  }
+  body.page-dashboard .briefing-card:hover,
+  body.page-dashboard .opp-row:hover {
+    transform: none;
+  }
+}

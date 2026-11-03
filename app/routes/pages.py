@@ -558,6 +558,83 @@ def _sparkline(values: list[float]) -> dict | None:
     }
 
 
+# Summary-card trend chart canvas (viewBox units) — larger than the opportunity
+# sparkline so the filled area, line and axis labels stay legible inside a card. A
+# left gutter holds the y-tick labels; the bottom pad holds the month labels. The
+# template's <svg viewBox> must match these dimensions.
+_CARD_W, _CARD_H = 288, 112
+_CARD_GUTTER_L, _CARD_PAD_R = 28, 6
+_CARD_PAD_TOP, _CARD_PAD_BOTTOM = 12, 24
+
+
+def _card_chart(values: list[float], dates: list[str], kind: str) -> dict | None:
+    """Build an inline-SVG area+line spec for a summary card (oldest→newest).
+
+    Plots only the real readings handed in (from :func:`_discovery_trend` or the
+    shelf-share ``trend``) — it never invents points, so a card's chart always
+    agrees with its headline metric. ``kind`` sets orientation only: ``'rank'`` is
+    "lower is better", so the series is flipped vertically (a falling rank number
+    climbs the chart) and the metric reads without a unit; any other kind plots
+    upright (higher = higher) and carries a ``'%'`` unit for share.
+
+    Returns ``None`` for a series too short to draw a line (fewer than two points)
+    so the template drops the chart slot and the card still stands on its metric
+    alone — the graceful-degradation the brief calls for when history is thin.
+
+    Coordinates are in the :data:`_CARD_W` x :data:`_CARD_H` viewBox; three y-tick
+    gridlines (series low/mid/high) and up to three month labels ride along for the
+    axes.
+    """
+    if not values or len(values) < 2:
+        return None
+    n = len(values)
+    lo, hi = min(values), max(values)
+    span = (hi - lo) or 1  # avoid /0 on a flat series; it lands on the mid-line
+    plot_x0, plot_x1 = _CARD_GUTTER_L, _CARD_W - _CARD_PAD_R
+    inner_w = plot_x1 - plot_x0
+    baseline = _CARD_H - _CARD_PAD_BOTTOM
+    inner_h = baseline - _CARD_PAD_TOP
+
+    def y_at(v: float) -> float:
+        frac = (v - lo) / span            # 0 at the series min, 1 at its max
+        if kind == "rank":
+            frac = 1 - frac               # lower rank is the good outcome → plot high
+        # Invert for SVG's top-left origin: the best value sits at the top pad line.
+        return round(_CARD_PAD_TOP + inner_h * (1 - frac), 1)
+
+    def x_at(i: int) -> float:
+        return round(plot_x0 + inner_w * i / (n - 1), 1)
+
+    pts = [(x_at(i), y_at(v)) for i, v in enumerate(values)]
+    line = " ".join(f"{x},{y}" for x, y in pts)
+    # Area path: the trend line, then down to the baseline and back — a filled
+    # region under the curve for the premium card look.
+    area = (f"M{pts[0][0]},{baseline} "
+            + " ".join(f"L{x},{y}" for x, y in pts)
+            + f" L{pts[-1][0]},{baseline} Z")
+
+    # y ticks at the series' low / mid / high (oriented by kind via y_at), and a
+    # few month markers (first / middle / last) for the x axis — all drawn as SVG
+    # <text> (CSP forbids inline styles, so no CSS-positioned HTML labels).
+    def tick(v: float) -> dict:
+        return {"y": y_at(v), "value": round(v, 1)}
+
+    y_ticks = [tick(hi), tick((lo + hi) / 2), tick(lo)]
+    label_idx = sorted({0, n // 2, n - 1})
+    x_labels = [{"x": pts[i][0], "text": dates[i]} for i in label_idx if i < len(dates)]
+
+    return {
+        "w": _CARD_W, "h": _CARD_H,
+        "x0": plot_x0, "x1": plot_x1,
+        "line": line, "area": area,
+        "dot": {"x": pts[-1][0], "y": pts[-1][1]},
+        "baseline": baseline,
+        "y_ticks": y_ticks,
+        "x_labels": x_labels,
+        "unit": "%" if kind == "share" else "",
+    }
+
+
 def _opportunities(db, uid, gid, period, mine_brands, has_data) -> list[dict]:
     """Rank the brand's top content + competitive gaps into deep-linked actions.
 
@@ -734,6 +811,9 @@ def _performance_briefing(db, uid) -> dict:
             "headline": _headline(d_dir, "Rankings are improving.",
                                   "Rankings are slipping.", "Rankings are holding."),
             "narrative": narrative, "explore_url": explore_rank,
+            # In-card trend from the same per-item rank series the headline reads,
+            # so the line's endpoint is the metric above. None when history is thin.
+            "chart": _card_chart(*_discovery_trend(db, uid, disc_brands, period, "rank"), "rank"),
         }
     elif cur_disc["n"]:
         # Readings collected this window, but no tracked item holds a page-1 slot yet.
@@ -765,6 +845,9 @@ def _performance_briefing(db, uid) -> dict:
             "headline": _headline(d_dir, "You're winning more shelf.",
                                   "You're losing shelf share.", "Shelf share is steady."),
             "narrative": narrative, "explore_url": explore_shelf,
+            # Shelf-share trend over the last few periods (same metric as the
+            # headline, so the line ends on it). None when history is thin.
+            "chart": _card_chart(shelf["trend"], shelf["trend_dates"], "share"),
         }
     else:
         competition = {"key": "competition", "label": "Competition",
@@ -795,6 +878,11 @@ def _performance_briefing(db, uid) -> dict:
             f"{cur['scored_count']} product{_s(cur['scored_count'])} scored. "
             + (f"{needs} ha{'s' if needs == 1 else 've'} content issues that need attention."
                if needs else "All are in good shape."))
+        # Three readiness buckets for the card's blocks: Strong (scored ≥ the
+        # strong threshold) and Needs work come straight from readiness_score;
+        # Missing is the brand's portfolio products not yet scored at all.
+        strong = cur["scored_count"] - needs
+        missing = jobs.readiness_missing_count(db, uid, mine_brands)
         conversion = {
             "key": "conversion", "label": "Conversion", "state": "ok",
             "metric": f"{cur['avg']}/100",
@@ -802,6 +890,13 @@ def _performance_briefing(db, uid) -> dict:
             "headline": _headline(d_dir, "Content health is improving.",
                                   "Content health is slipping.", "Content health is steady."),
             "narrative": narrative, "explore_url": explore_readiness,
+            # Gradient progress fill (0–100) + the three readiness blocks.
+            "progress": cur["avg"],
+            "blocks": [
+                {"label": "Strong", "value": strong},
+                {"label": "Needs work", "value": needs},
+                {"label": "Missing", "value": missing},
+            ],
         }
 
     return {
