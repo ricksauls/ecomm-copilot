@@ -1,5 +1,50 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
+_Last updated: 2026-11-02 (session 51 — **Premium visual redesign of the dashboard (`/app`, "Portfolio Overview") —
+one commit `6bee561`, CI + Deploy CONFIRMED green + LIVE.** 858 tests + ruff clean. No dependency changes. This block
+brings HANDOFF current through S51.)_
+
+_**S51 scope — DASHBOARD ONLY (user-chosen), visual-only.** Redesigned `/app` to a premium "commerce intelligence" look
+(soft shadows, 12–16px radii, `#356DFF` blue / `#8B5CF6` purple palette, in-card trend charts, a polished "Recommended
+Actions" panel). Pushed to `main` (solo-dev direct-push workflow)._
+
+_**1) Isolated, reversible CSS architecture.** All new styling lives in a NEW stylesheet
+**`app/static/css/dashboard.css`**, every rule scoped under **`body.page-dashboard`**, loaded ONLY on the dashboard via
+`dashboard.html`'s `head_extra`. `base.html` gained an additive `{% block body_class %}` hook (dashboard.html sets
+`page-dashboard`). The flat global system is UNTOUCHED — `tokens.css` ("no shadows, nothing rounder than 4px") and the
+shared 4,272-line `workspace.css` are not modified, so **every other authenticated screen is unchanged / still flat**.
+Rolling the premium look app-wide later = drop the `body.page-dashboard` scope prefix / promote these tokens global._
+
+_**2) `dashboard.html` reworked** to the new layout: in-content breadcrumb, "Portfolio Overview" title, icon-headed
+summary cards, in-card SVG trend charts, Conversion's gradient readiness bar + Strong/Needs-work/Missing blocks, and the
+elevated "Recommended Actions" panel (badges + CTA buttons). All routes/forms/`url_for`/data keys preserved. CSP-safe
+(CSP is `script-src 'self'`): no inline styles/scripts — chart axis labels are SVG `<text>`, the progress fill is an SVG
+rect `width` attribute (mirrors the existing `opp_meter` pattern), no new JS._
+
+_**3) Read-only data additions (no business-logic / API / schema change).** `pages.py`: new `_card_chart` helper +
+wired the Discoverability chart from `_discovery_trend(...,"rank")` and the Competition chart from the shelf-share
+`trend` (both endpoints match their card headline, so charts never contradict the metric), plus Conversion's progress +
+three buckets. `jobs.readiness_missing_count` computes the "Missing" bucket (brand portfolio products with no score).
+Charts return `None` / hide gracefully when history is thin._
+
+_**Deploy status — CONFIRMED green + LIVE 2026-11-02.** CI run 41565653595 SUCCESS 3m6s → chained Deploy 41565983343
+SUCCESS; live-verified `ecomm-copilot.com/static/css/dashboard.css` serves 200 with 136 `body.page-dashboard` rules,
+landing 200. Browser-verified locally (empty state + a throwaway seed — `Seed Hot Sauce` group, `seed-*` ids on
+demo@test.local, LOCAL `app.db` only, never prod — for the populated cards + charts + Recommended Actions; desktop +
+mobile; no console/CSP errors)._
+
+_**Deliberate deviations from the mockup (flagged to user, OPEN):** (a) the Competition purple chart needs CI scrape data
+(`ci_search_results`) to populate — shows the graceful "gathering" state otherwise; it uses the SAME chart macro as
+Discoverability's (verified), so it renders identically once CI data exists. (b) The "AI-Powered Insights" badge was
+OMITTED — the dashboard opportunities are rule-based, not LLM-generated (the brief said show it only if truly AI). (c)
+The nav rail does NOT collapse on mobile — pre-existing GLOBAL shell behavior in `workspace.css`, out of the
+dashboard-only scope; good candidate for a separate app-wide responsive pass alongside rolling the look out._
+
+_**Open items after S51 (carried forward, unchanged):** S44 `python -m app.suggest_keywords` droplet run (regen the 8
+tracked items 3→5 keywords); `landing.html` redesign (deferred — don't touch piecemeal; still advertises the removed
+$250 snapshot card); rolling the premium design system to the other (still-flat) screens. **Env gotcha carried
+forward:** invalid `GITHUB_TOKEN` shadows the keyring `gh` login → `env -u GITHUB_TOKEN gh …`._
+
 _Last updated: 2026-11-03 (session 50 — **UI polish across the managed-item pickers and the workspace tables; three
 commits, all CONFIRMED green + LIVE.** No dependency changes. 858 tests + ruff clean. This block brings HANDOFF current
 through S50.)_
