@@ -135,8 +135,8 @@
 // collapses; submitting posts to the shared edit route (return_to=portfolio) and
 // the server redirects back to the list. Event-delegated so it covers every row
 // with one listener (CSP-safe, no inline handlers). Pure enhancement: with JS off
-// the chips stay visible and editing is still reachable from the item's own
-// tracking page ("View trends").
+// the chips stay visible and the edit form stays in the DOM, so editing still
+// works without the reveal/collapse.
 (function () {
   "use strict";
 

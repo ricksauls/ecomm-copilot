@@ -161,12 +161,6 @@
               <span class="pf-switch-label">{{ 'Tracking' if it.tracked else 'Off' }}</span>
             </form>
             {% if it.tracked %}
-            {# Per-item detail (rank/share, commerce facts, readiness) now lives in the
-               Performance drill (the standalone trends page was retired); only tracked
-               items have it. #}
-            <a href="{{ url_for('pages.insights_performance', item=it.id, tab='rank') }}"
-               class="cell-muted pf-track-view">View performance</a>
-
             {# Tracking keywords for this item — the 3 search terms its daily rank &
                share of search are measured against. Shown only when tracking is on
                (the keywords ARE the tracking config). Read view = labeled chips +

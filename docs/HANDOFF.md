@@ -1,8 +1,10 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-11-02 (session 49 — **verified S48's deploy, then removed the dead `/products/bulk` route.**
-`origin/main` = `edaf2c9`; CI + Deploy CONFIRMED green + LIVE. 858 tests + ruff clean; no dependency changes.
-This block brings HANDOFF current through S49.)_
+_Last updated: 2026-11-02 (session 49 — **verified S48's deploy, removed the dead `/products/bulk` route, finished the
+Phase 2 perf-block cleanup, removed the Portfolio "View performance" link, and renamed the Competitive Tracking
+"category" wording to "competitive group".** `/products/bulk` committed + LIVE as `edaf2c9` (handoff `a0ce2e0`); the
+Phase 2 cleanup + link removal + terminology rename are done locally (858 tests + ruff clean) but NOT yet committed.
+No dependency changes. This block brings HANDOFF current through S49.)_
 
 _**1) Verified S48 first (it had been pushed with CI/Deploy unconfirmed).** Both the CI run ("Remove the One-Time
 Snapshot CI product") and its chained Deploy are green; live site confirms it — the deleted snapshot routes
@@ -19,12 +21,34 @@ multi-item product picker with a single-item portfolio selector (`ci_add_owned_i
 the removed route now 404s in prod (was 405 while the route existed). Note: `seasonal_add_products` in `pages.py` is an
 unrelated seasonal-content function — not touched._
 
-_**3) Env gotcha carried forward:** an invalid `GITHUB_TOKEN` is exported in the user's shell and shadows the good
+_**3) Phase 2 cleanup + removed the Portfolio "View performance" link.** Investigating the "retire item-page perf
+blocks" to-do showed S47 had already done the substance (View-trends page fully retired into the Performance drill,
+portfolio link renamed to "View performance" — not "View Keywords"). What remained was dead residue: stale "View
+trends" mentions in comments (`workspace.css` `.cell-track` + inline-keywords comments, `portfolio.js` enhancement
+comment) and orphaned CSS for the retired tracking page's keyword editor (`.pf-kw-row`, `.pf-kw-row .field-sublabel`,
+`.pf-kw-form .wbtn` — no template used those classes). Separately, per the user, the **"View performance" link was
+removed** from the Portfolio Management list's Tracking column (`portfolio.html`), and its now-dead `.pf-track-view` rule
+deleted. The `{% if it.tracked %}` wrapper stays (the tracking-keyword chips live inside it). No route/data change — the
+Performance drill is still reachable via Insights → Performance. 858 tests + ruff clean; browser-checked (link gone, page
+renders). NOTE: the remaining "View trends" strings in `insights_performance.html` + `pages.py:3152` are accurate
+historical references (they describe what the drill absorbed) and were left. NOT yet committed at this point in S49._
+
+_**4) Renamed "category" → "competitive group" on Competitive Tracking (copy only).** Per the user, a tracked
+"category" is now a "competitive group" throughout the Competitive Tracking UI: `ci_monitoring_home.html` (subtitle,
+"New tracked competitive group" section, hint, name placeholder, "Tracked competitive groups" table title, the
+`Competitive group` table header, empty state), `ci_view.html` empty state, and `tracking_config.html` ("…you sell in
+this competitive group"). Matching comments/docstrings in those templates + `pages.py` (`ci_create_monitoring_group`,
+`ci_group_config`, `ci_add_owned_item`) updated for consistency. **No internal renames** — the DB `ci_groups` table,
+the `name` form field, route/function names, and Flask's flash-category mechanic (`with_categories`) are untouched, so
+it's a pure copy change. Unrelated "Category" labels elsewhere (Creative Studio image-set, Contact messages) left as-is.
+No test asserted the old copy (the "category" strings in `test_ci_pages.py` are arbitrary description values), so 858
+tests still pass; browser-verified the renamed screen._
+
+_**5) Env gotcha carried forward:** an invalid `GITHUB_TOKEN` is exported in the user's shell and shadows the good
 keyring login, so bare `gh` commands return `401 Bad credentials`. Workaround used all session: `unset GITHUB_TOKEN`
 before each `gh` call. Cleaning up where it's exported (a shell profile) is an offered, not-yet-done fixup._
 
-_**Open items after S49 (unchanged from S48 minus `/products/bulk`):** Phase 2 follow-ups (retire the remaining
-item-page perf blocks); `landing.html` redesign (deferred 2026-11-02 — don't touch piecemeal; still advertises the
+_**Open items after S49:** `landing.html` redesign (deferred 2026-11-02 — don't touch piecemeal; still advertises the
 removed $250 snapshot card); S44 `python -m app.suggest_keywords` droplet run (regen the 8 tracked items 3→5 keywords)._
 
 _Last updated: 2026-11-02 (session 48 — **One-Time Snapshot product FULLY REMOVED** (the S47 deferred open item).

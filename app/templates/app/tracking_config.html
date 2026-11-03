@@ -1,7 +1,7 @@
 {% extends "app/base.html" %}
 {% block title %}{{ group.name }} · Competitive Tracking — DISCOtech{% endblock %}
 
-{# Competitive-tracking setup for one monitoring group ("tracked category"). This is
+{# Competitive-tracking setup for one monitoring group ("tracked competitive group"). This is
    the only CI setup screen, reorganized around the user's mental model: flip
    tracking on/off
    (header), pick YOUR product from the portfolio (brand derived from the item), paste
@@ -19,8 +19,8 @@
 {% block pane_content %}
 <div class="page-header">
   <div>
-    {# Title carries the category; the description (entered on Create) sits beneath it
-       so the screen names what this tracking is for, not just the category. #}
+    {# Title carries the competitive group; the description (entered on Create) sits beneath
+       it so the screen names what this tracking is for, not just the group. #}
     <h1>{{ group.name }}</h1>
     {% if group.description %}<p class="subtitle">{{ group.description }}</p>{% endif %}
   </div>
@@ -95,7 +95,7 @@
 <div class="ci-section card card-pad" data-portfolio-filter>
   <div class="ci-section-title">Your brand &amp; products</div>
   <p class="ci-section-hint">
-    Search your portfolio and pick the product you sell in this category. Your brand
+    Search your portfolio and pick the product you sell in this competitive group. Your brand
     is taken from the item you choose.
   </p>
 

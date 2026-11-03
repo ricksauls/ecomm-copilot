@@ -2578,8 +2578,8 @@ body.cost-modal-open {
   white-space: nowrap;
 }
 /* Like cell-action but left-aligned, so the content lines up under its
-   left-aligned header (the Portfolio "Tracking" column: switch + label +
-   "View trends"). nowrap keeps the control on one line. */
+   left-aligned header (the Portfolio "Tracking" column: switch + label).
+   nowrap keeps the control on one line. */
 .admin-table .cell-track {
   text-align: left;
   white-space: nowrap;
@@ -3680,16 +3680,9 @@ select.pf-select[multiple] option { padding: 6px 8px; border-radius: 4px; }
 /* Small state caption beside the switch. */
 .pf-switch-label { font-size: 12.5px; color: var(--mid-gray); }
 .pf-switch.is-on + .pf-switch-label { color: var(--black); }
-/* The "View trends" link sits after the switch. */
-.pf-track-view { display: inline-block; margin-left: var(--space-8); font-size: 12.5px; }
-
-/* Keyword editor on the per-item tracking page: three stacked labelled fields. */
-.pf-kw-row { margin-bottom: var(--space-12); max-width: 520px; }
-.pf-kw-row .field-sublabel { display: block; margin-bottom: 4px; }
-.pf-kw-form .wbtn { margin-top: var(--space-8); }
 
 /* --- Inline tracking keywords in the Portfolio list (Tracking column) --------
-   Shown only for tracked rows, below the toggle + "View trends". A read view
+   Shown only for tracked rows, below the toggle. A read view
    (labelled chips) swaps to an edit form (inputs) via portfolio.js. Kept narrow
    so the column stays compact; long keywords (KW2) ellipsize with the full text
    on hover (the chip's title attribute). */

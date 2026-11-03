@@ -5372,8 +5372,8 @@ def ci_create_monitoring_group():
     """Create a monitoring group and jump to its config screen.
 
     Description is required here (the HTML form also marks it required, but the
-    server is the real guard): every tracked category must carry one so the
-    Competitive Tracking list can show what each category is for.
+    server is the real guard): every tracked competitive group must carry one so the
+    Competitive Tracking list can show what each group is for.
     """
     description = (request.form.get("description") or "").strip()
     if not description:
@@ -5420,8 +5420,8 @@ def ci_group_config(group_id):
     products = ci_config.list_products(db, group_id, uid)
     keywords = ci_config.list_keywords(db, group_id, uid)
     # The setup screen is shared by Create (first setup) and the Set Up button on an
-    # existing category, so the breadcrumb reads "Create New Tracking" only while the
-    # category is genuinely untouched (nothing configured and never run).
+    # existing competitive group, so the breadcrumb reads "Create New Tracking" only while
+    # the group is genuinely untouched (nothing configured and never run).
     is_new = not (brands or products or keywords or latest_run)
     breadcrumb = ("Competitive Tracking - Create New Tracking" if is_new
                   else f"Competitive Tracking · {group['name']}")
@@ -5497,7 +5497,7 @@ def ci_add_product(group_id):
 @bp.route("/app/competitive-intel/groups/<int:group_id>/owned-item", methods=["POST"])
 @login_required
 def ci_add_owned_item(group_id):
-    """Add one of the user's portfolio items as their tracked product in this category.
+    """Add one of the user's portfolio items as their tracked product in this competitive group.
 
     The redesigned setup screen picks a single portfolio item (searchable dropdown)
     rather than typing a brand + URL: the brand is derived from the item. Reusing the
