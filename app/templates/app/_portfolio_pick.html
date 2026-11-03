@@ -189,10 +189,12 @@
            placeholder="Search brand, item #, title, or URL…"
            aria-label="Search your portfolio" />
   </div>
+  {# size="8" renders a multi-row listbox (like the Content Scoring / Product Copy
+     pickers) so several items stay visible while the search box above filters them.
+     No placeholder option: a sized single-select starts with nothing selected, and
+     `required` still forces a pick — matching the other screens' list behaviour. #}
   <select id="pf-managed-url" name="managed_url" form="{{ form_id }}" class="pf-select"
-          aria-label="Managed item" required>
-    {# Placeholder carries no data-portfolio-row, so the filter never hides it. #}
-    <option value="">— Select a managed item —</option>
+          size="8" aria-label="Managed item" required>
     {% for it in items %}
     <option value="{{ it.walmart_url }}" data-portfolio-row
       data-brand="{{ (it.brand or '') | lower }}"
