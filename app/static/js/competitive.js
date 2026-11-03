@@ -20,6 +20,23 @@
     return e;
   }
 
+  // Per-chart counter so each SVG's area-gradient gets a unique id.
+  var gradSeq = 0;
+
+  // Vertical gradient (soft at the line → transparent at the baseline) for the
+  // own-brand area fill — the same treatment as the dashboard's .ds-area
+  // (dashboard.css ds-grad-a/ds-grad-b: 0.18 → 0). Returns the defs node to
+  // append and the paint url to reference it.
+  function makeAreaGradient(color) {
+    var id = "ci-grad-" + (++gradSeq);
+    var defs = el("defs", {});
+    var grad = el("linearGradient", { id: id, x1: "0", y1: "0", x2: "0", y2: "1" });
+    grad.appendChild(el("stop", { offset: "0%", "stop-color": color, "stop-opacity": "0.18" }));
+    grad.appendChild(el("stop", { offset: "100%", "stop-color": color, "stop-opacity": "0" }));
+    defs.appendChild(grad);
+    return { defs: defs, fill: "url(#" + id + ")" };
+  }
+
   // Every non-null value across all series, for the y-domain.
   function allValues(series) {
     var out = [];
@@ -81,6 +98,26 @@
       tx.textContent = d;
       svg.appendChild(tx);
     });
+
+    // Gradient area fill under the OWN-brand line only (echoes the dashboard's
+    // filled trend; competitor lines stay as plain reference lines on top). Drawn
+    // first so the lines render over it. Skipped when the own-brand series has
+    // gaps, so the fill never bridges a missing period.
+    var mine = series.filter(function (s) { return s.mine; })[0];
+    if (mine) {
+      var mv = mine.values || [];
+      var contiguous = mv.length >= 2 &&
+        mv.every(function (v) { return v !== null && v !== undefined; });
+      if (contiguous) {
+        var area = makeAreaGradient(mine.color);
+        svg.appendChild(area.defs);
+        var base = PAD_T + plotH;
+        var d = "M" + x(0).toFixed(1) + " " + base.toFixed(1);
+        mv.forEach(function (v, i) { d += " L" + x(i).toFixed(1) + " " + y(v).toFixed(1); });
+        d += " L" + x(mv.length - 1).toFixed(1) + " " + base.toFixed(1) + " Z";
+        svg.appendChild(el("path", { d: d, fill: area.fill, stroke: "none" }));
+      }
+    }
 
     // Series: one polyline per unbroken run of non-null points, plus an endpoint dot.
     series.forEach(function (s) {
