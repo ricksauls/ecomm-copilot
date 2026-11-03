@@ -1,5 +1,45 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
+_Last updated: 2026-11-03 (session 50 — **UI polish across the managed-item pickers and the workspace tables; three
+commits, all CONFIRMED green + LIVE.** No dependency changes. 858 tests + ruff clean. This block brings HANDOFF current
+through S50.)_
+
+_**S50 scope — three small, independent front-end changes, pushed to `main` (solo-dev direct-push workflow).**_
+
+_**1) Portfolio search on all three "run" pickers (`4616d31`).** Content Scoring + Product Copy (the multi-select
+`portfolio_pick_select` macro) and the Image Set Creator (the single-select `portfolio_pick_select_single`) now carry
+the same client-side portfolio search the Competitive Tracking setup already uses: a `[data-filter-search]` box inside a
+`[data-portfolio-filter]` wrapper filters the `<option>`s in place by their `data-portfolio-row` haystack
+(brand/item #/title/URL), with a "no match" empty state. `portfolio.js` is now loaded on `pdp_scoring.html`,
+`pdp_copy.html`, and `pdp_image_set.html` (it wasn't before). The single-select's placeholder carries no
+`data-portfolio-row` (never hidden), and the search box has no `form=` association (never submits). Pure progressive
+enhancement — JS off = every option visible. Ids/names/multi-select/pre-selection unchanged; no server change. Tests
+extended in `test_pdp.py`, `test_copy.py`, `test_imageset_prefill.py` (assert the search markup + `portfolio.js`)._
+
+_**2) Readable workspace table font scale (`ff65877`).** The shared `.admin-table` base is 9px (tuned for dense admin
+grids — User Management, admin items/copy/messages). New reusable modifier **`.admin-table.table-readable`** (12.5px
+cells / 11px header) lifts the *user-facing* tables onto a readable scale while the admin grids stay compact. Applied to:
+Portfolio Management managed-items table (also unifies the row — the data columns now match the Tracking column's
+controls, `.pf-switch-label` 12.5px / `.pf-kw-term` 12px, which previously stood out against 9px data), Competitive
+Tracking home (`ci_monitoring_home` `.ci-group-table`), the setup screen (`tracking_config` both tables), and the
+results view (`_ci_results_sections` 5 tables + `_ci_ads`). CSS + template-class only; no behaviour change._
+
+_**3) Image Set picker shows 8 rows (`25487be`).** The Image Set Creator's managed-item picker was a closed
+single-select dropdown (one visible row); now `size="8"` renders it as a multi-row listbox like Scoring/Copy. The
+`— Select a managed item —` placeholder was dropped (a sized single-select starts with nothing selected and `required`
+still forces a pick). `workspace.css` listbox styling (padded option rows + tighter container) extended from
+`select.pf-select[multiple]` to `[size]` so the sized single-select gets the same row treatment. Search still filters._
+
+_**Deploy status — all three CONFIRMED green + LIVE.** First push `2266b2e..ff65877` (commits 1+2): CI run 41556492252
+SUCCESS 3m21s → chained Deploy 41556874241 SUCCESS; live-verified landing 200, /app/pdp-scoring + /app/pdp-image-set +
+/app/competitive-intel/monitoring all 302, deployed `workspace.css` carries `.table-readable`, `portfolio.js` served
+200. Second push adds commit 3 (`25487be`) + this handoff. Browser-verified each screen locally (computed font sizes,
+8-row listbox height, filtering, no console errors)._
+
+_**Open items after S50 (unchanged):** S44 `python -m app.suggest_keywords` droplet run (regen the 8 tracked items
+3→5 keywords); `landing.html` redesign (deferred — don't touch piecemeal; still advertises the removed $250 snapshot
+card). **Env gotcha carried forward:** invalid `GITHUB_TOKEN` shadows the keyring `gh` login → `env -u GITHUB_TOKEN gh …`._
+
 _Last updated: 2026-11-02 (session 49 — **verified S48's deploy, removed the dead `/products/bulk` route, finished the
 Phase 2 perf-block cleanup, removed the Portfolio "View performance" link, and renamed the Competitive Tracking
 "category" wording to "competitive group".** `/products/bulk` committed + LIVE as `edaf2c9` (handoff `a0ce2e0`); the
