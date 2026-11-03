@@ -15,7 +15,9 @@
   "use strict";
 
   var SVG = "http://www.w3.org/2000/svg";
-  var MINE = "#0b1220";
+  // Own-brand ("mine") series in the premium blue (matches the dashboard); the
+  // competitor lines stay greyed/dashed so "mine" reads as the highlighted one.
+  var MINE = "#356dff";      // --ds-blue
   var GREYS = ["#6b6b6b", "#9a9a9a", "#8c8c8c", "#b5b5b5"]; // cycled for non-mine
   var DASHES = ["", "4 3", "1 3", "6 3"];
 
@@ -60,7 +62,7 @@
     [0, 0.5, 1].forEach(function (f) {
       var y = padT + plotH - f * plotH;
       svg.appendChild(el("line", { x1: padL, y1: y, x2: W - padR, y2: y,
-        stroke: "#d7deea", "stroke-width": 1 }));
+        stroke: "#e2e8f0", "stroke-width": 1, "stroke-dasharray": "2 4" }));
       var lbl = el("text", { x: 4, y: y + 3, "font-size": 9, fill: "#94a3b8" });
       lbl.textContent = Math.round(f * maxY) + "%";
       svg.appendChild(lbl);
@@ -172,7 +174,7 @@
     pts.forEach(function (v, i) {
       d += (i === 0 ? "M" : "L") + (pad + i * stepX).toFixed(1) + " " + y(v).toFixed(1) + " ";
     });
-    svg.appendChild(el("path", { d: d.trim(), fill: "none", stroke: "#0b1220",
+    svg.appendChild(el("path", { d: d.trim(), fill: "none", stroke: MINE,
       "stroke-width": 1.5, "stroke-linejoin": "round", "stroke-linecap": "round" }));
 
     // A visible dot at each point (the latest is larger), plus a transparent,
@@ -181,7 +183,7 @@
       var cx = (pad + i * stepX).toFixed(1);
       var cy = y(v).toFixed(1);
       var isLast = i === pts.length - 1;
-      svg.appendChild(el("circle", { cx: cx, cy: cy, r: isLast ? 2 : 1.4, fill: "#0b1220" }));
+      svg.appendChild(el("circle", { cx: cx, cy: cy, r: isLast ? 2 : 1.4, fill: MINE }));
 
       // Tooltip text: "date · value" when a date is known, else just the value.
       var value = formatValue(v, unit);

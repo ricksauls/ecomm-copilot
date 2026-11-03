@@ -222,3 +222,42 @@ body.workspace .ci-input:focus,
 body.workspace .ci-select:focus {
   outline-color: var(--ds-blue);
 }
+
+/* --- Insights period control (parity with the dashboard) ------------------
+   The Insights screens use .ci-periods (a row of bordered pill-links) for their
+   period toggle, where the dashboard uses the segmented .briefing-periods. Re-
+   skin .ci-periods into the same segmented control: a pill track with a solid-
+   blue active segment, so the two read identically. (The flat per-link borders
+   and uppercase styling in workspace.css are overridden here.) */
+body.workspace .ci-periods {
+  gap: 2px;
+  padding: 3px;
+  background: var(--ds-surface);
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius-sm);
+  box-shadow: var(--ds-shadow-card);
+}
+body.workspace .ci-periods a,
+body.workspace .ci-periods .disabled {
+  border: 0;
+  border-radius: 6px;
+  padding: 7px 14px;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  color: var(--ds-muted);
+  transition: background var(--ds-fast) var(--ds-ease), color var(--ds-fast) var(--ds-ease);
+}
+body.workspace .ci-periods a:hover {
+  color: var(--ds-ink);
+  background: rgba(53, 109, 255, 0.08);
+}
+body.workspace .ci-periods a.active {
+  background: var(--ds-blue);
+  color: #fff;
+  font-weight: 600;
+}
+body.workspace .ci-periods .disabled {
+  color: var(--ds-faint);
+  opacity: 0.6;
+}
