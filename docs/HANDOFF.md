@@ -43,7 +43,10 @@ this competitive group"). Matching comments/docstrings in those templates + `pag
 the `name` form field, route/function names, and Flask's flash-category mechanic (`with_categories`) are untouched, so
 it's a pure copy change. Unrelated "Category" labels elsewhere (Creative Studio image-set, Contact messages) left as-is.
 No test asserted the old copy (the "category" strings in `test_ci_pages.py` are arbitrary description values), so 858
-tests still pass; browser-verified the renamed screen._
+tests still pass; browser-verified the renamed screen. **Follow-up tweak (`d103a85`, also LIVE):** per the user, the
+create-form's two placeholders were then set to "Category (e.g. Hot Sauce)" (name field) and "Competitor name / Group
+description" (description field) — so the create form itself still says "Category" even though the section/table copy
+reads "competitive group"._
 
 _**5) Env gotcha carried forward:** an invalid `GITHUB_TOKEN` is exported in the user's shell and shadows the good
 keyring login, so bare `gh` commands return `401 Bad credentials`. Workaround used all session: `unset GITHUB_TOKEN`
