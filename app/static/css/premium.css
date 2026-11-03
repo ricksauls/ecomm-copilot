@@ -1,0 +1,224 @@
+/* ============================================================================
+   premium.css — the app-wide premium visual layer (authenticated workspace).
+
+   WHY THIS FILE EXISTS:
+   The dashboard (/app) was redesigned to a premium, elevated look — soft
+   shadows, 12–16px radii, a refined blue/purple palette, a lit #f6f8fc canvas —
+   while every other workspace screen stayed on the deliberately FLAT system in
+   tokens.css ("nothing rounder than 4px; no shadows anywhere"). This file rolls
+   that premium look out to the WHOLE authenticated workspace by re-skinning the
+   SHARED primitives (canvas, cards, buttons, tables, form controls, nav rail,
+   topbar) in one place, so all screens read as one coherent system instead of
+   N scoped copies.
+
+   HOW IT LAYERS (load order set in app/base.html):
+     tokens.css → workspace.css → premium.css → (dashboard.css, only on /app)
+   Every rule here is scoped under `body.workspace`, which adds one class of
+   specificity over workspace.css's bare `.card` / `.wbtn` selectors, so these
+   win over the flat defaults. dashboard.css still loads last on the dashboard,
+   so its page-specific components (briefing cards, opportunity rows, charts)
+   keep overriding this layer there. Deleting this <link> + file fully reverts
+   the app to the flat look — nothing else depends on it.
+
+   WHY A SEPARATE FILE (not edited into tokens.css / workspace.css):
+   tokens.css and the 4,272-line workspace.css are the flat source of truth and
+   are referenced by the public surface and the JS chart helpers too. Keeping the
+   premium layer additive and isolated makes it reviewable as one diff and
+   trivially reversible, and leaves the flat tokens intact for anything that
+   still wants them.
+
+   CSP note: the app's CSP is `script-src 'self'` and forbids inline styles —
+   there are NO inline style="" attributes introduced by this rollout; this is
+   pure stylesheet. ========================================================== */
+
+/* --- Premium design tokens (workspace-scoped) -----------------------------
+   The same palette + scale the dashboard redesign introduced, promoted here so
+   every screen resolves them. Defined on body.workspace so they never leak to
+   the public/landing surface. Names mirror dashboard.css's --ds-* set. */
+body.workspace {
+  --ds-canvas: #f6f8fc;        /* lit workspace surface behind cards */
+  --ds-surface: #ffffff;       /* card / panel fill */
+  --ds-ink: #111827;           /* primary text */
+  --ds-muted: #64748b;         /* secondary text */
+  --ds-faint: #94a3b8;         /* tertiary / axis / placeholder text */
+  --ds-blue: #356dff;          /* primary actions + analytical highlights */
+  --ds-purple: #8b5cf6;        /* AI accents + competition */
+  --ds-green: #16a34a;         /* positive */
+  --ds-amber: #f59e0b;         /* warning */
+  --ds-red: #ef4444;           /* negative */
+  --ds-border: #e2e8f0;        /* subtle card / divider borders */
+  --ds-border-strong: #cbd5e1; /* hover / emphasis borders */
+
+  /* Soft, purposeful elevation — the whole departure from the flat system. */
+  --ds-shadow-card: 0 1px 2px rgba(16, 24, 40, 0.04), 0 4px 12px rgba(16, 24, 40, 0.06);
+  --ds-shadow-lift: 0 2px 6px rgba(16, 24, 40, 0.06), 0 12px 28px rgba(16, 24, 40, 0.10);
+  --ds-shadow-panel: 0 1px 2px rgba(16, 24, 40, 0.03), 0 8px 24px rgba(16, 24, 40, 0.06);
+
+  --ds-radius-sm: 8px;
+  --ds-radius: 12px;
+  --ds-radius-lg: 16px;
+
+  --ds-ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --ds-fast: 160ms;
+  --ds-med: 220ms;
+
+  --ds-tint: rgba(53, 109, 255, 0.10);  /* soft blue fill for icon chips / active states */
+}
+
+/* --- Lit canvas -----------------------------------------------------------
+   Relight the content column, scroll pane and topbar onto the soft #f6f8fc
+   canvas (the flat system used the cooler, flatter #eaeff7). The dark navy rail
+   is intentionally left to workspace.css. */
+body.workspace .content-col,
+body.workspace .pane,
+body.workspace .topbar {
+  background: var(--ds-canvas);
+}
+
+/* --- Topbar: seamless on the canvas ---------------------------------------
+   Drop the hard divider so the bar floats on the canvas like the dashboard's.
+   The breadcrumb stays visible here (non-dashboard screens rely on it for
+   location); only dashboard.css hides it on /app. */
+body.workspace .topbar {
+  border-bottom: none;
+}
+body.workspace .search,
+body.workspace .client-toggle {
+  border-radius: var(--ds-radius-sm);
+  border-color: var(--ds-border);
+}
+body.workspace .topbar-notify {
+  border-radius: var(--ds-radius-sm);
+  transition: background var(--ds-fast) var(--ds-ease), color var(--ds-fast) var(--ds-ease);
+}
+
+/* --- Nav rail refinements -------------------------------------------------
+   Promote the dashboard's rail polish app-wide: rounded leaves, a soft blue
+   hover tint, and a depth-lit blue active state (replacing flat graphite).
+   The rail's dark navy surface itself is unchanged. */
+body.workspace .rail-leaf,
+body.workspace .rail-group-head {
+  border-radius: 10px;
+  transition: background var(--ds-fast) var(--ds-ease), color var(--ds-fast) var(--ds-ease);
+}
+body.workspace .rail-leaf:hover,
+body.workspace .rail-group-head:hover {
+  background: rgba(53, 109, 255, 0.12);
+}
+body.workspace .rail-leaf.active {
+  background: linear-gradient(180deg, #3b74ff 0%, #2f62e6 100%);
+  box-shadow: 0 2px 8px rgba(47, 98, 230, 0.35);
+}
+
+/* --- Page header + tab bar ------------------------------------------------
+   Keep the shared header pattern; just tie the active-tab underline to the
+   premium blue so it matches the rest of the system. */
+body.workspace .page-header h1 {
+  color: var(--ds-ink);
+}
+body.workspace .ws-tab.active {
+  border-bottom-color: var(--ds-blue);
+}
+
+/* --- Cards ----------------------------------------------------------------
+   The core elevation: lift every shared .card off the page with a soft shadow
+   and a rounder 12px corner. These are often static containers, so there is no
+   hover transform here (that stays a dashboard-specific flourish). */
+body.workspace .card {
+  border-color: var(--ds-border);
+  border-radius: var(--ds-radius);
+  box-shadow: var(--ds-shadow-card);
+}
+
+/* --- Buttons --------------------------------------------------------------
+   Primary becomes the brand blue (matching the dashboard's primary actions),
+   secondary/ghost gain the 8px radius and a subtle lift. Focus rings move from
+   the flat black outline to a blue halo. */
+body.workspace .wbtn {
+  border-radius: var(--ds-radius-sm);
+}
+body.workspace .wbtn-primary {
+  background: var(--ds-blue);
+  color: #fff;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.10);
+}
+body.workspace .wbtn-primary:hover {
+  background: #2f62e6;
+}
+body.workspace .wbtn-primary:disabled:hover {
+  background: var(--ds-blue);
+}
+body.workspace .wbtn-secondary {
+  border-color: var(--ds-border);
+  box-shadow: var(--ds-shadow-card);
+}
+body.workspace .wbtn-secondary:hover {
+  border-color: var(--ds-border-strong);
+}
+body.workspace .wbtn-secondary:disabled:hover {
+  border-color: var(--ds-border);
+}
+body.workspace .wbtn:focus-visible {
+  outline: none;
+  border-color: var(--ds-blue);
+  box-shadow: 0 0 0 3px rgba(53, 109, 255, 0.18);
+}
+
+/* --- Tables ---------------------------------------------------------------
+   Lift the shared workspace tables (Portfolio, Competitive, admin grids) onto
+   the premium palette: a soft tinted header, lighter dividers, and the shared
+   blue-tinted row hover. The dense 9px admin scale is untouched — this only
+   restyles surfaces/borders, never layout or column widths. */
+body.workspace .admin-table th {
+  background: #f8fafc;
+  border-bottom-color: var(--ds-border-strong);
+  color: var(--ds-muted);
+}
+body.workspace .admin-table td {
+  border-bottom-color: var(--ds-border);
+}
+/* Round the top corners of the header so a table that sits in a .card inherits
+   the card's rounded top edge cleanly. */
+body.workspace .admin-table th:first-child { border-top-left-radius: var(--ds-radius); }
+body.workspace .admin-table th:last-child { border-top-right-radius: var(--ds-radius); }
+
+/* --- Form controls --------------------------------------------------------
+   Unify the many bordered field variants onto the premium radius and a blue
+   focus halo, replacing the flat black focus border/outline. These selectors
+   mirror the field classes defined across workspace.css (text, brand, url, CI,
+   portfolio, copy). Grouped here so the focus treatment is consistent on every
+   screen without editing each call site. */
+body.workspace .text-input,
+body.workspace .brand-input,
+body.workspace .url-input,
+body.workspace .ci-input,
+body.workspace .ci-select,
+body.workspace .pf-select,
+body.workspace .copy-select,
+body.workspace .search {
+  border-radius: var(--ds-radius-sm);
+}
+body.workspace .text-input:focus,
+body.workspace .brand-input:focus,
+body.workspace .url-input:focus,
+body.workspace .pf-select:focus,
+body.workspace .dash-search:focus {
+  outline: none;
+  border-color: var(--ds-blue);
+  box-shadow: 0 0 0 3px rgba(53, 109, 255, 0.18);
+}
+/* Fields that wrap their input in a focus-within container (brand/url). */
+body.workspace .brand-field,
+body.workspace .url-field {
+  border-radius: var(--ds-radius-sm);
+}
+body.workspace .brand-field:focus-within,
+body.workspace .url-field:focus-within {
+  border-color: var(--ds-blue);
+  box-shadow: 0 0 0 3px rgba(53, 109, 255, 0.18);
+}
+/* The CI fields outline rather than border on focus — recolor to blue. */
+body.workspace .ci-input:focus,
+body.workspace .ci-select:focus {
+  outline-color: var(--ds-blue);
+}

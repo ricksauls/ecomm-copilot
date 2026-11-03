@@ -12,6 +12,11 @@
     <link rel="icon" type="image/png" sizes="512x512" href="{{ static_url('img/favicon-512.png') }}" />
     <link rel="stylesheet" href="{{ static_url('css/tokens.css') }}" />
     <link rel="stylesheet" href="{{ static_url('css/workspace.css') }}" />
+    {# Premium visual layer — re-skins the shared primitives (canvas, cards,
+       buttons, tables, forms, rail, topbar) app-wide. Loads AFTER workspace.css
+       so it wins over the flat defaults, and BEFORE head_extra so each screen's
+       own stylesheet (e.g. dashboard.css) still layers on top. #}
+    <link rel="stylesheet" href="{{ static_url('css/premium.css') }}" />
     {% block head_extra %}{% endblock %}
   </head>
   <body class="workspace {% block body_class %}{% endblock %}">
