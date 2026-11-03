@@ -182,6 +182,11 @@ def test_intake_offers_managed_item_dropdown(client, auth, app):
         db.commit()
     resp = client.get("/app/pdp-image-set")
     assert b'id="pf-managed-url"' in resp.data
+    # The picker is searchable (portfolio.js filters the options in place via the
+    # same data-portfolio-filter contract as Content Scoring / Product Copy).
+    assert b"data-portfolio-filter" in resp.data
+    assert b"data-filter-search" in resp.data
+    assert b"js/portfolio.js" in resp.data
     assert b"Fetch details for this item" in resp.data
     # The old free-text URL input is gone.
     assert b'name="url"' not in resp.data

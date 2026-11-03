@@ -242,6 +242,9 @@
 {% endblock %}
 
 {% block scripts %}
+{# Client-side search over the managed-item picker (the [data-portfolio-filter]
+   contract in _portfolio_pick.html), same as Content Scoring / Product Copy. #}
+<script src="{{ static_url('js/portfolio.js') }}"></script>
 <script src="{{ static_url('js/imageset_intake.js') }}"></script>
 <script src="{{ static_url('js/imageset_fetch.js') }}"></script>
 {% endblock %}

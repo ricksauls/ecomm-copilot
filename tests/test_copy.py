@@ -35,6 +35,11 @@ def test_copy_intake_renders(client, auth, app):
     # entry and CSV upload were removed.
     assert b"Choose from your managed items" in resp.data
     assert b'id="pf-managed-urls"' in resp.data
+    # The dropdown is searchable (portfolio.js filters the options in place via the
+    # same data-portfolio-filter contract as the Portfolio list / CI setup).
+    assert b"data-portfolio-filter" in resp.data
+    assert b"data-filter-search" in resp.data
+    assert b"js/portfolio.js" in resp.data
     assert b'id="csv"' not in resp.data
     # No brand field on the copy intake: these URLs are fetched, so the worker reads
     # the brand from the PDP and the user doesn't type it.

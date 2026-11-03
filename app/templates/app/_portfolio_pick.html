@@ -124,23 +124,38 @@
    name="urls" — the same field the batch intakes already collect — so the
    server side is unchanged. Hold Ctrl/⌘ to pick several (native multi-select). #}
 {% macro portfolio_pick_select(items, selected_items=()) -%}
-<div class="form-section">
+<div class="form-section" data-portfolio-filter>
   <div class="section-head">
     <span class="step">1</span>
     <label class="field-label" for="pf-managed-urls">Choose from your managed items</label>
   </div>
 
   {% if items %}
-  <p class="brand-hint">Select one or more of your managed products. Hold Ctrl (⌘ on Mac) to pick several.</p>
+  <p class="brand-hint">Search your portfolio, then select one or more products. Hold Ctrl (⌘ on Mac) to pick several.</p>
+  {# Same portfolio-search contract as the Portfolio list and Competitive Tracking
+     setup: portfolio.js hides the non-matching <option>s in place by their data-*
+     haystack, so a long portfolio stays navigable. Pure enhancement — with JS off
+     every option is visible and selectable. #}
+  <div class="pf-filter-bar">
+    <input type="search" class="ci-input grow" data-filter-search
+           placeholder="Search brand, item #, title, or URL…"
+           aria-label="Search your portfolio" />
+  </div>
   <select id="pf-managed-urls" name="urls" class="pf-select" multiple size="8"
           aria-label="Managed items to run">
     {% for it in items %}
-    <option value="{{ it.walmart_url }}"
+    <option value="{{ it.walmart_url }}" data-portfolio-row
+      data-brand="{{ (it.brand or '') | lower }}"
+      data-item="{{ it.item_id or '' }}"
+      data-title="{{ (it.title or '') | lower }}"
+      data-url="{{ it.walmart_url | lower }}"
       {% if it.item_id and (it.item_id | string) in selected_items %}selected{% endif %}>
       {{ _managed_option_label(it) }}
     </option>
     {% endfor %}
   </select>
+  {# portfolio.js reveals this when the search matches no option. #}
+  <p class="pf-empty-filtered brand-hint" hidden>No items match that search.</p>
   {% else %}
   <p class="brand-hint">
     You haven't added any managed items yet.
@@ -157,24 +172,40 @@
    enforces the requirement regardless. The leading blank option is the unchosen
    state so nothing is silently pre-selected. #}
 {% macro portfolio_pick_select_single(items, form_id, selected_items=()) -%}
-<div class="form-section">
+<div class="form-section" data-portfolio-filter>
   <div class="section-head">
     <span class="step">1</span>
     <label class="field-label" for="pf-managed-url">Choose a managed item</label>
   </div>
 
   {% if items %}
-  <p class="brand-hint">Pick the product this image set is for — one of your managed items.</p>
+  <p class="brand-hint">Search your portfolio and pick the product this image set is for — one of your managed items.</p>
+  {# Same portfolio-search contract as Content Scoring / Product Copy: portfolio.js
+     hides the non-matching <option>s in place by their data-* haystack. The search
+     box is a plain filter with no form= association, so it never submits with the
+     main intake form. Pure enhancement — with JS off every option is visible. #}
+  <div class="pf-filter-bar">
+    <input type="search" class="ci-input grow" data-filter-search
+           placeholder="Search brand, item #, title, or URL…"
+           aria-label="Search your portfolio" />
+  </div>
   <select id="pf-managed-url" name="managed_url" form="{{ form_id }}" class="pf-select"
           aria-label="Managed item" required>
+    {# Placeholder carries no data-portfolio-row, so the filter never hides it. #}
     <option value="">— Select a managed item —</option>
     {% for it in items %}
-    <option value="{{ it.walmart_url }}"
+    <option value="{{ it.walmart_url }}" data-portfolio-row
+      data-brand="{{ (it.brand or '') | lower }}"
+      data-item="{{ it.item_id or '' }}"
+      data-title="{{ (it.title or '') | lower }}"
+      data-url="{{ it.walmart_url | lower }}"
       {% if it.item_id and (it.item_id | string) in selected_items %}selected{% endif %}>
       {{ _managed_option_label(it) }}
     </option>
     {% endfor %}
   </select>
+  {# portfolio.js reveals this when the search matches no option. #}
+  <p class="pf-empty-filtered brand-hint" hidden>No items match that search.</p>
   {% else %}
   <p class="brand-hint">
     You haven't added any managed items yet.

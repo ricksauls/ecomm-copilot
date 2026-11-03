@@ -52,3 +52,9 @@
   <p class="score-band-foot">Each item earns a 0–100 score across these four dimensions, with the ranked actions that close the gaps.</p>
 </div>
 {% endblock %}
+
+{% block scripts %}
+{# Client-side search over the managed-items dropdown (the [data-portfolio-filter]
+   contract in _portfolio_pick.html). #}
+<script src="{{ static_url('js/portfolio.js') }}"></script>
+{% endblock %}

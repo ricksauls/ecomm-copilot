@@ -102,6 +102,11 @@ def test_pdp_get_renders_form(client, auth, app):
     # upload were removed (adding items lives on Portfolio Management).
     assert b"Choose from your managed items" in resp.data
     assert b'id="pf-managed-urls"' in resp.data
+    # The dropdown is searchable (portfolio.js filters the options in place via the
+    # same data-portfolio-filter contract as the Portfolio list / CI setup).
+    assert b"data-portfolio-filter" in resp.data
+    assert b"data-filter-search" in resp.data
+    assert b"js/portfolio.js" in resp.data
     assert b'id="csv"' not in resp.data
     # The scoring intake has no brand field (brand is captured from the PDP by the
     # worker, not typed here).
