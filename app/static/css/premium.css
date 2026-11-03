@@ -261,3 +261,36 @@ body.workspace .ci-periods .disabled {
   color: var(--ds-faint);
   opacity: 0.6;
 }
+
+/* --- One-off row controls (align with the premium button system) ----------
+   A few per-row controls use their own classes rather than the .wbtn family,
+   so the app-wide button re-skin above didn't reach them. Bring them onto the
+   premium shape here. */
+
+/* Portfolio "Remove": the destructive per-row button (.btn-delete). Match the
+   secondary-button shape (8px radius, subtle border + lift) while KEEPING its
+   red-on-hover destructive cue. The hover is re-asserted here because this
+   workspace-scoped base rule would otherwise out-specify workspace.css's
+   `.btn-delete:hover`. Left neutral until hover on purpose — a column of
+   always-red buttons would read as alarming. */
+body.workspace .btn-delete {
+  border-radius: var(--ds-radius-sm);
+  border-color: var(--ds-border);
+  box-shadow: var(--ds-shadow-card);
+  transition: border-color var(--ds-fast) var(--ds-ease), color var(--ds-fast) var(--ds-ease), box-shadow var(--ds-fast) var(--ds-ease);
+}
+body.workspace .btn-delete:hover {
+  border-color: var(--signal-red);
+  color: var(--signal-red);
+}
+body.workspace .btn-delete:focus-visible {
+  outline: none;
+  border-color: var(--ds-blue);
+  box-shadow: 0 0 0 3px rgba(53, 109, 255, 0.18);
+}
+
+/* Portfolio "Edit keywords" inline link-button: hover to the premium blue so it
+   matches the system's link accent (was hovering to flat black). */
+body.workspace .pf-kw-edit:hover {
+  color: var(--ds-blue);
+}
