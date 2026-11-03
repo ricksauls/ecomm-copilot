@@ -3,7 +3,8 @@
 _Last updated: 2026-11-02 (session 49 — **verified S48's deploy, removed the dead `/products/bulk` route, finished the
 Phase 2 perf-block cleanup, removed the Portfolio "View performance" link, and renamed the Competitive Tracking
 "category" wording to "competitive group".** `/products/bulk` committed + LIVE as `edaf2c9` (handoff `a0ce2e0`); the
-Phase 2 cleanup + link removal + terminology rename are done locally (858 tests + ruff clean) but NOT yet committed.
+Phase 2 cleanup + link removal + terminology rename committed together as `3753e61`, CI + Deploy CONFIRMED green + LIVE
+(deployed workspace.css no longer has `.pf-track-view`; landing 200, /app/competitive-intel 302). 858 tests + ruff clean.
 No dependency changes. This block brings HANDOFF current through S49.)_
 
 _**1) Verified S48 first (it had been pushed with CI/Deploy unconfirmed).** Both the CI run ("Remove the One-Time
