@@ -1542,6 +1542,11 @@ a:focus-visible,
   border-radius: var(--radius-card);
   overflow: hidden;
 }
+/* Three-column variant for bands with three items (e.g. the Image Import "How it
+   works" steps), so the grid has no empty trailing cell showing the grey track. */
+.score-dims-3 {
+  grid-template-columns: repeat(3, 1fr);
+}
 .dim {
   background: var(--surface);
   padding: 15px 16px 17px;

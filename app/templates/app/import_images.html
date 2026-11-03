@@ -71,7 +71,10 @@
 
 <div class="card card-pad score-band">
   <div class="label">How it works</div>
-  <div class="score-dims">
+  {# Only three steps here (the shared .score-dims band is a 4-column grid for the
+     scoring screen's four dimensions); the -3 modifier drops it to three columns
+     so there's no empty 4th cell. #}
+  <div class="score-dims score-dims-3">
     {% set steps = [
       ('Acquire', 'We read each URL and collect the product’s images at their original resolution.'),
       ('Upscale if needed', 'Images below the 2000px target are AI-upscaled; the rest are kept as-is.'),
