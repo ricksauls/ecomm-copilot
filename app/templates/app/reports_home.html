@@ -39,29 +39,38 @@
     <div class="report-create">
       <div class="card card-pad">
         <div class="label">Report scope</div>
-        <form method="get" action="{{ url_for('pages.reports_home') }}" class="report-scope-form">
-          <input type="hidden" name="tab" value="create">
-          <input type="hidden" name="period" value="{{ selection.period }}">
-          <label class="report-field">
-            <span class="report-field-label">Brand</span>
-            <select name="group_id" class="briefing-select" aria-label="Brand">
-              {% for opt in selection.groups %}
-              <option value="{{ opt.id }}" {{ 'selected' if opt.selected }}>{{ opt.label }}</option>
+        {# Brand + Period read as one inline row of labeled fields (caption on top,
+           control below), matching the dashboard/Insights header controls. Brand
+           is a GET form (Apply re-scopes, no-JS-safe); Period items are links that
+           navigate on click — same split as the dashboard briefing. #}
+        <div class="report-scope-controls">
+          <form method="get" action="{{ url_for('pages.reports_home') }}" class="report-scope-form">
+            <input type="hidden" name="tab" value="create">
+            <input type="hidden" name="period" value="{{ selection.period }}">
+            <label class="report-field">
+              <span class="report-field-label">Brand</span>
+              <select name="group_id" class="briefing-select" aria-label="Brand">
+                {% for opt in selection.groups %}
+                <option value="{{ opt.id }}" {{ 'selected' if opt.selected }}>{{ opt.label }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <button type="submit" class="wbtn wbtn-secondary">Apply</button>
+          </form>
+          <div class="report-field">
+            <span class="report-field-label">Period</span>
+            <div class="briefing-periods report-periods" role="group" aria-label="Reporting period">
+              {% for p in selection.periods %}
+                {% if p.enabled %}
+                  <a class="briefing-period {{ 'is-active' if p.selected }}"
+                     href="{{ url_for('pages.reports_home', tab='create', group_id=selection.selected_group_id, period=p.key) }}"
+                  >{{ p.label }}</a>
+                {% else %}
+                  <span class="briefing-period is-disabled" title="No data yet">{{ p.label }}</span>
+                {% endif %}
               {% endfor %}
-            </select>
-          </label>
-          <button type="submit" class="wbtn wbtn-secondary">Apply</button>
-        </form>
-        <div class="briefing-periods report-periods" role="group" aria-label="Reporting period">
-          {% for p in selection.periods %}
-            {% if p.enabled %}
-              <a class="briefing-period {{ 'is-active' if p.selected }}"
-                 href="{{ url_for('pages.reports_home', tab='create', group_id=selection.selected_group_id, period=p.key) }}"
-              >{{ p.label }}</a>
-            {% else %}
-              <span class="briefing-period is-disabled" title="No data yet">{{ p.label }}</span>
-            {% endif %}
-          {% endfor %}
+            </div>
+          </div>
         </div>
       </div>
 

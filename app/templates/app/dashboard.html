@@ -38,7 +38,7 @@
   <polyline class="ds-line" points="{{ ch.line }}"/>
   <circle class="ds-dot" cx="{{ ch.dot.x }}" cy="{{ ch.dot.y }}" r="3.4"/>
   {% for t in ch.y_ticks %}<text class="ds-ytick" x="{{ ch.x0 - 6 }}" y="{{ t.y + 3 }}" text-anchor="end">{{ t.value }}{{ ch.unit }}</text>{% endfor %}
-  {% for xl in ch.x_labels %}<text class="ds-xtick" x="{{ xl.x }}" y="{{ ch.h - 7 }}" text-anchor="middle">{{ xl.text }}</text>{% endfor %}
+  {% for xl in ch.x_labels %}<text class="ds-xtick" x="{{ xl.x }}" y="{{ ch.h - 7 }}" text-anchor="{{ xl.anchor }}">{{ xl.text }}</text>{% endfor %}
 </svg>
 {%- endmacro %}
 

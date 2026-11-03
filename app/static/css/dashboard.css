@@ -52,9 +52,21 @@ body.page-dashboard {
 }
 
 /* Dashboard-specific layout only: comfortable 32px gutters and a wider content
-   column. The lit canvas background is now set app-wide by premium.css. */
+   column. The lit canvas background is set app-wide by premium.css; here we lay
+   a soft purple→blue aura over the top-right of the scroll area (a decorative
+   wash behind the header, matching the redesign mock). Two stacked radial
+   gradients, no-repeat, anchored top-right so they sit behind the title and
+   scroll away with the content; background-color repeats the canvas so this rule
+   fully owns the pane fill regardless of load order. Purely cosmetic — in a
+   stylesheet, so CSP (no inline styles) is unaffected. */
 body.page-dashboard .pane {
   padding: 8px 32px 64px;
+  background-color: var(--ds-canvas);
+  background-image:
+    radial-gradient(70% 58% at 100% 0%, rgba(139, 92, 246, 0.14) 0%, rgba(139, 92, 246, 0) 62%),
+    radial-gradient(46% 42% at 74% 0%, rgba(53, 109, 255, 0.10) 0%, rgba(53, 109, 255, 0) 60%);
+  background-repeat: no-repeat;
+  background-position: top right;
 }
 body.page-dashboard .pane-inner {
   max-width: 1280px;

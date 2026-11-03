@@ -620,8 +620,17 @@ def _card_chart(values: list[float], dates: list[str], kind: str) -> dict | None
         return {"y": y_at(v), "value": round(v, 1)}
 
     y_ticks = [tick(hi), tick((lo + hi) / 2), tick(lo)]
+    # Anchor the end labels inward — the first label starts at the plot's left
+    # edge, the last ends at its right edge — so a wide date-range label (e.g. a
+    # weekly "Oct 26–Nov 1") stays inside the plot box instead of spilling past
+    # the card's right edge; any interior label stays centered on its point.
     label_idx = sorted({0, n // 2, n - 1})
-    x_labels = [{"x": pts[i][0], "text": dates[i]} for i in label_idx if i < len(dates)]
+    x_labels = []
+    for i in label_idx:
+        if i >= len(dates):
+            continue
+        anchor = "start" if i == 0 else "end" if i == n - 1 else "middle"
+        x_labels.append({"x": pts[i][0], "text": dates[i], "anchor": anchor})
 
     return {
         "w": _CARD_W, "h": _CARD_H,
@@ -1399,7 +1408,10 @@ def insights_opportunities():
 # rescoping the headline, trend chart and keyword table in place. Tabs and the
 # drill are plain ``?tab=``/``?item=`` navigation (server-rendered, deep-linkable,
 # CSP-safe); only the trend line is drawn client-side (performance.js).
-_PERF_TABS = ("rank", "shelf", "readiness")
+# Tab order mirrors the dashboard's summary cards (Discoverability → Conversion →
+# Competition) so the two screens read the same left-to-right: Search Rank
+# (discoverability), Content Readiness (conversion), Share of Search (competition).
+_PERF_TABS = ("rank", "readiness", "shelf")
 _PERF_TAB_LABELS = {"rank": "Search Rank", "shelf": "Share of Search",
                     "readiness": "Content Readiness"}
 

@@ -127,9 +127,13 @@
       svg.appendChild(lab);
     });
 
-    // x labels.
+    // x labels — the first/last labels anchor inward (start/end) so a wide period
+    // label (e.g. "Oct 26–Nov 1") stays inside the plot instead of clipping at the
+    // SVG edge; interior labels stay centered on their point. Mirrors the dashboard
+    // card charts (_card_chart in pages.py).
     dates.forEach(function (d, i) {
-      var t = el("text", { x: x(i), y: H - 11, "text-anchor": "middle",
+      var anchor = i === 0 ? "start" : (i === dates.length - 1 ? "end" : "middle");
+      var t = el("text", { x: x(i), y: H - 11, "text-anchor": anchor,
         "font-size": 11, fill: LABEL });
       t.textContent = xLabel(d);
       svg.appendChild(t);

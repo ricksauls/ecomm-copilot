@@ -4175,17 +4175,34 @@ select.pf-select[size] option { padding: 6px 8px; border-radius: 4px; }
   align-items: flex-end;
   gap: var(--space-12);
 }
+/* Brand + Period as one inline row of labeled fields, sharing a bottom baseline
+   so the captions float above their controls (parity with the dashboard /
+   Insights header clusters). flex-wrap lets Period drop below Brand on a narrow
+   pane instead of overflowing. */
+.report-scope-controls {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: var(--space-16);
+}
 .report-field {
   display: flex;
   flex-direction: column;
   gap: var(--space-6);
 }
+/* Uppercase caption matching the dashboard/Insights field labels so every
+   screen's Brand/Period controls read the same. */
 .report-field-label {
-  font-size: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   color: var(--mid-gray);
 }
+/* The period toggle now sits inside its labeled field, so drop the standalone
+   top margin it had when it stacked under the Brand form. */
 .report-periods {
-  margin-top: var(--space-14);
+  margin-top: 0;
 }
 .report-scope-line {
   margin: var(--space-6) 0 var(--space-12);
@@ -4245,8 +4262,11 @@ select.pf-select[size] option { padding: 6px 8px; border-radius: 4px; }
   gap: var(--space-12);
   margin-bottom: var(--space-14);
 }
+/* The parenthetical qualifier (e.g. "(weekly)") stays sentence-case, not the
+   uppercase of its parent caption. */
 .report-field-label em {
   font-style: normal;
+  text-transform: none;
   color: var(--cool-gray);
 }
 .report-sched-formats {

@@ -89,11 +89,14 @@
       svg.appendChild(tx);
     }
 
-    // X labels — thin to ~6 so they don't collide on a narrow chart.
+    // X labels — thin to ~6 so they don't collide on a narrow chart. The first and
+    // last labels anchor inward (start/end) so an end label never clips at the SVG
+    // edge; interior labels stay centered on their point.
     var step = Math.ceil(n / 6);
     labels.forEach(function (d, i) {
       if (i % step !== 0 && i !== n - 1) { return; }
-      var tx = el("text", { x: x(i), y: H - 8, "text-anchor": "middle",
+      var anchor = i === 0 ? "start" : (i === n - 1 ? "end" : "middle");
+      var tx = el("text", { x: x(i), y: H - 8, "text-anchor": anchor,
         "font-size": 9, fill: "#94a3b8" });
       tx.textContent = d;
       svg.appendChild(tx);

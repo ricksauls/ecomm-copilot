@@ -228,10 +228,12 @@ body.workspace .ci-select:focus {
    edge (the native arrow hugs the border and ignores padding), the soft card
    shadow, and the blue focus ring. Covers the Insights header cluster
    (Performance, Opportunities, Competitive Intelligence) and the Reports
-   Create-New + Schedules dropdowns, so every one reads identically. */
+   Create-New + Schedules dropdowns, plus the User Management "Add a user" role
+   select, so every one reads identically. */
 body.workspace .perf-controls .ci-select,
 body.workspace .report-create .briefing-select,
-body.workspace .report-schedule-form .briefing-select {
+body.workspace .report-schedule-form .briefing-select,
+body.workspace .admin-role-select {
   appearance: none;
   -webkit-appearance: none;
   font-size: 13.5px;
@@ -251,7 +253,8 @@ body.workspace .report-schedule-form .briefing-select {
 }
 body.workspace .perf-controls .ci-select:hover,
 body.workspace .report-create .briefing-select:hover,
-body.workspace .report-schedule-form .briefing-select:hover {
+body.workspace .report-schedule-form .briefing-select:hover,
+body.workspace .admin-role-select:hover {
   border-color: var(--ds-border-strong);
 }
 /* Keep the Brand (+ Period) cluster on a single row. In the space-between
@@ -270,7 +273,9 @@ body.workspace .perf-controls .ci-select:focus-visible,
 body.workspace .report-create .briefing-select:focus,
 body.workspace .report-create .briefing-select:focus-visible,
 body.workspace .report-schedule-form .briefing-select:focus,
-body.workspace .report-schedule-form .briefing-select:focus-visible {
+body.workspace .report-schedule-form .briefing-select:focus-visible,
+body.workspace .admin-role-select:focus,
+body.workspace .admin-role-select:focus-visible {
   outline: none;
   border-color: var(--ds-blue);
   box-shadow: 0 0 0 3px rgba(53, 109, 255, 0.18);
