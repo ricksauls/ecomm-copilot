@@ -183,16 +183,31 @@ def create_app() -> Flask:
             "static_url": static_url,
         }
 
-    # Admin nav context: exposes is_admin plus the rail counts and the "new users
-    # since your last login" badge, for every template that renders the shell.
-    # Skips all DB work for non-admins (public pages, regular users).
+    # Admin / helper nav context: exposes is_admin and is_helper plus the admin
+    # "new users since your last login" badge, for every template that renders
+    # the shell. is_helper drives the helper-scoped nav (e.g. hiding the
+    # Competitive Tracking setup tool a helper may not configure). Anonymous
+    # requests do no DB work.
     @app.context_processor
     def _inject_admin_context():
         from flask import g
 
         user = g.get("user")
-        if not user or not security.is_admin(user):
-            return {"is_admin": False}
+        if not user:
+            return {"is_admin": False, "is_helper": False}
+
+        if not security.is_admin(user):
+            # A helper is a non-admin holding ≥1 grant (access.is_helper). This is
+            # one indexed lookup on portfolio_grants per request for signed-in
+            # non-admins — the same request already touches the DB in
+            # _inject_message_context, so no extra connection is opened.
+            from app import access
+            from app.db import get_db
+
+            return {
+                "is_admin": False,
+                "is_helper": access.is_helper(get_db(), user),
+            }
 
         from app import users as users_mod
 
@@ -205,6 +220,8 @@ def create_app() -> Flask:
         reference = user["prev_login_at"] or user["created_at"]
         return {
             "is_admin": True,
+            # An admin is an owner, never a helper, regardless of any grant rows.
+            "is_helper": False,
             "admin_new_user_count": users_mod.count_created_since(
                 reference, user["id"]
             ),

@@ -5698,7 +5698,15 @@ def ci_home():
 @bp.route("/app/competitive-intel/monitoring")
 @login_required
 def ci_monitoring_home():
-    """Home for monitoring groups: list (with status) + create + next-run time."""
+    """Home for monitoring groups: list (with status) + create + next-run time.
+
+    Owner-only: configuring what to track (brands/competitors) belongs to the
+    account manager. A helper reads the resulting data under Insights →
+    Competitive but can't reach this setup tool (the rail leaf is also hidden).
+    """
+    if access.is_helper(get_db(), g.user):
+        logger.warning("Helper user_id=%s attempted to open CI monitoring setup", g.user["id"])
+        abort(403)
     logger.info("Serving CI monitoring home user_id=%s", g.user["id"])
     db = get_db()
     return render_template(
@@ -5718,7 +5726,14 @@ def ci_create_monitoring_group():
     Description is required here (the HTML form also marks it required, but the
     server is the real guard): every tracked competitive group must carry one so the
     Competitive Tracking list can show what each group is for.
+
+    Owner-only, mirroring :func:`ci_monitoring_home` — a helper can't create a
+    monitoring group (they'd be configuring the manager's competitive setup).
     """
+    if access.is_helper(get_db(), g.user):
+        logger.warning("Helper user_id=%s attempted to create a CI monitoring group",
+                       g.user["id"])
+        abort(403)
     description = (request.form.get("description") or "").strip()
     if not description:
         flash("Description is required.", "error")

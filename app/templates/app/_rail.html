@@ -145,12 +145,17 @@
 
     {# Competitive Tracking — set up your brand + products (from the portfolio)
        against competitors on a set of keywords; the monitoring sweep feeds Insights.
-       Sits directly after Portfolio Management. #}
+       Sits directly after Portfolio Management. Hidden for helpers: configuring
+       what to track (adding brands/competitors) is an owner-only action, so a
+       helper gets the read-only Insights → Competitive view but not this setup
+       tool. The route also 403s for helpers regardless of the nav. #}
+    {% if not is_helper %}
     <a href="{{ url_for('pages.ci_monitoring_home') }}"
        class="rail-leaf{{ ' active' if active_nav == 'competitive-tracking' else '' }}">
       <span class="rail-ico">{{ rail_icon('competitive-tracking') }}</span>
       <span class="rail-main-label">Competitive Tracking</span>
     </a>
+    {% endif %}
 
     {# Content Scoring — single workspace, so a standalone leaf (its history is a
        tab inside the tool, reached from the scoring page). #}
