@@ -1,8 +1,64 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-11-03 (session 52 — **Cosmetic polish across the dashboard, Insights and Reports —
-two commits `81a1bd3` + `6311aa1`, both CI + Deploy CONFIRMED green + LIVE. main=`6311aa1`.** 858 tests + ruff
-clean. No dependency changes. This block brings HANDOFF current through S52.)_
+_Last updated: 2026-11-03 (session 54 — **Portfolio upload setup-progress visibility — one commit `b32d555`,
+CI + Deploy CONFIRMED green + LIVE. main=`b32d555`.** 863 tests + ruff clean. No dependency changes. This block
+brings HANDOFF current through S54, catching up S53 + S54 which the S52 block had not yet covered.)_
+
+_**S54 scope — new Portfolio feature (user-requested), direct-pushed to `main`.** Surface the background setup
+work that runs after an item is uploaded, so a processing item no longer looks dead. On upload (CSV import or
+single-add) items insert `title_status='queued'` + seeded keywords; the always-on `worker.py` (systemd, polls
+5s; `process_portfolio_descriptors_one` is the lowest-priority drain, one item/loop) scrapes the PDP
+(`fetch_item_descriptors`) and makes an AI keyword call (`save_descriptors` → `keyword_ai`), moving
+`title_status` `queued → fetching → done|error`. The list previously showed none of this — `list_items` did not
+even select `title_status`, so a processing item just showed `—`._
+
+_**Approach (reuses the `pdp_results.html` precedent — NO new route).** (1) `portfolio.list_items` now SELECTs
+`title_status`. (2) New **Status** column in `portfolio.html` (3rd column, after Item #; empty-filtered
+`colspan` 6→7) rendering a per-item pill that REUSES the shared `.status-badge` chip plus a `pf-status-*`
+modifier: Queued (grey, dot) / Fetching (accent-blue, pulsing dot) / Ready (green) / Couldn't fetch (red,
+tooltip notes the item is still usable — a blocked scrape leaves the seeded defaults, never removes the item).
+(3) Progress **banner** (`.pf-setup-banner`, accent wash + spinner) above the Managed Items list while any item
+is queued/fetching, counting ONLY in-flight items (`setting_up` / `setup_count` Jinja vars). (4) **Auto-refresh:**
+a `head_extra` block emits `<meta name="portfolio-refresh-seconds" content="5">` + a `<noscript>` meta-refresh
+ONLY when `setup_count > 0`; a new IIFE in `portfolio.js` reads the meta and reloads every 5s, but PAUSES
+(re-arms) while a keyword edit form is open (`[data-pf-kw-form]:not([hidden])`) or the filter search has text,
+and stashes `pane.scrollTop` under the SAME `pf-pane-scroll` key the existing scroll-restore block consumes._
+
+_**CSS (`workspace.css`).** `color-mix` avoided (unused elsewhere in the file) → `rgba(46,109,255,.07/.3)` accent
+tints matching the file's rgba convention; the shared `imageset-spin` keyframe is reused for the banner spinner,
+and a new `pf-status-pulse` keyframe animates the fetching dot; both guarded by `prefers-reduced-motion`. Scope
+note: the only post-upload activity is this descriptor/keyword backfill — daily rank tracking runs on the
+scheduler, so it is intentionally not part of this indicator._
+
+_**Verification.** 5 new tests in `test_portfolio.py` (now 863 total, was 858) + ruff clean on the full tree.
+Browser-checked on a local fresh server (seeded `preview@example.com`, LOCAL app.db): all three pill states +
+the banner count + the 5s reload loop (server logs showed GETs every 5s) + no JS console errors. CI
+(41762615007) + Deploy (41763000484) CONFIRMED green; live `ecomm-copilot.com/static/css/workspace.css` serves
+the new `.pf-setup-banner` / `.pf-status-fetching` rules, landing 200. Files: `app/portfolio.py`,
+`app/templates/app/portfolio.html`, `app/static/js/portfolio.js`, `app/static/css/workspace.css`,
+`tests/test_portfolio.py`._
+
+_**S53 scope — visual-only cosmetic pass (user-driven), direct-pushed to `main`.** Two commits, both CI + Deploy
+CONFIRMED green + LIVE. main after S53 = `9c1da21`. 858 tests + ruff clean. No dependency changes._
+
+_**Commit 1 `6cc3579` — chart labels + dashboard/admin/Reports polish (7 fixes).** (1) Dashboard card trend
+charts: wide week x-labels (e.g. "Oct 26–Nov 1") spilled past the card because they were `text-anchor="middle"`
+at the right plot edge under `.ds-chart{overflow:visible}` — `_card_chart()` (`routes/pages.py`) now emits an
+`anchor` per x_label (first→`start`, last→`end`, else `middle`) and the dashboard.html macro uses
+`text-anchor="{{ xl.anchor }}"`. (2) Same end-anchor fix applied to the client-side trend charts (`performance.js`
++ `competitive.js`); `ci_charts.js` draws only y-labels + hover dates, so untouched. (3) Dashboard background:
+soft purple→blue radial wash top-right of `body.page-dashboard .pane` (dashboard.css, CSS-only/CSP-safe). (4)
+Performance Insights tab order matched to the dashboard card order (Discoverability → Conversion → Competition):
+`_PERF_TABS = ("rank","readiness","shelf")` (was `("rank","shelf","readiness")`). (5) Admin User Management +
+Messages tables bumped from the dense 9px `.admin-table` base to readable 12.5px via a `table-readable` class.
+(6) User Management role `<select>` → premium single-chevron (`.admin-role-select` added to the premium select
+rule groups in premium.css)._
+
+_**Commit 2 `9c1da21` — Reports Create-New scope row.** Order now Brand · Period · Apply — the Apply `<button>`
+moved OUT of the brand `<form>` to the end of `.report-scope-controls`, still submitting via
+`form="report-scope-form"`; Apply height set to 40px (`.report-apply`) to match the Brand select; spacing added
+under "Report scope"; field labels uppercased. docs/HANDOFF.md was NOT updated in S53 (it still read S52 until
+this S54 catch-up)._
 
 _**S52 scope — visual-only cosmetic pass (user-driven, iterative), direct-pushed to `main`.** Six small changes,
 all in CSS (+ two small Jinja edits for labels/one class). No routes/data/JS changes._
