@@ -1,6 +1,25 @@
 {% extends "app/base.html" %}
 {% block title %}Portfolio Management — DISCOtech{% endblock %}
 
+{# A just-uploaded item is set up in the background (the worker scrapes its PDP
+   and picks tracking keywords), surfaced per-row by title_status. "Still setting
+   up" = anything not yet settled to done/error, which is what drives both the
+   progress banner and the auto-refresh below. Only meaningful on the items view
+   (the upload view has no list). #}
+{% set setting_up = items and (items | selectattr('title_status', 'in', ['queued', 'fetching']) | list) %}
+{% set setup_count = setting_up | length if setting_up else 0 %}
+
+{% block head_extra %}
+{# While any item is still being set up, refresh so the finished title, keywords,
+   and status pill appear as the worker completes each one. With JS, portfolio.js
+   drives the reload from the marker meta below (and restores scroll position);
+   without JS, the <noscript> meta-refresh is the fallback. Both are CSP-safe. #}
+{% if setup_count %}
+<noscript><meta http-equiv="refresh" content="5" /></noscript>
+<meta name="portfolio-refresh-seconds" content="5" />
+{% endif %}
+{% endblock %}
+
 {% block pane_content %}
 <div class="page-header">
   <div>
@@ -88,6 +107,23 @@
 </div>
 
 {% else %}
+{# --- Setup progress banner ------------------------------------------------
+   Shown while the worker is still backfilling just-uploaded items (fetching the
+   PDP title/size/category and choosing tracking keywords). The page auto-refreshes
+   (head_extra, above), so this count shrinks on its own and the banner disappears
+   once every item is settled — the user sees activity is happening without doing
+   anything. Hidden entirely when nothing is in flight. #}
+{% if setup_count %}
+<div class="pf-setup-banner" role="status" aria-live="polite">
+  <span class="pf-setup-spinner" aria-hidden="true"></span>
+  <span class="pf-setup-text">
+    Setting up {{ setup_count }} item{{ '' if setup_count == 1 else 's' }} —
+    fetching product details and choosing tracking keywords. This page updates
+    automatically.
+  </span>
+</div>
+{% endif %}
+
 {# --- Managed items: filter + table ---------------------------------------- #}
 <div class="card card-pad" data-portfolio-filter>
   <div class="pf-list-head">
@@ -114,6 +150,10 @@
         <tr>
           <th>Brand</th>
           <th>Item #</th>
+          {# Setup status — the worker's per-item progress (queued → fetching →
+             done/error). Lets the user see a just-uploaded item is still being
+             prepared rather than wondering why its Product cell is blank. #}
+          <th>Status</th>
           <th class="col-product">Product</th>
           <th class="col-product">Walmart URL</th>
           {# Amazon column hidden for now to give the Tracking column (keyword
@@ -138,6 +178,32 @@
             data-keywords="{{ (keywords_by_item.get(it.id, []) | map(attribute='keyword') | select | join(' ')) | lower }}">
           <td>{{ it.brand or '—' }}</td>
           <td>{{ it.item_id or '—' }}</td>
+          {# Status pill driven by title_status. 'fetching' and 'queued' are the
+             in-flight states the banner + auto-refresh track; 'done' settles to a
+             quiet "Ready"; 'error' stays visible (amber) but the tooltip reassures
+             the item is still usable — a blocked PDP scrape never removes the item,
+             it just leaves the title/keywords on their seeded defaults. #}
+          <td class="cell-status">
+            {# Reuses the shared .status-badge chip; the pf-status-* modifier only
+               sets the state color and (for in-flight states) the pulsing dot. #}
+            {% set st = it.title_status or 'done' %}
+            {% if st == 'fetching' %}
+            <span class="status-badge pf-status-fetching" title="Fetching product details and choosing keywords">
+              <span class="pf-status-dot" aria-hidden="true"></span>Fetching
+            </span>
+            {% elif st == 'queued' %}
+            <span class="status-badge pf-status-queued" title="Waiting to be set up — this starts automatically">
+              <span class="pf-status-dot" aria-hidden="true"></span>Queued
+            </span>
+            {% elif st == 'error' %}
+            <span class="status-badge pf-status-error"
+                  title="Couldn't fetch product details. The item still works — it's searchable by brand, item #, and URL, with default keywords you can edit.">
+              Couldn't fetch
+            </span>
+            {% else %}
+            <span class="status-badge pf-status-done" title="Set up and ready">Ready</span>
+            {% endif %}
+          </td>
           <td class="col-product">{{ it.title or '—' }}</td>
           <td class="col-product">
             <a href="{{ it.walmart_url }}" target="_blank" rel="noopener noreferrer"
@@ -228,7 +294,7 @@
         {% endfor %}
         {# Shown by the search JS when no row matches; hidden otherwise. #}
         <tr class="pf-empty-filtered" hidden>
-          <td colspan="6" class="results-count">No items match that search.</td>
+          <td colspan="7" class="results-count">No items match that search.</td>
         </tr>
       </tbody>
     </table>

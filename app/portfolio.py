@@ -252,12 +252,19 @@ def list_items(conn: sqlite3.Connection, user_id: int) -> list[sqlite3.Row]:
     item # / URL / title are searchable in the unified filter — and the ``tracked``
     flag that drives the Track toggle.
 
+    ``title_status`` rides along so the screen can show per-item setup progress:
+    a just-uploaded item is 'queued', the worker flips it to 'fetching' while it
+    scrapes the PDP and picks keywords, then settles 'done' (or 'error'). The
+    Portfolio page reads this to show a status pill and to auto-refresh while any
+    item is still being set up (see the template / portfolio.js).
+
     Ordering: the Portfolio screen groups actively tracked items at the top (that
     is where the user's attention and spend go), falling back to newest-first
     within each group so a just-added item still surfaces near its peers.
     """
     return conn.execute(
-        "SELECT id, brand, walmart_url, item_id, amazon_url, title, tracked, created_at "
+        "SELECT id, brand, walmart_url, item_id, amazon_url, title, title_status, "
+        "tracked, created_at "
         "FROM portfolio_items WHERE user_id = ? ORDER BY tracked DESC, id DESC",
         (user_id,),
     ).fetchall()

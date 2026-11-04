@@ -3627,6 +3627,67 @@ textarea.text-input { resize: vertical; line-height: 1.5; }
    table, and .ci-input controls; these rules add the filter bar and the
    checkbox pick-list. */
 
+/* --- Setup progress: banner + per-row status pills ---------------------------
+   A just-uploaded item is prepared in the background (PDP scrape + keyword pick);
+   the banner summarizes how many are still in flight, and each row carries a
+   status pill. Both disappear once every item has settled (the page auto-refreshes
+   while any remain — see portfolio.js). */
+
+/* Banner above the list while items are still being set up. Accent-tinted so it
+   reads as active work in progress, not an error. */
+.pf-setup-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-12);
+  margin-bottom: var(--space-12);
+  padding: 12px 16px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-card);
+  /* Faint Electric-Blue wash behind the text (--accent #2e6dff at 7%), matching
+     the rgba tint convention used for the other status washes in this file. */
+  background: rgba(46, 109, 255, 0.07);
+  color: var(--black);
+  font-size: 13px;
+}
+.pf-setup-spinner {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(46, 109, 255, 0.3);  /* --accent at 30% for the track */
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: imageset-spin 0.8s linear infinite;  /* shared spin keyframe */
+}
+@media (prefers-reduced-motion: reduce) { .pf-setup-spinner { animation: none; } }
+
+/* Status column: a compact cell for the shared .status-badge chip. */
+.admin-table .cell-status { white-space: nowrap; }
+
+/* Per-state colors layered onto the shared .status-badge chip. Queued/fetching
+   are the in-flight states (grey / accent) and carry a leading dot; done is a
+   quiet positive "Ready"; error reuses the red the shared chip already uses but
+   stays non-destructive (the item is still usable). */
+.status-badge.pf-status-queued { color: var(--mid-gray); border-color: var(--border); }
+.status-badge.pf-status-fetching { color: var(--accent); border-color: var(--accent); }
+.status-badge.pf-status-done { color: var(--signal-green); border-color: var(--border); }
+.status-badge.pf-status-error { color: var(--signal-red); border-color: var(--signal-red); }
+
+/* Leading dot on the in-flight pills; it pulses on 'fetching' to signal live work. */
+.pf-status-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  vertical-align: middle;
+}
+.pf-status-fetching .pf-status-dot { animation: pf-status-pulse 1.1s ease-in-out infinite; }
+@keyframes pf-status-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+@media (prefers-reduced-motion: reduce) {
+  .pf-status-fetching .pf-status-dot { animation: none; }
+}
+
 /* Filter bar: brand dropdown + free-text search, shared by the table and the
    pick-list. Wraps on narrow panes so neither control gets crushed. */
 .pf-filter-bar {

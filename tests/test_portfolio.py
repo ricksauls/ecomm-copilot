@@ -418,6 +418,87 @@ def test_upload_tab_holds_the_forms_and_list_tab_does_not(client, auth):
     assert b"Add a single item" not in listing.data
 
 
+# ── Setup progress (status pills + banner + auto-refresh) ─────────────────────
+
+def test_list_items_carries_title_status(app):
+    # The list query must expose title_status so the page can render the per-item
+    # setup-progress pill; a just-added item is 'queued'.
+    with app.app_context():
+        db = get_db()
+        uid = create_local_user("status-col@example.com", "password123")
+        portfolio.add_item(db, uid, "Tabasco", "https://www.walmart.com/ip/10294528", None)
+
+        rows = portfolio.list_items(db, uid)
+        assert rows and rows[0]["title_status"] == "queued"
+
+
+def test_list_shows_setup_banner_and_refresh_while_items_queued(client, auth):
+    # A just-uploaded item is still 'queued', so the list must show the progress
+    # banner, the per-item pill, and the auto-refresh marker meta that drives the
+    # poll-until-done reload (plus the <noscript> fallback for JS-off clients).
+    auth.register(email="setup-on@example.com", password="password123")
+    _add_one(client, "Tabasco", "https://www.walmart.com/ip/10294528")  # queued on add
+
+    page = client.get("/app/portfolio").data
+    assert b"pf-setup-banner" in page                       # progress banner shown
+    assert b"Setting up 1 item" in page                     # singular, correct count
+    assert b'name="portfolio-refresh-seconds"' in page      # JS auto-refresh marker
+    assert b'http-equiv="refresh"' in page                  # <noscript> fallback
+    assert b"pf-status-queued" in page                      # per-row status pill
+
+
+def test_setup_banner_and_refresh_absent_once_all_items_settled(client, auth, app):
+    # Once every item has settled (done/error), nothing is in flight: the banner
+    # and both refresh markers must be gone so the page stops reloading, and the
+    # settled item shows its terminal pill.
+    auth.register(email="setup-off@example.com", password="password123")
+    _add_one(client, "Tabasco", "https://www.walmart.com/ip/10294528")
+    with app.app_context():
+        db = get_db()
+        pid = db.execute(
+            "SELECT id FROM portfolio_items WHERE item_id = '10294528'").fetchone()["id"]
+        portfolio.save_title(db, pid, "Tabasco Original Red Pepper Sauce")  # → 'done'
+
+    page = client.get("/app/portfolio").data
+    assert b"pf-setup-banner" not in page                   # nothing in flight
+    assert b'name="portfolio-refresh-seconds"' not in page  # reload loop stops
+    assert b'http-equiv="refresh"' not in page
+    assert b"pf-status-done" in page                         # terminal "Ready" pill
+
+
+def test_setup_banner_counts_only_in_flight_items(client, auth, app):
+    # With a mix of settled and queued items, the banner counts only the ones still
+    # being set up (the settled one must not inflate the number).
+    auth.register(email="setup-mix@example.com", password="password123")
+    _add_one(client, "Alpha", "https://www.walmart.com/ip/111")
+    _add_one(client, "Bravo", "https://www.walmart.com/ip/222")
+    with app.app_context():
+        db = get_db()
+        pid = db.execute(
+            "SELECT id FROM portfolio_items WHERE item_id = '111'").fetchone()["id"]
+        portfolio.save_title(db, pid, "Alpha Thing")  # settle one; 222 stays queued
+
+    page = client.get("/app/portfolio").data
+    assert b"Setting up 1 item" in page                     # only 222 counts
+    assert b"pf-status-done" in page and b"pf-status-queued" in page
+
+
+def test_list_shows_statuses(client, auth, app):
+    # Every lifecycle state renders a distinct pill class so the user can tell a
+    # still-fetching item from a failed one at a glance.
+    auth.register(email="setup-states@example.com", password="password123")
+    _add_one(client, "Tabasco", "https://www.walmart.com/ip/10294528")
+    with app.app_context():
+        db = get_db()
+        pid = db.execute(
+            "SELECT id FROM portfolio_items WHERE item_id = '10294528'").fetchone()["id"]
+        portfolio.fail_title(db, pid)  # → 'error'
+
+    page = client.get("/app/portfolio").data
+    assert b"pf-status-error" in page
+    assert b"Couldn't fetch" in page
+
+
 def test_list_shows_keyword_chips_for_tracked_items_only(client, auth, app):
     # Tracked items render their keyword chips + the inline editor in the Tracking
     # column; turning tracking off removes them (the keywords are the tracking

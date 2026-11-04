@@ -129,6 +129,62 @@
   );
 })();
 
+// Auto-refresh while items are still being set up.
+//
+// A just-uploaded item is prepared by the background worker (PDP scrape + keyword
+// pick); the row's title_status moves queued → fetching → done/error. The template
+// emits <meta name="portfolio-refresh-seconds"> ONLY while at least one item is
+// still in flight, so this reload loop exists just long enough to show setup
+// finishing, then the meta is gone on the next load and the loop stops. Mirrors
+// the pdp_results.js pattern; the <noscript> meta-refresh is the JS-off fallback.
+//
+// Before reloading we stash the pane scroll under the SAME key the scroll-restore
+// block above uses, so the refresh lands the user back in place rather than at the
+// top. We hold off a tick (re-arming, not cancelling) when the user is mid-task —
+// a keyword edit form is open (a reload would discard unsaved edits) or they've
+// typed a filter (a reload would clear it) — so the refresh never interrupts them.
+(function () {
+  "use strict";
+
+  var meta = document.querySelector('meta[name="portfolio-refresh-seconds"]');
+  if (!meta) {
+    return;
+  }
+  var seconds = parseInt(meta.getAttribute("content"), 10) || 5;
+  var SCROLL_KEY = "pf-pane-scroll";
+  var pane = document.querySelector(".pane");
+
+  // True when reloading now would destroy in-progress work the user can see.
+  function userBusy() {
+    // An open inline keyword editor (its form is un-hidden).
+    var openEditor = document.querySelector("[data-pf-kw-form]:not([hidden])");
+    if (openEditor) {
+      return true;
+    }
+    // A non-empty search filter (the reload would wipe the typed query).
+    var search = document.querySelector("[data-filter-search]");
+    return !!(search && search.value.trim());
+  }
+
+  function tick() {
+    if (userBusy()) {
+      // Try again later instead of reloading out from under the user.
+      window.setTimeout(tick, seconds * 1000);
+      return;
+    }
+    if (pane) {
+      try {
+        sessionStorage.setItem(SCROLL_KEY, String(pane.scrollTop));
+      } catch (e) {
+        /* storage disabled — the reload will just land at the top */
+      }
+    }
+    window.location.reload();
+  }
+
+  window.setTimeout(tick, seconds * 1000);
+})();
+
 // Inline keyword editor on the Portfolio list. Each tracked row's Tracking cell
 // has a read view (chips + "Edit keywords") and a hidden edit form. "Edit"
 // reveals the form and hides the chips; "Cancel" reverts unsaved changes and
