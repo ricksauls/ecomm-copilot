@@ -50,8 +50,11 @@ def enqueue_weekly_readiness(conn: sqlite3.Connection) -> int:
     from app import jobs
 
     by_user: dict[int, list[dict]] = {}
+    # demo = 0 excludes seeded showcase items (app.seed_demo): their readiness scores
+    # are curated history, so the weekly re-score must not re-fetch/overwrite them.
     for it in conn.execute(
-        "SELECT user_id, item_id, walmart_url, brand FROM portfolio_items WHERE tracked = 1"
+        "SELECT user_id, item_id, walmart_url, brand FROM portfolio_items "
+        "WHERE tracked = 1 AND demo = 0"
     ):
         if not it["walmart_url"]:
             continue

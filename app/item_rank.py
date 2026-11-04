@@ -136,11 +136,15 @@ def enqueue_rank_jobs(conn: sqlite3.Connection) -> int:
     Skips items that aren't tracked, keywords left blank (those are deliberately
     not scraped — a cost brake), and any (item, keyword) already queued/in-flight.
     """
+    # demo = 0 keeps seeded showcase items (app.seed_demo) out of the live scrape:
+    # their rank history is curated, and a real SERP scrape against them would either
+    # cost Oxylabs requests or overwrite the demo story. Real items are always demo=0.
     candidates = conn.execute(
         "SELECT k.id AS keyword_id, k.keyword, p.id AS portfolio_item_id, p.user_id, "
         "       p.item_id AS walmart_item_id, p.walmart_url "
         "FROM portfolio_keywords k JOIN portfolio_items p ON p.id = k.portfolio_item_id "
-        "WHERE p.tracked = 1 AND k.keyword IS NOT NULL AND TRIM(k.keyword) <> '' "
+        "WHERE p.tracked = 1 AND p.demo = 0 "
+        "  AND k.keyword IS NOT NULL AND TRIM(k.keyword) <> '' "
         "ORDER BY p.id, k.slot"
     ).fetchall()
 

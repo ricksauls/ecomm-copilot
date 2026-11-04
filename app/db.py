@@ -142,6 +142,11 @@ CREATE TABLE IF NOT EXISTS portfolio_items (
     -- + content re-score). New rows are tracked on add (app.portfolio.add_item);
     -- the user can toggle it per item.
     tracked      INTEGER NOT NULL DEFAULT 0,
+    -- demo = 1 marks an item whose tracking metrics are SEEDED (see app.seed_demo),
+    -- not scraped. It stays tracked=1 so it appears in Insights/Performance, but the
+    -- daily/weekly tracking sweeps skip it (they filter demo = 0) so a live scrape
+    -- never overwrites or breaks the curated demo history. 0 for every real item.
+    demo         INTEGER NOT NULL DEFAULT 0,
     created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
     updated_at   TEXT    NOT NULL DEFAULT (datetime('now'))
 );
@@ -994,6 +999,14 @@ def _migrate(conn: sqlite3.Connection) -> None:
             "ALTER TABLE portfolio_items ADD COLUMN tracked INTEGER NOT NULL DEFAULT 0"
         )
         logger.info("Migrated portfolio_items: added 'tracked' column")
+    # demo flags a seeded-metrics item (app.seed_demo): tracked=1 so it shows in
+    # Insights, but the tracking sweeps skip it so no live scrape overwrites its
+    # curated history. Existing (real) rows default to 0. Fresh DBs get it from _SCHEMA.
+    if pf_cols and "demo" not in pf_cols:
+        conn.execute(
+            "ALTER TABLE portfolio_items ADD COLUMN demo INTEGER NOT NULL DEFAULT 0"
+        )
+        logger.info("Migrated portfolio_items: added 'demo' column")
     if pf_cols:
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_portfolio_title_claim "

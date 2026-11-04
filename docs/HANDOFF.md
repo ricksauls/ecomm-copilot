@@ -1,5 +1,49 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
+_Last updated: 2026-11-03 (session 55 — **Demo-account seeder for live demos — built on feature branch
+`feature/demo-seeder`, NOT yet merged/deployed.** New `portfolio_items.demo` flag + `app/seed_demo.py`.
+868 tests (5 new) + ruff clean; browser-verified against a scratch DB. No dependency changes.)_
+
+_**S55 goal (user-requested).** A repeatable way to demo the app. Insights/Reporting are time-series and only
+read well with weeks of history; Portfolio management demos best live. So: a dedicated demo account holds 4
+**showcase** items (seeded history, frozen) that carry the Insights + Reporting story, and 4 **sandbox** items
+(real PDPs, no history) for live add/track/edit. Brands come from the user's `test_items.csv` (8 real Walmart
+item ids across Tabasco / Ritz / Listerine / Hawaiian Tropic — a multi-brand agency portfolio)._
+
+_**Schema + sweep guard.** New `portfolio_items.demo` column (`_SCHEMA` + `_migrate` add-column, default 0).
+Showcase items are `tracked=1, demo=1`: they stay in Insights/Performance (which filter only `tracked=1`) but are
+skipped by all three item-tracking sweeps, which now also filter `demo=0` — `item_rank.enqueue_rank_jobs`,
+`tracking.enqueue_fact_jobs`, `enqueue_item_tracking.enqueue_weekly_readiness`. So a live scrape never overwrites
+or breaks the curated demo history. Competitive demo groups use `monitoring_enabled=0`, which the CI sweep
+already skips — no CI schema change needed._
+
+_**`app/seed_demo.py`** (sibling of `enable_tracking.py`): deterministic (fixed RNG seed) + idempotent
+(`--reset` wipes only this user's seeded data — showcase by the demo flag, sandbox by exact dedupe keys, CI
+groups by name, readiness scores by `batch_id='demo-seed'` — then re-seeds). Per showcase brand it seeds the item
++ 5 keywords, ~`--days` (default 180) of daily `portfolio_rank_readings`, weekly `portfolio_item_facts`, weekly
+`scored_items` (role-shaped `overall` + synthesized 5-dimension `result_json`), and a Competitive group (mine +
+3 competitors + products + 3 keywords + weekly `ci_runs` → `ci_share_of_search` rollup + raw `ci_search_results`
+cards whose *mine* rows carry the tracked `item_id`, so the dashboard Competition card's SKU-count numerator
+matches the share-of-search story + late-window `ci_ad_units`). Four narratives: Tabasco=winner (rank 18→4, share
+15→40%), Ritz=steady leader, Listerine=losing ground, Hawaiian Tropic=opportunity ("tanning oil" stuck off page
+1). Sets `users.default_ci_group_id` to the hero (Tabasco) group. Sandbox items: `demo=0, tracked=0`, 5 keyword
+rows, no history. Usage: `python -m app.seed_demo --email <demo> --reset [--days 180]`; the demo user must
+pre-exist (admin provision) or pass `--create-user` with `DEMO_ACCOUNT_PASSWORD` set (hashed via werkzeug, never
+logged)._
+
+_**Verification.** 5 new tests in `tests/test_seed_demo.py` (868 total, was 863) — migration adds the column, the
+three sweeps exclude `demo=1` while keeping real items, seed builds the expected shape, `--reset` is idempotent +
+spares real items. ruff clean on the full tree. Browser-verified against a scratch DB (`demo@local.test`, seeded
+`--days 60`): dashboard + Performance render the Tabasco winner story (#4.6 ↑, 86/100, 37.3% shelf ↑2.7) and the
+Listerine losing story (#12.4 ↓, 64/100, 26.6% ↓1.7). Fixed a Competition-card bug found mid-build: seeded
+`ci_search_results` originally had NULL `item_id` → card read 0.0% shelf; now mine cards carry the tracked id so
+it matches SoS. Files: `app/db.py`, `app/item_rank.py`, `app/tracking.py`, `app/enqueue_item_tracking.py`,
+`app/seed_demo.py` (new), `tests/test_seed_demo.py` (new)._
+
+_**⬛ PENDING ops (not done).** Branch not merged/deployed; no CI/Deploy run yet. After merge + deploy, provision
+the demo account (admin UI, or `--create-user` + `DEMO_ACCOUNT_PASSWORD`) and run
+`python -m app.seed_demo --email <demo> --reset` on the droplet._
+
 _Last updated: 2026-11-03 (session 54 — **Portfolio upload setup-progress visibility — one commit `b32d555`,
 CI + Deploy CONFIRMED green + LIVE. main=`b32d555`.** 863 tests + ruff clean. No dependency changes. This block
 brings HANDOFF current through S54, catching up S53 + S54 which the S52 block had not yet covered.)_

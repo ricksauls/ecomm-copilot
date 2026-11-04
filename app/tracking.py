@@ -82,8 +82,11 @@ def enqueue_fact_jobs(conn: sqlite3.Connection) -> int:
     Returns the number of jobs enqueued. Items whose URL is missing are skipped
     (nothing to fetch).
     """
+    # demo = 0 excludes seeded showcase items (app.seed_demo): their facts snapshots
+    # are curated, so a live PDP fetch must not run against them. Real items are demo=0.
     items = conn.execute(
-        "SELECT id, user_id, item_id, walmart_url FROM portfolio_items WHERE tracked = 1"
+        "SELECT id, user_id, item_id, walmart_url FROM portfolio_items "
+        "WHERE tracked = 1 AND demo = 0"
     ).fetchall()
     enqueued = 0
     for it in items:
