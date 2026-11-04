@@ -15,6 +15,7 @@ import json
 import logging
 import os
 import re
+import sqlite3
 from datetime import datetime
 
 from flask import (
@@ -32,6 +33,7 @@ from flask import (
 )
 
 from app import (
+    access,
     ci_analysis,
     ci_config,
     ci_images,
@@ -751,26 +753,18 @@ def _performance_briefing(db, uid) -> dict:
     briefing band needs, including the group/period selectors and per-card empty
     states, so the template stays logic-light.
     """
-    groups = ci_config.list_groups(db, uid, mode="monitoring")
+    # Brand-matched group scope (see _performance_insights): owners see their own
+    # monitoring groups, a helper the owner's groups for their granted brands.
+    ci_scope = access.resolve_ci_scope(db, g.user)
+    owner_id = ci_scope.owner_id
+    groups = _accessible_monitoring_groups(db, ci_scope)
     if not groups:
         # Nothing to brief on yet — the template shows a "set up tracking" prompt.
         return {"available": False, "setup_url": url_for("pages.ci_monitoring_home")}
 
-    # Brand selection precedence: an explicit ?group_id= wins, then the user's
-    # saved default brand, then the newest monitoring group.
-    group_id = request.args.get("group_id", type=int)
-    selected = ci_config.get_group(db, group_id, uid) if group_id is not None else None
-    if selected is not None and selected["mode"] != "monitoring":
-        selected = None
-    default_id = g.user["default_ci_group_id"]
-    if selected is None and default_id is not None:
-        saved = ci_config.get_group(db, default_id, uid)
-        if saved is not None and saved["mode"] == "monitoring":
-            selected = saved
-    if selected is None:
-        selected = groups[0]  # newest monitoring group
+    selected = _pick_monitoring_group(groups)
     gid = selected["id"]
-    is_default = default_id == gid
+    is_default = g.user["default_ci_group_id"] == gid
 
     # Period: offer a button only once its most recent completed period has data;
     # fall back to the first ready period (mirrors ci_view()).
@@ -780,9 +774,14 @@ def _performance_briefing(db, uid) -> dict:
               else (available[0] if available else ci_analysis.DEFAULT_PERIOD))
     has_data = bool(available)
 
+    # The briefing band is entirely owner/brand-scoped; operate as the owner from
+    # here (the account manager for a helper, themselves for an owner). The viewer
+    # id is kept only for the log line.
+    viewer_id, uid = uid, owner_id
+
     mine_brands = [b["name"] for b in ci_config.list_brands(db, gid, uid) if b["type"] == "mine"]
-    logger.info("Performance briefing user_id=%s group_id=%s period=%s has_data=%s mine_brands=%d",
-                uid, gid, period, has_data, len(mine_brands))
+    logger.info("Performance briefing user_id=%s owner=%s group_id=%s period=%s has_data=%s mine_brands=%d",
+                viewer_id, uid, gid, period, has_data, len(mine_brands))
 
     # Each CI card's "Dig it" opens the matching Performance Insights tab (its
     # detailed drill-down), carrying the current brand + period.
@@ -943,17 +942,29 @@ def dashboard():
     db = get_db()
     uid = g.user["id"]
 
-    # Portfolio header: distinct brands · distinct products the user has worked on.
-    portfolio = {
-        "brands": jobs.count_managed_brands(db, uid),
-        "products": jobs.count_managed_products(db, uid),
-    }
+    # Portfolio header: distinct brands · products in the viewer's scope. An owner
+    # gets their whole portfolio; a helper gets only the items they were granted
+    # (so the header never advertises brands/products outside their grant).
+    item_scope = access.resolve_item_scope(db, g.user)
+    if item_scope.owner_id is None:
+        portfolio_summary = {"brands": 0, "products": 0}
+    elif item_scope.unrestricted:
+        portfolio_summary = {
+            "brands": jobs.count_managed_brands(db, item_scope.owner_id),
+            "products": jobs.count_managed_products(db, item_scope.owner_id),
+        }
+    else:
+        scoped = portfolio.list_items(db, item_scope.owner_id, item_ids=item_scope.item_ids)
+        portfolio_summary = {
+            "brands": len({r["brand"] for r in scoped if r["brand"]}),
+            "products": len(scoped),
+        }
     briefing = _performance_briefing(db, uid)
     return render_template(
         "app/dashboard.html",
         breadcrumb="Dashboard",
         active_nav="dashboard",
-        portfolio=portfolio,
+        portfolio=portfolio_summary,
         briefing=briefing,
     )
 
@@ -988,7 +999,7 @@ def set_default_brand():
 _REPORT_FORMATS = ("pdf", "pptx")
 
 
-def _report_selection(db, uid) -> dict:
+def _report_selection(db) -> dict:
     """Resolve the brand + period choices for the Reports Create tab.
 
     Mirrors the dashboard briefing's selection model: ``?group_id=`` → saved
@@ -996,22 +1007,16 @@ def _report_selection(db, uid) -> dict:
     ready periods (first ready period as the fallback). Returns the selectors plus
     the resolved ``selected_group_id`` / ``period`` the generate form submits.
     """
-    groups = ci_config.list_groups(db, uid, mode="monitoring")
+    # Brand-matched group scope (see _performance_insights): owners see their own
+    # monitoring groups, a helper sees the owner's groups for their granted brands.
+    ci_scope = access.resolve_ci_scope(db, g.user)
+    owner_id = ci_scope.owner_id
+    groups = _accessible_monitoring_groups(db, ci_scope)
     if not groups:
         # No monitoring brands yet — nothing to report on; prompt to set one up.
         return {"available": False, "setup_url": url_for("pages.ci_monitoring_home")}
 
-    group_id = request.args.get("group_id", type=int)
-    selected = ci_config.get_group(db, group_id, uid) if group_id is not None else None
-    if selected is not None and selected["mode"] != "monitoring":
-        selected = None
-    default_id = g.user["default_ci_group_id"]
-    if selected is None and default_id is not None:
-        saved = ci_config.get_group(db, default_id, uid)
-        if saved is not None and saved["mode"] == "monitoring":
-            selected = saved
-    if selected is None:
-        selected = groups[0]
+    selected = _pick_monitoring_group(groups)
     gid = selected["id"]
 
     available = ci_analysis.available_periods(db, gid)
@@ -1022,11 +1027,11 @@ def _report_selection(db, uid) -> dict:
     return {
         "available": True,
         "has_data": bool(available),
-        "brand_label": _group_brand_label(db, uid, gid, selected["name"]),
+        "brand_label": _group_brand_label(db, owner_id, gid, selected["name"]),
         "selected_group_id": gid,
         "period": period,
         "groups": [{"id": grp["id"],
-                    "label": _group_brand_label(db, uid, grp["id"], grp["name"]),
+                    "label": _group_brand_label(db, owner_id, grp["id"], grp["name"]),
                     "selected": grp["id"] == gid} for grp in groups],
         "periods": [{"key": p, "label": ci_analysis.PERIOD_LABELS[p],
                      "enabled": p in available, "selected": p == period}
@@ -1054,21 +1059,30 @@ def reports_home():
     """Reports workspace. ``?tab=create`` (default), ``schedules``, or ``history``."""
     db = get_db()
     uid = g.user["id"]
+    # Scheduling is owner-only: a schedule is a standing, worker-run job assembled
+    # as the brand's owner, so helpers don't get the Schedules tab. They can still
+    # create and download reports on demand for brands they were granted.
+    can_schedule = not access.is_helper(db, g.user)
     tab = request.args.get("tab")
     if tab not in ("create", "schedules", "history"):
+        tab = "create"
+    if tab == "schedules" and not can_schedule:
         tab = "create"
     # Opening History clears the "new" badge on the rail (the user has now seen
     # their scheduled reports).
     if tab == "history":
         report_store.mark_scheduled_seen(db, uid)
-    selection = _report_selection(db, uid)
+    selection = _report_selection(db)
+    # History and schedules stay per-viewer: a helper's history holds the reports
+    # they generated, and only owners have schedules.
     history = [_report_row_view(r) for r in report_store.list_reports(db, uid)]
-    schedules = [_schedule_row_view(s) for s in report_schedules.list_schedules(db, uid)]
+    schedules = ([_schedule_row_view(s) for s in report_schedules.list_schedules(db, uid)]
+                 if can_schedule else [])
     # ?edit=<id> on the Schedules tab pre-fills the form to edit that schedule
     # (ownership-scoped; an unknown/forged id simply falls back to the create form).
     editing = None
     edit_id = request.args.get("edit", type=int)
-    if tab == "schedules" and edit_id is not None:
+    if tab == "schedules" and can_schedule and edit_id is not None:
         row = report_schedules.get_schedule(db, edit_id, uid)
         if row is not None:
             editing = _schedule_edit_view(row)
@@ -1083,6 +1097,7 @@ def reports_home():
         history=history,
         schedules=schedules,
         editing=editing,
+        can_schedule=can_schedule,
         weekday_names=list(enumerate(report_schedules.WEEKDAY_NAMES)),
         max_day_of_month=report_schedules.MAX_DAY_OF_MONTH,
     )
@@ -1126,14 +1141,21 @@ def report_generate():
 
     db = get_db()
     uid = g.user["id"]
+    # The brand must be a monitoring group the viewer may see (owner's own, or a
+    # helper's brand-matched grant); the report data is assembled as the owner.
+    ci_scope = access.resolve_ci_scope(db, g.user)
+    owner_id = ci_scope.owner_id
 
     group_id = request.form.get("group_id", type=int)
     fmt = request.form.get("fmt", "")
     period = request.form.get("period", "")
 
-    group = ci_config.get_group(db, group_id, uid) if group_id is not None else None
-    if group is None or group["mode"] != "monitoring":
-        logger.warning("Report generate rejected: user_id=%s group_id=%s", uid, group_id)
+    group = ci_config.get_group(db, group_id, owner_id) if group_id is not None else None
+    accessible = ci_scope.group_ids
+    if (group is None or group["mode"] != "monitoring"
+            or (accessible is not None and group_id not in accessible)):
+        logger.warning("Report generate rejected: user_id=%s owner=%s group_id=%s",
+                       uid, owner_id, group_id)
         abort(404)
     if fmt not in _REPORT_FORMATS:
         abort(400)
@@ -1141,7 +1163,7 @@ def report_generate():
         period = ci_analysis.DEFAULT_PERIOD
 
     try:
-        data = report.assemble_business_report(db, uid, group, period)
+        data = report.assemble_business_report(db, owner_id, group, period)
         if fmt == "pdf":
             from app.report_pdf import build_business_report_pdf
             payload = build_business_report_pdf(data)
@@ -1230,6 +1252,10 @@ def report_schedule_save():
     """Create a new schedule, or update an existing one (``schedule_id`` present)."""
     db = get_db()
     uid = g.user["id"]
+    # Scheduling is owner-only (see reports_home).
+    if access.is_helper(db, g.user):
+        logger.warning("Helper user_id=%s attempted to save a report schedule", uid)
+        abort(403)
     fields = _schedule_form(db, uid)
     schedule_id = request.form.get("schedule_id", type=int)
     try:
@@ -1253,6 +1279,8 @@ def report_schedule_save():
 def report_schedule_toggle(schedule_id):
     """Pause or resume a schedule (the form posts the desired ``enabled`` value)."""
     db = get_db()
+    if access.is_helper(db, g.user):
+        abort(403)
     enabled = request.form.get("enabled") == "1"
     report_schedules.set_enabled(db, schedule_id, g.user["id"], enabled)
     return redirect(url_for("pages.reports_home", tab="schedules"))
@@ -1263,6 +1291,8 @@ def report_schedule_toggle(schedule_id):
 def report_schedule_delete(schedule_id):
     """Delete a schedule the user owns, then return to the Schedules tab."""
     db = get_db()
+    if access.is_helper(db, g.user):
+        abort(403)
     report_schedules.delete_schedule(db, schedule_id, g.user["id"])
     return redirect(url_for("pages.reports_home", tab="schedules"))
 
@@ -1290,23 +1320,19 @@ def _opportunities_insights(db, uid) -> dict:
     content scores (:func:`jobs.readiness_breakdown`), Competitive from the keywords a
     competitor leads (:func:`ci_analysis.monitoring_keyword_leaders`).
     """
-    groups = ci_config.list_groups(db, uid, mode="monitoring")
+    # Scope resolution: owner-id and brand-matched groups (see _performance_insights).
+    # No per-item drill here, so item scope isn't needed — the Discovery lane is
+    # brand-scoped, which already matches a helper's granted brand.
+    ci_scope = access.resolve_ci_scope(db, g.user)
+    owner_id = ci_scope.owner_id
+
+    groups = _accessible_monitoring_groups(db, ci_scope)
     if not groups:
         return {"available": False, "setup_url": url_for("pages.ci_monitoring_home")}
 
-    group_id = request.args.get("group_id", type=int)
-    selected = ci_config.get_group(db, group_id, uid) if group_id is not None else None
-    if selected is not None and selected["mode"] != "monitoring":
-        selected = None
-    default_id = g.user["default_ci_group_id"]
-    if selected is None and default_id is not None:
-        saved = ci_config.get_group(db, default_id, uid)
-        if saved is not None and saved["mode"] == "monitoring":
-            selected = saved
-    if selected is None:
-        selected = groups[0]
+    selected = _pick_monitoring_group(groups)
     gid = selected["id"]
-    is_default = default_id == gid
+    is_default = g.user["default_ci_group_id"] == gid
 
     available = ci_analysis.available_periods(db, gid)
     requested = request.args.get("period")
@@ -1314,10 +1340,10 @@ def _opportunities_insights(db, uid) -> dict:
               else (available[0] if available else ci_analysis.DEFAULT_PERIOD))
     has_data = bool(available)
 
-    mine_brands = [b["name"] for b in ci_config.list_brands(db, gid, uid) if b["type"] == "mine"]
+    mine_brands = [b["name"] for b in ci_config.list_brands(db, gid, owner_id) if b["type"] == "mine"]
 
     # ── Content gaps (image + copy), per product, from the latest scores ──────
-    content = jobs.readiness_breakdown(db, uid, mine_brands)
+    content = jobs.readiness_breakdown(db, owner_id, mine_brands)
     images = [
         _opp_product(it, "Imagery", it["score"],
                      url_for("pages.imageset_intake", url=f"{pdp.WALMART_IP_PREFIX}{it['item_id']}"))
@@ -1338,10 +1364,10 @@ def _opportunities_insights(db, uid) -> dict:
     # at least one measured keyword with no page-1 ranking.
     disc_win = ci_analysis.period_bounds(period, 0)
     discovery = []
-    for it in portfolio_perf.tracked_items_with_readings(db, uid, *disc_win,
+    for it in portfolio_perf.tracked_items_with_readings(db, owner_id, *disc_win,
                                                          brands=(mine_brands or None)):
         missing = [r["keyword"]
-                   for r in portfolio_perf.item_keyword_readings(db, uid, it["id"], *disc_win)
+                   for r in portfolio_perf.item_keyword_readings(db, owner_id, it["id"], *disc_win)
                    if r["n"] and r["avg_rank"] is None]
         if missing:
             discovery.append({
@@ -1361,19 +1387,19 @@ def _opportunities_insights(db, uid) -> dict:
         ]
 
     total = len(discovery) + len(images) + len(copy) + len(competitive)
-    logger.info("Opportunities insights user_id=%s group_id=%s period=%s disc=%d images=%d copy=%d comp=%d",
-                uid, gid, period, len(discovery), len(images), len(copy), len(competitive))
+    logger.info("Opportunities insights user_id=%s owner=%s group_id=%s period=%s disc=%d images=%d copy=%d comp=%d",
+                g.user["id"], owner_id, gid, period, len(discovery), len(images), len(copy), len(competitive))
 
     return {
         "available": True,
         "has_data": has_data,
         "is_default": is_default,
-        "brand_label": _group_brand_label(db, uid, gid, selected["name"]),
+        "brand_label": _group_brand_label(db, owner_id, gid, selected["name"]),
         "selected_group_id": gid,
         "period": period,
         "period_label": ci_analysis.period_label(period) if has_data else None,
         "groups": [{"id": grp["id"],
-                    "label": _group_brand_label(db, uid, grp["id"], grp["name"]),
+                    "label": _group_brand_label(db, owner_id, grp["id"], grp["name"]),
                     "selected": grp["id"] == gid} for grp in groups],
         "periods": [{"key": p, "label": ci_analysis.PERIOD_LABELS[p],
                      "enabled": p in available, "selected": p == period}
@@ -1461,6 +1487,43 @@ def _perf_trend(values, dates, unit) -> dict:
     return {"values": values, "dates": dates, "unit": unit}
 
 
+def _accessible_monitoring_groups(db, ci_scope):
+    """The monitoring groups the current viewer may see, newest-first.
+
+    Owners (admins, and plain accounts over their own data) get all of their own
+    monitoring groups. A helper gets the *owner's* groups filtered to the ones
+    whose 'mine' brand they were granted (``ci_scope.group_ids``); a no-access or
+    item-only scope yields nothing. Every brand/group-centric screen builds its
+    group list through here so they all scope identically.
+    """
+    if ci_scope.owner_id is None:
+        return []
+    groups = ci_config.list_groups(db, ci_scope.owner_id, mode="monitoring")
+    if ci_scope.group_ids is None:        # unrestricted: owner, or whole-portfolio grant
+        return groups
+    return [grp for grp in groups if grp["id"] in ci_scope.group_ids]
+
+
+def _pick_monitoring_group(groups):
+    """Choose the active group from the already-accessible ``groups``.
+
+    The long-standing rule — ``?group_id=`` wins, then the saved default, then the
+    newest — but every candidate must be one of the accessible groups, so a helper
+    can never select or default into a brand they weren't granted. Returns the
+    selected row, or None when nothing is accessible.
+    """
+    if not groups:
+        return None
+    by_id = {grp["id"]: grp for grp in groups}
+    requested = request.args.get("group_id", type=int)
+    if requested in by_id:
+        return by_id[requested]
+    default_id = g.user["default_ci_group_id"]
+    if default_id in by_id:
+        return by_id[default_id]
+    return groups[0]   # newest (list_groups is newest-first)
+
+
 def _performance_insights(db, uid) -> dict:
     """Assemble the Performance screen for the current request.
 
@@ -1471,28 +1534,25 @@ def _performance_insights(db, uid) -> dict:
     (validated against the group's own items — a forged id falls back to all-items).
     Only the active tab's data is built, since tabs are separate page loads.
     """
-    groups = ci_config.list_groups(db, uid, mode="monitoring")
+    # Resolve the viewer's scope once. For an owner (admin, or a plain account
+    # over its own data) owner_id is their own id and both scopes are unrestricted,
+    # so this screen behaves exactly as before. For a helper, owner_id is the
+    # account manager and the group list is brand-matched to their grants.
+    item_scope = access.resolve_item_scope(db, g.user)
+    ci_scope = access.resolve_ci_scope(db, g.user)
+    owner_id = ci_scope.owner_id
+
+    groups = _accessible_monitoring_groups(db, ci_scope)
     if not groups:
-        # No monitoring groups yet — nothing to report; prompt to set tracking up.
+        # No accessible monitoring groups — nothing to report; prompt to set up.
         return {"available": False, "setup_url": url_for("pages.ci_monitoring_home")}
 
-    # Brand (CI group): explicit id → saved default → newest monitoring group. The
-    # group still drives the brand selector; Discovery data is scoped to that group's
-    # own ("mine") brands (Phase-2 Assumption A), falling back to all tracked items.
-    group_id = request.args.get("group_id", type=int)
-    selected = ci_config.get_group(db, group_id, uid) if group_id is not None else None
-    if selected is not None and selected["mode"] != "monitoring":
-        selected = None
-    default_id = g.user["default_ci_group_id"]
-    if selected is None and default_id is not None:
-        saved = ci_config.get_group(db, default_id, uid)
-        if saved is not None and saved["mode"] == "monitoring":
-            selected = saved
-    if selected is None:
-        selected = groups[0]
+    # Brand (CI group) drives the selector; Discovery data is scoped to that
+    # group's own ("mine") brands, falling back to all tracked items.
+    selected = _pick_monitoring_group(groups)
     gid = selected["id"]
-    is_default = default_id == gid
-    mine_brands = [b["name"] for b in ci_config.list_brands(db, gid, uid) if b["type"] == "mine"]
+    is_default = g.user["default_ci_group_id"] == gid
+    mine_brands = [b["name"] for b in ci_config.list_brands(db, gid, owner_id) if b["type"] == "mine"]
     disc_brands = mine_brands or None
 
     # Tab + period. Unlike the old CI-scoped page, Discovery and Conversion roll up to
@@ -1507,23 +1567,25 @@ def _performance_insights(db, uid) -> dict:
     # The tracked-item set (brand-scoped) powers both the Item picker and the brand
     # view's products table; built once over the selected period's window.
     win = ci_analysis.period_bounds(period, 0)
-    tracked = portfolio_perf.tracked_items_with_readings(db, uid, *win, brands=disc_brands)
+    tracked = portfolio_perf.tracked_items_with_readings(db, owner_id, *win, brands=disc_brands)
 
-    # Item drill: ?item= is a portfolio item id, IDOR-validated to one the user owns
-    # (a forged/foreign/absent id falls back to the brand all-items view).
+    # Item drill: ?item= is a portfolio item id, validated against the viewer's
+    # item scope (owner owns it, and a helper was granted it) — a forged/foreign/
+    # out-of-scope id falls back to the brand all-items view (never a leak).
     item_pk = request.args.get("item", type=int)
-    item_row = portfolio.get_item(db, uid, item_pk) if item_pk is not None else None
+    item_row = (portfolio.get_item(db, owner_id, item_pk)
+                if item_pk is not None and item_scope.allows(item_pk) else None)
     item = item_row["id"] if item_row is not None else None
     item_name = (item_row["title"] or item_row["item_id"]) if item_row is not None else None
 
-    logger.info("Performance insights user_id=%s group_id=%s tab=%s period=%s item=%s tracked=%d",
-                uid, gid, tab, period, item, len(tracked))
+    logger.info("Performance insights user_id=%s owner=%s group_id=%s tab=%s period=%s item=%s tracked=%d",
+                g.user["id"], owner_id, gid, tab, period, item, len(tracked))
 
     data = {
         "available": True,
         "has_data": True,
         "is_default": is_default,
-        "brand_label": _group_brand_label(db, uid, gid, selected["name"]),
+        "brand_label": _group_brand_label(db, owner_id, gid, selected["name"]),
         "selected_group_id": gid,
         "period": period,
         "period_label": ci_analysis.period_label(period),
@@ -1533,7 +1595,7 @@ def _performance_insights(db, uid) -> dict:
         "item": item,
         "item_name": item_name,
         "groups": [{"id": grp["id"],
-                    "label": _group_brand_label(db, uid, grp["id"], grp["name"]),
+                    "label": _group_brand_label(db, owner_id, grp["id"], grp["name"]),
                     "selected": grp["id"] == gid} for grp in groups],
         "items": [{"item_id": it["id"], "name": it["name"],
                    "selected": it["id"] == item} for it in tracked],
@@ -1544,13 +1606,13 @@ def _performance_insights(db, uid) -> dict:
 
     if item_row is not None:
         # Drill: one comprehensive, tab-independent item detail (absorbs View-trends).
-        data.update(_perf_item_detail(db, uid, item_row, period))
+        data.update(_perf_item_detail(db, owner_id, item_row, period))
     elif tab == "rank":
-        data.update(_perf_rank_tab(db, uid, disc_brands, period, tracked))
+        data.update(_perf_rank_tab(db, owner_id, disc_brands, period, tracked))
     elif tab == "shelf":
-        data.update(_perf_shelf_tab(db, uid, disc_brands, period, tracked))
+        data.update(_perf_shelf_tab(db, owner_id, disc_brands, period, tracked))
     else:
-        data.update(_perf_readiness_tab(db, uid, mine_brands, period))
+        data.update(_perf_readiness_tab(db, owner_id, mine_brands, period))
     return data
 
 
@@ -1949,21 +2011,17 @@ def _competitive_insights(db, uid) -> dict:
     ``?tab=`` picks one of :data:`_CI_TABS` (an unknown value falls back to Rankings).
     Only the active tab's data is built, since each tab is a separate page load.
     """
-    groups = ci_config.list_groups(db, uid, mode="monitoring")
+    # Brand-matched group scope (see _performance_insights). The tab helpers take
+    # the group id, which is already access-checked by the group list, so no extra
+    # owner threading is needed below.
+    ci_scope = access.resolve_ci_scope(db, g.user)
+    owner_id = ci_scope.owner_id
+
+    groups = _accessible_monitoring_groups(db, ci_scope)
     if not groups:
         return {"available": False, "setup_url": url_for("pages.ci_monitoring_home")}
 
-    group_id = request.args.get("group_id", type=int)
-    selected = ci_config.get_group(db, group_id, uid) if group_id is not None else None
-    if selected is not None and selected["mode"] != "monitoring":
-        selected = None
-    default_id = g.user["default_ci_group_id"]
-    if selected is None and default_id is not None:
-        saved = ci_config.get_group(db, default_id, uid)
-        if saved is not None and saved["mode"] == "monitoring":
-            selected = saved
-    if selected is None:
-        selected = groups[0]
+    selected = _pick_monitoring_group(groups)
     gid = selected["id"]
 
     tab = request.args.get("tab")
@@ -1975,13 +2033,13 @@ def _competitive_insights(db, uid) -> dict:
               else (available[0] if available else ci_analysis.DEFAULT_PERIOD))
     has_data = bool(available)
 
-    logger.info("Competitive insights user_id=%s group_id=%s tab=%s period=%s has_data=%s",
-                uid, gid, tab, period, has_data)
+    logger.info("Competitive insights user_id=%s owner=%s group_id=%s tab=%s period=%s has_data=%s",
+                g.user["id"], owner_id, gid, tab, period, has_data)
 
     data = {
         "available": True,
         "has_data": has_data,
-        "brand_label": _group_brand_label(db, uid, gid, selected["name"]),
+        "brand_label": _group_brand_label(db, owner_id, gid, selected["name"]),
         "selected_group_id": gid,
         "period": period,
         "period_label": ci_analysis.period_label(period) if has_data else None,
@@ -1989,7 +2047,7 @@ def _competitive_insights(db, uid) -> dict:
         "tab_labels": _CI_TAB_LABELS,
         "tabs": list(_CI_TABS),
         "groups": [{"id": grp["id"],
-                    "label": _group_brand_label(db, uid, grp["id"], grp["name"]),
+                    "label": _group_brand_label(db, owner_id, grp["id"], grp["name"]),
                     "selected": grp["id"] == gid} for grp in groups],
         "periods": [{"key": p, "label": ci_analysis.PERIOD_LABELS[p],
                      "enabled": p in available, "selected": p == period}
@@ -3117,20 +3175,34 @@ def portfolio_home():
     Adding items (CSV import / single add) lives on the sibling Upload tab
     (``portfolio_upload``); the two share this template via the ``view`` flag.
     """
-    logger.info("Serving Portfolio Management (items), user_id=%s", g.user["id"])
     db = get_db()
-    uid = g.user["id"]
-    items = portfolio.list_items(db, uid)
+    # Resolve what this viewer may see: an account manager (admin) gets their own
+    # whole portfolio; a helper gets only the owner's items they were granted.
+    scope = access.resolve_item_scope(db, g.user)
+    logger.info("Serving Portfolio Management (items), user_id=%s owner=%s scope=%s",
+                g.user["id"], scope.owner_id,
+                "all" if scope.unrestricted else "none" if scope.denied else "subset")
+    items = (
+        portfolio.list_items(db, scope.owner_id, item_ids=scope.item_ids)
+        if scope.owner_id is not None else []
+    )
     # Keyword chips show only for tracked items (the keywords are the tracking
     # config), so fetch keywords just for those, in one query (no N+1).
     tracked_ids = [it["id"] for it in items if it["tracked"]]
+    keywords_by_item = (
+        item_keywords.list_keywords_by_item(db, scope.owner_id, tracked_ids)
+        if tracked_ids else {}
+    )
     return render_template(
         "app/portfolio.html",
         breadcrumb="Portfolio Management · Managed Items",
         active_nav=_PORTFOLIO_NAV,
         view="items",
         items=items,
-        keywords_by_item=item_keywords.list_keywords_by_item(db, uid, tracked_ids),
+        keywords_by_item=keywords_by_item,
+        # Owners (admins and plain accounts over their own items) can add/remove;
+        # a helper views someone else's portfolio (owner_id != them) and cannot.
+        can_manage_portfolio=(scope.owner_id == g.user["id"]),
     )
 
 
@@ -3143,12 +3215,19 @@ def portfolio_upload():
     handlers; on success they redirect to the Managed Items tab so the user sees
     the new rows (tracked, sorted to the top).
     """
+    # Adding items is the account manager's job; a helper has no Upload tab.
+    if access.is_helper(get_db(), g.user):
+        logger.warning("Helper user_id=%s hit Portfolio upload; redirecting",
+                       g.user["id"])
+        flash("Only the account manager can add items to the portfolio.", "error")
+        return redirect(url_for("pages.portfolio_home"))
     logger.info("Serving Portfolio Management (upload), user_id=%s", g.user["id"])
     return render_template(
         "app/portfolio.html",
         breadcrumb="Portfolio Management · Upload Items",
         active_nav=_PORTFOLIO_NAV,
         view="upload",
+        can_manage_portfolio=True,
     )
 
 
@@ -3156,6 +3235,10 @@ def portfolio_upload():
 @login_required
 def portfolio_import():
     """Import managed products from an uploaded CSV, skipping existing items."""
+    # Owner-only: helpers manage items but never add to the portfolio.
+    if access.is_helper(get_db(), g.user):
+        logger.warning("Helper user_id=%s attempted CSV import", g.user["id"])
+        abort(403)
     csv_file = request.files.get("csv")
     if csv_file is None or not csv_file.filename:
         flash("Choose a CSV file to import.", "error")
@@ -3188,6 +3271,10 @@ def portfolio_import():
 @login_required
 def portfolio_add():
     """Add a single managed product from the inline form."""
+    # Owner-only: helpers manage items but never add to the portfolio.
+    if access.is_helper(get_db(), g.user):
+        logger.warning("Helper user_id=%s attempted single add", g.user["id"])
+        abort(403)
     ok, error = portfolio.add_item(
         get_db(),
         g.user["id"],
@@ -3204,7 +3291,11 @@ def portfolio_add():
 @bp.route("/app/portfolio/delete/<int:item_id>", methods=["POST"])
 @login_required
 def portfolio_delete(item_id: int):
-    """Delete one managed product the user owns."""
+    """Delete one managed product. Owner-only: removing items is the manager's job."""
+    if access.is_helper(get_db(), g.user):
+        logger.warning("Helper user_id=%s attempted delete of item %s",
+                       g.user["id"], item_id)
+        abort(403)
     removed = portfolio.delete_item(get_db(), g.user["id"], item_id)
     flash("Item removed." if removed else "That item is no longer in your portfolio.",
           "ok" if removed else "error")
@@ -3222,8 +3313,19 @@ def portfolio_toggle_track(item_id: int):
     scheduled runs). ``set_tracked`` returns False for a forged/foreign id —
     surfaced as a benign message, never a leak (IDOR gate).
     """
+    db = get_db()
+    scope = access.resolve_item_scope(db, g.user)
+    # Per-item authorization: a helper may only toggle items inside their grant
+    # scope. A benign "no longer in your portfolio" avoids confirming the item
+    # exists to someone who shouldn't see it (IDOR gate).
+    if not scope.allows(item_id):
+        logger.warning("user_id=%s denied tracking toggle on out-of-scope item %s",
+                       g.user["id"], item_id)
+        flash("That item is no longer in your portfolio.", "error")
+        return redirect(url_for("pages.portfolio_home"))
     want = request.form.get("tracked") == "1"
-    ok = tracking.set_tracked(get_db(), g.user["id"], item_id, want)
+    # Act on the owner's row (the account manager), not the viewer's own id.
+    ok = tracking.set_tracked(db, scope.owner_id, item_id, want)
     if ok:
         flash("Now tracking this item — daily rank & share plus a weekly PDP snapshot, "
               "starting on the next run." if want else "Stopped tracking this item.", "ok")
@@ -3276,8 +3378,16 @@ def portfolio_edit_keywords(item_id: int):
     (IDOR gate). An edited keyword is pinned so the descriptors backfill and the AI
     step won't overwrite it.
     """
+    db = get_db()
+    scope = access.resolve_item_scope(db, g.user)
+    # Per-item authorization, same gate as the tracking toggle.
+    if not scope.allows(item_id):
+        logger.warning("user_id=%s denied keyword edit on out-of-scope item %s",
+                       g.user["id"], item_id)
+        flash("That item is no longer in your portfolio.", "error")
+        return redirect(url_for("pages.portfolio_home"))
     values = {slot: request.form.get(f"kw{slot}") for slot in item_keywords.VALID_SLOTS}
-    ok = item_keywords.set_keywords(get_db(), g.user["id"], item_id, values)
+    ok = item_keywords.set_keywords(db, scope.owner_id, item_id, values)
     # Keyword editing lives inline on the Portfolio list (the per-item page was
     # retired in Phase 2), so both outcomes return to the catalog.
     if ok:
@@ -3731,16 +3841,141 @@ def pdp_scoring_view_copy():
 @bp.route("/admin/users")
 @admin_required
 def admin_users():
-    """Admin: User Management — list every account with role controls."""
+    """Admin: User Management — list every account with role + access controls.
+
+    Alongside role/delete, each non-admin account carries an access-grant panel:
+    the grants this admin has issued that account (revocable) plus a form to add
+    one (whole portfolio, a brand, or a single item). Grants are what turn a
+    plain ``user`` account into a *helper* scoped to this manager's portfolio, so
+    the selectors are populated from this admin's own brands and items.
+    """
     logger.info("Admin users view: admin_user_id=%s", g.user["id"])
+    db = get_db()
+    admin_id = g.user["id"]
+    all_users = users.list_users()
+
+    # The grantable surface = this admin's own portfolio. Brands for the brand
+    # scope; items (id + a human label) for the item scope.
+    owner_brands = portfolio.distinct_brands(db, admin_id)
+    owner_items = [
+        {"id": it["id"], "label": _grant_item_label(it)}
+        for it in portfolio.list_items(db, admin_id)
+    ]
+
+    # Current grants per non-admin account, pre-labelled so the template needs no
+    # lookups. Only this admin's own grants are listed (access.list_grants is
+    # owner-scoped), so two managers never see each other's grants.
+    item_labels = {it["id"]: it["label"] for it in owner_items}
+    grants_by_user = {}
+    for u in all_users:
+        if u["role"] == users.ROLE_ADMIN:
+            continue
+        grants_by_user[u["id"]] = [
+            {
+                "id": grow["id"],
+                "scope_type": grow["scope_type"],
+                "label": _grant_scope_label(grow, item_labels),
+            }
+            for grow in access.list_grants(db, admin_id, u["id"])
+        ]
+
     return render_template(
         "app/admin_users.html",
         breadcrumb="Admin · User Management",
         active_nav="admin-users",
-        users=users.list_users(),
+        users=all_users,
         # Drives the last-admin lockout guard in the template (also enforced below).
         admin_count=users.count_admins(),
+        owner_brands=owner_brands,
+        owner_items=owner_items,
+        grants_by_user=grants_by_user,
     )
+
+
+def _grant_item_label(item: sqlite3.Row) -> str:
+    """A short, human label for a portfolio item in the grant selectors.
+
+    Prefers the backfilled product title, falling back to the brand + item
+    number so a just-added item (no title yet) is still identifiable.
+    """
+    title = (item["title"] or "").strip()
+    if title:
+        return title[:80]
+    bits = [b for b in ((item["brand"] or "").strip(),
+                        f"#{item['item_id']}" if item["item_id"] else "") if b]
+    return " · ".join(bits) or f"Item {item['id']}"
+
+
+def _grant_scope_label(grant: sqlite3.Row, item_labels: dict[int, str]) -> str:
+    """Readable description of a grant row for the admin panel.
+
+    ``all`` → whole portfolio; ``brand`` → the brand name; ``item`` → the item's
+    label (resolved from the admin's current items), or a stale-reference note if
+    the item has since been removed.
+    """
+    if grant["scope_type"] == "all":
+        return "Whole portfolio"
+    if grant["scope_type"] == "brand":
+        return f"Brand · {grant['scope_ref']}"
+    ref = grant["scope_ref"]
+    try:
+        label = item_labels.get(int(ref)) if ref is not None else None
+    except (TypeError, ValueError):
+        label = None
+    return f"Item · {label}" if label else "Item · (removed)"
+
+
+@bp.route("/admin/users/<int:user_id>/grants", methods=["POST"])
+@admin_required
+def admin_grant_add(user_id):
+    """Grant a helper account access to a slice of this admin's portfolio.
+
+    POST-only + CSRF + admin-guarded. The grant is always issued *from the
+    acting admin* (``owner_user_id`` = this admin), so an admin can only ever
+    hand out access to their own items. The grantee must be an existing
+    non-admin account — granting to an admin is meaningless (admins own their
+    own portfolio) and is refused. Scope/brand/item are validated in
+    :func:`access.grant_access` against this admin's own portfolio.
+    """
+    target = users.get_by_id(user_id)
+    if target is None:
+        abort(404)
+    if target["role"] == users.ROLE_ADMIN:
+        # Admins are owners of their own portfolio; a grant would never apply.
+        flash("Admins manage their own portfolio — grant access to a user account instead.",
+              "error")
+        return redirect(url_for("pages.admin_users"))
+
+    scope_type = (request.form.get("scope_type") or "").strip()
+    # One field carries the ref for either scope; the unused one is ignored.
+    scope_ref = (request.form.get("scope_brand") if scope_type == "brand"
+                 else request.form.get("scope_item"))
+    try:
+        access.grant_access(get_db(), g.user["id"], user_id, scope_type, scope_ref)
+    except access.GrantError as e:
+        logger.info("Admin user_id=%s grant to user_id=%s rejected: %s",
+                    g.user["id"], user_id, e)
+        flash(str(e), "error")
+    else:
+        flash(f"Access granted to {target['email']}.", "ok")
+    return redirect(url_for("pages.admin_users"))
+
+
+@bp.route("/admin/users/grants/<int:grant_id>/delete", methods=["POST"])
+@admin_required
+def admin_grant_revoke(grant_id):
+    """Revoke a single access grant. POST-only + CSRF + admin-guarded.
+
+    Scoped to the acting admin in :func:`access.revoke_grant`, so an admin can
+    only revoke grants they themselves issued.
+    """
+    removed = access.revoke_grant(get_db(), g.user["id"], grant_id)
+    if removed:
+        flash("Access revoked.", "ok")
+    else:
+        # The grant was already gone, or belonged to another owner — nothing to do.
+        flash("That access grant no longer exists.", "error")
+    return redirect(url_for("pages.admin_users"))
 
 
 @bp.route("/admin/users", methods=["POST"])
@@ -5463,7 +5698,15 @@ def ci_home():
 @bp.route("/app/competitive-intel/monitoring")
 @login_required
 def ci_monitoring_home():
-    """Home for monitoring groups: list (with status) + create + next-run time."""
+    """Home for monitoring groups: list (with status) + create + next-run time.
+
+    Owner-only: configuring what to track (brands/competitors) belongs to the
+    account manager. A helper reads the resulting data under Insights →
+    Competitive but can't reach this setup tool (the rail leaf is also hidden).
+    """
+    if access.is_helper(get_db(), g.user):
+        logger.warning("Helper user_id=%s attempted to open CI monitoring setup", g.user["id"])
+        abort(403)
     logger.info("Serving CI monitoring home user_id=%s", g.user["id"])
     db = get_db()
     return render_template(
@@ -5483,7 +5726,14 @@ def ci_create_monitoring_group():
     Description is required here (the HTML form also marks it required, but the
     server is the real guard): every tracked competitive group must carry one so the
     Competitive Tracking list can show what each group is for.
+
+    Owner-only, mirroring :func:`ci_monitoring_home` — a helper can't create a
+    monitoring group (they'd be configuring the manager's competitive setup).
     """
+    if access.is_helper(get_db(), g.user):
+        logger.warning("Helper user_id=%s attempted to create a CI monitoring group",
+                       g.user["id"])
+        abort(403)
     description = (request.form.get("description") or "").strip()
     if not description:
         flash("Description is required.", "error")

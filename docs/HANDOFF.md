@@ -1,8 +1,93 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-11-03 (session 55 — **Demo-account seeder for live demos — built on feature branch
-`feature/demo-seeder`, NOT yet merged/deployed.** New `portfolio_items.demo` flag + `app/seed_demo.py`.
-868 tests (5 new) + ruff clean; browser-verified against a scratch DB. No dependency changes.)_
+_Last updated: 2026-11-04 (session 56 — **Account-manager / helper access model — built on feature branch
+`feature/portfolio-access`, NOT pushed, NOT PR'd, NOT deployed.** All five phases complete. 915 tests
+(+16 this feature) + ruff clean; the helper flow was browser-verified end to end against a scratch DB. No
+dependency changes.)_
+
+---
+
+## Session 56 — Account-manager / helper access model (feature/portfolio-access)
+
+**What it is.** An account manager (an `admin` role) owns a portfolio of items (brands) and can grant a helper
+(a `user` role) scoped access to a slice of it — the whole portfolio, specific brands, or specific items. The
+helper then sees and manages only what they were granted, across Portfolio, Insights, Reports, and the
+Dashboard. Branch `feature/portfolio-access` stacks off `main` (`43bc4aa`); **not pushed, not PR'd** (the user
+merges manually).
+
+**The locked model (decided with the user).**
+- **Admin = account manager / owner; user = helper.** But the deciding factor is *grants, not role*: **a helper
+  is a non-admin holding ≥1 grant.** Admins AND plain self-service `user` accounts with no grants are OWNERS of
+  their own portfolio and behave exactly as the app always has. (This was a correction mid-build — the first cut
+  treated every non-admin as a helper, which would have blanked every existing user account's portfolio,
+  including the live demo account. The test suite caught it.)
+- **Grant scopes:** `all` / `brand` (case-insensitive) / `item` (one item id), in the new `portfolio_grants`
+  table (`owner_user_id, grantee_user_id, scope_type, scope_ref`).
+- **Grant = FULL access** on the granted items (toggle tracking, edit keywords) — not view-only. But helpers
+  **can't add/import/delete items** (portfolio composition is owner-only) and **can't configure Competitive
+  setup** (adding brands/competitors). Report **scheduling is owner-only** too (a schedule is a worker-run
+  standing job assembled as the owner); helpers can still generate/download an on-demand report for a granted
+  brand.
+- **Competitive (CI) is brand-matched:** a helper sees a monitoring group — the Insights → Competitive view and
+  the dashboard Competition card — only when the group's own (`type='mine'`) brand matches a granted brand. An
+  `all` grant unlocks every group; an **item-only grant unlocks no competitive** (a group is brand-level).
+
+**Architecture.** No `portfolios` table, no data migration — `portfolio_items.user_id` stays the owner and
+access is an additive layer. The single place grants turn into filters is **`app/access.py`**:
+`resolve_item_scope` → `ItemScope(owner_id, item_ids)`, `resolve_ci_scope` → `CiScope(owner_id, group_ids)`,
+`ItemScope.allows(item_id)` (per-item manage gate), `is_helper(conn, viewer)`. Fail-closed throughout; every
+brand/item expansion is filtered by `owner_id`, so a stale or forged grant ref can never reach another owner's
+data. `item_ids`/`group_ids` of `None` = unrestricted (owner / all-grant); an empty frozenset = nothing in scope.
+
+**Phases (each committed separately on the branch).**
+- **Phase 0** (`5e260f8`) — `portfolio_grants` table (auto-created via `_SCHEMA`, no `_migrate`) + `access.py`
+  resolvers + unit tests.
+- **Phase 1** (`14b1531`) — Portfolio surface scoped (list/add/import/delete/toggle-track/keywords/upload) +
+  `tests/test_portfolio_access.py`.
+- **Phases 2+3** (`2c5ba6c`) — Insights (Performance/Opportunities/Competitive), Reports, and the Dashboard
+  scoped together (they all share the CI monitoring group as the brand selector, so they couldn't be scoped
+  apart). Pattern: resolve scope once per request; for an OWNER the scope is unrestricted and behavior is
+  byte-for-byte unchanged; for a HELPER the owner is the manager and groups are brand-matched. Shared helpers
+  `_accessible_monitoring_groups` / `_pick_monitoring_group`. Report scheduling kept owner-only (no Schedules
+  tab for helpers; schedule write routes 403). `tests/test_insights_access.py`.
+- **Phase 4** (`8dc3d37`) — **Admin grant-management UI** in User Management (`/admin/users`). `access.py` grew
+  the write side: `grant_access` / `revoke_grant` / `list_grants`, all scoped to the acting manager, with every
+  brand/item ref validated against that manager's own portfolio (a forged/stale value can't grant foreign data);
+  duplicate grants (unique index) and bad scope types raise a user-safe `GrantError`. Routes `admin_grant_add` /
+  `admin_grant_revoke` (POST + CSRF + admin-guarded); granting to an admin is refused. `admin_users.html` gained
+  a per-user (non-admin only) access panel — current grants with Revoke + an add form whose ref picker follows
+  the chosen scope (`admin_users.js`, CSP-safe, degrades without JS); `workspace.css` styles it.
+  `tests/test_grant_admin.py` (11 tests).
+- **Phase 5** (this commit) — Hid the **Competitive Tracking setup tool** from helpers: the `_rail.html` leaf is
+  gated on a new `is_helper` flag now exposed by the `_inject_admin_context` context processor in
+  `app/__init__.py`, and `ci_monitoring_home` / `ci_create_monitoring_group` 403 for helpers (the other CI-config
+  routes already fail closed — they scope `get_group` to the viewer's own id, and a helper owns no groups).
+  `tests/test_helper_nav.py` (5 tests). Logging reviewed — see below. This HANDOFF update.
+
+**Access-decision logging (reviewed Phase 5).** Every allow/deny decision is a breadcrumb and nothing secret is
+logged: resolvers log anonymous denies (warning), helper scope resolution with owner + count (info), item-only
+"no CI" (info), and the unsupported multi-owner case (warning); the grant write path logs create / duplicate /
+revoke with owner-grantee-scope (info) and a revoke that matches nothing (warning — also flags a possible
+cross-owner attempt); blocked helper actions (CI setup, CSV import, add/delete) log a warning searchable by
+`user_id`. The hot `ItemScope.allows()` predicate is intentionally not logged (per-item, would be noisy — the
+calling route logs the outcome). No change was needed.
+
+**Verification.** 915 tests pass (was 899 at the branch point; +16 across the feature's own test files) and ruff
+is clean. The full helper flow was browser-verified end to end against a scratch SQLite DB: created a brand grant
+through the admin UI, signed in as the helper and confirmed Portfolio (granted brand's items only), Insights
+(Performance / Opportunities / Competitive — brand-matched), Reports (granted brand, no Schedules tab), and the
+Dashboard (brand count + Competition card) all scope correctly, then revoked the grant and saw the account return
+to self-service. Phase 5 re-verified: the helper's rail drops the Competitive Tracking setup leaf (keeping the
+read-only Insights → Competitive view) and the setup route returns 403.
+
+**Known follow-up (pre-existing, out of scope).** `app/db.py::_migrate`'s one-time per-item keyword backfill
+reads `row["brand"]` on a tuple-factory connection — it would `TypeError` if it ever ran with items present but
+`portfolio_keywords` empty. Unreachable in normal use (`portfolio.add_item` always writes keyword rows, so the
+table is never empty while items lacking keywords exist), and real DBs already have keyword data so the branch is
+skipped. Only a direct-insert seed (as used in dev verification here) can trip it. Worth hardening (set the Row
+factory, or fetch columns positionally) but unrelated to this feature.
+
+---
 
 _**S55 goal (user-requested).** A repeatable way to demo the app. Insights/Reporting are time-series and only
 read well with weeks of history; Portfolio management demos best live. So: a dedicated demo account holds 4

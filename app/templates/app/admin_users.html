@@ -110,6 +110,76 @@
             {% endif %}
           </td>
         </tr>
+        {# Access grants: only for non-admin accounts (admins own their own
+           portfolio, so a grant never applies). A helper is any user account
+           that holds ≥1 grant below. Spans the full table width under the row. #}
+        {% if u.role != 'admin' %}
+        {% set grants = grants_by_user.get(u.id, []) %}
+        <tr class="grant-row">
+          <td colspan="7">
+            <details class="grant-panel"{% if grants %} open{% endif %}>
+              <summary class="grant-summary">
+                Portfolio access
+                {% if grants %}
+                <span class="grant-count">{{ grants | length }} grant{{ '' if grants | length == 1 else 's' }}</span>
+                {% else %}
+                <span class="cell-muted">— none (self-service account)</span>
+                {% endif %}
+              </summary>
+              <div class="grant-body">
+                {# Current grants, each revocable. #}
+                {% if grants %}
+                <ul class="grant-list">
+                  {% for grant in grants %}
+                  <li class="grant-item">
+                    <span class="grant-chip grant-chip-{{ grant.scope_type }}">{{ grant.label }}</span>
+                    <form method="post" class="grant-revoke-form"
+                          action="{{ url_for('pages.admin_grant_revoke', grant_id=grant.id) }}">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+                      <button type="submit" class="btn-role grant-revoke">Revoke</button>
+                    </form>
+                  </li>
+                  {% endfor %}
+                </ul>
+                {% endif %}
+
+                {# Add a grant. The scope select reveals the matching ref field
+                   (brand or item) via admin_users.js; "whole portfolio" needs
+                   neither. Server re-validates every value. #}
+                <form method="post" class="grant-add-form"
+                      action="{{ url_for('pages.admin_grant_add', user_id=u.id) }}">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+                  <select name="scope_type" class="ci-input grant-scope-select" aria-label="Access scope" required>
+                    <option value="all">Whole portfolio</option>
+                    <option value="brand">A brand</option>
+                    <option value="item">A single item</option>
+                  </select>
+                  {# Brand ref — shown only when scope = brand. #}
+                  <select name="scope_brand" class="ci-input grant-ref grant-ref-brand" aria-label="Brand" hidden>
+                    <option value="">Select a brand…</option>
+                    {% for b in owner_brands %}
+                    <option value="{{ b }}">{{ b }}</option>
+                    {% endfor %}
+                  </select>
+                  {# Item ref — shown only when scope = item. #}
+                  <select name="scope_item" class="ci-input grant-ref grant-ref-item" aria-label="Item" hidden>
+                    <option value="">Select an item…</option>
+                    {% for it in owner_items %}
+                    <option value="{{ it.id }}">{{ it.label }}</option>
+                    {% endfor %}
+                  </select>
+                  <button type="submit" class="wbtn wbtn-primary grant-add-btn">Grant access</button>
+                </form>
+                {% if not owner_brands and not owner_items %}
+                <p class="cell-muted" style="margin: 6px 0 0; font-size: 12px;">
+                  Add items to your portfolio first — brand and item grants draw from it.
+                </p>
+                {% endif %}
+              </div>
+            </details>
+          </td>
+        </tr>
+        {% endif %}
         {% endfor %}
       </tbody>
     </table>

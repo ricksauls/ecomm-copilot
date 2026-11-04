@@ -260,6 +260,42 @@ CREATE TABLE IF NOT EXISTS portfolio_rank_readings (
 CREATE INDEX IF NOT EXISTS idx_portfolio_rank_readings_series
     ON portfolio_rank_readings(portfolio_item_id, keyword_id, captured_at);
 
+-- Portfolio access grants: how an account manager (an 'admin') lets a helper
+-- (a 'user'-role account) into a slice of the manager's portfolio. The manager
+-- owns every portfolio item; a grant is the ONLY way another account gets to
+-- see or manage any of them. Grants never confer adding or deleting items —
+-- portfolio composition stays with the owner — only read + manage (tracking
+-- toggle, keyword edits) on whatever the scope resolves to. A helper with no
+-- grant rows sees nothing. Access resolution lives in app.access, which is the
+-- single place these rows are turned into filters (so every surface scopes the
+-- same way and fails closed). scope_type is one of:
+--   'all'   -> the owner's whole portfolio        (scope_ref IS NULL)
+--   'brand' -> items whose brand matches scope_ref (case-insensitive brand name)
+--   'item'  -> the one portfolio_items.id in scope_ref (stored as text)
+CREATE TABLE IF NOT EXISTS portfolio_grants (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- The account manager who owns the items. ON DELETE CASCADE so removing an
+    -- account tears down both the grants it handed out and the ones it received.
+    owner_user_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    grantee_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    scope_type      TEXT    NOT NULL CHECK (scope_type IN ('all', 'brand', 'item')),
+    -- NULL for 'all'; a brand name for 'brand'; a portfolio_items.id (as text)
+    -- for 'item'. One nullable text column carries both kinds without a second
+    -- join table; the resolver casts/validates per scope_type when expanding.
+    scope_ref       TEXT,
+    created_at      TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+-- Re-granting the same scope is a no-op, not a duplicate: one row per
+-- (owner, grantee, scope_type, scope_ref). COALESCE folds the NULL ref of an
+-- 'all' grant to '' so the unique index covers it too (SQLite treats NULLs as
+-- distinct in a UNIQUE index otherwise, which would let 'all' be inserted twice).
+CREATE UNIQUE INDEX IF NOT EXISTS idx_portfolio_grants_dedupe
+    ON portfolio_grants(owner_user_id, grantee_user_id, scope_type, COALESCE(scope_ref, ''));
+-- The hot path is "what has this helper been granted?", looked up on every
+-- scoped request, so index the grantee.
+CREATE INDEX IF NOT EXISTS idx_portfolio_grants_grantee
+    ON portfolio_grants(grantee_user_id);
+
 -- One row per AI image-fix (upscale / white-background) requested from the
 -- scoring results page. The web app inserts rows as 'queued'; the background
 -- worker claims them, calls the upscaling provider, and caches the output under

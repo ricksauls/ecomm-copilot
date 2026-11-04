@@ -243,8 +243,9 @@ def get_item(conn: sqlite3.Connection, user_id: int, pk: int) -> sqlite3.Row | N
     ).fetchone()
 
 
-def list_items(conn: sqlite3.Connection, user_id: int) -> list[sqlite3.Row]:
-    """All of the user's managed products, tracked items first, then newest first.
+def list_items(conn: sqlite3.Connection, user_id: int,
+               item_ids: frozenset[int] | set[int] | None = None) -> list[sqlite3.Row]:
+    """All of ``user_id``'s managed products, tracked items first, then newest first.
 
     Carries the columns the screen and the scoring/copy pick-lists need: the
     Walmart URL (the value submitted to a run), the parsed item number, brand, the
@@ -261,13 +262,29 @@ def list_items(conn: sqlite3.Connection, user_id: int) -> list[sqlite3.Row]:
     Ordering: the Portfolio screen groups actively tracked items at the top (that
     is where the user's attention and spend go), falling back to newest-first
     within each group so a just-added item still surfaces near its peers.
+
+    ``item_ids`` restricts the result to that set of item ids, on top of the
+    owner filter — the hook the access layer uses to show a helper only the
+    items they were granted. ``None`` means no restriction (the owner's whole
+    portfolio); an empty set means "no items" and returns [] without a query
+    (an empty ``IN ()`` isn't valid SQL).
     """
-    return conn.execute(
+    if item_ids is not None and not item_ids:
+        return []
+    sql = (
         "SELECT id, brand, walmart_url, item_id, amazon_url, title, title_status, "
         "tracked, created_at "
-        "FROM portfolio_items WHERE user_id = ? ORDER BY tracked DESC, id DESC",
-        (user_id,),
-    ).fetchall()
+        "FROM portfolio_items WHERE user_id = ?"
+    )
+    params: list = [user_id]
+    if item_ids is not None:
+        # Only the placeholder count is interpolated (never user data); the ids
+        # are bound parameters, so this stays injection-safe.
+        placeholders = ", ".join("?" for _ in item_ids)
+        sql += f" AND id IN ({placeholders})"
+        params.extend(item_ids)
+    sql += " ORDER BY tracked DESC, id DESC"
+    return conn.execute(sql, params).fetchall()
 
 
 # --- Title backfill queue (worker fetches the product name per item) ---------
