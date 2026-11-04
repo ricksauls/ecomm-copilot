@@ -19,9 +19,12 @@
   <a href="{{ url_for('pages.reports_home', tab='create') }}"
      class="ws-tab{{ ' active' if tab == 'create' else '' }}"
      {{ 'aria-current="page"' if tab == 'create' else '' }}>Create New</a>
+  {# Scheduling is owner-only; a helper sees Create New + History, no Schedules. #}
+  {% if can_schedule %}
   <a href="{{ url_for('pages.reports_home', tab='schedules') }}"
      class="ws-tab{{ ' active' if tab == 'schedules' else '' }}"
      {{ 'aria-current="page"' if tab == 'schedules' else '' }}>Schedules</a>
+  {% endif %}
   <a href="{{ url_for('pages.reports_home', tab='history') }}"
      class="ws-tab{{ ' active' if tab == 'history' else '' }}"
      {{ 'aria-current="page"' if tab == 'history' else '' }}>History</a>
@@ -228,8 +231,8 @@
   {% if not history %}
     <div class="card card-pad">
       <p class="report-hint">No reports yet. Generate one from the
-         <a href="{{ url_for('pages.reports_home', tab='create') }}">Create New</a> tab,
-         or set up a <a href="{{ url_for('pages.reports_home', tab='schedules') }}">Schedule</a>.</p>
+         <a href="{{ url_for('pages.reports_home', tab='create') }}">Create New</a> tab{% if can_schedule %},
+         or set up a <a href="{{ url_for('pages.reports_home', tab='schedules') }}">Schedule</a>{% endif %}.</p>
     </div>
   {% else %}
     <div class="card">
