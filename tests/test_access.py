@@ -85,16 +85,24 @@ def test_admin_sees_own_whole_portfolio(app):
         assert scope.item_ids is None
 
 
-def test_helper_without_grants_sees_nothing(app):
+def test_non_admin_without_grants_owns_their_own_portfolio(app):
+    """A plain account with no grants is its own owner, not a scoped helper.
+
+    This is the backward-compat case: self-service users keep seeing and
+    managing their own items. They become a helper only once granted access.
+    """
     with app.app_context():
         db = get_db()
         admin = _make_user(db, "mgr@example.com", role="admin")
         _add_item(db, admin["id"], brand="Tabasco", item_id="100")
-        helper = _make_user(db, "help@example.com")
+        plain = _make_user(db, "solo@example.com")
+        mine = _add_item(db, plain["id"], brand="Solo", item_id="500")
 
-        scope = access.resolve_item_scope(db, helper)
-        assert scope.denied
-        assert scope.owner_id is None
+        scope = access.resolve_item_scope(db, plain)
+        assert scope.unrestricted            # sees their own whole portfolio
+        assert scope.owner_id == plain["id"]
+        # And only their own items resolve in — never the admin's.
+        assert scope.allows(mine)
 
 
 def test_all_grant_gives_whole_portfolio(app):
@@ -169,6 +177,22 @@ def test_item_grant_cannot_reach_an_item_the_owner_does_not_own(app):
         scope = access.resolve_item_scope(db, helper)
         assert scope.owner_id == owner["id"]
         assert scope.item_ids == frozenset()   # foreign item never resolves in
+
+
+# --- helper predicate ------------------------------------------------------
+
+def test_is_helper_only_for_non_admin_with_grants(app):
+    with app.app_context():
+        db = get_db()
+        admin = _make_user(db, "mgr@example.com", role="admin")
+        plain = _make_user(db, "solo@example.com")
+        helper = _make_user(db, "help@example.com")
+        _grant(db, admin["id"], helper["id"], "all")
+
+        assert access.is_helper(db, helper)        # non-admin + grant
+        assert not access.is_helper(db, plain)     # non-admin, no grant -> owner
+        assert not access.is_helper(db, admin)     # admins are never helpers
+        assert not access.is_helper(db, None)      # anonymous
 
 
 # --- competitive scope -----------------------------------------------------

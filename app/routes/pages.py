@@ -32,6 +32,7 @@ from flask import (
 )
 
 from app import (
+    access,
     ci_analysis,
     ci_config,
     ci_images,
@@ -3117,20 +3118,34 @@ def portfolio_home():
     Adding items (CSV import / single add) lives on the sibling Upload tab
     (``portfolio_upload``); the two share this template via the ``view`` flag.
     """
-    logger.info("Serving Portfolio Management (items), user_id=%s", g.user["id"])
     db = get_db()
-    uid = g.user["id"]
-    items = portfolio.list_items(db, uid)
+    # Resolve what this viewer may see: an account manager (admin) gets their own
+    # whole portfolio; a helper gets only the owner's items they were granted.
+    scope = access.resolve_item_scope(db, g.user)
+    logger.info("Serving Portfolio Management (items), user_id=%s owner=%s scope=%s",
+                g.user["id"], scope.owner_id,
+                "all" if scope.unrestricted else "none" if scope.denied else "subset")
+    items = (
+        portfolio.list_items(db, scope.owner_id, item_ids=scope.item_ids)
+        if scope.owner_id is not None else []
+    )
     # Keyword chips show only for tracked items (the keywords are the tracking
     # config), so fetch keywords just for those, in one query (no N+1).
     tracked_ids = [it["id"] for it in items if it["tracked"]]
+    keywords_by_item = (
+        item_keywords.list_keywords_by_item(db, scope.owner_id, tracked_ids)
+        if tracked_ids else {}
+    )
     return render_template(
         "app/portfolio.html",
         breadcrumb="Portfolio Management · Managed Items",
         active_nav=_PORTFOLIO_NAV,
         view="items",
         items=items,
-        keywords_by_item=item_keywords.list_keywords_by_item(db, uid, tracked_ids),
+        keywords_by_item=keywords_by_item,
+        # Owners (admins and plain accounts over their own items) can add/remove;
+        # a helper views someone else's portfolio (owner_id != them) and cannot.
+        can_manage_portfolio=(scope.owner_id == g.user["id"]),
     )
 
 
@@ -3143,12 +3158,19 @@ def portfolio_upload():
     handlers; on success they redirect to the Managed Items tab so the user sees
     the new rows (tracked, sorted to the top).
     """
+    # Adding items is the account manager's job; a helper has no Upload tab.
+    if access.is_helper(get_db(), g.user):
+        logger.warning("Helper user_id=%s hit Portfolio upload; redirecting",
+                       g.user["id"])
+        flash("Only the account manager can add items to the portfolio.", "error")
+        return redirect(url_for("pages.portfolio_home"))
     logger.info("Serving Portfolio Management (upload), user_id=%s", g.user["id"])
     return render_template(
         "app/portfolio.html",
         breadcrumb="Portfolio Management · Upload Items",
         active_nav=_PORTFOLIO_NAV,
         view="upload",
+        can_manage_portfolio=True,
     )
 
 
@@ -3156,6 +3178,10 @@ def portfolio_upload():
 @login_required
 def portfolio_import():
     """Import managed products from an uploaded CSV, skipping existing items."""
+    # Owner-only: helpers manage items but never add to the portfolio.
+    if access.is_helper(get_db(), g.user):
+        logger.warning("Helper user_id=%s attempted CSV import", g.user["id"])
+        abort(403)
     csv_file = request.files.get("csv")
     if csv_file is None or not csv_file.filename:
         flash("Choose a CSV file to import.", "error")
@@ -3188,6 +3214,10 @@ def portfolio_import():
 @login_required
 def portfolio_add():
     """Add a single managed product from the inline form."""
+    # Owner-only: helpers manage items but never add to the portfolio.
+    if access.is_helper(get_db(), g.user):
+        logger.warning("Helper user_id=%s attempted single add", g.user["id"])
+        abort(403)
     ok, error = portfolio.add_item(
         get_db(),
         g.user["id"],
@@ -3204,7 +3234,11 @@ def portfolio_add():
 @bp.route("/app/portfolio/delete/<int:item_id>", methods=["POST"])
 @login_required
 def portfolio_delete(item_id: int):
-    """Delete one managed product the user owns."""
+    """Delete one managed product. Owner-only: removing items is the manager's job."""
+    if access.is_helper(get_db(), g.user):
+        logger.warning("Helper user_id=%s attempted delete of item %s",
+                       g.user["id"], item_id)
+        abort(403)
     removed = portfolio.delete_item(get_db(), g.user["id"], item_id)
     flash("Item removed." if removed else "That item is no longer in your portfolio.",
           "ok" if removed else "error")
@@ -3222,8 +3256,19 @@ def portfolio_toggle_track(item_id: int):
     scheduled runs). ``set_tracked`` returns False for a forged/foreign id —
     surfaced as a benign message, never a leak (IDOR gate).
     """
+    db = get_db()
+    scope = access.resolve_item_scope(db, g.user)
+    # Per-item authorization: a helper may only toggle items inside their grant
+    # scope. A benign "no longer in your portfolio" avoids confirming the item
+    # exists to someone who shouldn't see it (IDOR gate).
+    if not scope.allows(item_id):
+        logger.warning("user_id=%s denied tracking toggle on out-of-scope item %s",
+                       g.user["id"], item_id)
+        flash("That item is no longer in your portfolio.", "error")
+        return redirect(url_for("pages.portfolio_home"))
     want = request.form.get("tracked") == "1"
-    ok = tracking.set_tracked(get_db(), g.user["id"], item_id, want)
+    # Act on the owner's row (the account manager), not the viewer's own id.
+    ok = tracking.set_tracked(db, scope.owner_id, item_id, want)
     if ok:
         flash("Now tracking this item — daily rank & share plus a weekly PDP snapshot, "
               "starting on the next run." if want else "Stopped tracking this item.", "ok")
@@ -3276,8 +3321,16 @@ def portfolio_edit_keywords(item_id: int):
     (IDOR gate). An edited keyword is pinned so the descriptors backfill and the AI
     step won't overwrite it.
     """
+    db = get_db()
+    scope = access.resolve_item_scope(db, g.user)
+    # Per-item authorization, same gate as the tracking toggle.
+    if not scope.allows(item_id):
+        logger.warning("user_id=%s denied keyword edit on out-of-scope item %s",
+                       g.user["id"], item_id)
+        flash("That item is no longer in your portfolio.", "error")
+        return redirect(url_for("pages.portfolio_home"))
     values = {slot: request.form.get(f"kw{slot}") for slot in item_keywords.VALID_SLOTS}
-    ok = item_keywords.set_keywords(get_db(), g.user["id"], item_id, values)
+    ok = item_keywords.set_keywords(db, scope.owner_id, item_id, values)
     # Keyword editing lives inline on the Portfolio list (the per-item page was
     # retired in Phase 2), so both outcomes return to the catalog.
     if ok:

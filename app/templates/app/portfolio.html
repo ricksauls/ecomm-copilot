@@ -42,9 +42,12 @@
   <a href="{{ url_for('pages.portfolio_home') }}"
      class="ws-tab{{ ' active' if view == 'items' else '' }}"
      {{ 'aria-current="page"' if view == 'items' else '' }}>Managed Items</a>
+  {# Adding items is the account manager's job; helpers have no Upload tab. #}
+  {% if can_manage_portfolio %}
   <a href="{{ url_for('pages.portfolio_upload') }}"
      class="ws-tab{{ ' active' if view == 'upload' else '' }}"
      {{ 'aria-current="page"' if view == 'upload' else '' }}>Upload Items</a>
+  {% endif %}
 </nav>
 
 {% with flashes = get_flashed_messages(with_categories=true) %}
@@ -284,11 +287,15 @@
             {% endif %}
           </td>
           <td class="cell-action">
+            {# Removing items is owner-only; the cell stays (column alignment) but
+               a helper sees no Remove control. #}
+            {% if can_manage_portfolio %}
             <form method="post" action="{{ url_for('pages.portfolio_delete', item_id=it.id) }}"
                   class="pf-delete-form">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
               <button type="submit" class="btn-delete">Remove</button>
             </form>
+            {% endif %}
           </td>
         </tr>
         {% endfor %}
@@ -301,9 +308,14 @@
   </div>
   {% if not items %}
   <p class="results-count">
+    {% if can_manage_portfolio %}
     No managed items yet.
     <a href="{{ url_for('pages.portfolio_upload') }}">Upload a CSV or add one</a>
     to get started.
+    {% else %}
+    {# Helper with no matching grants: nothing has been shared with them yet. #}
+    No items have been shared with you yet.
+    {% endif %}
   </p>
   {% endif %}
 </div>

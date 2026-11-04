@@ -51,6 +51,21 @@ class ItemScope:
         """True when every one of the owner's items is in scope (no id filter)."""
         return self.owner_id is not None and self.item_ids is None
 
+    def allows(self, item_id: int) -> bool:
+        """Whether one specific item is in scope — the per-item manage gate.
+
+        A route about to act on ``item_id`` (toggle tracking, edit keywords)
+        calls this before touching it. Denied viewers allow nothing; an
+        unrestricted scope allows any of the owner's items; otherwise the id
+        must be in the resolved set. Pair it with passing ``owner_id`` to the
+        data layer, so the write both targets the owner's row and is authorized.
+        """
+        if self.owner_id is None:
+            return False
+        if self.item_ids is None:
+            return True
+        return item_id in self.item_ids
+
 
 @dataclass(frozen=True)
 class CiScope:
@@ -107,32 +122,30 @@ def resolve_item_scope(conn: sqlite3.Connection,
 
     viewer_id = viewer["id"]
 
-    # The account manager owns their portfolio outright: no grant lookup, and no
-    # id filter — every item they own is in scope.
-    if security.is_admin(viewer):
-        return ItemScope(owner_id=viewer_id, item_ids=None)
+    # Helpers are the only accounts scoped to *someone else's* portfolio. A
+    # helper is a non-admin holding at least one grant. Everyone else — an admin
+    # account manager, or a plain self-service account with no grants — owns
+    # their own items and sees all of them (owner_id == viewer_id).
+    if not security.is_admin(viewer):
+        grants = _load_grants(conn, viewer_id)
+        if grants:
+            owner_id = _single_owner(grants, viewer_id)
+            # A whole-portfolio grant subsumes any narrower brand/item grants.
+            if _has_all_grant(grants):
+                logger.debug("Helper user_id=%s has an 'all' grant from owner %s",
+                             viewer_id, owner_id)
+                return ItemScope(owner_id=owner_id, item_ids=None)
+            # A helper who also owned items (none do today) would be scoped to the
+            # granting owner only, not their own — revisit for a multi-owner model.
+            item_ids: set[int] = set()
+            item_ids.update(_items_for_brands(conn, owner_id, _granted_brands(grants)))
+            item_ids.update(_explicit_items(conn, owner_id, grants))
+            logger.info("Helper user_id=%s item scope: owner=%s items=%d",
+                        viewer_id, owner_id, len(item_ids))
+            return ItemScope(owner_id=owner_id, item_ids=frozenset(item_ids))
 
-    grants = _load_grants(conn, viewer_id)
-    if not grants:
-        logger.info("Helper user_id=%s has no portfolio grants; item scope empty",
-                    viewer_id)
-        return _ITEM_DENY
-
-    owner_id = _single_owner(grants, viewer_id)
-
-    # A whole-portfolio grant subsumes any narrower brand/item grants.
-    if _has_all_grant(grants):
-        logger.debug("Helper user_id=%s has an 'all' grant from owner %s",
-                     viewer_id, owner_id)
-        return ItemScope(owner_id=owner_id, item_ids=None)
-
-    item_ids: set[int] = set()
-    item_ids.update(_items_for_brands(conn, owner_id, _granted_brands(grants)))
-    item_ids.update(_explicit_items(conn, owner_id, grants))
-
-    logger.info("Helper user_id=%s item scope: owner=%s items=%d",
-                viewer_id, owner_id, len(item_ids))
-    return ItemScope(owner_id=owner_id, item_ids=frozenset(item_ids))
+    # Owner path (admin, or any account with no grants): their own whole portfolio.
+    return ItemScope(owner_id=viewer_id, item_ids=None)
 
 
 def resolve_ci_scope(conn: sqlite3.Connection,
@@ -158,29 +171,39 @@ def resolve_ci_scope(conn: sqlite3.Connection,
 
     viewer_id = viewer["id"]
 
-    if security.is_admin(viewer):
-        return CiScope(owner_id=viewer_id, group_ids=None)
+    # Same shape as item scope: only a non-admin with grants is a helper scoped
+    # to someone else's groups; everyone else sees their own.
+    if not security.is_admin(viewer):
+        grants = _load_grants(conn, viewer_id)
+        if grants:
+            owner_id = _single_owner(grants, viewer_id)
+            if _has_all_grant(grants):
+                return CiScope(owner_id=owner_id, group_ids=None)
+            # Only brand grants unlock competitive data; item-only grants do not.
+            brands = _granted_brands(grants)
+            if not brands:
+                logger.info("Helper user_id=%s has only item grants; no CI access",
+                            viewer_id)
+                return CiScope(owner_id=owner_id, group_ids=frozenset())
+            group_ids = _groups_for_brands(conn, owner_id, brands)
+            logger.info("Helper user_id=%s CI scope: owner=%s groups=%d",
+                        viewer_id, owner_id, len(group_ids))
+            return CiScope(owner_id=owner_id, group_ids=frozenset(group_ids))
 
-    grants = _load_grants(conn, viewer_id)
-    if not grants:
-        logger.info("Helper user_id=%s has no grants; CI scope empty", viewer_id)
-        return _CI_DENY
+    return CiScope(owner_id=viewer_id, group_ids=None)
 
-    owner_id = _single_owner(grants, viewer_id)
 
-    if _has_all_grant(grants):
-        return CiScope(owner_id=owner_id, group_ids=None)
+def is_helper(conn: sqlite3.Connection, viewer: sqlite3.Row | None) -> bool:
+    """True when the viewer is a helper: a non-admin holding at least one grant.
 
-    # Only brand grants unlock competitive data; item-only grants do not.
-    brands = _granted_brands(grants)
-    if not brands:
-        logger.info("Helper user_id=%s has only item grants; no CI access", viewer_id)
-        return CiScope(owner_id=owner_id, group_ids=frozenset())
-
-    group_ids = _groups_for_brands(conn, owner_id, brands)
-    logger.info("Helper user_id=%s CI scope: owner=%s groups=%d",
-                viewer_id, owner_id, len(group_ids))
-    return CiScope(owner_id=owner_id, group_ids=frozenset(group_ids))
+    Helpers manage a slice of an account manager's portfolio and never own
+    items, so routes use this to block adding, importing, and deleting. Admins
+    and plain self-service accounts (no grants) own their own portfolio and keep
+    full control of it — so they are *not* helpers.
+    """
+    if viewer is None or security.is_admin(viewer):
+        return False
+    return bool(_load_grants(conn, viewer["id"]))
 
 
 # --- internals -------------------------------------------------------------
