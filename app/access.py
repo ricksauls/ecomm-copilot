@@ -206,6 +206,135 @@ def is_helper(conn: sqlite3.Connection, viewer: sqlite3.Row | None) -> bool:
     return bool(_load_grants(conn, viewer["id"]))
 
 
+# --- grant administration --------------------------------------------------
+# Resolvers above turn stored grants into filters; the functions here are the
+# write side — how an account manager creates and revokes those grants. Both
+# are strictly scoped to ``owner_id`` (the acting manager) so one manager can
+# never read, create, or revoke a grant over another manager's portfolio, and
+# every brand/item reference is validated against the owner's *current*
+# portfolio before a row is written (fail-closed: an unknown brand or an item
+# the owner doesn't hold is rejected, never silently stored).
+
+# Scope types accepted from the admin UI, mirrored from the DB CHECK constraint
+# on portfolio_grants.scope_type. Kept here as the single allowlist the write
+# path validates against.
+VALID_SCOPE_TYPES = frozenset({"all", "brand", "item"})
+
+
+class GrantError(ValueError):
+    """A grant could not be created because the input was invalid or unauthorized.
+
+    Carries a human-readable message safe to surface to the admin (no internal
+    details); the route flashes it back on the User Management page.
+    """
+
+
+def list_grants(conn: sqlite3.Connection, owner_id: int,
+                grantee_id: int) -> list[sqlite3.Row]:
+    """Grants ``owner_id`` has handed ``grantee_id``, newest first.
+
+    Scoped to the owning manager so the admin panel shows (and can revoke) only
+    the grants that manager issued. Includes the row ``id`` the revoke route
+    needs.
+    """
+    return conn.execute(
+        "SELECT id, scope_type, scope_ref, created_at FROM portfolio_grants "
+        "WHERE owner_user_id = ? AND grantee_user_id = ? "
+        "ORDER BY created_at DESC, id DESC",
+        (owner_id, grantee_id),
+    ).fetchall()
+
+
+def grant_access(conn: sqlite3.Connection, owner_id: int, grantee_id: int,
+                 scope_type: str, scope_ref: str | None) -> int:
+    """Create one access grant from ``owner_id`` to ``grantee_id``; return its id.
+
+    Validates everything the DB can't: the scope type is allowlisted, a brand
+    grant names a brand the owner actually has, and an item grant names an item
+    the owner actually owns. ``all`` grants ignore ``scope_ref``. The caller is
+    responsible for confirming ``grantee_id`` is a real non-admin account.
+
+    Args:
+        conn: Open DB connection.
+        owner_id: The account manager issuing the grant (owns the items).
+        grantee_id: The helper account receiving access.
+        scope_type: One of ``all`` / ``brand`` / ``item``.
+        scope_ref: Brand name (brand), portfolio item id as text (item), or
+            ignored (all).
+
+    Returns:
+        The new ``portfolio_grants`` row id.
+
+    Raises:
+        GrantError: Invalid scope type, a brand/item that doesn't belong to the
+            owner, or a grant that already exists (duplicate).
+    """
+    scope_type = (scope_type or "").strip()
+    if scope_type not in VALID_SCOPE_TYPES:
+        raise GrantError("Pick a valid access scope.")
+
+    # Normalize the stored ref per scope type, validating against the owner's
+    # own portfolio so a forged/stale form value can never create a grant over
+    # something the owner doesn't hold.
+    ref: str | None
+    if scope_type == "all":
+        ref = None
+    elif scope_type == "brand":
+        ref = _canonical_owner_brand(conn, owner_id, scope_ref)
+        if ref is None:
+            raise GrantError("That brand isn't in your portfolio.")
+    else:  # item
+        if not scope_ref or not str(scope_ref).strip().isdigit():
+            raise GrantError("Pick an item to grant.")
+        item_id = int(str(scope_ref).strip())
+        if not _owner_has_item(conn, owner_id, item_id):
+            raise GrantError("That item isn't in your portfolio.")
+        ref = str(item_id)
+
+    try:
+        cur = conn.execute(
+            "INSERT INTO portfolio_grants "
+            "(owner_user_id, grantee_user_id, scope_type, scope_ref) "
+            "VALUES (?, ?, ?, ?)",
+            (owner_id, grantee_id, scope_type, ref),
+        )
+        conn.commit()
+    except sqlite3.IntegrityError:
+        # The unique dedupe index rejects an identical grant; surface it plainly
+        # rather than letting the write blow up the request.
+        conn.rollback()
+        logger.info("Duplicate grant skipped: owner=%s grantee=%s %s/%s",
+                    owner_id, grantee_id, scope_type, ref)
+        raise GrantError("That access is already granted.") from None
+
+    grant_id = cur.lastrowid
+    logger.info("Grant created id=%s owner=%s grantee=%s scope=%s ref=%s",
+                grant_id, owner_id, grantee_id, scope_type, ref)
+    return grant_id
+
+
+def revoke_grant(conn: sqlite3.Connection, owner_id: int, grant_id: int) -> bool:
+    """Revoke one grant ``owner_id`` issued; return True if a row was removed.
+
+    Scoped to ``owner_id`` so a manager can only ever revoke their own grants,
+    even if a tampered form supplies someone else's grant id (the owner filter
+    simply matches nothing then).
+    """
+    cur = conn.execute(
+        "DELETE FROM portfolio_grants WHERE id = ? AND owner_user_id = ?",
+        (grant_id, owner_id),
+    )
+    conn.commit()
+    removed = cur.rowcount > 0
+    if removed:
+        logger.info("Grant revoked id=%s owner=%s", grant_id, owner_id)
+    else:
+        # Not an error — a stale link or a grant already gone — but worth a
+        # breadcrumb since it can also mean a cross-owner revoke attempt.
+        logger.warning("Revoke matched no grant id=%s for owner=%s", grant_id, owner_id)
+    return removed
+
+
 # --- internals -------------------------------------------------------------
 
 def _load_grants(conn: sqlite3.Connection, grantee_user_id: int) -> list[sqlite3.Row]:
@@ -308,3 +437,34 @@ def _groups_for_brands(conn: sqlite3.Connection, owner_id: int,
         (owner_id, *brands),
     ).fetchall()
     return {r["id"] for r in rows}
+
+
+def _canonical_owner_brand(conn: sqlite3.Connection, owner_id: int,
+                           brand: str | None) -> str | None:
+    """Return the owner's stored brand matching ``brand`` (case-insensitively), or None.
+
+    A brand grant is validated against the owner's *own* items, so an admin can
+    only ever grant a brand that exists in their portfolio. The stored casing is
+    returned so the grant row — and the label the UI shows — reads the way the
+    owner entered the brand, while matching stays case-insensitive everywhere.
+    """
+    if not brand or not brand.strip():
+        return None
+    row = conn.execute(
+        "SELECT brand FROM portfolio_items "
+        "WHERE user_id = ? AND LOWER(TRIM(brand)) = ? LIMIT 1",
+        (owner_id, brand.strip().lower()),
+    ).fetchone()
+    return row["brand"] if row else None
+
+
+def _owner_has_item(conn: sqlite3.Connection, owner_id: int, item_id: int) -> bool:
+    """True when ``item_id`` is a portfolio item the owner actually holds.
+
+    The authorization check behind an item grant: it guarantees a grant can
+    never reference an item outside the granting manager's own portfolio.
+    """
+    return conn.execute(
+        "SELECT 1 FROM portfolio_items WHERE id = ? AND user_id = ? LIMIT 1",
+        (item_id, owner_id),
+    ).fetchone() is not None

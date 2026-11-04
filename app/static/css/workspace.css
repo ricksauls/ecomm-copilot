@@ -2640,6 +2640,85 @@ body.cost-modal-open {
   color: var(--signal-red);
 }
 
+/* --- Portfolio access grants (User Management) --------------------------- */
+/* Each non-admin row carries an expandable access-grant panel spanning the full
+   table width. Kept visually quiet so it reads as a secondary control under the
+   account row, not a second table. */
+.grant-row > td {
+  padding: 0 10px 10px;
+  background: var(--surface-subtle, var(--surface));
+}
+.grant-panel {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+.grant-summary {
+  cursor: pointer;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--mid-gray);
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.grant-summary::-webkit-details-marker { display: none; }
+.grant-summary::before {
+  content: "▸";
+  font-size: 10px;
+  transition: transform var(--fade) var(--ease);
+}
+.grant-panel[open] .grant-summary::before { transform: rotate(90deg); }
+.grant-count {
+  font-weight: 500;
+  color: var(--black);
+}
+.grant-body {
+  padding: 4px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.grant-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.grant-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+/* Scope chip, tinted by scope type so "whole portfolio" reads as the broadest. */
+.grant-chip {
+  font-size: 11.5px;
+  font-weight: 500;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--black);
+}
+.grant-chip-all { border-color: var(--signal-red); color: var(--signal-red); }
+.grant-chip-brand { border-color: var(--control-border); }
+.grant-revoke-form { display: inline; margin: 0; }
+.grant-revoke:hover { border-color: var(--signal-red); color: var(--signal-red); }
+.grant-add-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.grant-add-form .grant-scope-select,
+.grant-add-form .grant-ref {
+  font-size: 12px;
+  max-width: 260px;
+}
+
 /* Flash the results subtitle while items are still scoring, to draw the eye.
    CSS-only (CSP-safe); the page's meta-refresh keeps it live until complete. */
 .subtitle-scoring {

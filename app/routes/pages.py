@@ -15,6 +15,7 @@ import json
 import logging
 import os
 import re
+import sqlite3
 from datetime import datetime
 
 from flask import (
@@ -3840,16 +3841,141 @@ def pdp_scoring_view_copy():
 @bp.route("/admin/users")
 @admin_required
 def admin_users():
-    """Admin: User Management — list every account with role controls."""
+    """Admin: User Management — list every account with role + access controls.
+
+    Alongside role/delete, each non-admin account carries an access-grant panel:
+    the grants this admin has issued that account (revocable) plus a form to add
+    one (whole portfolio, a brand, or a single item). Grants are what turn a
+    plain ``user`` account into a *helper* scoped to this manager's portfolio, so
+    the selectors are populated from this admin's own brands and items.
+    """
     logger.info("Admin users view: admin_user_id=%s", g.user["id"])
+    db = get_db()
+    admin_id = g.user["id"]
+    all_users = users.list_users()
+
+    # The grantable surface = this admin's own portfolio. Brands for the brand
+    # scope; items (id + a human label) for the item scope.
+    owner_brands = portfolio.distinct_brands(db, admin_id)
+    owner_items = [
+        {"id": it["id"], "label": _grant_item_label(it)}
+        for it in portfolio.list_items(db, admin_id)
+    ]
+
+    # Current grants per non-admin account, pre-labelled so the template needs no
+    # lookups. Only this admin's own grants are listed (access.list_grants is
+    # owner-scoped), so two managers never see each other's grants.
+    item_labels = {it["id"]: it["label"] for it in owner_items}
+    grants_by_user = {}
+    for u in all_users:
+        if u["role"] == users.ROLE_ADMIN:
+            continue
+        grants_by_user[u["id"]] = [
+            {
+                "id": grow["id"],
+                "scope_type": grow["scope_type"],
+                "label": _grant_scope_label(grow, item_labels),
+            }
+            for grow in access.list_grants(db, admin_id, u["id"])
+        ]
+
     return render_template(
         "app/admin_users.html",
         breadcrumb="Admin · User Management",
         active_nav="admin-users",
-        users=users.list_users(),
+        users=all_users,
         # Drives the last-admin lockout guard in the template (also enforced below).
         admin_count=users.count_admins(),
+        owner_brands=owner_brands,
+        owner_items=owner_items,
+        grants_by_user=grants_by_user,
     )
+
+
+def _grant_item_label(item: sqlite3.Row) -> str:
+    """A short, human label for a portfolio item in the grant selectors.
+
+    Prefers the backfilled product title, falling back to the brand + item
+    number so a just-added item (no title yet) is still identifiable.
+    """
+    title = (item["title"] or "").strip()
+    if title:
+        return title[:80]
+    bits = [b for b in ((item["brand"] or "").strip(),
+                        f"#{item['item_id']}" if item["item_id"] else "") if b]
+    return " · ".join(bits) or f"Item {item['id']}"
+
+
+def _grant_scope_label(grant: sqlite3.Row, item_labels: dict[int, str]) -> str:
+    """Readable description of a grant row for the admin panel.
+
+    ``all`` → whole portfolio; ``brand`` → the brand name; ``item`` → the item's
+    label (resolved from the admin's current items), or a stale-reference note if
+    the item has since been removed.
+    """
+    if grant["scope_type"] == "all":
+        return "Whole portfolio"
+    if grant["scope_type"] == "brand":
+        return f"Brand · {grant['scope_ref']}"
+    ref = grant["scope_ref"]
+    try:
+        label = item_labels.get(int(ref)) if ref is not None else None
+    except (TypeError, ValueError):
+        label = None
+    return f"Item · {label}" if label else "Item · (removed)"
+
+
+@bp.route("/admin/users/<int:user_id>/grants", methods=["POST"])
+@admin_required
+def admin_grant_add(user_id):
+    """Grant a helper account access to a slice of this admin's portfolio.
+
+    POST-only + CSRF + admin-guarded. The grant is always issued *from the
+    acting admin* (``owner_user_id`` = this admin), so an admin can only ever
+    hand out access to their own items. The grantee must be an existing
+    non-admin account — granting to an admin is meaningless (admins own their
+    own portfolio) and is refused. Scope/brand/item are validated in
+    :func:`access.grant_access` against this admin's own portfolio.
+    """
+    target = users.get_by_id(user_id)
+    if target is None:
+        abort(404)
+    if target["role"] == users.ROLE_ADMIN:
+        # Admins are owners of their own portfolio; a grant would never apply.
+        flash("Admins manage their own portfolio — grant access to a user account instead.",
+              "error")
+        return redirect(url_for("pages.admin_users"))
+
+    scope_type = (request.form.get("scope_type") or "").strip()
+    # One field carries the ref for either scope; the unused one is ignored.
+    scope_ref = (request.form.get("scope_brand") if scope_type == "brand"
+                 else request.form.get("scope_item"))
+    try:
+        access.grant_access(get_db(), g.user["id"], user_id, scope_type, scope_ref)
+    except access.GrantError as e:
+        logger.info("Admin user_id=%s grant to user_id=%s rejected: %s",
+                    g.user["id"], user_id, e)
+        flash(str(e), "error")
+    else:
+        flash(f"Access granted to {target['email']}.", "ok")
+    return redirect(url_for("pages.admin_users"))
+
+
+@bp.route("/admin/users/grants/<int:grant_id>/delete", methods=["POST"])
+@admin_required
+def admin_grant_revoke(grant_id):
+    """Revoke a single access grant. POST-only + CSRF + admin-guarded.
+
+    Scoped to the acting admin in :func:`access.revoke_grant`, so an admin can
+    only revoke grants they themselves issued.
+    """
+    removed = access.revoke_grant(get_db(), g.user["id"], grant_id)
+    if removed:
+        flash("Access revoked.", "ok")
+    else:
+        # The grant was already gone, or belonged to another owner — nothing to do.
+        flash("That access grant no longer exists.", "error")
+    return redirect(url_for("pages.admin_users"))
 
 
 @bp.route("/admin/users", methods=["POST"])
