@@ -132,6 +132,55 @@ def test_seed_builds_expected_story(app):
         rows = portfolio_perf.tracked_items_with_readings(conn, uid, start, end)
         assert len([r for r in rows if r["n"] > 0]) == 4
 
+        # Seeded readings carry the organic/paid split (so the Organic/Paid block shows
+        # without any backfill).
+        assert conn.execute(
+            "SELECT COUNT(*) c FROM portfolio_rank_readings r "
+            "JOIN portfolio_items p ON p.id = r.portfolio_item_id "
+            "WHERE p.user_id = ? AND r.item_sponsored_slots IS NOT NULL", (uid,)
+        ).fetchone()["c"] > 0
+        # The portfolio roll-up now reports a real organic/paid split for the brand.
+        summ = portfolio_perf.portfolio_rank_summary(conn, uid, start, end)
+        assert summ["organic_share"] is not None and summ["paid_share"] is not None
+        # At least one showcase item's keywords differ in Share of Search (not just rank).
+        showcase = conn.execute(
+            "SELECT id FROM portfolio_items WHERE user_id = ? AND demo = 1", (uid,)
+        ).fetchall()
+        varied = any(
+            len({kw["share"] for kw in portfolio_perf.item_keyword_readings(conn, uid, it["id"], start, end)
+                 if kw["share"] is not None}) > 1
+            for it in showcase
+        )
+        assert varied, "expected an item's keywords to differ in share of search"
+
+
+def test_rank_reading_split_is_consistent_and_bounded():
+    import random
+    rng = random.Random(42)
+    for _ in range(300):
+        r = seed_demo._rank_reading("losing", 0.5, False, rng, kw_factor=1.0)
+        isp, tsp = r["item_sponsored_slots"], r["total_sponsored_slots"]
+        assert 0 <= isp <= r["item_slots"]
+        assert isp <= tsp <= r["total_slots"]
+        # A sponsored rank exists iff the item holds a paid slot (kept consistent).
+        assert (r["sponsored_rank"] is not None) == (isp > 0)
+
+
+def test_rank_reading_kw_factor_scales_share():
+    import random
+
+    def summed_share(factor):
+        rng = random.Random(7)
+        item = total = 0
+        for i in range(60):
+            r = seed_demo._rank_reading("leader", i / 59, False, rng, kw_factor=factor)
+            item += r["item_slots"]
+            total += r["total_slots"]
+        return item / total
+
+    # Same role + seed → identical rng draws; only the per-keyword factor moves share.
+    assert summed_share(1.35) > summed_share(0.65)
+
 
 def test_seed_reset_is_idempotent_and_spares_real_items(app):
     with app.app_context():

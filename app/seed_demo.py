@@ -170,20 +170,38 @@ def _dedupe_key(url: str, item_id: str | None) -> str:
     return item_id if item_id else url.strip().lower()
 
 
+# How paid-reliant each role's visibility is: the fraction of days a sponsored slot
+# shows, and how much of the item's shelf is paid when it does. Gives the demo a real
+# story — the winner earns its shelf (mostly organic), the one losing ground buys it
+# (paid-heavy) — instead of a flat 25% everywhere. Used for the organic/paid split.
+_AD_INTENSITY = {"winner": 0.18, "leader": 0.32, "losing": 0.55, "opportunity": 0.22}
+
+# Per-keyword share multipliers (by slot). The role sets an item's baseline shelf
+# presence; these spread it across the item's keywords so their Share of Search
+# *differs* (not just their rank), which is what a viewer expects to see in the drill.
+_KW_SHARE_FACTORS = (1.0, 0.65, 1.35, 0.8, 1.15)
+
+
 def _rank_reading(role: str, f: float, is_opportunity_kw: bool,
-                  rng: random.Random) -> dict:
+                  rng: random.Random, kw_factor: float = 1.0) -> dict:
     """One day's rank + slot counts for an (item, keyword), shaped by the role.
 
     Returns the columns app.item_rank writes: rank / organic_rank / sponsored_rank
-    (best page-1 positions; None = off page 1) plus item_slots (the item's own
-    placements) and total_slots (all page-1 placements — the SoS denominator).
+    (best page-1 positions; None = off page 1), item_slots (the item's own placements)
+    and total_slots (all page-1 placements — the SoS denominator), plus the organic/paid
+    split item_sponsored_slots / total_sponsored_slots (how many of the item's / the
+    page's slots are sponsored — see app.item_rank.build_reading). ``kw_factor`` scales
+    the item's slot count for this keyword so an item's keywords differ in share.
     """
     total = rng.randint(SHELF_SLOTS_MIN, SHELF_SLOTS_MAX)
+    intensity = _AD_INTENSITY.get(role, 0.25)
 
-    # A deliberate discovery gap: this keyword never reaches page 1.
+    # A deliberate discovery gap: this keyword never reaches page 1 (so 0% share). The
+    # page still carries ads (the paid denominator), the item just holds none of them.
     if is_opportunity_kw:
         return {"rank": None, "organic_rank": None, "sponsored_rank": None,
-                "item_slots": 0, "total_slots": total}
+                "item_slots": 0, "total_slots": total,
+                "item_sponsored_slots": 0, "total_sponsored_slots": round(total * 0.2)}
 
     if role == "winner":
         base, slots = 18 - 14 * f, 1 + round(3 * f)
@@ -194,13 +212,26 @@ def _rank_reading(role: str, f: float, is_opportunity_kw: bool,
     else:  # opportunity — its other keywords rank moderately
         base, slots = 11 - 3 * f, 1 + round(1.5 * f)
 
-    organic_rank = max(1, round(base + rng.uniform(-1.2, 1.2)))
-    # A sponsored placement shows up on roughly a quarter of days.
-    sponsored_rank = rng.randint(1, 5) if rng.random() < 0.25 else None
-    rank = min(r for r in (organic_rank, sponsored_rank) if r is not None)
+    # Spread the item's shelf presence across its keywords, never exceeding the page.
+    slots = max(1, round(slots * kw_factor))
     item_slots = min(slots, total)
+    organic_rank = max(1, round(base + rng.uniform(-1.2, 1.2)))
+
+    # Paid presence is a role-driven fraction of the item's own shelf, with light daily
+    # jitter — the demo story: the winner is mostly organic (earns its shelf), the brand
+    # losing ground leans on ads. Applying it per day (rather than an occasional coin
+    # flip) keeps the paid share clearly visible in the composition bar, which is the
+    # whole point of the view. sponsored_rank is set exactly when the item holds a paid
+    # slot, so the two never contradict; organic is always the remainder.
+    paid_frac = min(0.85, max(0.0, intensity + rng.uniform(-0.1, 0.1)))
+    item_sponsored = min(item_slots, round(item_slots * paid_frac))
+    sponsored_rank = rng.randint(1, 5) if item_sponsored > 0 else None
+    rank = min(r for r in (organic_rank, sponsored_rank) if r is not None)
+    # Page-wide ad count: at least the item's own paid slots, scaled by intensity.
+    total_sponsored = max(item_sponsored, min(total, round(total * (0.15 + 0.2 * intensity))))
     return {"rank": rank, "organic_rank": organic_rank, "sponsored_rank": sponsored_rank,
-            "item_slots": item_slots, "total_slots": total}
+            "item_slots": item_slots, "total_slots": total,
+            "item_sponsored_slots": item_sponsored, "total_sponsored_slots": total_sponsored}
 
 
 def _mine_share(role: str, f: float) -> float:
@@ -369,18 +400,23 @@ def _seed_rank_history(conn: sqlite3.Connection, user_id: int, item_pk: int,
         if not kw:
             continue  # blank slot is never scraped (a cost brake) → no readings
         is_opp = bool(opp) and kw == opp
+        # Each keyword slot gets its own share multiplier, so an item's keywords differ
+        # in Share of Search (not just rank) — matching what the drill is expected to show.
+        kw_factor = _KW_SHARE_FACTORS[slot_idx % len(_KW_SHARE_FACTORS)]
         n = len(daily)
         for i, day in enumerate(daily):
             f = i / (n - 1) if n > 1 else 1.0
-            r = _rank_reading(spec["role"], f, is_opp, rng)
+            r = _rank_reading(spec["role"], f, is_opp, rng, kw_factor)
             rows.append((item_pk, kw_id, user_id, item_id, day.isoformat(),
                          r["rank"], r["organic_rank"], r["sponsored_rank"],
-                         r["item_slots"], r["total_slots"]))
+                         r["item_slots"], r["total_slots"],
+                         r["item_sponsored_slots"], r["total_sponsored_slots"]))
     conn.executemany(
         "INSERT INTO portfolio_rank_readings "
         "(portfolio_item_id, keyword_id, user_id, walmart_item_id, captured_at, "
-        " rank, organic_rank, sponsored_rank, item_slots, total_slots) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " rank, organic_rank, sponsored_rank, item_slots, total_slots, "
+        " item_sponsored_slots, total_sponsored_slots) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         rows,
     )
     return len(rows)
