@@ -75,6 +75,106 @@
     return { defs: defs, fill: "url(#" + id + ")" };
   }
 
+  // Hover tooltip for a trend chart: the transparent hit rect drives a highlight dot, a
+  // vertical guide and a value tooltip at the nearest data point. Pure enhancement
+  // (CSP-safe, no deps); re-wired on every redraw since drawTrend rebuilds the SVG. The
+  // tooltip is hosted on the chart *card* (not the chart container) so it isn't clipped
+  // by the container's overflow. `cfg` carries the scales + data drawTrend already has.
+  function wireHover(container, svg, hit, guide, dot, cfg) {
+    var n = cfg.vals.length;
+    if (n < 1) { return; }
+    var host = container.closest(".chart-card") || container;
+    if (getComputedStyle(host).position === "static") { host.style.position = "relative"; }
+    // One tooltip per chart: drop a stale one from a previous redraw (the SVG — and its
+    // hit rect listeners — are rebuilt each draw, but the host card persists).
+    var old = host.querySelector(".perf-tip");
+    if (old) { old.remove(); }
+    var tip = document.createElement("div");
+    tip.className = "perf-tip";
+    tip.hidden = true;
+    host.appendChild(tip);
+
+    // The value row(s) for point i: a Total/Organic/Paid breakdown for a stacked share,
+    // else the single metric phrased for its unit.
+    function rowsFor(i) {
+      if (cfg.stacked) {
+        var org = cfg.organic[i], paid = cfg.paid[i];
+        return [["Total", (org + paid) + "%", null],
+                ["Organic", org + "%", ORGANIC],
+                ["Paid", paid + "%", PAID]];
+      }
+      if (cfg.isRank) { return [["Rank", "#" + cfg.vals[i], null]]; }
+      if (cfg.isScore) { return [["Readiness", cfg.vals[i] + "/100", null]]; }
+      return [["Share", cfg.vals[i] + "%", null]];
+    }
+
+    function fillTip(i) {
+      tip.textContent = "";
+      var d = document.createElement("div");
+      d.className = "perf-tip-date";
+      d.textContent = cfg.dates[i] || "";
+      tip.appendChild(d);
+      rowsFor(i).forEach(function (r) {
+        var row = document.createElement("div");
+        row.className = "perf-tip-row";
+        if (r[2]) {
+          var sw = document.createElement("span");
+          sw.className = "perf-tip-dot";
+          sw.style.background = r[2];
+          row.appendChild(sw);
+        }
+        var k = document.createElement("span");
+        k.className = "perf-tip-k";
+        k.textContent = r[0];
+        var v = document.createElement("span");
+        v.className = "perf-tip-v";
+        v.textContent = r[1];
+        row.appendChild(k);
+        row.appendChild(v);
+        tip.appendChild(row);
+      });
+    }
+
+    function show(i) {
+      var xv = cfg.x(i), yv = cfg.y(cfg.vals[i]);
+      guide.setAttribute("x1", xv.toFixed(1));
+      guide.setAttribute("x2", xv.toFixed(1));
+      guide.style.display = "";
+      dot.setAttribute("cx", xv.toFixed(1));
+      dot.setAttribute("cy", yv.toFixed(1));
+      dot.style.display = "";
+      fillTip(i);
+      tip.hidden = false;
+      // Map the point's viewBox coords to host pixels (the SVG fills the chart width; its
+      // height follows the viewBox ratio). Align the tooltip left/right near the edges and
+      // flip it below a near-the-top point so it never leaves the card.
+      var r = svg.getBoundingClientRect(), hr = host.getBoundingClientRect();
+      var px = (r.left - hr.left) + (xv / cfg.W) * r.width;
+      var py = (r.top - hr.top) + (yv / cfg.H) * r.height;
+      var tx = px < 60 ? "0" : (px > hr.width - 60 ? "-100%" : "-50%");
+      var ty = py < 96 ? "10px" : "calc(-100% - 10px)";
+      tip.style.left = px + "px";
+      tip.style.top = py + "px";
+      tip.style.transform = "translate(" + tx + ", " + ty + ")";
+    }
+
+    function hide() {
+      tip.hidden = true;
+      guide.style.display = "none";
+      dot.style.display = "none";
+    }
+
+    hit.addEventListener("mousemove", function (ev) {
+      var r = svg.getBoundingClientRect();
+      var plotLeft = r.left + (cfg.padL / cfg.W) * r.width;
+      var plotWpx = (cfg.plotW / cfg.W) * r.width;
+      var frac = plotWpx > 0 ? (ev.clientX - plotLeft) / plotWpx : 0;
+      var i = Math.max(0, Math.min(n - 1, Math.round(frac * (n - 1))));
+      show(i);
+    });
+    hit.addEventListener("mouseleave", hide);
+  }
+
   // One legend chip: a colored swatch + its label (Organic / Paid).
   function legendChip(kind, label) {
     var chip = document.createElement("span");
@@ -271,8 +371,29 @@
     at.textContent = title;
     svg.appendChild(at);
 
+    // Hover scrubber elements: a vertical guide + a highlight dot that track the nearest
+    // point, and a transparent hit rect over the plot that captures the pointer (a
+    // transparent *fill* wouldn't receive events, so pointer-events="all"). Appended last
+    // so the hit rect sits on top; the guide/dot are inert (pointer-events none). The dot
+    // takes the series' accent (blue for a stacked total, else the line color).
+    var hoverGuide = el("line", { x1: padL, x2: padL, y1: padT, y2: padT + plotH,
+      stroke: GRID, "stroke-width": 1, "stroke-dasharray": "3 3", "pointer-events": "none" });
+    var hoverDot = el("circle", { cx: padL, cy: padT, r: 4.5, fill: stacked ? PAID : LINE,
+      stroke: "#ffffff", "stroke-width": 2, "pointer-events": "none" });
+    hoverGuide.style.display = "none";
+    hoverDot.style.display = "none";
+    svg.appendChild(hoverGuide);
+    svg.appendChild(hoverDot);
+    var hit = el("rect", { x: padL, y: padT, width: plotW, height: plotH,
+      fill: "none", "pointer-events": "all" });
+    svg.appendChild(hit);
+
     container.innerHTML = "";
     container.appendChild(svg);
+    wireHover(container, svg, hit, hoverGuide, hoverDot, {
+      x: x, y: y, W: W, H: H, padL: padL, plotW: plotW,
+      vals: vals, dates: dates, stacked: stacked, organic: data.organic, paid: data.paid,
+      isRank: isRank, isScore: isScore });
 
     // Brand-view charts (no keyword swap) own their legend here, converting it to the
     // two-swatch Organic/Paid form when a stacked area was drawn; the single-line legend

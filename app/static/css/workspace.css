@@ -4087,6 +4087,23 @@ select.pf-select[size] option { padding: 6px 8px; border-radius: 4px; }
 .chart-wrap { width: 100%; overflow-x: auto; }
 .perf-trend-svg { width: 100%; height: auto; display: block; }
 
+/* Hover tooltip on the trend charts (performance.js positions it; hosted on the chart
+   card so it isn't clipped). A small light card: date header + one value row per series,
+   each with its color dot for the stacked Organic/Paid breakdown. */
+.chart-card { position: relative; }
+.perf-tip {
+  position: absolute; z-index: 5; pointer-events: none;
+  background: var(--white, #fff); border: 1px solid var(--border);
+  border-radius: 8px; box-shadow: 0 6px 20px rgba(15, 23, 42, 0.12);
+  padding: 7px 10px; font-size: 12px; line-height: 1.35; white-space: nowrap;
+  min-width: 124px;  /* so each row's value aligns right (margin-left:auto needs width) */
+}
+.perf-tip-date { color: var(--cool-gray); font-size: 11px; margin-bottom: 3px; }
+.perf-tip-row { display: flex; align-items: center; gap: 6px; }
+.perf-tip-dot { width: 9px; height: 9px; border-radius: 2px; flex-shrink: 0; }
+.perf-tip-k { color: var(--cool-gray); }
+.perf-tip-v { margin-left: auto; font-weight: 600; color: var(--black); font-variant-numeric: tabular-nums; }
+
 /* Bottom row: Tracked Products + Tracked Keywords (one table when drilled in). */
 .perf-tables { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-14); }
 .perf-tables.single { grid-template-columns: 1fr; }
