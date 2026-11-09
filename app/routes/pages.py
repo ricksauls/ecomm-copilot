@@ -1605,8 +1605,8 @@ def _performance_insights(db, uid) -> dict:
     }
 
     if item_row is not None:
-        # Drill: one comprehensive, tab-independent item detail (absorbs View-trends).
-        data.update(_perf_item_detail(db, owner_id, item_row, period))
+        # Drill: per-item detail, scoped to the active tab (rank/share/readiness).
+        data.update(_perf_item_detail(db, owner_id, item_row, period, tab))
     elif tab == "rank":
         data.update(_perf_rank_tab(db, owner_id, disc_brands, period, tracked))
     elif tab == "shelf":
@@ -1755,7 +1755,67 @@ def _perf_readiness_tab(db, uid, mine_brands, period) -> dict:
     }
 
 
-def _perf_item_detail(db, uid, item, period) -> dict:
+def _item_keyword_metric_payload(db, uid, item_pk, period, keywords, metric,
+                                 all_metric, all_delta, all_trend, all_cell) -> dict:
+    """Per-keyword context for an interactive item drill — ``metric`` 'rank' or 'share'.
+
+    The dataset the in-card keyword list + chart/KPI swap read client-side: an
+    "all keywords" default (mirrors the item summary) plus, per non-blank keyword,
+    its current value (headline), delta vs the prior period, chart legend, and trend
+    series. A keyword's trend skips periods it has no reading in, so a sparse keyword
+    yields a short/empty series (the chart then shows its "not enough" hint). Rank is
+    "lower is better" (delta = prior − cur); share is a percent (delta = cur − prior).
+    """
+    if metric == "rank":
+        window = portfolio_perf.item_keyword_window_ranks
+        cell_fn, cur_key, unit, dunit = _rank_cell, "avg_rank", "rank", "spots"
+        legend_verb, all_legend = "Rank", "This item's search rank"
+    else:
+        window = portfolio_perf.item_keyword_window_shares
+        cell_fn, cur_key, unit, dunit = _share_cell, "share_val", "share", "pts"
+        legend_verb, all_legend = "Share", "This item's share of search"
+
+    prior = window(db, uid, item_pk, *ci_analysis.period_bounds(period, 1))
+    # Per-keyword value for each trend period (oldest -> newest), keyed by keyword id.
+    periods = []
+    for i in range(ci_analysis.TREND_PERIODS - 1, -1, -1):
+        start, end = ci_analysis.period_bounds(period, i)
+        periods.append((ci_analysis.period_label(period, i), window(db, uid, item_pk, start, end)))
+    entries = []
+    for kw in keywords:
+        kid, cur = kw["keyword_id"], kw[cur_key]
+        values, dates = [], []
+        for label, vals in periods:
+            v = vals.get(kid)
+            if v is not None:
+                values.append(v)
+                dates.append(label)
+        pr = prior.get(kid)
+        if cur is None or pr is None:
+            delta = None
+        else:
+            delta = round(pr - cur, 1) if metric == "rank" else cur - pr
+        if cur is None:
+            metric_str = "—"
+        else:
+            metric_str = f"#{cur}" if metric == "rank" else f"{cur}%"
+        entries.append({
+            "id": kid,
+            "keyword": kw["keyword"],
+            "cell": cell_fn(cur),                    # list row display + color
+            "metric": metric_str,
+            "delta": _perf_delta(delta, unit=dunit),
+            "legend": f"{legend_verb} for “{kw['keyword']}”",
+            "series": _perf_trend(values, dates, unit),
+        })
+    return {
+        "all": {"metric": all_metric, "delta": all_delta, "cell": all_cell,
+                "legend": all_legend, "series": all_trend},
+        "keywords": entries,
+    }
+
+
+def _perf_item_detail(db, uid, item, period, tab="rank") -> dict:
     """Comprehensive per-item detail shown on drill — one tracked item's Discovery +
     Conversion data, gathering what used to live on the retired Portfolio "View
     trends" page: per-keyword search rank + share over the selected period, commerce-
@@ -1771,8 +1831,9 @@ def _perf_item_detail(db, uid, item, period) -> dict:
                   if cur["avg_rank"] is not None and prior["avg_rank"] is not None else None)
     share_delta = (cur["share"] - prior["share"]
                    if cur["share"] is not None and prior["share"] is not None else None)
-    keywords = [{"keyword": r["keyword"], "rank": _rank_cell(r["avg_rank"]),
-                 "share": _share_cell(r["share"]), "n": r["n"]}
+    keywords = [{"keyword_id": r["keyword_id"], "keyword": r["keyword"],
+                 "avg_rank": r["avg_rank"], "rank": _rank_cell(r["avg_rank"]),
+                 "share_val": r["share"], "share": _share_cell(r["share"]), "n": r["n"]}
                 for r in portfolio_perf.item_keyword_readings(
                     db, uid, pk, *ci_analysis.period_bounds(period, 0))]
     rank_values, rank_dates = _item_discovery_trend(db, uid, pk, period, "rank")
@@ -1799,14 +1860,35 @@ def _perf_item_detail(db, uid, item, period) -> dict:
         _tracking_metric("Reviews", review_vals, kind="int"),
         _tracking_metric("Content readiness", readiness_vals, kind="score"),
     ]
+    rank_metric = f"#{cur['avg_rank']}" if cur["avg_rank"] is not None else "—"
+    rank_delta_d = _perf_delta(rank_delta, unit="spots")
+    rank_trend_d = _perf_trend(rank_values, rank_dates, "rank")
+    share_metric = f"{cur['share']}%" if cur["share"] is not None else "—"
+    share_delta_d = _perf_delta(share_delta, unit="pts")
+    share_trend_d = _perf_trend(share_values, share_dates, "share")
+    # The Discovery drills are interactive — a per-keyword context powers the in-card
+    # keyword list + chart/KPI swap. Only the active tab's context is built (rank for
+    # Search Rank, share for Share of Search), keeping the other tabs' loads lean.
+    rank_keyword_context = (
+        _item_keyword_metric_payload(db, uid, pk, period, keywords, "rank",
+                                     rank_metric, rank_delta_d, rank_trend_d,
+                                     _rank_cell(cur["avg_rank"]))
+        if tab == "rank" else None)
+    share_keyword_context = (
+        _item_keyword_metric_payload(db, uid, pk, period, keywords, "share",
+                                     share_metric, share_delta_d, share_trend_d,
+                                     _share_cell(cur["share"]))
+        if tab == "shelf" else None)
     return {
         "detail": {
-            "rank_metric": f"#{cur['avg_rank']}" if cur["avg_rank"] is not None else "—",
-            "rank_delta": _perf_delta(rank_delta, unit="spots"),
-            "rank_trend": _perf_trend(rank_values, rank_dates, "rank"),
-            "share_metric": f"{cur['share']}%" if cur["share"] is not None else "—",
-            "share_delta": _perf_delta(share_delta, unit="pts"),
-            "share_trend": _perf_trend(share_values, share_dates, "share"),
+            "rank_metric": rank_metric,
+            "rank_delta": rank_delta_d,
+            "rank_trend": rank_trend_d,
+            "rank_keyword_context": rank_keyword_context,
+            "share_metric": share_metric,
+            "share_delta": share_delta_d,
+            "share_trend": share_trend_d,
+            "share_keyword_context": share_keyword_context,
             "keywords": keywords,
             "metrics": metrics,
             "readiness_dims": readiness_dims,

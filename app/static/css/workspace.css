@@ -4028,6 +4028,27 @@ select.pf-select[size] option { padding: 6px 8px; border-radius: 4px; }
   padding: 2px 9px; white-space: nowrap;
 }
 
+/* Selectable keyword list in a Discovery item-drill card (Search Rank / Share of
+   Search): each row is a keyword + its value; clicking one swaps the trend chart +
+   KPI headline (JS). The active row is tinted with a left accent so the current
+   selection reads clearly. */
+.kw-select { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.kw-opt {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+  padding: 5px 8px; border-radius: var(--radius-sm, 6px); cursor: pointer;
+  border-left: 2px solid transparent;
+}
+.kw-opt:hover { background: var(--hover-wash, rgba(53, 109, 255, 0.06)); }
+.kw-opt:focus-visible { outline: 2px solid var(--ds-blue, #356dff); outline-offset: -2px; }
+.kw-opt.is-active { background: var(--hover-wash, rgba(53, 109, 255, 0.08)); border-left-color: var(--ds-blue, #356dff); }
+.kw-opt-term {
+  font-size: 12.5px; color: var(--black);
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.kw-opt-val { flex: none; font-size: 12.5px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.kw-opt-val.m-good { color: var(--signal-green); }
+.kw-opt-val.m-bad { color: var(--signal-red); }
+
 .chart-card .chart-title { font-size: 15px; font-weight: 600; margin: 0 0 4px; }
 .chart-legend {
   display: inline-flex; align-items: center; gap: 6px;

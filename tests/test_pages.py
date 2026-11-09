@@ -1529,17 +1529,17 @@ def test_performance_item_drilldown_rescopes(client, auth, app):
     gid = _seed_performance(app, "perfdrill@example.com")
     pk = _perf_item_pk(app, "perfdrill@example.com", "222")
     body = client.get(f"/app/insights/performance?group_id={gid}&item={pk}").data
-    assert b"Keyword Performance" in body          # drilled view's per-keyword table
+    assert b"Rank by keyword" in body              # drilled view's in-card keyword list
     assert b"All items" in body                    # back chip
     assert b"Tabasco Green Pepper Sauce" in body   # the drilled item in the bar
     assert b"Tracked Products" not in body         # products table is gone when drilled
 
 
 def test_performance_item_drill_is_tab_scoped(client, auth, app):
-    # The item drill shows only the active tab's metric. Rank tab = rank KPI + the
-    # per-keyword rank table (no share card, no commerce snapshot); Share tab = share
-    # KPI + the per-keyword share table. Tab *labels* always render in the tab bar, so
-    # these assert on markers unique to each card/table, not the bare label text.
+    # The item drill shows only the active tab's metric via an interactive per-keyword
+    # card: Rank tab = rank KPI + "Rank by keyword" list (no share card, no commerce
+    # snapshot); Share tab = share KPI + "Share by keyword" list. Tab *labels* always
+    # render in the tab bar, so these assert on markers unique to each card, not labels.
     auth.register(email="perfdetail@example.com")
     gid = _seed_performance(app, "perfdetail@example.com")
     pk = _perf_item_pk(app, "perfdetail@example.com", "222")
@@ -1557,14 +1557,20 @@ def test_performance_item_drill_is_tab_scoped(client, auth, app):
         db.commit()
     rank = client.get(f"/app/insights/performance?group_id={gid}&item={pk}&tab=rank").data
     assert b"This item's avg page-1 position" in rank      # the rank KPI card
-    assert b"Search rank on each tracked keyword" in rank  # per-keyword rank table
+    assert b"Rank by keyword" in rank                      # the in-card selectable list
+    assert b"data-kw-context" in rank                      # payload for the chart/KPI swap
+    assert b"All keywords" in rank                          # the reset-to-average option
+    assert b'data-kw-id="all"' in rank                       # the default option
+    assert rank.count(b"data-kw-id=") >= 2                   # all + >=1 keyword option
     assert b"This item's page-1 slots" not in rank         # share card is on its own tab
     assert b"Snapshot history" not in rank                 # commerce snapshot not rendered
     assert b"$3.50" not in rank                            # ...nor the weekly facts
 
     shelf = client.get(f"/app/insights/performance?group_id={gid}&item={pk}&tab=shelf").data
     assert b"This item's page-1 slots" in shelf            # the share KPI card
-    assert b"Share of search on each tracked keyword" in shelf
+    assert b"Share by keyword" in shelf                    # the in-card selectable share list
+    assert b"data-kw-context" in shelf                     # payload for the chart/KPI swap
+    assert b'data-kw-id="all"' in shelf                      # the default option
     assert b"This item's avg page-1 position" not in shelf  # rank card is on its own tab
 
 

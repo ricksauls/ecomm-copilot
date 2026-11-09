@@ -111,74 +111,83 @@
      reviews / stock) is intentionally NOT rendered here for now; its builder in
      _perf_item_detail is kept intact for reuse elsewhere later. #}
   {% if tab == 'rank' %}
-  <div class="perf-top">
+  {# Interactive Search Rank drill. The KPI card carries a selectable keyword list in
+     its lower half; picking a keyword swaps the trend chart + KPI headline to that
+     keyword's rank (performance.js reads data-kw-context), and "All keywords" resets
+     to the item average. The list is server-rendered (keyword + rank) so it still
+     informs without JS; only the live swapping is enhancement. The Share of Search
+     drill below is the same pattern over per-keyword share. #}
+  {% set rk = detail.rank_keyword_context %}
+  <div class="perf-top" data-kw-drill data-kw-context='{{ rk | tojson }}'>
     <div class="card card-pad kpi-tile">
       <div class="label">Search Rank</div>
-      <div class="kpi-metric">{{ detail.rank_metric }}</div>
-      {% if detail.rank_delta.display %}
-      <div class="kpi-delta {{ detail.rank_delta.dir }}">{{ detail.rank_delta.display }}</div>
-      {% endif %}
+      <div class="kpi-metric" data-kw-metric>{{ detail.rank_metric }}</div>
+      <div class="kpi-delta {{ detail.rank_delta.dir or '' }}" data-kw-delta
+           {{ 'hidden' if not detail.rank_delta.display }}>{{ detail.rank_delta.display }}</div>
       <div class="kpi-foot">This item's avg page-1 position · lower is better</div>
+      {% if rk and rk.keywords %}
+      <div class="kpi-keywords">
+        <div class="kpi-keywords-label">Rank by keyword</div>
+        <ul class="kw-select" role="listbox" aria-label="Rank by keyword" data-kw-select>
+          <li class="kw-opt is-active" data-kw-id="all" role="option" aria-selected="true" tabindex="0">
+            <span class="kw-opt-term">All keywords</span>
+            <span class="kw-opt-val {{ rk.all.cell.cls }}">{{ detail.rank_metric }}</span>
+          </li>
+          {% for k in rk.keywords %}
+          <li class="kw-opt" data-kw-id="{{ k.id }}" role="option" aria-selected="false" tabindex="0">
+            <span class="kw-opt-term" title="{{ k.keyword }}">{{ k.keyword }}</span>
+            <span class="kw-opt-val {{ k.cell.cls }}">{{ k.metric }}</span>
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
     </div>
     <div class="card card-pad chart-card">
       <h2 class="chart-title">Search Rank Trend</h2>
-      <span class="chart-legend"><span class="sw"></span> This item's search rank</span>
+      <span class="chart-legend"><span class="sw"></span> <span data-kw-legend>This item's search rank</span></span>
       <div class="chart-wrap">
-        <div class="perf-trend" data-perf-trend data-series='{{ detail.rank_trend | tojson }}'></div>
+        <div class="perf-trend" data-perf-trend data-kw-chart
+             data-series='{{ detail.rank_trend | tojson }}'></div>
       </div>
-    </div>
-  </div>
-
-  <div class="perf-tables single">
-    <div class="card tbl-card">
-      <div class="tbl-head">Keyword Performance<div class="sub">Search rank on each tracked keyword</div></div>
-      <table class="dash perf-dash">
-        <thead><tr><th>#</th><th>Keyword</th><th class="col-right">Rank</th></tr></thead>
-        <tbody>
-          {% for r in detail.keywords %}
-          <tr><td class="col-num">{{ loop.index }}</td><td>{{ r.keyword }}</td>
-            <td class="col-metric {{ r.rank.cls }}">{{ r.rank.display }}</td></tr>
-          {% else %}
-          <tr><td colspan="3" class="perf-empty-cell">No keyword readings for this item in this period yet.</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
     </div>
   </div>
 
   {% elif tab == 'shelf' %}
-  <div class="perf-top">
+  {# Interactive Share of Search drill — same pattern as Search Rank, per-keyword share. #}
+  {% set sk = detail.share_keyword_context %}
+  <div class="perf-top" data-kw-drill data-kw-context='{{ sk | tojson }}'>
     <div class="card card-pad kpi-tile">
       <div class="label">Share of Search</div>
-      <div class="kpi-metric">{{ detail.share_metric }}</div>
-      {% if detail.share_delta.display %}
-      <div class="kpi-delta {{ detail.share_delta.dir }}">{{ detail.share_delta.display }}</div>
-      {% endif %}
+      <div class="kpi-metric" data-kw-metric>{{ detail.share_metric }}</div>
+      <div class="kpi-delta {{ detail.share_delta.dir or '' }}" data-kw-delta
+           {{ 'hidden' if not detail.share_delta.display }}>{{ detail.share_delta.display }}</div>
       <div class="kpi-foot">This item's page-1 slots ÷ all page-1 slots</div>
+      {% if sk and sk.keywords %}
+      <div class="kpi-keywords">
+        <div class="kpi-keywords-label">Share by keyword</div>
+        <ul class="kw-select" role="listbox" aria-label="Share by keyword" data-kw-select>
+          <li class="kw-opt is-active" data-kw-id="all" role="option" aria-selected="true" tabindex="0">
+            <span class="kw-opt-term">All keywords</span>
+            <span class="kw-opt-val {{ sk.all.cell.cls }}">{{ detail.share_metric }}</span>
+          </li>
+          {% for k in sk.keywords %}
+          <li class="kw-opt" data-kw-id="{{ k.id }}" role="option" aria-selected="false" tabindex="0">
+            <span class="kw-opt-term" title="{{ k.keyword }}">{{ k.keyword }}</span>
+            <span class="kw-opt-val {{ k.cell.cls }}">{{ k.metric }}</span>
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
     </div>
     <div class="card card-pad chart-card">
       <h2 class="chart-title">Share of Search Trend</h2>
-      <span class="chart-legend"><span class="sw"></span> This item's share of search</span>
+      <span class="chart-legend"><span class="sw"></span> <span data-kw-legend>This item's share of search</span></span>
       <div class="chart-wrap">
-        <div class="perf-trend" data-perf-trend data-series='{{ detail.share_trend | tojson }}'></div>
+        <div class="perf-trend" data-perf-trend data-kw-chart
+             data-series='{{ detail.share_trend | tojson }}'></div>
       </div>
-    </div>
-  </div>
-
-  <div class="perf-tables single">
-    <div class="card tbl-card">
-      <div class="tbl-head">Keyword Performance<div class="sub">Share of search on each tracked keyword</div></div>
-      <table class="dash perf-dash">
-        <thead><tr><th>#</th><th>Keyword</th><th class="col-right">Share</th></tr></thead>
-        <tbody>
-          {% for r in detail.keywords %}
-          <tr><td class="col-num">{{ loop.index }}</td><td>{{ r.keyword }}</td>
-            <td class="col-metric {{ r.share.cls }}">{{ r.share.display }}</td></tr>
-          {% else %}
-          <tr><td colspan="3" class="perf-empty-cell">No keyword readings for this item in this period yet.</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
     </div>
   </div>
 
