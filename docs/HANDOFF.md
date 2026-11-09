@@ -1,26 +1,81 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-11-09 (session 60 — **Organic/Paid follow-ups + demo data**, main `d0a7aa2`, all **merged +
-LIVE**. Builds on session 59's Share of Search → Organic/Paid split (#79, `d75b461`). This session: **#81** — fixed
-the Organic/Paid sub-metrics overflowing the KPI card (stack one per row, delta aligned right; possessive copy
-`this item's` / `your tracked items'`) **and** added per-item **Total Share · Organic · Paid** columns to the
-All-items Share of Search table (the products table now takes `products_cols` + per-row `cells` for N columns;
-Rank/Readiness keep their single column). **#82** — the demo seeder (`app/seed_demo.py`) now emits the organic/paid
-split **and** varies per-keyword share (was identical across an item's keywords — it only varied rank); a role-based
-`_AD_INTENSITY` makes the paid mix tell a story (winner mostly organic ~14% paid, the brand losing ground ~57%),
-and `_KW_SHARE_FACTORS` spreads share across keyword slots. So one `seed_demo --reset` now produces a full demo
-story incl. Organic/Paid — no backfill step. 927 tests + ruff clean throughout. **Prod demo account**
-(`demo@ecomm-copilot.com` on production, user_id=10): seeded + re-seeded with #82's seeder and **verified LIVE**
-showing Organic/Paid. (A one-off backfill script was used mid-session to light it up before #82 shipped; it's now
-superseded by the re-seed — not in the repo.) **Note on live real items:** the split only accrues forward from the
-#79 deploy, and the default Week view shows the *last completed* week, so real tracked items won't show Organic/Paid
-on the Week view until ~the week of Nov 9–15 completes (~Nov 16); longer views later. **Deferred follow-ups (still
-open):** stacked Organic/Paid trend-over-time (trend chart is single-series + wired to a keyword-swap, so a stacked
-area is a larger JS change) and per-keyword Organic/Paid in the drill (per-keyword share lives in a compact
-selectable list, not a table). **Next open:** `landing.html` redesign (deferred — don't touch piecemeal; still
-advertises the removed $250 one-time-snapshot card). Also still true: the Content Readiness item drill stays a
-static table, and the weekly commerce-fact snapshot's builder is kept in `_perf_item_detail` for reuse elsewhere,
-place undecided.)_
+_Last updated: 2026-11-09 (session 61 — **Performance chart polish**, main `45719af`, all three PRs **merged +
+deployed** (CI + Deploy green on main). Three PRs close out the Organic/Paid thread from sessions 59 (#79) and 60
+(#81/#82); **no schema change** in any — the split columns (`item_sponsored_slots` / `total_sponsored_slots`)
+already live **per keyword** on `portfolio_rank_readings`, so all three are roll-up + presentation. **#84**
+(`0b27e53`) — the Share of Search **trend chart now stacks Organic vs Paid** (organic ink band on the bottom, paid
+blue band on top, total line + endpoint capping it) on the brand overview and the item drill's "All keywords" view;
+a window with <2 split-bearing periods falls back to the single total-share line. **#85** (`2480ec2`) — **per-keyword
+Organic/Paid in the drill**: selecting a keyword now rescopes the *whole* card — headline, the Organic/Paid split
+block, and a stacked per-keyword trend — not just the headline; a keyword still collecting its split hides the block
+and shows a single line. **No separate table** (decided with the user). **#86** (`45719af`) — **hover tooltips on
+every Performance trend chart**: hovering snaps a highlight dot + vertical guide to the nearest point and shows its
+values (Total/Organic/Paid breakdown on the stacked chart, `#rank` on Search Rank, `N/100` on Content Readiness).
+Both S60 "deferred follow-ups" (stacked trend-over-time, per-keyword Organic/Paid) are now **DONE** via #84/#85.
+934 tests + ruff clean (the hover PR is JS/CSS-only and added no Python). **Live-data timing still holds:** the split
+accrues forward only, so real (non-demo) tracked items won't show Organic/Paid on the default **Week** view until
+~the week of Nov 9–15 completes (~Nov 16); the demo account (`demo@ecomm-copilot.com`) is seeded so it shows now.
+**Next open:** `landing.html` redesign (deferred — don't touch piecemeal; still advertises the removed $250
+one-time-snapshot card). Also still true: the Content Readiness item drill stays a static table, and the weekly
+commerce-fact snapshot's builder is kept in `_perf_item_detail` for reuse elsewhere, place undecided. The old
+`docs/handoff-s60` local branch is redundant (its content merged as #83, `eee02a2`) — safe to delete.)_
+
+---
+
+## Session 61 — Performance chart polish (#84 stacked trend · #85 per-keyword split · #86 hover tooltips)
+
+Three PRs, all **merged + deployed** (CI + Deploy green on main), closing out the Organic/Paid thread from
+sessions 59–60. **No schema change** in any of them — the split columns (`item_sponsored_slots` /
+`total_sponsored_slots`) already live **per keyword** on `portfolio_rank_readings`, so everything here is roll-up +
+presentation. The trend charts are the dependency-free inline-SVG charts in `app/static/js/performance.js`
+(`drawTrend`), CSP-safe (`script-src 'self'`; no inline handlers).
+
+**#84 — stacked Organic/Paid trend (`0b27e53`).** The Share of Search **trend chart** (previously a single
+total-share line) now draws a **stacked area** where the split is available: organic (ink `#0b1220`) band on the
+bottom, paid (blue `#2e6dff`) band on top, capped by the total line + endpoint dot; the legend switches to two
+swatches (Organic/Paid). Applies to the **brand overview** and the item drill's **"All keywords"** view. Server
+(`pages.py`): `_discovery_share_split_trend` / `_item_share_split_trend` collect `(organic, paid)` per period —
+**only split-bearing periods**, so a pre-split window never invents a mix; `_share_trend_series` emits the stacked
+series (`stacked: true` + `organic`/`paid` arrays; `values` = per-period totals so the share domain/axis/label code
+is reused) when **≥2** split-bearing periods exist, else falls back to the single total-share line. JS: `drawTrend`
+gained a `stacked` branch; `syncLegend` owns the legend (brand charts set it in `drawTrend`; drill charts in
+`wireKeywordSelect`, which also syncs it on load since `drawTrend` skips drill-chart legends).
+
+**#85 — per-keyword Organic/Paid in the drill (`2480ec2`).** Selecting a keyword in the Share of Search drill now
+**rescopes the whole card** — headline + delta, the **Organic/Paid split block** (sub-metrics, deltas, composition
+bar, mix line reading "this keyword's…"), and a **stacked per-keyword trend** — not just the headline. A keyword
+still **collecting** its split hides the block and falls back to a single-line chart; "All keywords" restores the
+item-level view. **No separate table** — decided with the user; the interactive card replaced the table idea.
+Data: new `portfolio_perf.item_keyword_window_split_shares` (`{keyword_id: (organic, paid)}`), same split-scoped SQL
+(`_SPLIT_SUMS_SQL` + `_split_shares`) as the item/brand roll-ups. Server: the share keyword-swap context
+(`_item_keyword_metric_payload`, share branch) now carries, per view, a `split` (the `_share_split` shape) + a
+stacked `series`; `all_split` seeds the default "all keywords" view. Client: a **client-updatable split block** —
+new `share_split_live` Jinja macro (data-hooked: `data-kw-split`, `data-split-organic`/`-paid`/`-bar-*`/`-mix`;
+always rendered, hidden until a split lands) + `renderSplit` in performance.js, called on select and on load. The
+brand view keeps the static `share_split_block` macro.
+
+**#86 — hover tooltips on the trend charts (`45719af`).** Hovering any Performance trend chart snaps a highlight
+dot + a vertical guide to the **nearest point** and shows its values in a small tooltip: a **Total/Organic/Paid**
+breakdown on the stacked Share of Search chart, `#rank` on Search Rank, `N/100` on Content Readiness. One
+implementation (`wireHover` in performance.js) covers all three tabs **and** the per-keyword drill charts (same
+`drawTrend`). Mechanics: a transparent hit `<rect>` over the plot (`pointer-events="all"` — a transparent *fill*
+wouldn't receive events) drives a nearest-index lookup from the pointer x; the tooltip is **hosted on the chart
+card**, not the `.perf-trend` container, so the container's `overflow` can't clip it; it flips below a near-the-top
+point and aligns to the card edges so it stays inside. Pure enhancement, re-wired on each redraw (the SVG is
+rebuilt). CSS: `.perf-tip*` in `workspace.css`.
+
+**Testing.** #84 added stacked-vs-fallback unit tests + a brand-trend route test; #85 added per-keyword split
+roll-up tests (+ its collecting state) and a drill-context test asserting per-keyword `split` + a stacked
+per-keyword `series` (934 tests + ruff clean after #85); #86 is JS/CSS only (no Python — the charts have no JS
+harness, verified in the browser like the rest of the chart code). All three browser-verified via a harness loading
+the real `performance.js`.
+
+**State of the Organic/Paid thread.** Both S60 "deferred follow-ups" are now **DONE** (#84 stacked trend-over-time,
+#85 per-keyword split). The live-data timing note still holds: the split accrues forward only, so real (non-demo)
+tracked items won't show Organic/Paid on the default **Week** view until ~the week of Nov 9–15 completes (~Nov 16);
+the demo account is seeded so it shows now. **Housekeeping:** the old `docs/handoff-s60` local branch is redundant —
+its HANDOFF content already matches main (merged as #83, `eee02a2`); safe to delete.
 
 ---
 
