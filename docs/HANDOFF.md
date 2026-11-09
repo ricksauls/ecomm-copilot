@@ -1,15 +1,59 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-11-09 (session 58 — a run of Performance/Dashboard UX changes, **all merged + LIVE on main
-(code through `06b4493`, #77)**: PR #74 (Search Rank brand keyword chips + tab-scoped item drill), #75
-(interactive per-keyword rank + share drills — click a keyword to swap the trend chart + KPI headline), #76
-(Dashboard "search rank" copy + Competition card renamed to Share of Search), #77 (Share of Search brand card
-lists the tracked-keyword chips too; union logic factored into `_tracked_keyword_union`). 917 tests + ruff clean
-throughout; browser-verified. No dependency changes. Session 56's helper-access model merged earlier as PR #73 →
-`ebcabe7`, LIVE 2026-11-04. **Next open:** `landing.html` redesign (deferred — don't touch piecemeal; still
-advertises the removed $250 one-time-snapshot card). Also noted: the Content Readiness item drill stays a static
-table (its scores aren't keyword trends), and the weekly commerce-fact snapshot was removed from the item drill
-but its builder is kept in `_perf_item_detail` for reuse elsewhere, place undecided.)_
+_Last updated: 2026-11-09 (session 59 — **Share of Search split into Organic vs Paid**, merged as PR #79 → main
+(`d75b461`), **CI + Deploy both green + LIVE**. The blended Share of Search number is now decomposed into Organic
+Share + Paid Share (Decomposition: each the item's slots of that kind ÷ all page-1 slots, so the two sum to the
+blended share — "earned vs bought"). The scraper already classified cards organic/sponsored, so no new scrape
+cost; two nullable columns (`item_sponsored_slots` / `total_sponsored_slots`) on `portfolio_rank_readings` + an
+additive `_migrate` block carry it. **No backfill** (raw SERP cards aren't retained) — the split accrues forward
+from the first daily sweep after deploy; history keeps its blended total, and the UI block hides until a
+post-split reading lands. 922 tests + ruff clean. **Deferred follow-ups:** stacked trend-over-time (the trend
+chart is single-series with a keyword-swap interaction, so a stacked organic/paid area is a larger JS change) and
+per-keyword organic/paid (per-keyword share lives in a compact selectable list, not a table). Prior session 58
+work (#74–#77) remains LIVE (code was through `06b4493`). **Next open:** `landing.html` redesign (deferred — don't
+touch piecemeal; still advertises the removed $250 one-time-snapshot card). Also still true: the Content Readiness
+item drill stays a static table, and the weekly commerce-fact snapshot's builder is kept in `_perf_item_detail`
+for reuse elsewhere, place undecided.)_
+
+---
+
+## Session 59 — Share of Search split into Organic vs Paid (feat/sos-organic-paid-split)
+
+**What it is.** The Performance **Share of Search** tab blended organic and sponsored placements into a single
+share number. It now decomposes into **Organic Share** and **Paid Share** (Decomposition definition: each is the
+item's slots *of that kind* over **all** page-1 slots, so the two sum to the blended share). This answers the
+retail-media question "is my shelf presence earned or bought?" and mirrors the "Paid vs Organic" framing already
+on the Competitive Intelligence screen.
+
+**Data pipeline.** `app/item_rank.build_reading` already separated the item's organic vs sponsored positions; it
+now also returns `item_sponsored_slots` (the item's own paid placements) and `total_sponsored_slots` (page-wide
+ads — a rival's ad counts). No new scrape cost (same SERP fetch). `save_reading` persists both into two new
+**nullable** columns on `portfolio_rank_readings`, added to `_SCHEMA` **and** via an additive `_migrate` block
+(PRAGMA check → `ALTER TABLE ADD COLUMN`, matching the existing pattern). Nullable on purpose: a `0` DEFAULT would
+masquerade as a real "no ads" measurement, so pre-split rows read `NULL` = "split unknown".
+
+**Roll-ups** (`app/portfolio_perf.py`). New `_split_shares()` + shared `_SPLIT_SUMS_SQL`; `organic_share` /
+`paid_share` added to `portfolio_rank_summary` (brand) and `item_window_summary` (drill). Crucially the split sums
+**only** readings where `item_sponsored_slots IS NOT NULL`, so a window straddling the migration still reports a
+correct *blended* total share while organic/paid reflect post-split rows only (they reconcile once the whole
+window is post-deploy). Both return `None` until a split-bearing reading lands ("collecting").
+
+**UI** (`insights_performance.html` + `pages.py` `_share_split()` + `workspace.css`). The Share of Search drill
+**and** the brand card show Organic/Paid sub-metrics (each with a delta pill), a composition bar reusing the CI
+Paid-vs-Organic colours (`.ci-split-bar` / `.ci-org` / `.ci-paid`), and a one-line mix read ("N% of … visibility
+is paid"). Rendered by a new `share_split_block()` Jinja macro; guarded on `share_split.available`, so it stays
+hidden until the split has data. The existing total-share trend chart + keyword-swap interaction are **untouched**
+(the stacked trend-over-time is a deferred follow-up — see below).
+
+**Tests.** 922 passed, ruff clean. New coverage: `build_reading` split counts incl. page-wide sponsored
+(`test_item_rank.py`); persistence round-trip; the decomposition roll-up + straddle/collecting cases
+(`test_portfolio_perf.py`); and the drill rendering the split block only when data carries the split
+(`test_pages.py`).
+
+**Deferred (not in #79).** (1) **Stacked trend-over-time** — the trend chart (`performance.js`) is single-series
+and wired to a keyword-swap interaction, so a stacked organic/paid area needs real JS work + per-keyword split
+context. (2) **Per-keyword organic/paid** — per-keyword share lives in the compact selectable keyword list, not a
+table, so splitting it there needs an interaction rethink.
 
 ---
 
