@@ -48,8 +48,16 @@ The `trk_spark` macro import + `.trk-*` CSS are now unused by this template but 
    prior-period delta, legend and rank trend series plus an "all" default, built for the rank tab only
    (`_perf_item_detail(..., tab)`). The list is **server-rendered** (keyword + rank) so it still informs without JS;
    `performance.js:wireKeywordSelect` does the CSP-safe swap (keyboard accessible). CSS `.kw-select` / `.kw-opt`.
-   The share/readiness drills are unchanged — a symmetric treatment of the **Share of Search** tab is the obvious
-   follow-up. Browser-verified select / swap / reset with no console errors.
+   Browser-verified select / swap / reset with no console errors.
+
+4. **Same interaction on the Share of Search tab** (added to the same PR #75 branch). The rank-specific payload
+   builder was generalized to `_item_keyword_metric_payload(..., metric)` serving both `'rank'` and `'share'`
+   (share uses new `portfolio_perf.item_keyword_window_shares`, `_share_cell`, unit `share`, delta in pts; rank is
+   unchanged). The drill DOM hooks were made metric-agnostic (`data-kw-drill` / `-metric` / `-delta` / `-legend` /
+   `-chart` / `-context`, list value class `.kw-opt-val`), so one `wireKeywordSelect` drives both the Search Rank
+   and Share of Search drills. `_perf_item_detail` now builds `rank_keyword_context` on the rank tab and
+   `share_keyword_context` on the shelf tab. Both tabs browser-verified (rank #3.0 "No change" / share 50% "+17 pts"
+   swaps, legend + chart update, reset) with no console errors. The Content Readiness drill is still a static table.
 
 **Tests.** `tests/test_pages.py`: the old `test_performance_item_drill_shows_commerce_and_keywords` became
 `test_performance_item_drill_is_tab_scoped` (asserts rank tab shows the rank card + rank keyword table and NOT

@@ -173,21 +173,22 @@
     drawTrend(container);
   }
 
-  // Search Rank drill: clicking a keyword in the KPI card swaps the trend chart and
-  // the KPI headline (metric + delta + legend) to that keyword's rank; "All keywords"
-  // resets to the item average. Data comes from data-rank-context (built server-side),
-  // so this is pure enhancement — the list already shows keyword + rank without JS.
+  // Discovery drill (Search Rank / Share of Search): clicking a keyword in the KPI
+  // card swaps the trend chart and the KPI headline (metric + delta + legend) to that
+  // keyword's value; "All keywords" resets to the item average. Data comes from
+  // data-kw-context (built server-side), so this is pure enhancement — the list
+  // already shows keyword + value without JS.
   function wireKeywordSelect() {
-    document.querySelectorAll("[data-rank-drill]").forEach(function (drill) {
+    document.querySelectorAll("[data-kw-drill]").forEach(function (drill) {
       var ctx;
-      try { ctx = JSON.parse(drill.getAttribute("data-rank-context") || "null"); }
+      try { ctx = JSON.parse(drill.getAttribute("data-kw-context") || "null"); }
       catch (e) { return; }
       if (!ctx || !ctx.keywords) { return; }
 
-      var metricNode = drill.querySelector("[data-rank-metric]");
-      var deltaNode = drill.querySelector("[data-rank-delta]");
-      var legendNode = drill.querySelector("[data-rank-legend]");
-      var chart = drill.querySelector("[data-rank-chart]");
+      var metricNode = drill.querySelector("[data-kw-metric]");
+      var deltaNode = drill.querySelector("[data-kw-delta]");
+      var legendNode = drill.querySelector("[data-kw-legend]");
+      var chart = drill.querySelector("[data-kw-chart]");
       var opts = Array.prototype.slice.call(drill.querySelectorAll("[data-kw-select] .kw-opt"));
       if (!chart || !opts.length) { return; }
 

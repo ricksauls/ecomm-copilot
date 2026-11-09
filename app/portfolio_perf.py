@@ -213,3 +213,27 @@ def item_keyword_window_ranks(conn: sqlite3.Connection, user_id: int, item_pk: i
     ).fetchall()
     return {r["keyword_id"]: (round(r["avg_rank"], 1) if r["avg_rank"] is not None else None)
             for r in rows}
+
+
+def item_keyword_window_shares(conn: sqlite3.Connection, user_id: int, item_pk: int,
+                               start: str, end: str) -> dict[int, int | None]:
+    """``{keyword_id: share_pct}`` for one item's non-blank keywords over a window.
+
+    The per-period building block for the drill's per-keyword share trends (the
+    share sibling of :func:`item_keyword_window_ranks`): share is this item's
+    page-1 slots over all page-1 slots on that keyword. User-scoped (IDOR).
+    """
+    rows = conn.execute(
+        "SELECT k.id AS keyword_id, SUM(r.item_slots) AS item_slots, "
+        "       SUM(r.total_slots) AS total_slots "
+        "FROM portfolio_keywords k "
+        "JOIN portfolio_items p ON p.id = k.portfolio_item_id "
+        "LEFT JOIN portfolio_rank_readings r "
+        "  ON r.keyword_id = k.id AND r.user_id = k.user_id "
+        "  AND r.captured_at BETWEEN ? AND ? "
+        "WHERE k.portfolio_item_id = ? AND p.user_id = ? AND p.tracked = 1 "
+        "  AND k.keyword IS NOT NULL AND TRIM(k.keyword) <> '' "
+        "GROUP BY k.id",
+        [start, end, item_pk, user_id],
+    ).fetchall()
+    return {r["keyword_id"]: _pct(r["item_slots"], r["total_slots"]) for r in rows}

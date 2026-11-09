@@ -4028,9 +4028,10 @@ select.pf-select[size] option { padding: 6px 8px; border-radius: 4px; }
   padding: 2px 9px; white-space: nowrap;
 }
 
-/* Selectable keyword list in the Search Rank item-drill card: each row is a
-   keyword + its rank; clicking one swaps the trend chart + KPI headline (JS). The
-   active row is tinted with a left accent so the current selection reads clearly. */
+/* Selectable keyword list in a Discovery item-drill card (Search Rank / Share of
+   Search): each row is a keyword + its value; clicking one swaps the trend chart +
+   KPI headline (JS). The active row is tinted with a left accent so the current
+   selection reads clearly. */
 .kw-select { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
 .kw-opt {
   display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
@@ -4044,9 +4045,9 @@ select.pf-select[size] option { padding: 6px 8px; border-radius: 4px; }
   font-size: 12.5px; color: var(--black);
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.kw-opt-rank { flex: none; font-size: 12.5px; font-weight: 700; font-variant-numeric: tabular-nums; }
-.kw-opt-rank.m-good { color: var(--signal-green); }
-.kw-opt-rank.m-bad { color: var(--signal-red); }
+.kw-opt-val { flex: none; font-size: 12.5px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.kw-opt-val.m-good { color: var(--signal-green); }
+.kw-opt-val.m-bad { color: var(--signal-red); }
 
 .chart-card .chart-title { font-size: 15px; font-weight: 600; margin: 0 0 4px; }
 .chart-legend {
