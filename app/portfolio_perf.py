@@ -298,3 +298,32 @@ def item_keyword_window_shares(conn: sqlite3.Connection, user_id: int, item_pk: 
         [start, end, item_pk, user_id],
     ).fetchall()
     return {r["keyword_id"]: _pct(r["item_slots"], r["total_slots"]) for r in rows}
+
+
+def item_keyword_window_split_shares(
+        conn: sqlite3.Connection, user_id: int, item_pk: int,
+        start: str, end: str) -> dict[int, tuple[int | None, int | None]]:
+    """``{keyword_id: (organic_pct, paid_pct)}`` for one item's non-blank keywords.
+
+    The organic/paid sibling of :func:`item_keyword_window_shares`: it decomposes each
+    keyword's share into earned vs bought using the same split-scoped sums as the item
+    and brand roll-ups (:data:`_SPLIT_SUMS_SQL` + :func:`_split_shares`), so the drill's
+    per-keyword split block and stacked per-keyword trend read identically to the item
+    level. ``(None, None)`` for a keyword still collecting its split. User-scoped (IDOR)
+    through the ``portfolio_items`` join.
+    """
+    rows = conn.execute(
+        "SELECT k.id AS keyword_id, " + _SPLIT_SUMS_SQL +
+        "FROM portfolio_keywords k "
+        "JOIN portfolio_items p ON p.id = k.portfolio_item_id "
+        "LEFT JOIN portfolio_rank_readings r "
+        "  ON r.keyword_id = k.id AND r.user_id = k.user_id "
+        "  AND r.captured_at BETWEEN ? AND ? "
+        "WHERE k.portfolio_item_id = ? AND p.user_id = ? AND p.tracked = 1 "
+        "  AND k.keyword IS NOT NULL AND TRIM(k.keyword) <> '' "
+        "GROUP BY k.id",
+        [start, end, item_pk, user_id],
+    ).fetchall()
+    return {r["keyword_id"]: _split_shares(
+        r["split_item_slots"], r["item_sponsored_slots"], r["split_total_slots"])
+        for r in rows}

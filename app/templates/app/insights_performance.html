@@ -50,6 +50,39 @@
 </div>
 {%- endmacro %}
 
+{# Interactive variant for the item drill: the same block, but always rendered (hidden
+   when the active view has no split) and tagged with data-hooks so performance.js can
+   rescope it to the selected keyword's organic/paid without a reload. Seeded with `sp`
+   (the "all keywords" split) for the no-JS baseline. The delta pills and mix line are
+   always present and toggled via `hidden`, so JS only sets text/width/class. #}
+{% macro share_split_live(sp) -%}
+{% set live = sp and sp.available %}
+<div class="share-split" data-kw-split {{ 'hidden' if not live }}>
+  <div class="share-split-stats">
+    <div class="share-split-stat">
+      <span class="share-split-dot organic" aria-hidden="true"></span>
+      <span class="share-split-k">Organic</span>
+      <span class="share-split-v" data-split-organic>{{ sp.organic_metric if live }}</span>
+      <span class="kpi-delta sm {{ sp.organic_delta.dir if live and sp.organic_delta.display }}"
+            data-split-organic-delta {{ 'hidden' if not (live and sp.organic_delta.display) }}>{{ sp.organic_delta.display if live and sp.organic_delta.display }}</span>
+    </div>
+    <div class="share-split-stat">
+      <span class="share-split-dot paid" aria-hidden="true"></span>
+      <span class="share-split-k">Paid</span>
+      <span class="share-split-v" data-split-paid>{{ sp.paid_metric if live }}</span>
+      <span class="kpi-delta sm {{ sp.paid_delta.dir if live and sp.paid_delta.display }}"
+            data-split-paid-delta {{ 'hidden' if not (live and sp.paid_delta.display) }}>{{ sp.paid_delta.display if live and sp.paid_delta.display }}</span>
+    </div>
+  </div>
+  <span class="ci-split-bar share-split-bar" role="img" data-split-bar
+        aria-label="Visibility mix: organic vs paid">
+    <span class="ci-org" data-split-bar-organic style="width: {{ sp.organic_pct if live else 0 }}%"></span>
+    <span class="ci-paid" data-split-bar-paid style="width: {{ sp.paid_pct if live else 0 }}%"></span>
+  </span>
+  <div class="share-split-mix" data-split-mix {{ 'hidden' if not (live and sp.mix_line) }}>{{ sp.mix_line if live and sp.mix_line }}</div>
+</div>
+{%- endmacro %}
+
 {% block pane_content %}
 <div class="page-header perf-header">
   <div>
@@ -194,13 +227,11 @@
            {{ 'hidden' if not detail.share_delta.display }}>{{ detail.share_delta.display }}</div>
       <div class="kpi-foot">This item's page-1 slots ÷ all page-1 slots</div>
       {# Organic/paid decomposition: earned vs bought visibility. The two sub-metrics
-         sum to the share above; the bar shows their mix (normalized to fill). Hidden
-         until a post-split reading lands (share_split.available), so older windows that
-         predate the split don't show an empty block. #}
-      {% if detail.share_split and detail.share_split.available %}
-      {% set sp = detail.share_split %}
-      {{ share_split_block(sp) }}
-      {% endif %}
+         sum to the share above; the bar shows their mix (normalized to fill). The live
+         variant always renders (hidden until a split-bearing reading lands) and carries
+         data-hooks so selecting a keyword rescopes it to that keyword's organic/paid —
+         seeded here with the item-level ("all keywords") split for the no-JS baseline. #}
+      {{ share_split_live(detail.share_split) }}
       {% if sk and sk.keywords %}
       <div class="kpi-keywords">
         <div class="kpi-keywords-label">Share by keyword</div>

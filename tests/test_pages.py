@@ -1606,6 +1606,61 @@ def test_performance_shelf_trend_stacks_organic_paid(client, auth, app):
     assert b'"stacked"' in body            # the stacked organic/paid trend series
 
 
+def test_performance_shelf_drill_split_block_is_live(client, auth, app):
+    # The item drill's Share of Search split block is the client-updatable variant
+    # (data-kw-split) and the keyword-swap context carries each keyword's own split, so
+    # selecting a keyword rescopes the Organic/Paid block, not just the headline.
+    auth.register(email="perfkwsplit@example.com")
+    gid = _seed_performance(app, "perfkwsplit@example.com")
+    pk = _perf_item_pk(app, "perfkwsplit@example.com", "111")
+    from app.db import get_db
+    with app.app_context():
+        db = get_db()
+        db.execute("UPDATE portfolio_rank_readings SET item_sponsored_slots = 1, "
+                   "total_sponsored_slots = 2 WHERE walmart_item_id = ?", ("111",))
+        db.commit()
+    body = client.get(f"/app/insights/performance?group_id={gid}&item={pk}&tab=shelf").data
+    assert b"data-kw-split" in body          # the client-updatable split block
+    assert b'"split"' in body                # per-keyword split in the swap context
+
+
+def test_perf_item_detail_share_context_per_keyword_split(client, auth, app):
+    # Each keyword in the share drill carries its own organic/paid split and, with ≥2
+    # split-bearing periods, a stacked trend series — the data behind "selecting a keyword
+    # rescopes the whole card (split block + stacked chart)".
+    auth.register(email="perfkwstack@example.com")
+    _seed_performance(app, "perfkwstack@example.com")
+    from app import ci_analysis, portfolio
+    from app.db import get_db
+    from app.routes.pages import _perf_item_detail
+    with app.app_context():
+        db = get_db()
+        uid = db.execute("SELECT id FROM users WHERE email = ?",
+                         ("perfkwstack@example.com",)).fetchone()[0]
+        p = db.execute("SELECT id FROM portfolio_items WHERE item_id = '111'").fetchone()
+        kid = db.execute("SELECT id FROM portfolio_keywords WHERE portfolio_item_id = ? AND slot = 1",
+                         (p["id"],)).fetchone()["id"]
+        # The seed left a current-week reading; add a prior-week one and give both a split
+        # so this keyword has two split-bearing trend periods (→ a stacked series).
+        prior_day = ci_analysis.period_bounds("wow", 1)[0]
+        db.execute(
+            "INSERT INTO portfolio_rank_readings (portfolio_item_id, keyword_id, user_id, "
+            "walmart_item_id, captured_at, rank, item_slots, total_slots, "
+            "item_sponsored_slots, total_sponsored_slots) VALUES (?,?,?,?,?,3,1,4,1,2)",
+            (p["id"], kid, uid, "111", prior_day))
+        db.execute("UPDATE portfolio_rank_readings SET item_sponsored_slots = 1, "
+                   "total_sponsored_slots = 2 WHERE walmart_item_id = '111' "
+                   "AND item_sponsored_slots IS NULL")
+        db.commit()
+        item = portfolio.get_item(db, uid, p["id"])
+        detail = _perf_item_detail(db, uid, item, "wow", tab="shelf")["detail"]
+    ctx = detail["share_keyword_context"]
+    assert ctx["all"]["split"]["available"] is True        # item-level split (default view)
+    kw = ctx["keywords"][0]
+    assert kw["split"]["available"] is True                # per-keyword split block data
+    assert kw["series"]["stacked"] is True                 # stacked per-keyword trend
+
+
 def test_performance_unknown_tab_falls_back_to_rank(client, auth, app):
     auth.register(email="perftab@example.com")
     _seed_performance(app, "perftab@example.com")
