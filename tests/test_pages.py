@@ -1584,6 +1584,16 @@ def test_performance_rank_brand_card_lists_tracked_keywords(client, auth, app):
     assert b"kpi-keywords-label" in body  # the "Tracking N keywords" label
 
 
+def test_performance_shelf_brand_card_lists_tracked_keywords(client, auth, app):
+    # The Share of Search brand card lists the same deduped union of tracked keywords
+    # as chips in its lower half, mirroring the Search Rank brand card.
+    auth.register(email="perfkwshelf@example.com")
+    gid = _seed_performance(app, "perfkwshelf@example.com")
+    body = client.get(f"/app/insights/performance?group_id={gid}&tab=shelf").data
+    assert b"kw-pill" in body            # at least one keyword chip
+    assert b"kpi-keywords-label" in body  # the "Tracking N keywords" label
+
+
 def test_performance_forged_item_falls_back_to_all_items(client, auth, app):
     # An ?item= that isn't one of the brand's SKUs never drills — it falls back to
     # the all-items (brand) view, so a forged id can't reach another user's data.
