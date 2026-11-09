@@ -1504,6 +1504,16 @@ def _share_split(cur: dict, prior: dict, subject: str = "this item's") -> dict:
     }
 
 
+def _pct_cell(pct) -> dict:
+    """Display + colour for an organic/paid share cell in the all-items table. Unlike
+    ``_share_cell`` (which treats ``0`` and ``None`` alike as a red 0%), a ``None`` here
+    means the split hasn't been captured yet, so it shows a muted "—" ("collecting"),
+    distinct from a measured ``0%`` (green when the item holds slots of that kind)."""
+    if pct is None:
+        return {"display": "—", "cls": "m-muted"}
+    return {"display": f"{pct}%", "cls": "m-good" if pct else "m-bad"}
+
+
 def _readiness_cell(score, suffix="") -> dict:
     """Display + color for a content-readiness score: green at/above the target,
     red below it, muted when the dimension wasn't measured (``None``)."""
@@ -1758,9 +1768,15 @@ def _perf_shelf_tab(db, uid, brands, period, tracked) -> dict:
         },
         "trend": _perf_trend(values, dates, "share"),
         "trend_legend": "Share of search (all tracked items)",
-        "products": [{"item_id": it["id"], "name": it["name"], **_share_cell(it["share"])}
-                     for it in tracked],
-        "products_label": "Share",
+        # Per-item table shows the decomposition as three columns: Total Share, then its
+        # Organic and Paid parts (the order the user asked for). Each product carries a
+        # `cells` list the table renders in column order.
+        "products": [{"item_id": it["id"], "name": it["name"], "cells": [
+            _share_cell(it["share"]),
+            _pct_cell(it["organic_share"]),
+            _pct_cell(it["paid_share"]),
+        ]} for it in tracked],
+        "products_cols": ["Total Share", "Organic", "Paid"],
         "drillable": True,
         # Same tracked-keyword chips as the Search Rank brand card.
         "keywords": _tracked_keyword_union(db, uid, tracked),

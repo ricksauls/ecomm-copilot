@@ -291,26 +291,34 @@
   <div class="perf-tables single">
     <div class="card tbl-card">
       <div class="tbl-head">Tracked Products{% if drillable %}<div class="sub">Click an item to drill in</div>{% endif %}</div>
+      {# One metric column per tab normally; the Share of Search tab passes
+         `products_cols` (Total Share · Organic · Paid) and each row a `cells` list,
+         so the table renders N metric columns. Fall back to the single
+         `products_label` + `r.display`/`r.cls` for the Rank / Readiness tabs. #}
+      {% set metric_cols = products_cols if products_cols else [products_label] %}
       <table class="dash perf-dash">
-        <thead><tr><th>#</th><th>Product</th><th class="col-right">{{ products_label }}</th></tr></thead>
+        <thead><tr><th>#</th><th>Product</th>
+          {% for c in metric_cols %}<th class="col-right">{{ c }}</th>{% endfor %}
+        </tr></thead>
         <tbody>
           {% for r in products %}
+          {% set cells = r.cells if r.cells else [{'display': r.display, 'cls': r.cls}] %}
           {% if drillable %}
           {% set drill = url_for('pages.insights_performance', group_id=selected_group_id, tab=tab, period=period, item=r.item_id) %}
           <tr class="row-drill" data-href="{{ drill }}">
             <td class="col-num">{{ loop.index }}</td>
             <td><a class="perf-drill-link" href="{{ drill }}">{{ r.name }}</a></td>
-            <td class="col-metric {{ r.cls }}">{{ r.display }}</td>
+            {% for c in cells %}<td class="col-metric {{ c.cls }}">{{ c.display }}</td>{% endfor %}
           </tr>
           {% else %}
           <tr>
             <td class="col-num">{{ loop.index }}</td>
             <td>{{ r.name }}</td>
-            <td class="col-metric {{ r.cls }}">{{ r.display }}</td>
+            {% for c in cells %}<td class="col-metric {{ c.cls }}">{{ c.display }}</td>{% endfor %}
           </tr>
           {% endif %}
           {% else %}
-          <tr><td colspan="3" class="perf-empty-cell">No tracked products for this brand yet.</td></tr>
+          <tr><td colspan="{{ 2 + (metric_cols | length) }}" class="perf-empty-cell">No tracked products for this brand yet.</td></tr>
           {% endfor %}
         </tbody>
       </table>

@@ -189,6 +189,24 @@ def test_item_window_summary_organic_paid(app):
         assert (s["organic_share"], s["paid_share"]) == (10, 10)
 
 
+def test_tracked_items_with_readings_carries_organic_paid(app):
+    with app.app_context():
+        db = get_db()
+        uid, a = _seed_split(db)
+        rows = {r["id"]: r for r in portfolio_perf.tracked_items_with_readings(db, uid, *_WIN)}
+        assert rows[a]["share"] == 20
+        assert (rows[a]["organic_share"], rows[a]["paid_share"]) == (10, 10)
+
+
+def test_tracked_items_organic_paid_none_without_split(app):
+    with app.app_context():
+        db = get_db()
+        uid, a, _b = _seed(db)   # NULL-split readings only
+        rows = {r["id"]: r for r in portfolio_perf.tracked_items_with_readings(db, uid, *_WIN)}
+        assert rows[a]["share"] is not None
+        assert rows[a]["organic_share"] is None and rows[a]["paid_share"] is None
+
+
 def test_organic_paid_collecting_until_split_lands(app):
     with app.app_context():
         db = get_db()
