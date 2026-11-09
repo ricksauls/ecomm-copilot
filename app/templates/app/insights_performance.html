@@ -20,6 +20,36 @@
 {% endif %}
 {%- endmacro %}
 
+{# Organic/paid decomposition of share of search (Decomposition: the two sub-metrics
+   sum to the blended share). Two labelled sub-metrics with their own delta pills, a
+   composition bar reusing the CI Paid-vs-Organic colours (organic = ink, paid =
+   accent), and a one-line mix read. Caller guards on sp.available, so `sp` is always
+   the fully-shaped dict from _share_split(). #}
+{% macro share_split_block(sp) -%}
+<div class="share-split">
+  <div class="share-split-stats">
+    <div class="share-split-stat">
+      <span class="share-split-dot organic" aria-hidden="true"></span>
+      <span class="share-split-k">Organic</span>
+      <span class="share-split-v">{{ sp.organic_metric }}</span>
+      {% if sp.organic_delta.display %}<span class="kpi-delta sm {{ sp.organic_delta.dir }}">{{ sp.organic_delta.display }}</span>{% endif %}
+    </div>
+    <div class="share-split-stat">
+      <span class="share-split-dot paid" aria-hidden="true"></span>
+      <span class="share-split-k">Paid</span>
+      <span class="share-split-v">{{ sp.paid_metric }}</span>
+      {% if sp.paid_delta.display %}<span class="kpi-delta sm {{ sp.paid_delta.dir }}">{{ sp.paid_delta.display }}</span>{% endif %}
+    </div>
+  </div>
+  <span class="ci-split-bar share-split-bar" role="img"
+        aria-label="Visibility mix: {{ sp.organic_pct }}% organic, {{ sp.paid_pct }}% paid">
+    <span class="ci-org" style="width: {{ sp.organic_pct }}%"></span>
+    <span class="ci-paid" style="width: {{ sp.paid_pct }}%"></span>
+  </span>
+  {% if sp.mix_line %}<div class="share-split-mix">{{ sp.mix_line }}</div>{% endif %}
+</div>
+{%- endmacro %}
+
 {% block pane_content %}
 <div class="page-header perf-header">
   <div>
@@ -163,6 +193,14 @@
       <div class="kpi-delta {{ detail.share_delta.dir or '' }}" data-kw-delta
            {{ 'hidden' if not detail.share_delta.display }}>{{ detail.share_delta.display }}</div>
       <div class="kpi-foot">This item's page-1 slots ÷ all page-1 slots</div>
+      {# Organic/paid decomposition: earned vs bought visibility. The two sub-metrics
+         sum to the share above; the bar shows their mix (normalized to fill). Hidden
+         until a post-split reading lands (share_split.available), so older windows that
+         predate the split don't show an empty block. #}
+      {% if detail.share_split and detail.share_split.available %}
+      {% set sp = detail.share_split %}
+      {{ share_split_block(sp) }}
+      {% endif %}
       {% if sk and sk.keywords %}
       <div class="kpi-keywords">
         <div class="kpi-keywords-label">Share by keyword</div>
@@ -221,6 +259,12 @@
       <div class="kpi-delta {{ headline.delta.dir }}">{{ headline.delta.display }}</div>
       {% endif %}
       <div class="kpi-foot">{{ headline.foot }}</div>
+      {# Organic/paid decomposition for the brand's Share of Search card (shelf tab
+         only — share_split is unset on the Rank/Readiness tabs). Same block as the
+         item drill; hidden until a post-split reading lands. #}
+      {% if share_split and share_split.available %}
+      {{ share_split_block(share_split) }}
+      {% endif %}
       {# Tracked-keyword chips fill the card's spare lower half (Search Rank tab only).
          Brand-level keywords are the deduped union across tracked items — informational
          (per-keyword rank/share lives in the item drill), so no metrics here. #}

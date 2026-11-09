@@ -70,12 +70,20 @@ def build_reading(cards: list[dict], walmart_item_id: str | None,
     CI pipeline — we learn the item's title from its id-matched (organic) card and
     tie same-title sponsored slots back to it.
 
-    Returns ``{rank, organic_rank, sponsored_rank, item_slots, total_slots}``:
-    ``rank`` is the best (lowest) page-1 position of the item's placements (None
-    when it isn't on page 1); ``total_slots`` is every placement on the page (the
-    share-of-search denominator).
+    Returns ``{rank, organic_rank, sponsored_rank, item_slots, total_slots,
+    item_sponsored_slots, total_sponsored_slots}``: ``rank`` is the best (lowest)
+    page-1 position of the item's placements (None when it isn't on page 1);
+    ``total_slots`` is every placement on the page (the share-of-search denominator).
+    The two ``*_sponsored_slots`` counts let the roll-up split share into organic vs
+    paid (Decomposition, i.e. each over ``total_slots``): ``item_sponsored_slots`` is
+    how many of the item's own placements were sponsored, and ``total_sponsored_slots``
+    is how many of the page's placements were sponsored (organic counts are always the
+    complement, so they are not stored). Both are derived here, never re-scraped.
     """
     total = len(cards)
+    # Page-wide sponsored count (every placement, not just the item's) — the paid
+    # share's book-keeping partner to ``total``; organic = total − this.
+    total_sponsored = sum(1 for c in cards if c.get("listing_type") == "sponsored")
     target_id = (walmart_item_id or "").strip() or None
 
     def _card_id(card: dict) -> str | None:
@@ -111,6 +119,8 @@ def build_reading(cards: list[dict], walmart_item_id: str | None,
         "sponsored_rank": min(sponsored) if sponsored else None,
         "item_slots": len(matched),
         "total_slots": total,
+        "item_sponsored_slots": len(sponsored),
+        "total_sponsored_slots": total_sponsored,
     }
 
 
@@ -203,11 +213,13 @@ def save_reading(conn: sqlite3.Connection, job: sqlite3.Row, reading: dict,
     cur = conn.execute(
         "INSERT INTO portfolio_rank_readings "
         "(portfolio_item_id, keyword_id, user_id, walmart_item_id, captured_at, "
-        " rank, organic_rank, sponsored_rank, item_slots, total_slots) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " rank, organic_rank, sponsored_rank, item_slots, total_slots, "
+        " item_sponsored_slots, total_sponsored_slots) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (job["portfolio_item_id"], job["keyword_id"], job["user_id"],
          job["walmart_item_id"], captured_at, reading["rank"], reading["organic_rank"],
-         reading["sponsored_rank"], reading["item_slots"], reading["total_slots"]),
+         reading["sponsored_rank"], reading["item_slots"], reading["total_slots"],
+         reading["item_sponsored_slots"], reading["total_sponsored_slots"]),
     )
     conn.execute(
         "UPDATE portfolio_rank_jobs SET status = 'done', finished_at = datetime('now') "

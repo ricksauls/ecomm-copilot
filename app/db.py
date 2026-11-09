@@ -255,7 +255,13 @@ CREATE TABLE IF NOT EXISTS portfolio_rank_readings (
     organic_rank      INTEGER,                           -- best organic position, if any
     sponsored_rank    INTEGER,                           -- best sponsored position, if any
     item_slots        INTEGER NOT NULL DEFAULT 0,        -- the item's own placements this scrape
-    total_slots       INTEGER NOT NULL DEFAULT 0         -- all placements on the page (SoS denominator)
+    total_slots       INTEGER NOT NULL DEFAULT 0,        -- all placements on the page (SoS denominator)
+    -- Organic/paid split of the share (Decomposition: each measured over total_slots,
+    -- so organic + paid = total share). Nullable so rows captured before this split
+    -- shipped read back as "unknown" and the roll-up can exclude them; organic counts
+    -- are the complement (item_slots − item_sponsored_slots, total − total_sponsored).
+    item_sponsored_slots  INTEGER,                       -- how many of item_slots were sponsored
+    total_sponsored_slots INTEGER                        -- how many of total_slots were sponsored
 );
 CREATE INDEX IF NOT EXISTS idx_portfolio_rank_readings_series
     ON portfolio_rank_readings(portfolio_item_id, keyword_id, captured_at);
@@ -1048,6 +1054,21 @@ def _migrate(conn: sqlite3.Connection) -> None:
             "CREATE INDEX IF NOT EXISTS idx_portfolio_title_claim "
             "ON portfolio_items(title_status, id)"
         )
+
+    # portfolio_rank_readings.{item,total}_sponsored_slots: the organic/paid split of
+    # share of search (see app.item_rank.build_reading). Added after the rank-readings
+    # table shipped, so already-captured rows need the ALTER and read back NULL —
+    # "split unknown", which the roll-up (app.portfolio_perf) excludes so organic/paid
+    # only reflect post-migration readings. Nullable on purpose (no DEFAULT): a 0 would
+    # masquerade as a real "no sponsored slots" measurement. Fresh DBs get both columns
+    # from _SCHEMA. Guarded on the table existing at all.
+    rank_reading_cols = {row[1] for row in conn.execute("PRAGMA table_info(portfolio_rank_readings)")}
+    if rank_reading_cols and "item_sponsored_slots" not in rank_reading_cols:
+        conn.execute("ALTER TABLE portfolio_rank_readings ADD COLUMN item_sponsored_slots INTEGER")
+        logger.info("Migrated portfolio_rank_readings: added 'item_sponsored_slots' column")
+    if rank_reading_cols and "total_sponsored_slots" not in rank_reading_cols:
+        conn.execute("ALTER TABLE portfolio_rank_readings ADD COLUMN total_sponsored_slots INTEGER")
+        logger.info("Migrated portfolio_rank_readings: added 'total_sponsored_slots' column")
 
     # Per-item keyword tracking backfill (one-time). New portfolio rows get their
     # tracked flag + 5 keyword rows at add-time (see app.portfolio.add_item); this
