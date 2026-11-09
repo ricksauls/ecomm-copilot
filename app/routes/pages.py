@@ -1649,6 +1649,25 @@ def _item_discovery_trend(db, uid, item_pk, period, metric):
     return values, dates
 
 
+def _tracked_keyword_union(db, uid, tracked) -> list[str]:
+    """The distinct keywords tracked across a brand's tracked items (for the brand
+    card's chip list). Each item carries its own up-to-5 keywords, so at brand level
+    there is no single per-item set — the honest cross-item view is the deduped union
+    (case-insensitive, first-seen order). Returns ``[]`` when nothing is tracked,
+    which hides the chips.
+    """
+    seen: set[str] = set()
+    union: list[str] = []
+    by_item = item_keywords.list_keywords_by_item(db, uid, [it["id"] for it in tracked])
+    for it in tracked:
+        for row in by_item.get(it["id"], []):
+            term = (row["keyword"] or "").strip()
+            if term and term.lower() not in seen:
+                seen.add(term.lower())
+                union.append(term)
+    return union
+
+
 def _perf_rank_tab(db, uid, brands, period, tracked) -> dict:
     """Search Rank brand view (Discovery): average page-1 rank across tracked items.
 
@@ -1663,20 +1682,6 @@ def _perf_rank_tab(db, uid, brands, period, tracked) -> dict:
     delta = (round(prior["avg_rank"] - cur["avg_rank"], 1)
              if cur["avg_rank"] is not None and prior["avg_rank"] is not None else None)
     values, dates = _discovery_trend(db, uid, brands, period, "rank")
-    # Tracked-keyword union for the card: the distinct keywords tracked across this
-    # brand's tracked items. The brand card averages many items, each with its own
-    # up-to-5 keywords, so there is no single per-item set here — the honest
-    # cross-item view is the deduped union (case-insensitive, first-seen order),
-    # surfaced in the card's otherwise-empty lower half as "what we track".
-    seen: set[str] = set()
-    kw_union: list[str] = []
-    by_item = item_keywords.list_keywords_by_item(db, uid, [it["id"] for it in tracked])
-    for it in tracked:
-        for row in by_item.get(it["id"], []):
-            term = (row["keyword"] or "").strip()
-            if term and term.lower() not in seen:
-                seen.add(term.lower())
-                kw_union.append(term)
     return {
         "headline": {
             "label": "Average Search Rank",
@@ -1690,7 +1695,8 @@ def _perf_rank_tab(db, uid, brands, period, tracked) -> dict:
                      for it in tracked],
         "products_label": "Avg Rank",
         "drillable": True,
-        "keywords": kw_union,  # deduped union across tracked items; [] hides the chips
+        # Tracked-keyword union in the card's otherwise-empty lower half ("what we track").
+        "keywords": _tracked_keyword_union(db, uid, tracked),
     }
 
 
@@ -1716,7 +1722,8 @@ def _perf_shelf_tab(db, uid, brands, period, tracked) -> dict:
                      for it in tracked],
         "products_label": "Share",
         "drillable": True,
-        "keywords": None,
+        # Same tracked-keyword chips as the Search Rank brand card.
+        "keywords": _tracked_keyword_union(db, uid, tracked),
     }
 
 

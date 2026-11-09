@@ -1,11 +1,24 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-11-09 (session 57 — **Performance Search Rank: brand keyword chips + tab-scoped item
-drill.** Shipped on branch `feature/perf-searchrank-tabscope`; **PR #74 open — you merge manually.** 916 tests
-+ ruff clean; all three tab drills + the brand card browser-verified against a throwaway seed. No dependency
-changes. NOTE: session 56's helper-access model **has since been merged** (PR #73 → main `ebcabe7`) and
-auto-deployed **LIVE 2026-11-04** — the S56 block below still reads as pre-merge, that was its state at the
-time of writing.)_
+_Last updated: 2026-11-09 (session 58 — a run of Performance/Dashboard changes. **Merged + LIVE on main
+(`b135080`):** PR #74 (Search Rank brand keyword chips + tab-scoped item drill), PR #75 (interactive per-keyword
+rank + share drills), PR #76 (Dashboard "search rank" copy + Competition→Share of Search rename). **Open —
+you merge manually:** PR #77 (Share of Search brand card now lists the tracked-keyword chips too, mirroring the
+Search Rank brand card; union logic factored into `_tracked_keyword_union`). 917 tests + ruff clean throughout;
+browser-verified. No dependency changes. NOTE: session 56's helper-access model merged earlier as PR #73 →
+`ebcabe7`, LIVE 2026-11-04.)_
+
+---
+
+## Session 58 — Share of Search brand card keyword chips (feature/perf-shelf-brand-keywords)
+
+The Share of Search **brand view** (All items) now lists the brand's tracked keywords as chips in the card's
+lower half, exactly like the Search Rank brand card (PR #74). The union logic was factored out of `_perf_rank_tab`
+into `_tracked_keyword_union(db, uid, tracked)` and used by both `_perf_rank_tab` and `_perf_shelf_tab`; the
+template brand-card chip block (`{% if keywords %}` → `.kw-pills`) already rendered it, so no template change was
+needed. PR #77 off main (`b135080`). 917 tests (+1) + ruff clean; browser-verified the chips on the Share tab
+brand card. Earlier this session #74/#75/#76 were all merged + LIVE (see the header). The Content Readiness drill
+is still a static table (its scores aren't keyword trends).
 
 ---
 
