@@ -37,6 +37,20 @@ the user may reuse it elsewhere but hadn't decided where. Its builder in `_perf_
 latest, has_any, readiness history) is **left fully intact** for that reuse; only the template render was removed.
 The `trk_spark` macro import + `.trk-*` CSS are now unused by this template but untouched.
 
+3. **Interactive per-keyword rank in the Search Rank card** (shipped separately as PR #<TBD>, branch
+   `feature/perf-rank-keyword-select`, because the first two changes had already merged as PR #74 by the time this
+   was built — timing, not a conflict). The rank drill's bottom keyword *table* is **replaced** by a selectable
+   keyword list inside the Search Rank KPI card's lower half. Picking a keyword swaps the trend chart AND the KPI
+   headline (metric + delta + legend) to that keyword's rank over time; the default **"All keywords"** row shows
+   the item average, and clicking the active keyword again resets to it. New data: `portfolio_perf.item_keyword_readings`
+   now returns `keyword_id`; new `portfolio_perf.item_keyword_window_ranks` (per-keyword avg rank over a window) is
+   the per-period building block; `pages.py:_item_keyword_rank_payload` assembles each keyword's current rank,
+   prior-period delta, legend and rank trend series plus an "all" default, built for the rank tab only
+   (`_perf_item_detail(..., tab)`). The list is **server-rendered** (keyword + rank) so it still informs without JS;
+   `performance.js:wireKeywordSelect` does the CSP-safe swap (keyboard accessible). CSS `.kw-select` / `.kw-opt`.
+   The share/readiness drills are unchanged — a symmetric treatment of the **Share of Search** tab is the obvious
+   follow-up. Browser-verified select / swap / reset with no console errors.
+
 **Tests.** `tests/test_pages.py`: the old `test_performance_item_drill_shows_commerce_and_keywords` became
 `test_performance_item_drill_is_tab_scoped` (asserts rank tab shows the rank card + rank keyword table and NOT
 the share card / commerce snapshot; shelf tab shows share + share keyword table and not the rank card — keyed on
