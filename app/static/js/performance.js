@@ -166,6 +166,75 @@
     container.appendChild(svg);
   }
 
+  // Re-point a trend container at a new series and redraw it (used by the Search
+  // Rank keyword selector to swap the chart without a page reload).
+  function renderSeries(container, series) {
+    container.setAttribute("data-series", JSON.stringify(series || {}));
+    drawTrend(container);
+  }
+
+  // Search Rank drill: clicking a keyword in the KPI card swaps the trend chart and
+  // the KPI headline (metric + delta + legend) to that keyword's rank; "All keywords"
+  // resets to the item average. Data comes from data-rank-context (built server-side),
+  // so this is pure enhancement — the list already shows keyword + rank without JS.
+  function wireKeywordSelect() {
+    document.querySelectorAll("[data-rank-drill]").forEach(function (drill) {
+      var ctx;
+      try { ctx = JSON.parse(drill.getAttribute("data-rank-context") || "null"); }
+      catch (e) { return; }
+      if (!ctx || !ctx.keywords) { return; }
+
+      var metricNode = drill.querySelector("[data-rank-metric]");
+      var deltaNode = drill.querySelector("[data-rank-delta]");
+      var legendNode = drill.querySelector("[data-rank-legend]");
+      var chart = drill.querySelector("[data-rank-chart]");
+      var opts = Array.prototype.slice.call(drill.querySelectorAll("[data-kw-select] .kw-opt"));
+      if (!chart || !opts.length) { return; }
+
+      // id -> the view (metric/delta/legend/series) to show when it's selected.
+      var byId = { all: ctx.all };
+      ctx.keywords.forEach(function (k) { byId[String(k.id)] = k; });
+
+      function apply(view) {
+        if (metricNode) { metricNode.textContent = view.metric; }
+        if (deltaNode) {
+          var d = view.delta || {};
+          deltaNode.className = "kpi-delta " + (d.dir || "");
+          if (d.display) { deltaNode.textContent = d.display; deltaNode.hidden = false; }
+          else { deltaNode.textContent = ""; deltaNode.hidden = true; }
+        }
+        if (legendNode && view.legend) { legendNode.textContent = view.legend; }
+        renderSeries(chart, view.series);
+      }
+
+      function select(opt) {
+        opts.forEach(function (o) {
+          var on = o === opt;
+          o.classList.toggle("is-active", on);
+          o.setAttribute("aria-selected", on ? "true" : "false");
+        });
+        apply(byId[opt.getAttribute("data-kw-id")] || ctx.all);
+      }
+
+      opts.forEach(function (opt) {
+        function choose() {
+          // Clicking the already-active keyword (not "All") deselects back to average.
+          var active = opt.classList.contains("is-active");
+          var id = opt.getAttribute("data-kw-id");
+          if (active && id !== "all") {
+            select(opts[0]); // the "All keywords" option is always first
+          } else {
+            select(opt);
+          }
+        }
+        opt.addEventListener("click", choose);
+        opt.addEventListener("keydown", function (e) {
+          if (e.key === "Enter" || e.key === " ") { e.preventDefault(); choose(); }
+        });
+      });
+    });
+  }
+
   function wireControls() {
     var form = document.querySelector(".perf-controls-form");
     if (!form) { return; }
@@ -199,6 +268,7 @@
     document.querySelectorAll("[data-perf-trend]").forEach(drawTrend);
     wireControls();
     wireRowDrill();
+    wireKeywordSelect();
   }
 
   if (document.readyState === "loading") {

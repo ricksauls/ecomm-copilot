@@ -1529,7 +1529,7 @@ def test_performance_item_drilldown_rescopes(client, auth, app):
     gid = _seed_performance(app, "perfdrill@example.com")
     pk = _perf_item_pk(app, "perfdrill@example.com", "222")
     body = client.get(f"/app/insights/performance?group_id={gid}&item={pk}").data
-    assert b"Keyword Performance" in body          # drilled view's per-keyword table
+    assert b"Rank by keyword" in body              # drilled view's in-card keyword list
     assert b"All items" in body                    # back chip
     assert b"Tabasco Green Pepper Sauce" in body   # the drilled item in the bar
     assert b"Tracked Products" not in body         # products table is gone when drilled
@@ -1557,7 +1557,11 @@ def test_performance_item_drill_is_tab_scoped(client, auth, app):
         db.commit()
     rank = client.get(f"/app/insights/performance?group_id={gid}&item={pk}&tab=rank").data
     assert b"This item's avg page-1 position" in rank      # the rank KPI card
-    assert b"Search rank on each tracked keyword" in rank  # per-keyword rank table
+    assert b"Rank by keyword" in rank                      # the in-card selectable list
+    assert b"data-rank-context" in rank                    # payload for the chart/KPI swap
+    assert b"All keywords" in rank                          # the reset-to-average option
+    assert b'data-kw-id="all"' in rank                       # the default option
+    assert rank.count(b"data-kw-id=") >= 2                   # all + >=1 keyword option
     assert b"This item's page-1 slots" not in rank         # share card is on its own tab
     assert b"Snapshot history" not in rank                 # commerce snapshot not rendered
     assert b"$3.50" not in rank                            # ...nor the weekly facts
