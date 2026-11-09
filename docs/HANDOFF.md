@@ -1,19 +1,69 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-11-09 (session 59 — **Share of Search split into Organic vs Paid**, merged as PR #79 → main
-(`d75b461`), **CI + Deploy both green + LIVE**. The blended Share of Search number is now decomposed into Organic
-Share + Paid Share (Decomposition: each the item's slots of that kind ÷ all page-1 slots, so the two sum to the
-blended share — "earned vs bought"). The scraper already classified cards organic/sponsored, so no new scrape
-cost; two nullable columns (`item_sponsored_slots` / `total_sponsored_slots`) on `portfolio_rank_readings` + an
-additive `_migrate` block carry it. **No backfill** (raw SERP cards aren't retained) — the split accrues forward
-from the first daily sweep after deploy; history keeps its blended total, and the UI block hides until a
-post-split reading lands. 922 tests + ruff clean. **Deferred follow-ups:** stacked trend-over-time (the trend
-chart is single-series with a keyword-swap interaction, so a stacked organic/paid area is a larger JS change) and
-per-keyword organic/paid (per-keyword share lives in a compact selectable list, not a table). Prior session 58
-work (#74–#77) remains LIVE (code was through `06b4493`). **Next open:** `landing.html` redesign (deferred — don't
-touch piecemeal; still advertises the removed $250 one-time-snapshot card). Also still true: the Content Readiness
-item drill stays a static table, and the weekly commerce-fact snapshot's builder is kept in `_perf_item_detail`
-for reuse elsewhere, place undecided.)_
+_Last updated: 2026-11-09 (session 60 — **Organic/Paid follow-ups + demo data**, main `d0a7aa2`, all **merged +
+LIVE**. Builds on session 59's Share of Search → Organic/Paid split (#79, `d75b461`). This session: **#81** — fixed
+the Organic/Paid sub-metrics overflowing the KPI card (stack one per row, delta aligned right; possessive copy
+`this item's` / `your tracked items'`) **and** added per-item **Total Share · Organic · Paid** columns to the
+All-items Share of Search table (the products table now takes `products_cols` + per-row `cells` for N columns;
+Rank/Readiness keep their single column). **#82** — the demo seeder (`app/seed_demo.py`) now emits the organic/paid
+split **and** varies per-keyword share (was identical across an item's keywords — it only varied rank); a role-based
+`_AD_INTENSITY` makes the paid mix tell a story (winner mostly organic ~14% paid, the brand losing ground ~57%),
+and `_KW_SHARE_FACTORS` spreads share across keyword slots. So one `seed_demo --reset` now produces a full demo
+story incl. Organic/Paid — no backfill step. 927 tests + ruff clean throughout. **Prod demo account**
+(`demo@ecomm-copilot.com` on production, user_id=10): seeded + re-seeded with #82's seeder and **verified LIVE**
+showing Organic/Paid. (A one-off backfill script was used mid-session to light it up before #82 shipped; it's now
+superseded by the re-seed — not in the repo.) **Note on live real items:** the split only accrues forward from the
+#79 deploy, and the default Week view shows the *last completed* week, so real tracked items won't show Organic/Paid
+on the Week view until ~the week of Nov 9–15 completes (~Nov 16); longer views later. **Deferred follow-ups (still
+open):** stacked Organic/Paid trend-over-time (trend chart is single-series + wired to a keyword-swap, so a stacked
+area is a larger JS change) and per-keyword Organic/Paid in the drill (per-keyword share lives in a compact
+selectable list, not a table). **Next open:** `landing.html` redesign (deferred — don't touch piecemeal; still
+advertises the removed $250 one-time-snapshot card). Also still true: the Content Readiness item drill stays a
+static table, and the weekly commerce-fact snapshot's builder is kept in `_perf_item_detail` for reuse elsewhere,
+place undecided.)_
+
+---
+
+## Session 60 — Organic/Paid follow-ups (#81) + demo seeder (#82)
+
+Follow-ups to session 59's Share of Search → Organic/Paid split (#79), both merged + LIVE (main `d0a7aa2`).
+
+**#81 — fit the card + per-item columns.**
+- *Card fit:* the Organic/Paid sub-metrics under the Share of Search KPI sat side by side and overflowed the card's
+  right edge. They now **stack one per row** with the delta pill aligned right (`.share-split-stats` →
+  `flex-direction: column`). Also fixed the mix-line possessive — the caller passes the subject already possessive
+  (`this item's` / `your tracked items'`) so singular/plural both read right.
+- *Per-item columns:* the **All-items** Share of Search *Tracked Products* table showed one Share column; it now
+  shows **Total Share · Organic · Paid**. `portfolio_perf.tracked_items_with_readings` carries `organic_share` /
+  `paid_share` per item; the shared products table was generalized — a tab may pass `products_cols` + each row a
+  `cells` list for N metric columns, and Rank/Readiness fall back to the single `products_label` + `r.display`/`r.cls`.
+  New `_pct_cell` shows a muted "—" for an item still collecting its split (distinct from a measured 0%).
+  (One known limit: the 3-column table is built for desktop width; in a very narrow pane the Paid column scrolls off —
+  fine for the agency desktop use case.)
+
+**#82 — demo seeder: per-keyword share variation + organic/paid split.** `app/seed_demo.py`'s `_rank_reading` now:
+- emits `item_sponsored_slots` / `total_sponsored_slots`, driven by a role-based `_AD_INTENSITY` applied **per day**
+  (not an occasional coin flip) so the paid share reads clearly in the composition bar; `sponsored_rank` and the paid
+  slot count are kept consistent (sponsored rank iff the item holds a paid slot). Story: winner ~14% paid (earns its
+  shelf), leader ~31%, losing ~57% (buys its shelf), opportunity ~25%.
+- varies per-keyword share via `_KW_SHARE_FACTORS` (a per-slot multiplier on the item's shelf presence) — previously
+  every keyword of an item showed the **same** share (the seeder varied rank, not share). Now keyword shares differ.
+- Result: a single `python -m app.seed_demo --email <acct> --reset` produces the full demo story *including*
+  Organic/Paid and varied per-keyword shares — no separate backfill.
+
+**Prod demo account.** `demo@ecomm-copilot.com` exists on **production** (not just the demo instance), user_id=10, with
+~3,600 seeded readings. Mid-session a one-off backfill (stdlib script, filled only the two NULL split columns, Total
+Share untouched, reversible) lit up Organic/Paid before #82 shipped; after #82 deployed, the account was re-seeded
+(`seed_demo --reset`) and **verified LIVE** showing per-keyword variation + Organic/Paid. The backfill script lived
+in a scratchpad, not the repo. `--reset` only touches that demo account's seeded content and spares real items.
+
+**Timing note for real (non-demo) items.** The split accrues forward only (no raw-SERP backfill). Default views show
+the *last completed* period, so real tracked items won't show Organic/Paid on the **Week** view until the week of
+Nov 9–15 completes (~Nov 16); Month/Quarter later. The demo account sidesteps this because its history is seeded.
+
+**Aside:** a GitHub Actions platform outage mid-session made #81's merge-CI fail to schedule (empty jobs) until it
+recovered; a re-run then passed and deployed. Not a code issue — noted only so a stale red ✗ on an early #81 run
+isn't mistaken for a real failure.
 
 ---
 
