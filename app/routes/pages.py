@@ -1464,6 +1464,43 @@ def _share_cell(share) -> dict:
     return {"display": f"{share}%", "cls": "m-good"}
 
 
+def _share_split(cur: dict, prior: dict, subject: str = "this item") -> dict:
+    """Organic/paid decomposition of a share-of-search summary, shaped for the drill +
+    brand KPI card. ``cur``/``prior`` are summaries from :mod:`app.portfolio_perf`
+    (``item_window_summary`` or ``portfolio_rank_summary``), each carrying
+    ``organic_share`` / ``paid_share`` (percent-of-total, so they sum to the blended
+    share) or ``None`` while the split is still collecting.
+
+    Returns ``{available}`` (False hides the whole block until a post-migration reading
+    lands) plus, when available, each sub-metric string + its period-over-period delta
+    pill, the composition-bar widths (``organic_pct`` + ``paid_pct``, normalized to sum
+    to 100 so the bar fills — the *mix* of the item's own visibility, distinct from the
+    shares-of-total), and a one-line "N% is paid" summary. ``None`` deltas/prior shares
+    simply omit the pill, matching the rest of the drill.
+    """
+    org, paid = cur.get("organic_share"), cur.get("paid_share")
+    if org is None or paid is None:
+        return {"available": False}
+    total = org + paid
+    # Composition bar shows the *mix* (organic vs paid of the item's own visibility),
+    # so widths normalize to 100; the sub-metrics keep the shares-of-total (org + paid
+    # = blended share). total == 0 means measured-but-absent → an empty bar, no mix line.
+    bar_paid = round(100 * paid / total) if total else 0
+    bar_org = (100 - bar_paid) if total else 0
+    org_delta = (org - prior["organic_share"]) if prior.get("organic_share") is not None else None
+    paid_delta = (paid - prior["paid_share"]) if prior.get("paid_share") is not None else None
+    return {
+        "available": True,
+        "organic_metric": f"{org}%",
+        "paid_metric": f"{paid}%",
+        "organic_delta": _perf_delta(org_delta, unit="pts"),
+        "paid_delta": _perf_delta(paid_delta, unit="pts"),
+        "organic_pct": bar_org,
+        "paid_pct": bar_paid,
+        "mix_line": f"{bar_paid}% of {subject}'s visibility is paid" if total else None,
+    }
+
+
 def _readiness_cell(score, suffix="") -> dict:
     """Display + color for a content-readiness score: green at/above the target,
     red below it, muted when the dimension wasn't measured (``None``)."""
@@ -1724,6 +1761,8 @@ def _perf_shelf_tab(db, uid, brands, period, tracked) -> dict:
         "drillable": True,
         # Same tracked-keyword chips as the Search Rank brand card.
         "keywords": _tracked_keyword_union(db, uid, tracked),
+        # Organic/paid decomposition across the brand's tracked items (earned vs bought).
+        "share_split": _share_split(cur, prior, subject="your tracked items"),
     }
 
 
@@ -1896,6 +1935,8 @@ def _perf_item_detail(db, uid, item, period, tab="rank") -> dict:
             "share_delta": share_delta_d,
             "share_trend": share_trend_d,
             "share_keyword_context": share_keyword_context,
+            # Organic/paid decomposition of this item's share (earned vs bought).
+            "share_split": _share_split(cur, prior),
             "keywords": keywords,
             "metrics": metrics,
             "readiness_dims": readiness_dims,

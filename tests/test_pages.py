@@ -1515,6 +1515,30 @@ def test_performance_shelf_tab(client, auth, app):
     body = client.get("/app/insights/performance?tab=shelf").data
     assert b"Share of Search" in body
     assert b"Tracked Products" in body   # the all-items table on the share tab
+    # Seed readings carry no organic/paid split, so the decomposition block stays
+    # hidden until a post-split reading lands.
+    assert b"share-split-bar" not in body
+
+
+def test_performance_shelf_shows_organic_paid_split(client, auth, app):
+    # With split-bearing readings, the Share of Search drill decomposes into Organic /
+    # Paid sub-metrics, a composition bar, and a one-line mix read.
+    auth.register(email="perfsplit@example.com")
+    _seed_performance(app, "perfsplit@example.com")
+    pk = _perf_item_pk(app, "perfsplit@example.com", "111")
+    from app.db import get_db
+    with app.app_context():
+        db = get_db()
+        # Backfill the split onto item 111's reading: its single slot is a paid one,
+        # and 2 of the page's 4 slots are ads.
+        db.execute(
+            "UPDATE portfolio_rank_readings SET item_sponsored_slots = 1, "
+            "total_sponsored_slots = 2 WHERE walmart_item_id = ?", ("111",))
+        db.commit()
+    body = client.get(f"/app/insights/performance?tab=shelf&item={pk}").data
+    assert b"share-split-bar" in body
+    assert b">Organic<" in body and b">Paid<" in body
+    assert b"is paid" in body            # the mix line
 
 
 def test_performance_unknown_tab_falls_back_to_rank(client, auth, app):

@@ -29,6 +29,9 @@ def test_build_reading_matches_by_item_number():
     assert r["sponsored_rank"] is None
     assert r["item_slots"] == 1
     assert r["total_slots"] == 3
+    # No sponsored slots anywhere on this page → the item is 100% organic.
+    assert r["item_sponsored_slots"] == 0
+    assert r["total_sponsored_slots"] == 0
 
 
 def test_build_reading_ties_back_sponsored_by_title():
@@ -46,12 +49,35 @@ def test_build_reading_ties_back_sponsored_by_title():
     assert r["organic_rank"] == 3
     assert r["rank"] == 1  # best of the two
     assert r["total_slots"] == 3
+    # One of the item's two slots is sponsored, and it's the only paid slot on the page.
+    assert r["item_sponsored_slots"] == 1
+    assert r["total_sponsored_slots"] == 1
 
 
 def test_build_reading_item_absent_is_none_rank():
     cards = [_card("Frank's RedHot", "999", "https://www.walmart.com/ip/Franks/999")]
     r = item_rank.build_reading(cards, "111")
     assert r["rank"] is None and r["item_slots"] == 0 and r["total_slots"] == 1
+    # Absent item: no slots of its own, and no sponsored slots on this page.
+    assert r["item_sponsored_slots"] == 0 and r["total_sponsored_slots"] == 0
+
+
+def test_build_reading_total_sponsored_counts_whole_page():
+    # total_sponsored_slots is page-wide (a rival's ad counts), while
+    # item_sponsored_slots is only the item's own paid placements — the two feed the
+    # paid-share numerator (item) and are book-kept against total_slots (denominator).
+    cards = [
+        _card("Rival Hot Sauce", "999", "https://www.walmart.com/track/rival",
+              listing_type="sponsored"),                                   # rival ad
+        _card("Tabasco Original Hot Sauce", "SPON", "https://www.walmart.com/track/t",
+              listing_type="sponsored"),                                   # item ad (title tie-back)
+        _card("Tabasco Original Hot Sauce", "111", _URL_111),              # item organic
+        _card("Generic Hot Sauce", "222", "https://www.walmart.com/ip/Generic/222"),
+    ]
+    r = item_rank.build_reading(cards, "111")
+    assert r["item_slots"] == 2 and r["total_slots"] == 4
+    assert r["item_sponsored_slots"] == 1   # only the item's own ad
+    assert r["total_sponsored_slots"] == 2  # item's ad + the rival's ad
 
 
 def test_rank_capture_disabled_by_default(monkeypatch):
@@ -108,12 +134,16 @@ def test_claim_save_reading_lifecycle(app):
         assert job is not None and job["status"] == "fetching"
 
         reading = {"rank": 3, "organic_rank": 3, "sponsored_rank": None,
-                   "item_slots": 1, "total_slots": 40}
+                   "item_slots": 1, "total_slots": 40,
+                   "item_sponsored_slots": 0, "total_sponsored_slots": 6}
         item_rank.save_reading(db, job, reading, "2026-01-03")
         row = db.execute(
-            "SELECT rank, item_slots, total_slots, captured_at FROM portfolio_rank_readings "
+            "SELECT rank, item_slots, total_slots, item_sponsored_slots, "
+            "total_sponsored_slots, captured_at FROM portfolio_rank_readings "
             "WHERE keyword_id = ?", (job["keyword_id"],)).fetchone()
         assert (row["rank"], row["item_slots"], row["total_slots"]) == (3, 1, 40)
+        # The organic/paid split persists alongside the blended counts.
+        assert (row["item_sponsored_slots"], row["total_sponsored_slots"]) == (0, 6)
         assert row["captured_at"] == "2026-01-03"
         assert db.execute("SELECT status FROM portfolio_rank_jobs WHERE id = ?",
                           (job["id"],)).fetchone()["status"] == "done"

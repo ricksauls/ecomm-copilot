@@ -30,6 +30,40 @@ def _pct(item_slots: int | None, total_slots: int | None) -> int | None:
     return round(100 * item_slots / total_slots) if total_slots else None
 
 
+def _split_shares(split_item_slots: int | None, item_sponsored: int | None,
+                  split_total_slots: int | None) -> tuple[int | None, int | None]:
+    """Decompose share of search into ``(organic_pct, paid_pct)``.
+
+    Decomposition definition: each is the item's slots *of that kind* over **all**
+    page-1 slots, so ``organic + paid`` equals the blended share — "how much of my
+    visibility is earned vs bought". ``item_sponsored`` is the paid numerator; organic
+    is its complement (``split_item_slots − item_sponsored``).
+
+    The three sums must be taken over **only** the readings that carry the split (rows
+    where ``item_sponsored_slots IS NOT NULL``); readings captured before the split
+    shipped are excluded by the caller so a window straddling the migration doesn't
+    understate paid. Returns ``(None, None)`` when no split-bearing slots were measured
+    (the "collecting" state) — distinct from a measured ``0%``.
+    """
+    if not split_total_slots:
+        return None, None
+    sponsored = item_sponsored or 0
+    paid = round(100 * sponsored / split_total_slots)
+    organic = round(100 * (split_item_slots - sponsored) / split_total_slots)
+    return organic, paid
+
+
+# Split-scoped slot sums (organic/paid share's numerators + denominator), taken only
+# over readings that carry the split. Shared verbatim by every roll-up's SELECT so the
+# organic/paid math is identical everywhere; ``item_sponsored_slots`` is SUMmed raw
+# because SQLite's SUM ignores NULLs (all-NULL → NULL → "collecting").
+_SPLIT_SUMS_SQL = (
+    "SUM(CASE WHEN r.item_sponsored_slots IS NOT NULL THEN r.item_slots ELSE 0 END) AS split_item_slots, "
+    "SUM(CASE WHEN r.item_sponsored_slots IS NOT NULL THEN r.total_slots ELSE 0 END) AS split_total_slots, "
+    "SUM(r.item_sponsored_slots) AS item_sponsored_slots "
+)
+
+
 def _brand_filter(brands: list[str] | None) -> tuple[str, list]:
     """Build an optional ``AND p.brand IN (...)`` fragment + its params.
 
@@ -53,6 +87,9 @@ def portfolio_rank_summary(conn: sqlite3.Connection, user_id: int,
       the window (``None`` if nothing ranked); lower is better.
     * ``share`` — tracked slots ÷ all page-1 slots over the window, 0–100 percent
       (``None`` if the shelf was never measured).
+    * ``organic_share`` / ``paid_share`` — the share split into earned vs sponsored
+      visibility (Decomposition; they sum to ``share`` over split-bearing readings).
+      Both ``None`` until a post-migration reading lands (see :func:`_split_shares`).
     * ``items_total`` / ``items_ranked`` — tracked items with any reading / with at
       least one page-1 slot in the window.
     * ``keywords_total`` / ``keywords_no_rank`` — (item, keyword) pairs measured /
@@ -65,8 +102,8 @@ def portfolio_rank_summary(conn: sqlite3.Connection, user_id: int,
     rows = conn.execute(
         "SELECT r.portfolio_item_id AS item, "
         "       SUM(r.item_slots) AS item_slots, "
-        "       SUM(r.total_slots) AS total_slots, "
-        "       SUM(CASE WHEN r.rank IS NOT NULL THEN r.rank ELSE 0 END) AS rank_sum, "
+        "       SUM(r.total_slots) AS total_slots, " + _SPLIT_SUMS_SQL +
+        "     , SUM(CASE WHEN r.rank IS NOT NULL THEN r.rank ELSE 0 END) AS rank_sum, "
         "       COUNT(r.rank) AS rank_n, "   # COUNT(col) ignores NULLs → page-1 hits
         "       COUNT(*) AS n "
         "FROM portfolio_rank_readings r "
@@ -81,6 +118,13 @@ def portfolio_rank_summary(conn: sqlite3.Connection, user_id: int,
     rank_n = sum(r["rank_n"] for r in rows)
     item_slots = sum(r["item_slots"] for r in rows)
     total_slots = sum(r["total_slots"] for r in rows)
+    # Split-scoped sums (only readings carrying the organic/paid split) feed the
+    # Decomposition; kept separate from the blended item_slots/total_slots above so a
+    # window straddling the split's migration still reports a correct total share.
+    split_item_slots = sum(r["split_item_slots"] for r in rows)
+    split_total_slots = sum(r["split_total_slots"] for r in rows)
+    item_sponsored = sum((r["item_sponsored_slots"] or 0) for r in rows)
+    organic_share, paid_share = _split_shares(split_item_slots, item_sponsored, split_total_slots)
     items_total = len({r["item"] for r in rows})
     items_ranked = len({r["item"] for r in rows if r["rank_n"]})
     keywords_total = len(rows)
@@ -89,6 +133,8 @@ def portfolio_rank_summary(conn: sqlite3.Connection, user_id: int,
     summary = {
         "avg_rank": round(rank_sum / rank_n, 1) if rank_n else None,
         "share": _pct(item_slots, total_slots),
+        "organic_share": organic_share,
+        "paid_share": paid_share,
         "items_total": items_total,
         "items_ranked": items_ranked,
         "keywords_total": keywords_total,
@@ -136,23 +182,29 @@ def tracked_items_with_readings(conn: sqlite3.Connection, user_id: int,
 
 def item_window_summary(conn: sqlite3.Connection, user_id: int, item_pk: int,
                         start: str, end: str) -> dict:
-    """One tracked item's window rank + share (the drill-down headline numbers).
+    """One tracked item's window rank + share (the drill-down headline numbers),
+    plus the organic/paid ``*_share`` split (Decomposition; ``None`` until a
+    post-migration reading lands — see :func:`_split_shares`).
 
     User-scoped (IDOR) via the ``portfolio_items`` join, so a forged/foreign item id
     yields an empty window (``n = 0``) rather than another user's data.
     """
     row = conn.execute(
         "SELECT AVG(r.rank) AS avg_rank, SUM(r.item_slots) AS item_slots, "
-        "       SUM(r.total_slots) AS total_slots, COUNT(r.id) AS n "
+        "       SUM(r.total_slots) AS total_slots, COUNT(r.id) AS n, " + _SPLIT_SUMS_SQL +
         "FROM portfolio_rank_readings r "
         "JOIN portfolio_items p ON p.id = r.portfolio_item_id "
         "WHERE r.user_id = ? AND p.id = ? AND p.tracked = 1 "
         "  AND r.captured_at BETWEEN ? AND ?",
         (user_id, item_pk, start, end),
     ).fetchone()
+    organic_share, paid_share = _split_shares(
+        row["split_item_slots"], row["item_sponsored_slots"], row["split_total_slots"])
     return {
         "avg_rank": round(row["avg_rank"], 1) if row["avg_rank"] is not None else None,
         "share": _pct(row["item_slots"], row["total_slots"]),
+        "organic_share": organic_share,
+        "paid_share": paid_share,
         "n": row["n"] or 0,
     }
 

@@ -38,12 +38,17 @@ def _kw(db, item_id, slot, text=None):
                       (item_id, slot)).fetchone()["id"]
 
 
-def _reading(db, uid, item_id, kid, when, rank, item_slots, total_slots):
+def _reading(db, uid, item_id, kid, when, rank, item_slots, total_slots,
+             item_sponsored=None, total_sponsored=None):
+    # item_sponsored/total_sponsored default to NULL — a reading captured before the
+    # organic/paid split shipped, which the roll-up treats as "split unknown".
     db.execute(
         "INSERT INTO portfolio_rank_readings "
         "(portfolio_item_id, keyword_id, user_id, walmart_item_id, captured_at, "
-        " rank, item_slots, total_slots) VALUES (?, ?, ?, '0', ?, ?, ?, ?)",
-        (item_id, kid, uid, when, rank, item_slots, total_slots))
+        " rank, item_slots, total_slots, item_sponsored_slots, total_sponsored_slots) "
+        "VALUES (?, ?, ?, '0', ?, ?, ?, ?, ?, ?)",
+        (item_id, kid, uid, when, rank, item_slots, total_slots,
+         item_sponsored, total_sponsored))
     db.commit()
 
 
@@ -86,8 +91,9 @@ def test_portfolio_rank_summary_empty_window_is_gathering(app):
         db = get_db()
         uid, _a, _b = _seed(db)
         s = portfolio_perf.portfolio_rank_summary(db, uid, "2025-06-01", "2025-06-07")
-        assert s == {"avg_rank": None, "share": None, "items_total": 0,
-                     "items_ranked": 0, "keywords_total": 0, "keywords_no_rank": 0, "n": 0}
+        assert s == {"avg_rank": None, "share": None, "organic_share": None,
+                     "paid_share": None, "items_total": 0, "items_ranked": 0,
+                     "keywords_total": 0, "keywords_no_rank": 0, "n": 0}
 
 
 def test_portfolio_rank_summary_brand_filter(app):
@@ -143,3 +149,53 @@ def test_item_keyword_readings_per_keyword_and_scoping(app):
         assert rows[1]["avg_rank"] is None and rows[1]["share"] == 0 and rows[1]["n"] == 1
         other = create_local_user("intruder2@example.com", "password123")
         assert portfolio_perf.item_keyword_readings(db, other, a, *_WIN) == []
+
+
+# ── Organic/paid decomposition (share split) ──────────────────────────────────────
+
+def _seed_split(db):
+    """One tracked item whose readings carry the organic/paid split, plus one pre-split
+    (NULL) day. Two split days: the item holds 2 of 10 page slots, 1 of them paid; the
+    page shows 3 ads total. A third day has the same blended ratio but no split — it
+    counts toward total share but must be excluded from the organic/paid math.
+    """
+    uid = create_local_user("split@example.com", "password123")
+    a = _add(db, uid, "Tabasco", _URL_A)
+    a_kw1 = _kw(db, a, 1)
+    _reading(db, uid, a, a_kw1, "2026-01-02", 2, 2, 10, item_sponsored=1, total_sponsored=3)
+    _reading(db, uid, a, a_kw1, "2026-01-03", 2, 2, 10, item_sponsored=1, total_sponsored=3)
+    _reading(db, uid, a, a_kw1, "2026-01-04", 2, 2, 10)   # pre-split day (NULL split)
+    return uid, a
+
+
+def test_portfolio_summary_organic_paid_decomposition(app):
+    with app.app_context():
+        db = get_db()
+        uid, _a = _seed_split(db)
+        s = portfolio_perf.portfolio_rank_summary(db, uid, *_WIN)
+        assert s["share"] == 20              # 6 own / 30 total (all three days)
+        assert s["paid_share"] == 10         # 2 paid / 20 split-scoped total
+        assert s["organic_share"] == 10      # (4 − 2) organic / 20 split-scoped total
+        # Decomposition reconstructs the blended share over split-bearing readings.
+        assert s["organic_share"] + s["paid_share"] == 20
+
+
+def test_item_window_summary_organic_paid(app):
+    with app.app_context():
+        db = get_db()
+        uid, a = _seed_split(db)
+        s = portfolio_perf.item_window_summary(db, uid, a, *_WIN)
+        assert s["share"] == 20
+        assert (s["organic_share"], s["paid_share"]) == (10, 10)
+
+
+def test_organic_paid_collecting_until_split_lands(app):
+    with app.app_context():
+        db = get_db()
+        uid, a, _b = _seed(db)               # _seed inserts NULL-split readings only
+        s = portfolio_perf.portfolio_rank_summary(db, uid, *_WIN)
+        assert s["share"] == 20              # blended share still reports
+        # No reading carries the split yet → organic/paid stay "collecting" (None).
+        assert s["organic_share"] is None and s["paid_share"] is None
+        it = portfolio_perf.item_window_summary(db, uid, a, *_WIN)
+        assert it["organic_share"] is None and it["paid_share"] is None
