@@ -4078,6 +4078,12 @@ select.pf-select[size] option { padding: 6px 8px; border-radius: 4px; }
   font-size: 11.5px; color: var(--mid-gray); margin-bottom: 6px;
 }
 .chart-legend .sw { width: 11px; height: 11px; border: 1.5px solid var(--black); border-radius: 2px; }
+/* Stacked Organic/Paid trend legend: one chip per band, filled swatches matching the
+   trend areas + the KPI composition bar (organic = ink, paid = accent). */
+.chart-legend { flex-wrap: wrap; gap: 6px 14px; }
+.chart-legend .leg { display: inline-flex; align-items: center; gap: 6px; }
+.chart-legend .sw.organic { background: var(--black); border-color: var(--black); }
+.chart-legend .sw.paid { background: var(--accent); border-color: var(--accent); }
 .chart-wrap { width: 100%; overflow-x: auto; }
 .perf-trend-svg { width: 100%; height: auto; display: block; }
 

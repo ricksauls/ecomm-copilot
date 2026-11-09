@@ -1552,6 +1552,60 @@ def test_performance_shelf_shows_organic_paid_split(client, auth, app):
     assert b"is paid" in body            # the mix line
 
 
+def test_share_trend_series_stacks_when_split_available():
+    # ≥2 split-bearing periods → a stacked organic/paid series: `values` carries the
+    # per-period blended totals (organic+paid) for the shared share domain/axis code,
+    # plus the organic/paid arrays and the stacked flag the two area fills read.
+    from app.routes.pages import _share_trend_series
+    s = _share_trend_series([10, 12], [5, 4], ["W1", "W2"], [15, 16], ["W1", "W2"])
+    assert s["stacked"] is True
+    assert s["organic"] == [10, 12] and s["paid"] == [5, 4]
+    assert s["values"] == [15, 16]
+    assert s["dates"] == ["W1", "W2"] and s["unit"] == "share"
+
+
+def test_share_trend_series_falls_back_to_single_line():
+    # <2 split-bearing periods → the single total-share line (no stacked flag), so a
+    # window still collecting its split keeps the familiar one-line trend.
+    from app.routes.pages import _share_trend_series
+    s = _share_trend_series([10], [5], ["W2"], [12, 15], ["W1", "W2"])
+    assert "stacked" not in s
+    assert s["values"] == [12, 15] and s["dates"] == ["W1", "W2"]
+    assert s["unit"] == "share"
+
+
+def test_performance_shelf_trend_stacks_organic_paid(client, auth, app):
+    # With split-bearing readings in two periods, the brand Share of Search trend is a
+    # stacked organic/paid area: the chart's data-series carries the "stacked" flag
+    # (performance.js then draws organic + paid bands instead of one line).
+    auth.register(email="perfstack@example.com")
+    gid = _seed_performance(app, "perfstack@example.com")
+    from app import ci_analysis
+    from app.db import get_db
+    with app.app_context():
+        db = get_db()
+        uid = db.execute("SELECT id FROM users WHERE email = ?",
+                         ("perfstack@example.com",)).fetchone()[0]
+        # The seed left a current-week reading per item with a NULL split. Add a prior-
+        # week reading per item and set the organic/paid split on both weeks so two trend
+        # periods have a known split (the stacked series needs ≥2).
+        prior_day = ci_analysis.period_bounds("wow", 1)[0]
+        for item, rank in (("111", 3), ("222", 5)):
+            p = db.execute("SELECT id FROM portfolio_items WHERE item_id = ?", (item,)).fetchone()
+            kid = db.execute("SELECT id FROM portfolio_keywords WHERE portfolio_item_id = ? AND slot = 1",
+                             (p["id"],)).fetchone()["id"]
+            db.execute(
+                "INSERT INTO portfolio_rank_readings (portfolio_item_id, keyword_id, user_id, "
+                "walmart_item_id, captured_at, rank, item_slots, total_slots, "
+                "item_sponsored_slots, total_sponsored_slots) VALUES (?,?,?,?,?,?,1,4,0,1)",
+                (p["id"], kid, uid, item, prior_day, rank))
+        db.execute("UPDATE portfolio_rank_readings SET item_sponsored_slots = 0, "
+                   "total_sponsored_slots = 1 WHERE item_sponsored_slots IS NULL")
+        db.commit()
+    body = client.get(f"/app/insights/performance?group_id={gid}&tab=shelf").data
+    assert b'"stacked"' in body            # the stacked organic/paid trend series
+
+
 def test_performance_unknown_tab_falls_back_to_rank(client, auth, app):
     auth.register(email="perftab@example.com")
     _seed_performance(app, "perftab@example.com")

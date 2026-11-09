@@ -22,6 +22,12 @@
   var LINE = "#356dff";      // --ds-blue ("mine" series)
   var GRID = "#e2e8f0";      // --ds-border (drawn dashed below)
   var LABEL = "#94a3b8";     // --ds-faint
+  // Organic/paid stacked-area colors, matching the KPI card's composition bar and the
+  // CI Paid-vs-Organic screen: organic = the app's near-black "ink" (earned shelf),
+  // paid = the electric-blue accent (bought shelf). Kept in sync with tokens.css
+  // (--black / --accent) and workspace.css's .share-split-dot.organic/.paid.
+  var ORGANIC = "#0b1220";   // --black (earned)
+  var PAID = "#2e6dff";      // --accent (bought)
 
   // Per-chart counter so each SVG's area-gradient gets a unique id (multiple
   // trend charts can share one page via the tabbed views).
@@ -69,6 +75,41 @@
     return { defs: defs, fill: "url(#" + id + ")" };
   }
 
+  // One legend chip: a colored swatch + its label (Organic / Paid).
+  function legendChip(kind, label) {
+    var chip = document.createElement("span");
+    chip.className = "leg";
+    var sw = document.createElement("span");
+    sw.className = "sw " + kind;
+    var tx = document.createElement("span");
+    tx.textContent = label;
+    chip.appendChild(sw);
+    chip.appendChild(document.createTextNode(" "));
+    chip.appendChild(tx);
+    return chip;
+  }
+
+  // Rewrite a chart's legend to match what was drawn: two swatches (Organic/Paid) for a
+  // stacked share area, or the single swatch + caption for a one-line trend. Text is set
+  // via textContent (never innerHTML) so a per-keyword caption can't inject markup.
+  function syncLegend(legend, stacked, text) {
+    if (!legend) { return; }
+    legend.textContent = "";
+    if (stacked) {
+      legend.appendChild(legendChip("organic", "Organic"));
+      legend.appendChild(legendChip("paid", "Paid"));
+    } else {
+      var sw = document.createElement("span");
+      sw.className = "sw";
+      var tx = document.createElement("span");
+      tx.setAttribute("data-kw-legend", "");
+      tx.textContent = text || "";
+      legend.appendChild(sw);
+      legend.appendChild(document.createTextNode(" "));
+      legend.appendChild(tx);
+    }
+  }
+
   function drawTrend(container) {
     var data;
     try { data = JSON.parse(container.getAttribute("data-series") || "{}"); }
@@ -76,6 +117,11 @@
     var vals = data.values || [], dates = data.dates || [];
     var isRank = data.unit === "rank", isPct = data.unit === "share";
     var isScore = data.unit === "score";  // content readiness, 0–100, higher better
+    // Stacked share: organic + paid areas whose top edge is the blended share (vals).
+    // Guard on matching lengths so a malformed series falls back to the single line.
+    var stacked = data.stacked === true && Array.isArray(data.organic) &&
+      Array.isArray(data.paid) && data.organic.length === vals.length &&
+      data.paid.length === vals.length;
 
     if (vals.length < 2) {
       container.innerHTML =
@@ -139,19 +185,46 @@
       svg.appendChild(t);
     });
 
-    // Area fill + line.
-    var pts = vals.map(function (v, i) { return x(i).toFixed(1) + "," + y(v).toFixed(1); });
-    svg.appendChild(el("path", {
-      d: "M" + x(0).toFixed(1) + "," + (padT + plotH) + " L" + pts.join(" L ") +
-         " L" + x(vals.length - 1).toFixed(1) + "," + (padT + plotH) + " Z",
-      fill: area.fill, stroke: "none" }));
-    svg.appendChild(el("path", { d: "M" + pts.join(" L "), fill: "none", stroke: LINE,
-      "stroke-width": 2.25, "stroke-linejoin": "round", "stroke-linecap": "round" }));
+    var baseY = padT + plotH;                    // y of the 0 axis (share/score share it)
+    var pt = function (i, v) { return x(i).toFixed(1) + "," + y(v).toFixed(1); };
+    var pts = vals.map(function (v, i) { return pt(i, v); });
 
-    // Emphasized endpoint (blue fill, white ring — matches the dashboard dot).
-    svg.appendChild(el("circle", { cx: x(vals.length - 1).toFixed(1),
-      cy: y(vals[vals.length - 1]).toFixed(1), r: 5, fill: LINE,
-      stroke: "#ffffff", "stroke-width": 2 }));
+    if (stacked) {
+      // Two stacked areas: organic (ink) from the axis up to each period's organic
+      // share, then paid (blue) from there up to the blended total. The total line and
+      // its endpoint dot cap the stack; a faint ink line marks the organic/paid seam.
+      var orgPts = data.organic.map(function (v, i) { return pt(i, v); });
+      var last = vals.length - 1, endX = x(last).toFixed(1);
+      // Organic band: baseline → organic tops → back to baseline.
+      svg.appendChild(el("path", {
+        d: "M" + x(0).toFixed(1) + "," + baseY + " L" + orgPts.join(" L ") +
+           " L" + endX + "," + baseY + " Z",
+        fill: ORGANIC, "fill-opacity": "0.16", stroke: "none" }));
+      // Paid band: between the organic seam and the total line (organic tops forward,
+      // total tops back).
+      svg.appendChild(el("path", {
+        d: "M" + orgPts.join(" L ") + " L" + pts.slice().reverse().join(" L ") + " Z",
+        fill: PAID, "fill-opacity": "0.22", stroke: "none" }));
+      svg.appendChild(el("path", { d: "M" + orgPts.join(" L "), fill: "none",
+        stroke: ORGANIC, "stroke-width": 1.25, "stroke-opacity": "0.45",
+        "stroke-linejoin": "round", "stroke-linecap": "round" }));
+      svg.appendChild(el("path", { d: "M" + pts.join(" L "), fill: "none", stroke: PAID,
+        "stroke-width": 2.25, "stroke-linejoin": "round", "stroke-linecap": "round" }));
+      svg.appendChild(el("circle", { cx: endX, cy: y(vals[last]).toFixed(1), r: 5,
+        fill: PAID, stroke: "#ffffff", "stroke-width": 2 }));
+    } else {
+      // Single line + gradient area fill (rank / score / un-split share).
+      svg.appendChild(el("path", {
+        d: "M" + x(0).toFixed(1) + "," + baseY + " L" + pts.join(" L ") +
+           " L" + x(vals.length - 1).toFixed(1) + "," + baseY + " Z",
+        fill: area.fill, stroke: "none" }));
+      svg.appendChild(el("path", { d: "M" + pts.join(" L "), fill: "none", stroke: LINE,
+        "stroke-width": 2.25, "stroke-linejoin": "round", "stroke-linecap": "round" }));
+      // Emphasized endpoint (blue fill, white ring — matches the dashboard dot).
+      svg.appendChild(el("circle", { cx: x(vals.length - 1).toFixed(1),
+        cy: y(vals[vals.length - 1]).toFixed(1), r: 5, fill: LINE,
+        stroke: "#ffffff", "stroke-width": 2 }));
+    }
 
     // y-axis title.
     var title = isRank ? "Avg rank (lower = better)"
@@ -164,6 +237,15 @@
 
     container.innerHTML = "";
     container.appendChild(svg);
+
+    // Brand-view charts (no keyword swap) own their legend here, converting it to the
+    // two-swatch Organic/Paid form when a stacked area was drawn; the single-line legend
+    // is left as the template rendered it. Drill charts are synced by the keyword
+    // selector (wireKeywordSelect) so the two code paths never fight over the element.
+    if (stacked && !container.closest("[data-kw-drill]")) {
+      var card = container.closest(".chart-card");
+      if (card) { syncLegend(card.querySelector(".chart-legend"), true); }
+    }
   }
 
   // Re-point a trend container at a new series and redraw it (used by the Search
@@ -187,7 +269,7 @@
 
       var metricNode = drill.querySelector("[data-kw-metric]");
       var deltaNode = drill.querySelector("[data-kw-delta]");
-      var legendNode = drill.querySelector("[data-kw-legend]");
+      var legend = drill.querySelector(".chart-legend");
       var chart = drill.querySelector("[data-kw-chart]");
       var opts = Array.prototype.slice.call(drill.querySelectorAll("[data-kw-select] .kw-opt"));
       if (!chart || !opts.length) { return; }
@@ -204,7 +286,9 @@
           if (d.display) { deltaNode.textContent = d.display; deltaNode.hidden = false; }
           else { deltaNode.textContent = ""; deltaNode.hidden = true; }
         }
-        if (legendNode && view.legend) { legendNode.textContent = view.legend; }
+        // "All keywords" may carry a stacked organic/paid series (two swatches); a
+        // single keyword is always a one-line share trend (its caption).
+        syncLegend(legend, view.series && view.series.stacked === true, view.legend);
         renderSeries(chart, view.series);
       }
 
@@ -233,6 +317,14 @@
           if (e.key === "Enter" || e.key === " ") { e.preventDefault(); choose(); }
         });
       });
+
+      // init() already drew the chart from the template's data-series, but drawTrend
+      // skips drill-chart legends (this function owns them), so sync the legend once to
+      // the initially-active option — a stacked "all" series needs the Organic/Paid
+      // legend on load, not just after the first click.
+      var active = opts.filter(function (o) { return o.classList.contains("is-active"); })[0] || opts[0];
+      var view = byId[active.getAttribute("data-kw-id")] || ctx.all;
+      syncLegend(legend, !!(view.series && view.series.stacked), view.legend);
     });
   }
 
