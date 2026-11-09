@@ -1,13 +1,56 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-11-04 (session 56 — **Account-manager / helper access model — built on feature branch
-`feature/portfolio-access`, NOT pushed, NOT PR'd, NOT deployed.** All five phases complete. 915 tests
-(+16 this feature) + ruff clean; the helper flow was browser-verified end to end against a scratch DB. No
-dependency changes.)_
+_Last updated: 2026-11-09 (session 57 — **Performance Search Rank: brand keyword chips + tab-scoped item
+drill.** Shipped on branch `feature/perf-searchrank-tabscope`; **PR #74 open — you merge manually.** 916 tests
++ ruff clean; all three tab drills + the brand card browser-verified against a throwaway seed. No dependency
+changes. NOTE: session 56's helper-access model **has since been merged** (PR #73 → main `ebcabe7`) and
+auto-deployed **LIVE 2026-11-04** — the S56 block below still reads as pre-merge, that was its state at the
+time of writing.)_
 
 ---
 
-## Session 56 — Account-manager / helper access model (feature/portfolio-access)
+## Session 57 — Performance Search Rank: brand keyword chips + tab-scoped item drill (feature/perf-searchrank-tabscope)
+
+**What it is.** Two adjustments to the Performance (Insights) **Search Rank** area, both in
+`app/templates/app/insights_performance.html` + `app/routes/pages.py`.
+
+1. **Brand card keyword chips.** The brand-view *Average Search Rank* card (`_perf_rank_tab`) left its lower
+   half empty — the metric block is vertically centered in a tall `kpi-tile`. It now lists the brand's tracked
+   keywords as chips beneath a hairline divider. Because the brand card averages many items, each with its own
+   up-to-5 keywords, there is no single per-item set at this level — the chips are the **deduped union**
+   (case-insensitive, first-seen order) across the brand's tracked items. Informational only (no per-keyword
+   rank/share here — that lives in the item drill). `_perf_rank_tab` now returns `keywords` as that union (was
+   hard-coded `None`); `_perf_shelf_tab` / `_perf_readiness_tab` still return `None`, so chips show on the rank
+   tab only. New CSS `.kpi-keywords` / `.kpi-keywords-label` / `.kw-pills` / `.kw-pill` in `workspace.css`.
+
+2. **Tab-scoped item drill.** The item drill (`{% if item %}` branch) used to be **tab-independent** — it showed
+   rank KPI/trend, share KPI/trend, the per-keyword table (rank **and** share), content readiness, AND the weekly
+   commerce-fact snapshot all at once (it had absorbed the retired "View trends" page). It is now scoped to the
+   active tab, matching how the brand view already behaves: **Search Rank** → rank KPI/trend + per-keyword
+   **rank** table; **Share of Search** (`tab == 'shelf'`) → share KPI/trend + per-keyword **share** table;
+   **Content Readiness** (`tab == 'readiness'`) → the per-dimension score table. The keyword table is one column
+   per tab now (was two).
+
+**Weekly commerce snapshot (deliberately dropped from this view).** The Current / trend-metric / Snapshot-history
+block (price / availability / rating / reviews / images / video) is **no longer rendered** in the item drill —
+the user may reuse it elsewhere but hadn't decided where. Its builder in `_perf_item_detail` (facts, metrics,
+latest, has_any, readiness history) is **left fully intact** for that reuse; only the template render was removed.
+The `trk_spark` macro import + `.trk-*` CSS are now unused by this template but untouched.
+
+**Tests.** `tests/test_pages.py`: the old `test_performance_item_drill_shows_commerce_and_keywords` became
+`test_performance_item_drill_is_tab_scoped` (asserts rank tab shows the rank card + rank keyword table and NOT
+the share card / commerce snapshot; shelf tab shows share + share keyword table and not the rank card — keyed on
+markers unique to each card/table, since the tab *labels* always render in the tab bar). Added
+`test_performance_rank_brand_card_lists_tracked_keywords` (chips present). `test_performance_readiness_item_drilldown_shows_dimensions`
+now drills with `&tab=readiness`. **916 pass, ruff clean.** Browser-verified rank/shelf/readiness drills +
+the brand card.
+
+**Open items.** None from this session. Still carried forward: the `landing.html` redesign (deferred — don't
+touch piecemeal; still advertises the removed $250 one-time-snapshot card).
+
+---
+
+## Session 56 — Account-manager / helper access model (feature/portfolio-access) — SINCE MERGED (PR #73 → main `ebcabe7`, LIVE 2026-11-04)
 
 **What it is.** An account manager (an `admin` role) owns a portfolio of items (brands) and can grant a helper
 (a `user` role) scoped access to a slice of it — the whole portfolio, specific brands, or specific items. The
