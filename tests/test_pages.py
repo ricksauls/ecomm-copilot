@@ -1535,9 +1535,11 @@ def test_performance_item_drilldown_rescopes(client, auth, app):
     assert b"Tracked Products" not in body         # products table is gone when drilled
 
 
-def test_performance_item_drill_shows_commerce_and_keywords(client, auth, app):
-    # The comprehensive drill folds in what the retired "View trends" page showed:
-    # per-keyword rank/share, plus the weekly commerce-fact snapshots.
+def test_performance_item_drill_is_tab_scoped(client, auth, app):
+    # The item drill shows only the active tab's metric. Rank tab = rank KPI + the
+    # per-keyword rank table (no share card, no commerce snapshot); Share tab = share
+    # KPI + the per-keyword share table. Tab *labels* always render in the tab bar, so
+    # these assert on markers unique to each card/table, not the bare label text.
     auth.register(email="perfdetail@example.com")
     gid = _seed_performance(app, "perfdetail@example.com")
     pk = _perf_item_pk(app, "perfdetail@example.com", "222")
@@ -1553,11 +1555,27 @@ def test_performance_item_drill_shows_commerce_and_keywords(client, auth, app):
                 "has_video) VALUES (?,?,?,?,?,?,1,4.5,120,5,0)",
                 (pk, uid, "222", day, price, f"${price:.2f}"))
         db.commit()
-    body = client.get(f"/app/insights/performance?group_id={gid}&item={pk}").data
-    assert b"Keyword Performance" in body    # per-keyword rank + share
-    assert b"Snapshot history" in body       # commerce facts ported into the drill
-    assert b"$3.50" in body                  # latest price
-    assert b"trk-spark-line" in body         # a commerce sparkline (>=2 points)
+    rank = client.get(f"/app/insights/performance?group_id={gid}&item={pk}&tab=rank").data
+    assert b"This item's avg page-1 position" in rank      # the rank KPI card
+    assert b"Search rank on each tracked keyword" in rank  # per-keyword rank table
+    assert b"This item's page-1 slots" not in rank         # share card is on its own tab
+    assert b"Snapshot history" not in rank                 # commerce snapshot not rendered
+    assert b"$3.50" not in rank                            # ...nor the weekly facts
+
+    shelf = client.get(f"/app/insights/performance?group_id={gid}&item={pk}&tab=shelf").data
+    assert b"This item's page-1 slots" in shelf            # the share KPI card
+    assert b"Share of search on each tracked keyword" in shelf
+    assert b"This item's avg page-1 position" not in shelf  # rank card is on its own tab
+
+
+def test_performance_rank_brand_card_lists_tracked_keywords(client, auth, app):
+    # The Search Rank brand card lists the deduped union of tracked keywords as chips,
+    # filling the card's otherwise-empty lower half.
+    auth.register(email="perfkw@example.com")
+    gid = _seed_performance(app, "perfkw@example.com")
+    body = client.get(f"/app/insights/performance?group_id={gid}&tab=rank").data
+    assert b"kw-pill" in body            # at least one keyword chip
+    assert b"kpi-keywords-label" in body  # the "Tracking N keywords" label
 
 
 def test_performance_forged_item_falls_back_to_all_items(client, auth, app):
@@ -1627,10 +1645,10 @@ def test_performance_readiness_item_drilldown_shows_dimensions(client, auth, app
     auth.register(email="rddrill@example.com")
     gid = _seed_readiness(app, "rddrill@example.com")
     pk = _perf_item_pk(app, "rddrill@example.com", "222")
-    # The comprehensive drill is tab-independent; its Content Readiness section lists
-    # the item's per-dimension scores regardless of which tab it was reached from.
-    body = client.get(f"/app/insights/performance?group_id={gid}&item={pk}").data
-    assert b"Content Readiness" in body
+    # The drill is now tab-scoped; the Content Readiness section (per-dimension scores)
+    # lives on the Content Readiness tab.
+    body = client.get(f"/app/insights/performance?group_id={gid}&item={pk}&tab=readiness").data
+    assert b"Each content dimension's latest score" in body   # the readiness table head
     assert b"Imagery" in body and b"Description" in body
     assert b"All items" in body                       # the back chip
 
