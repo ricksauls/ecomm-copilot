@@ -1699,6 +1699,63 @@ def _item_discovery_trend(db, uid, item_pk, period, metric):
     return values, dates
 
 
+def _discovery_share_split_trend(db, uid, brands, period):
+    """Brand share of search decomposed into organic + paid over the last
+    TREND_PERIODS completed periods (oldest→newest), for the stacked trend area.
+
+    Only periods whose split is *known* are included — a reading taken before the
+    Organic/Paid migration (#79) carries ``None`` for both shares, and stacking a
+    period with an unknown boundary would invent a mix. A collecting window can thus
+    yield fewer points than the plain share line; the caller falls back to the single
+    total-share line until ≥2 split-bearing periods exist (see :func:`_share_trend_series`).
+    Returns ``(organic[], paid[], dates[])``; the two sum to the period's blended share.
+    """
+    organic, paid, dates = [], [], []
+    for i in range(ci_analysis.TREND_PERIODS - 1, -1, -1):
+        start, end = ci_analysis.period_bounds(period, i)
+        s = portfolio_perf.portfolio_rank_summary(db, uid, start, end, brands=brands)
+        org, pd = s.get("organic_share"), s.get("paid_share")
+        if org is None or pd is None:
+            continue
+        organic.append(org)
+        paid.append(pd)
+        dates.append(ci_analysis.period_label(period, i))
+    return organic, paid, dates
+
+
+def _item_share_split_trend(db, uid, item_pk, period):
+    """One item's organic/paid share trend (see :func:`_discovery_share_split_trend`)."""
+    organic, paid, dates = [], [], []
+    for i in range(ci_analysis.TREND_PERIODS - 1, -1, -1):
+        start, end = ci_analysis.period_bounds(period, i)
+        s = portfolio_perf.item_window_summary(db, uid, item_pk, start, end)
+        org, pd = s.get("organic_share"), s.get("paid_share")
+        if org is None or pd is None:
+            continue
+        organic.append(org)
+        paid.append(pd)
+        dates.append(ci_analysis.period_label(period, i))
+    return organic, paid, dates
+
+
+def _share_trend_series(organic, paid, split_dates, values, dates) -> dict:
+    """The Share of Search trend series, stacked when the split is available.
+
+    With ≥2 split-bearing periods (``organic``/``paid``/``split_dates`` from the
+    ``*_share_split_trend`` builders) the series is a stacked organic+paid area:
+    ``values`` carries the per-period totals (organic+paid) so performance.js reuses
+    the same share domain, axis and label code, plus ``organic``/``paid`` arrays and
+    ``stacked: True`` for the two fills. Otherwise it falls back to the single total-
+    share line (``values``/``dates`` from :func:`_discovery_trend`), so a window still
+    collecting its split shows the familiar one-line trend rather than nothing.
+    """
+    if len(split_dates) >= 2:
+        totals = [org + pd for org, pd in zip(organic, paid)]
+        return {"values": totals, "dates": split_dates, "unit": "share",
+                "stacked": True, "organic": organic, "paid": paid}
+    return _perf_trend(values, dates, "share")
+
+
 def _tracked_keyword_union(db, uid, tracked) -> list[str]:
     """The distinct keywords tracked across a brand's tracked items (for the brand
     card's chip list). Each item carries its own up-to-5 keywords, so at brand level
@@ -1759,6 +1816,8 @@ def _perf_shelf_tab(db, uid, brands, period, tracked) -> dict:
     delta = (cur["share"] - prior["share"]
              if cur["share"] is not None and prior["share"] is not None else None)
     values, dates = _discovery_trend(db, uid, brands, period, "share")
+    # Stacked organic/paid area when the split is available; single total line otherwise.
+    s_org, s_paid, s_dates = _discovery_share_split_trend(db, uid, brands, period)
     return {
         "headline": {
             "label": "Share of Search",
@@ -1766,7 +1825,7 @@ def _perf_shelf_tab(db, uid, brands, period, tracked) -> dict:
             "delta": _perf_delta(delta, unit="pts"),
             "foot": "Your page-1 slots ÷ all page-1 slots across tracked keywords",
         },
-        "trend": _perf_trend(values, dates, "share"),
+        "trend": _share_trend_series(s_org, s_paid, s_dates, values, dates),
         "trend_legend": "Share of search (all tracked items)",
         # Per-item table shows the decomposition as three columns: Total Share, then its
         # Organic and Paid parts (the order the user asked for). Each product carries a
@@ -1903,6 +1962,10 @@ def _perf_item_detail(db, uid, item, period, tab="rank") -> dict:
                     db, uid, pk, *ci_analysis.period_bounds(period, 0))]
     rank_values, rank_dates = _item_discovery_trend(db, uid, pk, period, "rank")
     share_values, share_dates = _item_discovery_trend(db, uid, pk, period, "share")
+    # "All keywords" share trend stacks into organic/paid when the split is available
+    # (a single selected keyword has no split, so its series stays a single line — the
+    # per-keyword organic/paid decomposition is a separate follow-up).
+    s_org, s_paid, s_dates = _item_share_split_trend(db, uid, pk, period)
 
     # Commerce facts + content readiness, ported verbatim from the retired View-trends
     # page: daily snapshots (price/rating/reviews, in-stock) and the weekly re-scores.
@@ -1930,7 +1993,7 @@ def _perf_item_detail(db, uid, item, period, tab="rank") -> dict:
     rank_trend_d = _perf_trend(rank_values, rank_dates, "rank")
     share_metric = f"{cur['share']}%" if cur["share"] is not None else "—"
     share_delta_d = _perf_delta(share_delta, unit="pts")
-    share_trend_d = _perf_trend(share_values, share_dates, "share")
+    share_trend_d = _share_trend_series(s_org, s_paid, s_dates, share_values, share_dates)
     # The Discovery drills are interactive — a per-keyword context powers the in-card
     # keyword list + chart/KPI swap. Only the active tab's context is built (rank for
     # Search Rank, share for Share of Search), keeping the other tabs' loads lean.
