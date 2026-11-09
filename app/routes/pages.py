@@ -1464,7 +1464,7 @@ def _share_cell(share) -> dict:
     return {"display": f"{share}%", "cls": "m-good"}
 
 
-def _share_split(cur: dict, prior: dict, subject: str = "this item") -> dict:
+def _share_split(cur: dict, prior: dict, subject: str = "this item's") -> dict:
     """Organic/paid decomposition of a share-of-search summary, shaped for the drill +
     brand KPI card. ``cur``/``prior`` are summaries from :mod:`app.portfolio_perf`
     (``item_window_summary`` or ``portfolio_rank_summary``), each carrying
@@ -1477,6 +1477,9 @@ def _share_split(cur: dict, prior: dict, subject: str = "this item") -> dict:
     to 100 so the bar fills — the *mix* of the item's own visibility, distinct from the
     shares-of-total), and a one-line "N% is paid" summary. ``None`` deltas/prior shares
     simply omit the pill, matching the rest of the drill.
+
+    ``subject`` is spliced into the mix line already in possessive form ("this item's",
+    "your tracked items'") so the sentence reads correctly for singular and plural.
     """
     org, paid = cur.get("organic_share"), cur.get("paid_share")
     if org is None or paid is None:
@@ -1497,7 +1500,7 @@ def _share_split(cur: dict, prior: dict, subject: str = "this item") -> dict:
         "paid_delta": _perf_delta(paid_delta, unit="pts"),
         "organic_pct": bar_org,
         "paid_pct": bar_paid,
-        "mix_line": f"{bar_paid}% of {subject}'s visibility is paid" if total else None,
+        "mix_line": f"{bar_paid}% of {subject} visibility is paid" if total else None,
     }
 
 
@@ -1762,7 +1765,7 @@ def _perf_shelf_tab(db, uid, brands, period, tracked) -> dict:
         # Same tracked-keyword chips as the Search Rank brand card.
         "keywords": _tracked_keyword_union(db, uid, tracked),
         # Organic/paid decomposition across the brand's tracked items (earned vs bought).
-        "share_split": _share_split(cur, prior, subject="your tracked items"),
+        "share_split": _share_split(cur, prior, subject="your tracked items'"),
     }
 
 
