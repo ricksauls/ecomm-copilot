@@ -1520,6 +1520,17 @@ def test_performance_shelf_tab(client, auth, app):
     assert b"share-split-bar" not in body
 
 
+def test_performance_shelf_all_items_table_has_three_columns(client, auth, app):
+    # The All-items Share of Search table shows Total Share, Organic and Paid columns
+    # (in that order); the Organic/Paid cells read "—" until a split reading lands.
+    auth.register(email="perfcols@example.com")
+    _seed_performance(app, "perfcols@example.com")
+    body = client.get("/app/insights/performance?tab=shelf").data
+    head = body.split(b"<tbody")[0]
+    assert head.index(b"Total Share") < head.index(b"Organic") < head.index(b"Paid")
+    assert b"\xe2\x80\x94" in body   # an em dash — Organic/Paid "collecting" before any split
+
+
 def test_performance_shelf_shows_organic_paid_split(client, auth, app):
     # With split-bearing readings, the Share of Search drill decomposes into Organic /
     # Paid sub-metrics, a composition bar, and a one-line mix read.

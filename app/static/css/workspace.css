@@ -4018,8 +4018,12 @@ select.pf-select[size] option { padding: 6px 8px; border-radius: 4px; }
    line reads the split in words. A hairline separates it from the headline KPI, like
    the keyword chips below it. .kpi-delta.sm is the compact delta pill used inline here. */
 .share-split { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
-.share-split-stats { display: flex; gap: 22px; margin-bottom: 10px; }
-.share-split-stat { display: flex; align-items: baseline; gap: 6px; font-size: 13px; }
+/* One sub-metric per row so the label + value + delta pill never overflow the card
+   (two side-by-side columns clipped at the drill card's width). The delta pill is
+   pushed to the right edge for a tidy aligned column. */
+.share-split-stats { display: flex; flex-direction: column; gap: 7px; margin-bottom: 11px; }
+.share-split-stat { display: flex; align-items: baseline; gap: 7px; font-size: 13px; }
+.share-split-stat .kpi-delta.sm { margin-left: auto; white-space: nowrap; }
 .share-split-dot {
   width: 9px; height: 9px; border-radius: 2px; flex: none; align-self: center;
 }

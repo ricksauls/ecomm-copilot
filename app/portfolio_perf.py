@@ -149,7 +149,9 @@ def portfolio_rank_summary(conn: sqlite3.Connection, user_id: int,
 def tracked_items_with_readings(conn: sqlite3.Connection, user_id: int,
                                 start: str, end: str,
                                 brands: list[str] | None = None) -> list[dict]:
-    """One row per tracked item with its window rank + share (the all-items table).
+    """One row per tracked item with its window rank + share, plus the organic/paid
+    ``*_share`` split (the all-items table). ``organic_share`` / ``paid_share`` are
+    ``None`` until a post-migration reading lands (see :func:`_split_shares`).
 
     LEFT JOIN so a tracked item with no readings in the window still appears (the
     page shows it as "collecting" / "not ranked"), ordered newest-first like the
@@ -159,8 +161,8 @@ def tracked_items_with_readings(conn: sqlite3.Connection, user_id: int,
     rows = conn.execute(
         "SELECT p.id AS id, p.item_id AS item_id, p.title AS title, p.brand AS brand, "
         "       AVG(r.rank) AS avg_rank, "
-        "       SUM(r.item_slots) AS item_slots, SUM(r.total_slots) AS total_slots, "
-        "       COUNT(r.id) AS n "
+        "       SUM(r.item_slots) AS item_slots, SUM(r.total_slots) AS total_slots, " + _SPLIT_SUMS_SQL +
+        "     , COUNT(r.id) AS n "
         "FROM portfolio_items p "
         "LEFT JOIN portfolio_rank_readings r "
         "  ON r.portfolio_item_id = p.id AND r.user_id = p.user_id "
@@ -169,15 +171,22 @@ def tracked_items_with_readings(conn: sqlite3.Connection, user_id: int,
         "GROUP BY p.id ORDER BY p.id DESC",
         [start, end, user_id] + bparams,
     ).fetchall()
-    return [{
-        "id": r["id"],
-        "item_id": r["item_id"],
-        "name": r["title"] or r["item_id"],
-        "brand": r["brand"],
-        "avg_rank": round(r["avg_rank"], 1) if r["avg_rank"] is not None else None,
-        "share": _pct(r["item_slots"], r["total_slots"]),
-        "n": r["n"],
-    } for r in rows]
+    out = []
+    for r in rows:
+        organic_share, paid_share = _split_shares(
+            r["split_item_slots"], r["item_sponsored_slots"], r["split_total_slots"])
+        out.append({
+            "id": r["id"],
+            "item_id": r["item_id"],
+            "name": r["title"] or r["item_id"],
+            "brand": r["brand"],
+            "avg_rank": round(r["avg_rank"], 1) if r["avg_rank"] is not None else None,
+            "share": _pct(r["item_slots"], r["total_slots"]),
+            "organic_share": organic_share,
+            "paid_share": paid_share,
+            "n": r["n"],
+        })
+    return out
 
 
 def item_window_summary(conn: sqlite3.Connection, user_id: int, item_pk: int,
