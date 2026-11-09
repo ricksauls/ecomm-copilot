@@ -1270,7 +1270,7 @@ def test_dashboard_briefing_renders_three_cards_with_data(client, auth, app):
     assert b"briefing-card" in body
     assert b"Discoverability" in body
     assert b"Conversion" in body
-    assert b"Competition" in body
+    assert b"Share of Search" in body  # the Competition card, renamed
     assert b"Tabasco" in body        # the brand label
     assert b"Dig it" in body         # the renamed Explore link
     assert b"#1.0" in body           # Discoverability shows the tracked item's page-1 rank

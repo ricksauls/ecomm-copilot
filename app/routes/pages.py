@@ -808,7 +808,7 @@ def _performance_briefing(db, uid) -> dict:
         no_rank = cur_disc["keywords_no_rank"]
         d_display, d_dir = _delta_pill(rank_delta, unit="spots")
         narrative = (
-            f"Average page-1 rank of {cur_disc['avg_rank']} across your tracked keywords. "
+            f"Average page-1 search rank of {cur_disc['avg_rank']} across your tracked keywords. "
             + (f"{no_rank} tracked keyword{_s(no_rank)} "
                + ("has" if no_rank == 1 else "have") + " no page-1 ranking."
                if no_rank else "They rank on page 1 for every measured keyword."))
@@ -816,8 +816,8 @@ def _performance_briefing(db, uid) -> dict:
             "key": "discoverability", "label": "Discoverability", "state": "ok",
             "metric": f"#{cur_disc['avg_rank']}",
             "delta": d_display, "delta_dir": d_dir,
-            "headline": _headline(d_dir, "Rankings are improving.",
-                                  "Rankings are slipping.", "Rankings are holding."),
+            "headline": _headline(d_dir, "Search rankings are improving.",
+                                  "Search rankings are slipping.", "Search rankings are holding."),
             "narrative": narrative, "explore_url": explore_rank,
             # In-card trend from the same per-item rank series the headline reads,
             # so the line's endpoint is the metric above. None when history is thin.
@@ -847,7 +847,7 @@ def _performance_briefing(db, uid) -> dict:
             + (f" That's {'up' if shelf['delta'] > 0 else 'down'} {abs(shelf['delta'])} pts "
                "from last period." if shelf["delta"] else ""))
         competition = {
-            "key": "competition", "label": "Competition", "state": "ok",
+            "key": "competition", "label": "Share of Search", "state": "ok",
             "metric": f"{share}%",
             "delta": d_display, "delta_dir": d_dir,
             "headline": _headline(d_dir, "You're winning more shelf.",
@@ -858,7 +858,7 @@ def _performance_briefing(db, uid) -> dict:
             "chart": _card_chart(shelf["trend"], shelf["trend_dates"], "share"),
         }
     else:
-        competition = {"key": "competition", "label": "Competition",
+        competition = {"key": "competition", "label": "Share of Search",
                        "state": "gathering", "narrative": gathering, "explore_url": explore_shelf}
 
     # ── Conversion: content readiness of the brand's scored products ───────────
