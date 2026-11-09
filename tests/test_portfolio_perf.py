@@ -189,6 +189,26 @@ def test_item_window_summary_organic_paid(app):
         assert (s["organic_share"], s["paid_share"]) == (10, 10)
 
 
+def test_item_keyword_window_split_shares(app):
+    with app.app_context():
+        db = get_db()
+        uid, a = _seed_split(db)
+        a_kw1 = _kw(db, a, 1)
+        shares = portfolio_perf.item_keyword_window_split_shares(db, uid, a, *_WIN)
+        # One keyword on the item → its organic/paid split equals the item-level split.
+        assert shares[a_kw1] == (10, 10)
+
+
+def test_item_keyword_window_split_shares_collecting(app):
+    with app.app_context():
+        db = get_db()
+        uid, a, _b = _seed(db)               # NULL-split readings only
+        a_kw1 = _kw(db, a, 1)
+        shares = portfolio_perf.item_keyword_window_split_shares(db, uid, a, *_WIN)
+        # No split-bearing reading yet → (None, None), distinct from a measured 0.
+        assert shares[a_kw1] == (None, None)
+
+
 def test_tracked_items_with_readings_carries_organic_paid(app):
     with app.app_context():
         db = get_db()

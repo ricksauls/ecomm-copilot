@@ -110,6 +110,42 @@
     }
   }
 
+  // Set a delta pill's text, direction class and visibility (shared by the headline and
+  // the split sub-metrics). ``d`` is {display, dir}; a blank display hides the pill.
+  function setDelta(node, d, baseClass) {
+    if (!node) { return; }
+    d = d || {};
+    node.className = baseClass + " " + (d.dir || "");
+    if (d.display) { node.textContent = d.display; node.hidden = false; }
+    else { node.textContent = ""; node.hidden = true; }
+  }
+
+  // Rescope the drill's Organic/Paid split block to a view's split (the _share_split
+  // shape: {available, organic_metric, paid_metric, organic_delta, paid_delta,
+  // organic_pct, paid_pct, mix_line}). An unavailable split ("collecting") hides the
+  // whole block — matching the server's no-JS gating — so a keyword without a split
+  // reading simply shows no decomposition rather than a stale one.
+  function renderSplit(root, split) {
+    if (!root) { return; }
+    if (!split || !split.available) { root.hidden = true; return; }
+    root.hidden = false;
+    var org = root.querySelector("[data-split-organic]");
+    var paid = root.querySelector("[data-split-paid]");
+    if (org) { org.textContent = split.organic_metric; }
+    if (paid) { paid.textContent = split.paid_metric; }
+    setDelta(root.querySelector("[data-split-organic-delta]"), split.organic_delta, "kpi-delta sm");
+    setDelta(root.querySelector("[data-split-paid-delta]"), split.paid_delta, "kpi-delta sm");
+    var barOrg = root.querySelector("[data-split-bar-organic]");
+    var barPaid = root.querySelector("[data-split-bar-paid]");
+    if (barOrg) { barOrg.style.width = (split.organic_pct || 0) + "%"; }
+    if (barPaid) { barPaid.style.width = (split.paid_pct || 0) + "%"; }
+    var mix = root.querySelector("[data-split-mix]");
+    if (mix) {
+      if (split.mix_line) { mix.textContent = split.mix_line; mix.hidden = false; }
+      else { mix.hidden = true; }
+    }
+  }
+
   function drawTrend(container) {
     var data;
     try { data = JSON.parse(container.getAttribute("data-series") || "{}"); }
@@ -271,25 +307,23 @@
       var deltaNode = drill.querySelector("[data-kw-delta]");
       var legend = drill.querySelector(".chart-legend");
       var chart = drill.querySelector("[data-kw-chart]");
+      var split = drill.querySelector("[data-kw-split]");  // Share tab only
       var opts = Array.prototype.slice.call(drill.querySelectorAll("[data-kw-select] .kw-opt"));
       if (!chart || !opts.length) { return; }
 
-      // id -> the view (metric/delta/legend/series) to show when it's selected.
+      // id -> the view (metric/delta/legend/series[/split]) to show when selected.
       var byId = { all: ctx.all };
       ctx.keywords.forEach(function (k) { byId[String(k.id)] = k; });
 
+      // Selecting a keyword rescopes the whole card: headline metric + delta, the chart
+      // (stacked organic/paid when that view has a split, else a single line), and — on
+      // the Share tab — the Organic/Paid split block.
       function apply(view) {
         if (metricNode) { metricNode.textContent = view.metric; }
-        if (deltaNode) {
-          var d = view.delta || {};
-          deltaNode.className = "kpi-delta " + (d.dir || "");
-          if (d.display) { deltaNode.textContent = d.display; deltaNode.hidden = false; }
-          else { deltaNode.textContent = ""; deltaNode.hidden = true; }
-        }
-        // "All keywords" may carry a stacked organic/paid series (two swatches); a
-        // single keyword is always a one-line share trend (its caption).
+        setDelta(deltaNode, view.delta, "kpi-delta");
         syncLegend(legend, view.series && view.series.stacked === true, view.legend);
         renderSeries(chart, view.series);
+        renderSplit(split, view.split);
       }
 
       function select(opt) {
@@ -318,13 +352,15 @@
         });
       });
 
-      // init() already drew the chart from the template's data-series, but drawTrend
-      // skips drill-chart legends (this function owns them), so sync the legend once to
-      // the initially-active option — a stacked "all" series needs the Organic/Paid
-      // legend on load, not just after the first click.
+      // init() already drew the chart from the template's data-series, and the server
+      // rendered the split block for the "all" view, but drawTrend skips drill-chart
+      // legends (this function owns them). Sync the legend — and re-render the split
+      // block — once to the initially-active option so a stacked "all" series shows the
+      // Organic/Paid legend on load, not just after the first click.
       var active = opts.filter(function (o) { return o.classList.contains("is-active"); })[0] || opts[0];
       var view = byId[active.getAttribute("data-kw-id")] || ctx.all;
       syncLegend(legend, !!(view.series && view.series.stacked), view.legend);
+      renderSplit(split, view.split);
     });
   }
 

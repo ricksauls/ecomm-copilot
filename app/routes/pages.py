@@ -1880,7 +1880,8 @@ def _perf_readiness_tab(db, uid, mine_brands, period) -> dict:
 
 
 def _item_keyword_metric_payload(db, uid, item_pk, period, keywords, metric,
-                                 all_metric, all_delta, all_trend, all_cell) -> dict:
+                                 all_metric, all_delta, all_trend, all_cell,
+                                 all_split=None) -> dict:
     """Per-keyword context for an interactive item drill — ``metric`` 'rank' or 'share'.
 
     The dataset the in-card keyword list + chart/KPI swap read client-side: an
@@ -1889,6 +1890,11 @@ def _item_keyword_metric_payload(db, uid, item_pk, period, keywords, metric,
     series. A keyword's trend skips periods it has no reading in, so a sparse keyword
     yields a short/empty series (the chart then shows its "not enough" hint). Rank is
     "lower is better" (delta = prior − cur); share is a percent (delta = cur − prior).
+
+    For the **share** metric each view additionally carries ``split`` — the organic/paid
+    decomposition (``_share_split`` shape) — and a stacked trend ``series``, so selecting
+    a keyword rescopes the card's split block and chart too, not just the headline.
+    ``all_split`` is the item-level split for the default view.
     """
     if metric == "rank":
         window = portfolio_perf.item_keyword_window_ranks
@@ -1905,6 +1911,24 @@ def _item_keyword_metric_payload(db, uid, item_pk, period, keywords, metric,
     for i in range(ci_analysis.TREND_PERIODS - 1, -1, -1):
         start, end = ci_analysis.period_bounds(period, i)
         periods.append((ci_analysis.period_label(period, i), window(db, uid, item_pk, start, end)))
+
+    # Share only: per-keyword organic/paid for (a) the split block — current + prior
+    # window, for the sub-metrics and their deltas — and (b) a stacked per-keyword trend
+    # (one organic/paid point per period). Selecting a keyword then rescopes the whole
+    # card (headline + split block + stacked chart), not just the headline. The rank tab
+    # has no split, so this is skipped there.
+    split_cur = split_prior = None
+    split_periods = []
+    if metric == "share":
+        split_cur = portfolio_perf.item_keyword_window_split_shares(
+            db, uid, item_pk, *ci_analysis.period_bounds(period, 0))
+        split_prior = portfolio_perf.item_keyword_window_split_shares(
+            db, uid, item_pk, *ci_analysis.period_bounds(period, 1))
+        for i in range(ci_analysis.TREND_PERIODS - 1, -1, -1):
+            start, end = ci_analysis.period_bounds(period, i)
+            split_periods.append((ci_analysis.period_label(period, i),
+                                  portfolio_perf.item_keyword_window_split_shares(db, uid, item_pk, start, end)))
+
     entries = []
     for kw in keywords:
         kid, cur = kw["keyword_id"], kw[cur_key]
@@ -1923,7 +1947,7 @@ def _item_keyword_metric_payload(db, uid, item_pk, period, keywords, metric,
             metric_str = "—"
         else:
             metric_str = f"#{cur}" if metric == "rank" else f"{cur}%"
-        entries.append({
+        entry = {
             "id": kid,
             "keyword": kw["keyword"],
             "cell": cell_fn(cur),                    # list row display + color
@@ -1931,12 +1955,31 @@ def _item_keyword_metric_payload(db, uid, item_pk, period, keywords, metric,
             "delta": _perf_delta(delta, unit=dunit),
             "legend": f"{legend_verb} for “{kw['keyword']}”",
             "series": _perf_trend(values, dates, unit),
-        })
-    return {
-        "all": {"metric": all_metric, "delta": all_delta, "cell": all_cell,
-                "legend": all_legend, "series": all_trend},
-        "keywords": entries,
-    }
+        }
+        if metric == "share":
+            # Per-keyword split block (earned vs bought) + stacked trend, mirroring the
+            # item-level "all" view so the swap is seamless.
+            c_org, c_paid = split_cur.get(kid, (None, None))
+            p_org, p_paid = split_prior.get(kid, (None, None))
+            entry["split"] = _share_split(
+                {"organic_share": c_org, "paid_share": c_paid},
+                {"organic_share": p_org, "paid_share": p_paid},
+                subject="this keyword's")
+            s_org, s_paid, s_dates = [], [], []
+            for label, vals in split_periods:
+                org, paid = vals.get(kid, (None, None))
+                if org is not None and paid is not None:
+                    s_org.append(org)
+                    s_paid.append(paid)
+                    s_dates.append(label)
+            entry["series"] = _share_trend_series(s_org, s_paid, s_dates, values, dates)
+        entries.append(entry)
+
+    all_view = {"metric": all_metric, "delta": all_delta, "cell": all_cell,
+                "legend": all_legend, "series": all_trend}
+    if metric == "share":
+        all_view["split"] = all_split
+    return {"all": all_view, "keywords": entries}
 
 
 def _perf_item_detail(db, uid, item, period, tab="rank") -> dict:
@@ -1994,6 +2037,9 @@ def _perf_item_detail(db, uid, item, period, tab="rank") -> dict:
     share_metric = f"{cur['share']}%" if cur["share"] is not None else "—"
     share_delta_d = _perf_delta(share_delta, unit="pts")
     share_trend_d = _share_trend_series(s_org, s_paid, s_dates, share_values, share_dates)
+    # Item-level organic/paid split — the default ("all keywords") view's split block,
+    # also rendered server-side for the no-JS baseline (detail.share_split below).
+    item_share_split = _share_split(cur, prior)
     # The Discovery drills are interactive — a per-keyword context powers the in-card
     # keyword list + chart/KPI swap. Only the active tab's context is built (rank for
     # Search Rank, share for Share of Search), keeping the other tabs' loads lean.
@@ -2005,7 +2051,7 @@ def _perf_item_detail(db, uid, item, period, tab="rank") -> dict:
     share_keyword_context = (
         _item_keyword_metric_payload(db, uid, pk, period, keywords, "share",
                                      share_metric, share_delta_d, share_trend_d,
-                                     _share_cell(cur["share"]))
+                                     _share_cell(cur["share"]), all_split=item_share_split)
         if tab == "shelf" else None)
     return {
         "detail": {
@@ -2018,7 +2064,7 @@ def _perf_item_detail(db, uid, item, period, tab="rank") -> dict:
             "share_trend": share_trend_d,
             "share_keyword_context": share_keyword_context,
             # Organic/paid decomposition of this item's share (earned vs bought).
-            "share_split": _share_split(cur, prior),
+            "share_split": item_share_split,
             "keywords": keywords,
             "metrics": metrics,
             "readiness_dims": readiness_dims,
