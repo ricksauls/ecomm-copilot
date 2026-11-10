@@ -497,14 +497,28 @@ def _group_brand_label(db, uid, group_id: int, fallback: str) -> str:
     return ", ".join(mine) if mine else fallback
 
 
-def _readiness_trend(db, uid, brands, period):
-    """Content Readiness over the last TREND_PERIODS completed periods (oldest→newest).
+def _perf_window(off=0):
+    """The period indices for one trend window, oldest→newest (highest index first).
+
+    Index ``i`` counts completed periods back from now (0 = most recent). A window spans
+    ``TREND_PERIODS`` consecutive indices; ``off`` shifts it that many periods further
+    into the past, so off=0 is ``[5…0]`` (today's behavior) and off=6 is the previous
+    page ``[11…6]``. Shared by every Performance-screen trend builder so paging is
+    identical across tabs. ``off`` is clamped non-negative by the caller.
+    """
+    return range(off + ci_analysis.TREND_PERIODS - 1, off - 1, -1)
+
+
+def _readiness_trend(db, uid, brands, period, off=0):
+    """Content Readiness over one TREND_PERIODS window of completed periods (oldest→newest).
 
     One point per period at that period's closing state (latest score on or before
     the period end), skipping periods where the brand had no scored products yet.
+    ``off`` shifts the window ``off`` periods further into the past (0 = most recent),
+    for the trend pager — see :func:`_perf_window`.
     """
     values, dates = [], []
-    for i in range(ci_analysis.TREND_PERIODS - 1, -1, -1):
+    for i in _perf_window(off):
         end = ci_analysis.period_bounds(period, i)[1]
         stats = jobs.readiness_score(db, uid, brands, as_of=f"{end} 23:59:59")
         if stats["avg"] is None:
@@ -1635,8 +1649,34 @@ def _performance_insights(db, uid) -> dict:
     item = item_row["id"] if item_row is not None else None
     item_name = (item_row["title"] or item_row["item_id"]) if item_row is not None else None
 
-    logger.info("Performance insights user_id=%s owner=%s group_id=%s tab=%s period=%s item=%s tracked=%d",
-                g.user["id"], owner_id, gid, tab, period, item, len(tracked))
+    # Trend-chart pager. ``off`` shifts every chart's TREND_PERIODS window that many
+    # periods into the past (0 = most recent, today's default); only the charts page —
+    # the headline KPIs and tables stay on the current period. Bound ``off`` to the oldest
+    # data in the *active* scope (the tab's data source, item- or brand-scoped) so the
+    # Older control stops at the true edge of history instead of paging into blank
+    # windows. A forged/overflow ``off`` is clamped, never trusted (defence-in-depth).
+    off = request.args.get("off", default=0, type=int) or 0
+    off = max(off, 0)
+    if tab == "readiness":
+        oldest = jobs.earliest_readiness_date(
+            db, owner_id,
+            brands=None if item_row is not None else mine_brands,
+            item_id=item_row["item_id"] if item_row is not None else None)
+    else:
+        oldest = portfolio_perf.earliest_reading_date(
+            db, owner_id,
+            brands=None if item_row is not None else disc_brands,
+            item_pk=item_row["id"] if item_row is not None else None)
+    max_index = ci_analysis.periods_ago(period, oldest) if oldest else 0
+    off = min(off, max_index)
+    step = ci_analysis.TREND_PAGE_STEP
+    can_newer = off > 0
+    can_older = (off + ci_analysis.TREND_PERIODS) <= max_index
+    window_label = (f"{ci_analysis.period_label(period, off + ci_analysis.TREND_PERIODS - 1)}"
+                    f" to {ci_analysis.period_label(period, off)}")
+
+    logger.info("Performance insights user_id=%s owner=%s group_id=%s tab=%s period=%s item=%s off=%s tracked=%d",
+                g.user["id"], owner_id, gid, tab, period, item, off, len(tracked))
 
     data = {
         "available": True,
@@ -1660,29 +1700,40 @@ def _performance_insights(db, uid) -> dict:
         "periods": [{"key": p, "label": ci_analysis.PERIOD_LABELS[p],
                      "enabled": True, "selected": p == period}
                     for p in ci_analysis.PERIODS],
+        # Trend-chart pager state. Links carry `off`; changing brand/item/period/tab omits
+        # it (resets to the most-recent window) since a window is only meaningful within
+        # one granularity. The pager hides entirely when all data fits a single window.
+        "off": off,
+        "window_label": window_label,
+        "can_older": can_older,
+        "can_newer": can_newer,
+        "older_off": off + step,
+        "newer_off": max(0, off - step),
+        "show_pager": can_older or can_newer,
     }
 
     if item_row is not None:
         # Drill: per-item detail, scoped to the active tab (rank/share/readiness).
-        data.update(_perf_item_detail(db, owner_id, item_row, period, tab))
+        data.update(_perf_item_detail(db, owner_id, item_row, period, tab, off=off))
     elif tab == "rank":
-        data.update(_perf_rank_tab(db, owner_id, disc_brands, period, tracked))
+        data.update(_perf_rank_tab(db, owner_id, disc_brands, period, tracked, off=off))
     elif tab == "shelf":
-        data.update(_perf_shelf_tab(db, owner_id, disc_brands, period, tracked))
+        data.update(_perf_shelf_tab(db, owner_id, disc_brands, period, tracked, off=off))
     else:
-        data.update(_perf_readiness_tab(db, owner_id, mine_brands, period))
+        data.update(_perf_readiness_tab(db, owner_id, mine_brands, period, off=off))
     return data
 
 
-def _discovery_trend(db, uid, brands, period, metric):
-    """Portfolio rank or share over the last TREND_PERIODS completed periods.
+def _discovery_trend(db, uid, brands, period, metric, off=0):
+    """Portfolio rank or share over one TREND_PERIODS window of completed periods.
 
     Oldest→newest, one point per period's date window; periods with no tracked
     readings are skipped so the line doesn't dip to a false zero (this mirrors
     :func:`_readiness_trend`). ``metric`` is 'rank' (avg page-1 position) or 'share'.
+    ``off`` pages the window into the past (see :func:`_perf_window`).
     """
     values, dates = [], []
-    for i in range(ci_analysis.TREND_PERIODS - 1, -1, -1):
+    for i in _perf_window(off):
         start, end = ci_analysis.period_bounds(period, i)
         s = portfolio_perf.portfolio_rank_summary(db, uid, start, end, brands=brands)
         v = s["avg_rank"] if metric == "rank" else s["share"]
@@ -1693,10 +1744,10 @@ def _discovery_trend(db, uid, brands, period, metric):
     return values, dates
 
 
-def _item_discovery_trend(db, uid, item_pk, period, metric):
-    """One item's rank or share over the last TREND_PERIODS periods (see :func:`_discovery_trend`)."""
+def _item_discovery_trend(db, uid, item_pk, period, metric, off=0):
+    """One item's rank or share over one TREND_PERIODS window (see :func:`_discovery_trend`)."""
     values, dates = [], []
-    for i in range(ci_analysis.TREND_PERIODS - 1, -1, -1):
+    for i in _perf_window(off):
         start, end = ci_analysis.period_bounds(period, i)
         s = portfolio_perf.item_window_summary(db, uid, item_pk, start, end)
         v = s["avg_rank"] if metric == "rank" else s["share"]
@@ -1707,9 +1758,9 @@ def _item_discovery_trend(db, uid, item_pk, period, metric):
     return values, dates
 
 
-def _discovery_share_split_trend(db, uid, brands, period):
-    """Brand share of search decomposed into organic + paid over the last
-    TREND_PERIODS completed periods (oldest→newest), for the stacked trend area.
+def _discovery_share_split_trend(db, uid, brands, period, off=0):
+    """Brand share of search decomposed into organic + paid over one TREND_PERIODS
+    window of completed periods (oldest→newest), for the stacked trend area.
 
     Only periods whose split is *known* are included — a reading taken before the
     Organic/Paid migration (#79) carries ``None`` for both shares, and stacking a
@@ -1717,9 +1768,10 @@ def _discovery_share_split_trend(db, uid, brands, period):
     yield fewer points than the plain share line; the caller falls back to the single
     total-share line until ≥2 split-bearing periods exist (see :func:`_share_trend_series`).
     Returns ``(organic[], paid[], dates[])``; the two sum to the period's blended share.
+    ``off`` pages the window into the past (see :func:`_perf_window`).
     """
     organic, paid, dates = [], [], []
-    for i in range(ci_analysis.TREND_PERIODS - 1, -1, -1):
+    for i in _perf_window(off):
         start, end = ci_analysis.period_bounds(period, i)
         s = portfolio_perf.portfolio_rank_summary(db, uid, start, end, brands=brands)
         org, pd = s.get("organic_share"), s.get("paid_share")
@@ -1731,10 +1783,10 @@ def _discovery_share_split_trend(db, uid, brands, period):
     return organic, paid, dates
 
 
-def _item_share_split_trend(db, uid, item_pk, period):
+def _item_share_split_trend(db, uid, item_pk, period, off=0):
     """One item's organic/paid share trend (see :func:`_discovery_share_split_trend`)."""
     organic, paid, dates = [], [], []
-    for i in range(ci_analysis.TREND_PERIODS - 1, -1, -1):
+    for i in _perf_window(off):
         start, end = ci_analysis.period_bounds(period, i)
         s = portfolio_perf.item_window_summary(db, uid, item_pk, start, end)
         org, pd = s.get("organic_share"), s.get("paid_share")
@@ -1783,11 +1835,12 @@ def _tracked_keyword_union(db, uid, tracked) -> list[str]:
     return union
 
 
-def _perf_rank_tab(db, uid, brands, period, tracked) -> dict:
+def _perf_rank_tab(db, uid, brands, period, tracked, off=0) -> dict:
     """Search Rank brand view (Discovery): average page-1 rank across tracked items.
 
     Sourced from per-item tracking (``portfolio_rank_readings``) over the selected
-    period's window; the products table drills into one item by its portfolio id.
+    period's window; the products table drills into one item by its portfolio id. The
+    headline KPI always reflects the current period; ``off`` pages only the trend chart.
     """
     cur = portfolio_perf.portfolio_rank_summary(db, uid, *ci_analysis.period_bounds(period, 0),
                                                 brands=brands)
@@ -1796,7 +1849,7 @@ def _perf_rank_tab(db, uid, brands, period, tracked) -> dict:
     # Rank is "lower is better": frame the delta positive = improved (rank fell).
     delta = (round(prior["avg_rank"] - cur["avg_rank"], 1)
              if cur["avg_rank"] is not None and prior["avg_rank"] is not None else None)
-    values, dates = _discovery_trend(db, uid, brands, period, "rank")
+    values, dates = _discovery_trend(db, uid, brands, period, "rank", off=off)
     return {
         "headline": {
             "label": "Average Search Rank",
@@ -1815,17 +1868,20 @@ def _perf_rank_tab(db, uid, brands, period, tracked) -> dict:
     }
 
 
-def _perf_shelf_tab(db, uid, brands, period, tracked) -> dict:
-    """Share of Search brand view (Discovery): tracked slots ÷ all page-1 slots."""
+def _perf_shelf_tab(db, uid, brands, period, tracked, off=0) -> dict:
+    """Share of Search brand view (Discovery): tracked slots ÷ all page-1 slots.
+
+    The headline KPI always reflects the current period; ``off`` pages only the trend chart.
+    """
     cur = portfolio_perf.portfolio_rank_summary(db, uid, *ci_analysis.period_bounds(period, 0),
                                                 brands=brands)
     prior = portfolio_perf.portfolio_rank_summary(db, uid, *ci_analysis.period_bounds(period, 1),
                                                   brands=brands)
     delta = (cur["share"] - prior["share"]
              if cur["share"] is not None and prior["share"] is not None else None)
-    values, dates = _discovery_trend(db, uid, brands, period, "share")
+    values, dates = _discovery_trend(db, uid, brands, period, "share", off=off)
     # Stacked organic/paid area when the split is available; single total line otherwise.
-    s_org, s_paid, s_dates = _discovery_share_split_trend(db, uid, brands, period)
+    s_org, s_paid, s_dates = _discovery_share_split_trend(db, uid, brands, period, off=off)
     return {
         "headline": {
             "label": "Share of Search",
@@ -1852,7 +1908,7 @@ def _perf_shelf_tab(db, uid, brands, period, tracked) -> dict:
     }
 
 
-def _perf_readiness_tab(db, uid, mine_brands, period) -> dict:
+def _perf_readiness_tab(db, uid, mine_brands, period, off=0) -> dict:
     """Content Readiness brand view (Conversion): the brand's latest content scores.
 
     Unchanged data source — it reads ``jobs.*`` latest scores and borrows the selected
@@ -1866,7 +1922,7 @@ def _perf_readiness_tab(db, uid, mine_brands, period) -> dict:
     prior = jobs.readiness_score(db, uid, mine_brands, as_of=prior_end)
     delta = (cur["avg"] - prior["avg"]
              if cur["avg"] is not None and prior["avg"] is not None else None)
-    values, dates = _readiness_trend(db, uid, mine_brands, period)
+    values, dates = _readiness_trend(db, uid, mine_brands, period, off=off)
     needs = cur["needs_attention_count"]
     return {
         "headline": {
@@ -1913,7 +1969,7 @@ def _readiness_dim_averages(db, uid, mine_brands) -> list[dict]:
 
 def _item_keyword_metric_payload(db, uid, item_pk, period, keywords, metric,
                                  all_metric, all_delta, all_trend, all_cell,
-                                 all_split=None) -> dict:
+                                 all_split=None, off=0) -> dict:
     """Per-keyword context for an interactive item drill — ``metric`` 'rank' or 'share'.
 
     The dataset the in-card keyword list + chart/KPI swap read client-side: an
@@ -1938,9 +1994,11 @@ def _item_keyword_metric_payload(db, uid, item_pk, period, keywords, metric,
         legend_verb, all_legend = "Share", "This item's share of search"
 
     prior = window(db, uid, item_pk, *ci_analysis.period_bounds(period, 1))
-    # Per-keyword value for each trend period (oldest -> newest), keyed by keyword id.
+    # Per-keyword value for each trend period in the (off-paged) window, oldest→newest,
+    # keyed by keyword id. The headline/delta above stay anchored to the current period;
+    # only this series follows the pager, mirroring the item- and brand-level trends.
     periods = []
-    for i in range(ci_analysis.TREND_PERIODS - 1, -1, -1):
+    for i in _perf_window(off):
         start, end = ci_analysis.period_bounds(period, i)
         periods.append((ci_analysis.period_label(period, i), window(db, uid, item_pk, start, end)))
 
@@ -1956,7 +2014,7 @@ def _item_keyword_metric_payload(db, uid, item_pk, period, keywords, metric,
             db, uid, item_pk, *ci_analysis.period_bounds(period, 0))
         split_prior = portfolio_perf.item_keyword_window_split_shares(
             db, uid, item_pk, *ci_analysis.period_bounds(period, 1))
-        for i in range(ci_analysis.TREND_PERIODS - 1, -1, -1):
+        for i in _perf_window(off):
             start, end = ci_analysis.period_bounds(period, i)
             split_periods.append((ci_analysis.period_label(period, i),
                                   portfolio_perf.item_keyword_window_split_shares(db, uid, item_pk, start, end)))
@@ -2014,48 +2072,81 @@ def _item_keyword_metric_payload(db, uid, item_pk, period, keywords, metric,
     return {"all": all_view, "keywords": entries}
 
 
-def _readiness_dim_context(runs) -> dict | None:
+def _readiness_window_points(runs, period, off=0):
+    """Collapse per-run scoring history into one point per completed period in the
+    (off-paged) trend window, oldest→newest.
+
+    Readiness is measured per scoring run, not per tracking period, so to put the drill
+    chart on the same 6-point windowed x-axis as the Rank/Share trends we take, for each
+    period in the window, the *latest run on or before that period's close* — mirroring
+    :func:`_readiness_trend`'s closing-state rule. Periods with no run on/before their
+    close are skipped (no false-zero point). ``runs`` are oldest→newest (from
+    :func:`jobs.readiness_runs`). Returns ``[{label, overall, dimensions}]``.
+    """
+    points = []
+    for i in _perf_window(off):
+        end = ci_analysis.period_bounds(period, i)[1] + " 23:59:59"
+        # runs are sorted oldest→newest, so the last one still within the close is the
+        # period's representative score; stop once a run sits past the window's end.
+        latest = None
+        for r in runs:
+            if r["as_of"] <= end:
+                latest = r
+            else:
+                break
+        if latest is None:
+            continue
+        points.append({"label": ci_analysis.period_label(period, i),
+                       "overall": latest["overall"], "dimensions": latest["dimensions"]})
+    return points
+
+
+def _readiness_dim_context(runs, period, off=0) -> dict | None:
     """Interactive Content Readiness drill context — the per-dimension analogue of
     :func:`_item_keyword_metric_payload`, so performance.js's generic kw-select swap drives
     it unchanged (dimensions take the place of keywords).
 
-    Takes the item's scoring ``runs`` (from :func:`jobs.readiness_runs`, oldest→newest) so
-    the caller can also build the single-item table from the same read. Returns
-    ``{all, keywords}``: ``all`` is the overall-readiness view (metric, delta vs the prior
-    scoring run, legend, and the overall score trend), and ``keywords`` is one view per
-    content dimension — its latest score, run-over-run delta, legend, and its own score
-    trend. Readiness moves per scoring run (the weekly re-score), not per tracking period, so
-    the delta compares the last two runs. A dimension's series skips runs where it wasn't
-    measured, so a line never dips to a false zero. Returns ``None`` when the item has never
-    been scored (the template then shows the empty state).
+    Takes the item's scoring ``runs`` (from :func:`jobs.readiness_runs`, oldest→newest).
+    Returns ``{all, keywords}``: ``all`` is the overall-readiness view (metric, delta,
+    legend, and the overall score trend), and ``keywords`` is one view per content
+    dimension — its latest score, delta, legend, and its own score trend. The **headline**
+    metric/delta stay run-over-run at the item's current state (unaffected by paging,
+    matching the current-period KPIs on the other tabs); the **trend series** is windowed
+    to one point per completed period and pages with ``off`` (see
+    :func:`_readiness_window_points`). A dimension's series skips periods it wasn't measured
+    in, so a line never dips to a false zero. Returns ``None`` when the item has never been
+    scored (the template then shows the empty state).
     """
     if not runs:
         return None
-    # xLabel() in performance.js turns an ISO date into a short "Mon D" tick, so pass the
-    # date portion of each run's timestamp rather than the full "YYYY-MM-DD HH:MM:SS".
-    overall_vals = [r["overall"] for r in runs]
-    overall_dates = [r["as_of"][:10] for r in runs]
-    cur = overall_vals[-1]
-    prior = overall_vals[-2] if len(overall_vals) > 1 else None
+    points = _readiness_window_points(runs, period, off)
+    # Headline = current state (latest two runs), independent of which window is shown.
+    overall_runs = [r["overall"] for r in runs]
+    cur = overall_runs[-1]
+    prior = overall_runs[-2] if len(overall_runs) > 1 else None
     overall_delta = (cur - prior) if prior is not None else None
     all_view = {
         "metric": f"{cur}/100",
         "delta": _perf_delta(overall_delta, unit="pts"),
         "cell": _readiness_cell(cur),
         "legend": "This item's overall content readiness",
-        "series": _perf_trend(overall_vals, overall_dates, "score"),
+        "series": _perf_trend([p["overall"] for p in points],
+                              [p["label"] for p in points], "score"),
     }
     entries = []
     for key, label in _READINESS_DIM_COLS:
-        vals, dates = [], []
-        for r in runs:
-            v = r["dimensions"].get(key)
-            if v is not None:
-                vals.append(v)
-                dates.append(r["as_of"][:10])
-        d_cur = vals[-1] if vals else None
-        d_prior = vals[-2] if len(vals) > 1 else None
+        # Headline: the dimension's latest two *measured* run values (current state).
+        run_vals = [v for v in (r["dimensions"].get(key) for r in runs) if v is not None]
+        d_cur = run_vals[-1] if run_vals else None
+        d_prior = run_vals[-2] if len(run_vals) > 1 else None
         d_delta = (d_cur - d_prior) if (d_cur is not None and d_prior is not None) else None
+        # Series: the dimension across the windowed period points (skip periods it lacks).
+        svals, sdates = [], []
+        for p in points:
+            v = p["dimensions"].get(key)
+            if v is not None:
+                svals.append(v)
+                sdates.append(p["label"])
         entries.append({
             "id": key,
             "keyword": label,                       # the kw-select template reads `.keyword`
@@ -2063,7 +2154,7 @@ def _readiness_dim_context(runs) -> dict | None:
             "metric": f"{d_cur}/100" if d_cur is not None else "—",
             "delta": _perf_delta(d_delta, unit="pts"),
             "legend": f"{label} score over time",
-            "series": _perf_trend(vals, dates, "score"),
+            "series": _perf_trend(svals, sdates, "score"),
         })
     return {"all": all_view, "keywords": entries}
 
@@ -2098,7 +2189,7 @@ def _readiness_scores_row(name, overall, dims_by_key) -> dict:
     }
 
 
-def _perf_item_detail(db, uid, item, period, tab="rank") -> dict:
+def _perf_item_detail(db, uid, item, period, tab="rank", off=0) -> dict:
     """Comprehensive per-item detail shown on drill — one tracked item's Discovery +
     Conversion data, gathering what used to live on the retired Portfolio "View
     trends" page: per-keyword search rank + share over the selected period, commerce-
@@ -2119,12 +2210,12 @@ def _perf_item_detail(db, uid, item, period, tab="rank") -> dict:
                  "share_val": r["share"], "share": _share_cell(r["share"]), "n": r["n"]}
                 for r in portfolio_perf.item_keyword_readings(
                     db, uid, pk, *ci_analysis.period_bounds(period, 0))]
-    rank_values, rank_dates = _item_discovery_trend(db, uid, pk, period, "rank")
-    share_values, share_dates = _item_discovery_trend(db, uid, pk, period, "share")
+    rank_values, rank_dates = _item_discovery_trend(db, uid, pk, period, "rank", off=off)
+    share_values, share_dates = _item_discovery_trend(db, uid, pk, period, "share", off=off)
     # "All keywords" share trend stacks into organic/paid when the split is available
     # (a single selected keyword has no split, so its series stays a single line — the
     # per-keyword organic/paid decomposition is a separate follow-up).
-    s_org, s_paid, s_dates = _item_share_split_trend(db, uid, pk, period)
+    s_org, s_paid, s_dates = _item_share_split_trend(db, uid, pk, period, off=off)
 
     # Commerce facts + content readiness, ported verbatim from the retired View-trends
     # page: daily snapshots (price/rating/reviews, in-stock) and the weekly re-scores.
@@ -2144,7 +2235,7 @@ def _perf_item_detail(db, uid, item, period, tab="rank") -> dict:
     # Empty when the item has never been scored (the template then shows the empty state).
     rd_runs = (jobs.readiness_runs(db, uid, item["item_id"])
                if tab == "readiness" and item["item_id"] else [])
-    readiness_dim_context = _readiness_dim_context(rd_runs) if rd_runs else None
+    readiness_dim_context = _readiness_dim_context(rd_runs, period, off) if rd_runs else None
     # The single-item Content Scores table reads the latest result's rich per-dimension
     # detail (score + recommendations) so its expandable rows match the brand all-items
     # table; the trend/dim-context above come from the same latest run via rd_runs.
@@ -2188,12 +2279,12 @@ def _perf_item_detail(db, uid, item, period, tab="rank") -> dict:
     rank_keyword_context = (
         _item_keyword_metric_payload(db, uid, pk, period, keywords, "rank",
                                      rank_metric, rank_delta_d, rank_trend_d,
-                                     _rank_cell(cur["avg_rank"]))
+                                     _rank_cell(cur["avg_rank"]), off=off)
         if tab == "rank" else None)
     share_keyword_context = (
         _item_keyword_metric_payload(db, uid, pk, period, keywords, "share",
                                      share_metric, share_delta_d, share_trend_d,
-                                     _share_cell(cur["share"]), all_split=item_share_split)
+                                     _share_cell(cur["share"]), all_split=item_share_split, off=off)
         if tab == "shelf" else None)
     return {
         "detail": {

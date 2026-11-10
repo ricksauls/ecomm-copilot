@@ -4087,6 +4087,26 @@ select.pf-select[size] option { padding: 6px 8px; border-radius: 4px; }
 .chart-wrap { width: 100%; overflow-x: auto; }
 .perf-trend-svg { width: 100%; height: auto; display: block; }
 
+/* Trend-window pager: Older/Newer links under a chart that page its 6-period window
+   through history. Centered row with the visible range between the two arrow buttons;
+   a disabled edge (no further data that direction) reads muted and non-interactive. */
+.perf-pager {
+  display: flex; align-items: center; justify-content: center;
+  gap: 10px; margin-top: 10px;
+}
+.perf-pager-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 24px; border: 1px solid var(--border);
+  border-radius: var(--radius-chip, 6px); background: var(--surface);
+  color: var(--black); font-size: 14px; line-height: 1; text-decoration: none;
+  transition: border-color var(--fade, 0.15s) var(--ease, ease);
+}
+.perf-pager-btn:hover { border-color: var(--black); }
+.perf-pager-btn.is-disabled { color: var(--cool-gray); opacity: 0.45; cursor: default; }
+.perf-pager-label {
+  font-size: 12px; color: var(--cool-gray); font-variant-numeric: tabular-nums;
+}
+
 /* Hover tooltip on the trend charts (performance.js positions it; hosted on the chart
    card so it isn't clipped). A small light card: date header + one value row per series,
    each with its color dot for the stacked Organic/Paid breakdown. */

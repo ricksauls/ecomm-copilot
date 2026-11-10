@@ -311,6 +311,35 @@ def readiness_score(conn: sqlite3.Connection, user_id: int, brands: list[str],
     return {"avg": avg, "scored_count": len(scores), "needs_attention_count": needs_attention}
 
 
+def earliest_readiness_date(conn: sqlite3.Connection, user_id: int,
+                            brands: list[str] | None = None,
+                            item_id: str | None = None) -> str | None:
+    """Oldest scoring date (``created_at``) in the given scope, or ``None``.
+
+    The readiness counterpart of :func:`portfolio_perf.earliest_reading_date`: it bounds
+    the Performance-screen trend pager on the Content Readiness tab/drill so the Older
+    control stops at the first real score. Scoped to one product (``item_id`` = Walmart
+    item id) for the drill, else to the brand's scored products (``brands``). Returns the
+    stored timestamp string unchanged (ISO), or ``None`` when nothing qualifies.
+    """
+    where = ["user_id = ?", "item_id IS NOT NULL", "item_id != ''", "overall IS NOT NULL"]
+    params: list = [user_id]
+    if item_id is not None:
+        where.append("item_id = ?")
+        params.append(item_id)
+    else:
+        wanted = [b.strip().lower() for b in (brands or []) if b and b.strip()]
+        if not wanted:
+            return None  # no brand in scope can't match anything
+        where.append("LOWER(TRIM(brand)) IN (" + ",".join("?" for _ in wanted) + ")")
+        params.extend(wanted)
+    row = conn.execute(
+        "SELECT MIN(created_at) AS first_seen FROM scored_items WHERE " + " AND ".join(where),
+        params,
+    ).fetchone()
+    return row["first_seen"] if row else None
+
+
 def readiness_missing_count(conn: sqlite3.Connection, user_id: int,
                             brands: list[str]) -> int:
     """Count a brand's managed products that have no readiness score yet.
