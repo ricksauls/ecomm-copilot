@@ -76,6 +76,33 @@ def _brand_filter(brands: list[str] | None) -> tuple[str, list]:
     return f" AND p.brand IN ({placeholders})", list(brands)
 
 
+def earliest_reading_date(conn: sqlite3.Connection, user_id: int,
+                          brands: list[str] | None = None,
+                          item_pk: int | None = None) -> str | None:
+    """Oldest rank/share reading date (``captured_at``) in the given scope, or ``None``.
+
+    Powers the Performance-screen trend pager's "how far back can we go" bound: the
+    returned date converts (via :func:`ci_analysis.periods_ago`) into the deepest window
+    index that still holds data, so the Older control can be disabled at the true edge of
+    history rather than letting the user page into blank windows. Scoped to one tracked
+    item (``item_pk``) for a drill, else to the brand's tracked items (``brands``; ``None``
+    = every tracked item). Returns the stored timestamp string unchanged (ISO), or
+    ``None`` when nothing has been collected yet.
+    """
+    frag, bparams = _brand_filter(brands)
+    item_clause, iparams = ("", [])
+    if item_pk is not None:
+        item_clause, iparams = (" AND r.portfolio_item_id = ?", [item_pk])
+    row = conn.execute(
+        "SELECT MIN(r.captured_at) AS first_seen "
+        "FROM portfolio_rank_readings r "
+        "JOIN portfolio_items p ON p.id = r.portfolio_item_id "
+        "WHERE r.user_id = ? AND p.tracked = 1" + frag + item_clause,
+        [user_id] + bparams + iparams,
+    ).fetchone()
+    return row["first_seen"] if row else None
+
+
 def portfolio_rank_summary(conn: sqlite3.Connection, user_id: int,
                            start: str, end: str,
                            brands: list[str] | None = None) -> dict:

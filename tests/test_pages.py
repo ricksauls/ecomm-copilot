@@ -1509,6 +1509,75 @@ def test_performance_is_csp_safe(client, auth, app):
     assert b"perf-go" in body
 
 
+def _seed_perf_weeks(app, email, item_id, weeks):
+    """Add weekly rank readings for one of :func:`_seed_performance`'s items across
+    period indices 1..weeks-1 (period 0 is already seeded), so the trend pager has more
+    than one window of history to page through."""
+    from app import ci_analysis
+    from app.db import get_db
+    with app.app_context():
+        db = get_db()
+        uid = db.execute("SELECT id FROM users WHERE email = ?", (email,)).fetchone()[0]
+        p = db.execute("SELECT id FROM portfolio_items WHERE item_id = ?", (item_id,)).fetchone()["id"]
+        kid = db.execute("SELECT id FROM portfolio_keywords WHERE portfolio_item_id = ? AND slot = 1",
+                         (p,)).fetchone()["id"]
+        for i in range(1, weeks):
+            day = ci_analysis.period_bounds("wow", i)[0]
+            db.execute(
+                "INSERT INTO portfolio_rank_readings (portfolio_item_id, keyword_id, user_id, "
+                "walmart_item_id, captured_at, rank, item_slots, total_slots) "
+                "VALUES (?,?,?,?,?,?,1,4)", (p, kid, uid, item_id, day, 3))
+        db.commit()
+
+
+def test_readiness_dim_context_windows_to_six_points():
+    # The readiness drill used to chart every scoring run (~26 points). It now collapses
+    # to one point per completed period in the paged 6-period window, like the other tabs,
+    # while the headline KPI stays at the item's current state regardless of paging.
+    from app import ci_analysis
+    from app.routes import pages
+    period = "wow"
+    runs = []
+    for i in range(7, -1, -1):  # oldest (i=7) → newest (i=0), one run per week
+        end = ci_analysis.period_bounds(period, i)[1]
+        runs.append({"as_of": f"{end} 12:00:00", "overall": 50 + i, "dimensions": {}})
+    ctx0 = pages._readiness_dim_context(runs, period, 0)
+    assert len(ctx0["all"]["series"]["values"]) == ci_analysis.TREND_PERIODS   # exactly 6
+    assert ctx0["all"]["series"]["dates"][-1] == ci_analysis.period_label(period, 0)
+    assert ctx0["all"]["metric"] == "50/100"   # headline = current run (i=0)
+    # Paged one window back: only the two oldest runs fall inside [11…6]; the headline
+    # metric is unchanged by paging (still the current state).
+    ctx6 = pages._readiness_dim_context(runs, period, ci_analysis.TREND_PAGE_STEP)
+    assert len(ctx6["all"]["series"]["values"]) == 2
+    assert ctx6["all"]["metric"] == "50/100"
+
+
+def test_performance_trend_pager_hidden_without_history(client, auth, app):
+    # One week of data fits a single window, so the pager is omitted entirely.
+    auth.register(email="perfpager0@example.com")
+    _seed_performance(app, "perfpager0@example.com")
+    body = client.get("/app/insights/performance").data
+    assert b"perf-pager" not in body
+
+
+def test_performance_trend_pager_pages_through_history(client, auth, app):
+    auth.register(email="perfpager@example.com")
+    gid = _seed_performance(app, "perfpager@example.com")
+    _seed_perf_weeks(app, "perfpager@example.com", "111", 8)  # 8 weeks → older windows exist
+    body = client.get("/app/insights/performance").data
+    assert b"perf-pager" in body
+    assert b"Older periods" in body       # the ← link into the previous window
+    assert b"off=6" in body               # links to the prior 6-period page
+    assert b"Newer periods" not in body   # at the newest window, Newer is disabled
+    # Paged one window back: Newer now links home (off=0); a forged/overflow offset is
+    # clamped to the oldest page rather than 500-ing.
+    paged = client.get(f"/app/insights/performance?group_id={gid}&off=6").data
+    assert b"Newer periods" in paged
+    assert b"off=0" in paged
+    assert client.get(f"/app/insights/performance?group_id={gid}&off=9999").status_code == 200
+    assert client.get(f"/app/insights/performance?group_id={gid}&off=-4").status_code == 200
+
+
 def test_performance_shelf_tab(client, auth, app):
     auth.register(email="perfshelf@example.com")
     _seed_performance(app, "perfshelf@example.com")

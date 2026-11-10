@@ -27,6 +27,14 @@ PERIOD_LABELS = {"wow": "Week", "mom": "Month", "qoq": "Quarter", "yoy": "Year"}
 DEFAULT_PERIOD = "wow"
 # How many completed periods the per-row trend sparkline plots (one point each).
 TREND_PERIODS = 6
+# How many periods the Performance-screen trend pager shifts its window per click.
+# Equal to TREND_PERIODS gives non-overlapping "pages" (Older/Newer flip a whole
+# window); set it to 1 for smooth pan-by-one instead — nothing else needs to change.
+TREND_PAGE_STEP = TREND_PERIODS
+# Safety cap on how far back periods_ago() will walk before giving up. Data only goes
+# back months in practice, so the loop returns almost immediately; the cap just stops a
+# pathological date (or a clock skew) from spinning. 520 weeks ≈ 10 years of history.
+_MAX_PERIODS_BACK = 520
 
 # The three daily monitoring windows, in Central time (matches the systemd timers).
 # The sweep runs ONE of these per day, rotating across days (see app.scrape_rotation);
@@ -276,6 +284,26 @@ def period_label(period: str, index: int = 0, today: date | None = None) -> str:
     if period == "qoq":
         return f"Q{(s.month - 1) // 3 + 1} {s.year}"
     return str(s.year)  # yoy
+
+
+def periods_ago(period: str, when, today: date | None = None) -> int:
+    """How many completed periods back the window *containing* ``when`` sits (0 = the
+    most recently completed period).
+
+    Used by the Performance-screen trend pager to turn "the oldest reading we hold" into
+    a window index, so Older/Newer can be disabled once the window reaches the edge of
+    real data. ``when`` is a ``date`` or an ISO date/datetime string (only the date part
+    is read). A ``when`` newer than the last completed period returns 0; anything older
+    than :data:`_MAX_PERIODS_BACK` periods is clamped to that cap.
+    """
+    target = when if isinstance(when, date) else date.fromisoformat(str(when)[:10])
+    # Windows march monotonically into the past as the index grows, so the first index
+    # whose window *starts* on or before the target is the one that contains it.
+    for i in range(_MAX_PERIODS_BACK + 1):
+        start = date.fromisoformat(period_bounds(period, i, today)[0])
+        if start <= target:
+            return i
+    return _MAX_PERIODS_BACK
 
 
 def period_has_data(conn: sqlite3.Connection, group_id: int, period: str,

@@ -76,6 +76,21 @@ def test_period_bounds_are_last_completed_calendar():
     assert ci_analysis.period_label("yoy", 0, T) == "2025"
 
 
+def test_periods_ago_maps_a_date_to_its_window_index():
+    # Powers the trend pager's "how far back can we go" bound. index 0 is the most
+    # recently completed period; older dates map to higher indices.
+    T = date(2026, 8, 26)  # wow period 0 = Aug 17–23, period 1 = Aug 10–16
+    assert ci_analysis.periods_ago("wow", date(2026, 8, 20), T) == 0  # inside period 0
+    assert ci_analysis.periods_ago("wow", "2026-08-10", T) == 1       # start of period 1
+    assert ci_analysis.periods_ago("wow", "2026-08-16", T) == 1       # end of period 1
+    # A datetime string is accepted (only the date part is read).
+    assert ci_analysis.periods_ago("wow", "2026-08-10 09:30:00", T) == 1
+    # A date newer than the last completed period clamps to the current window (0).
+    assert ci_analysis.periods_ago("wow", date(2026, 9, 1), T) == 0
+    # Monthly: period 0 = Jul 2026, period 1 = Jun 2026.
+    assert ci_analysis.periods_ago("mom", date(2026, 6, 10), T) == 1
+
+
 def test_available_periods_gate_on_completed_period_data(app):
     with app.app_context():
         db = get_db()

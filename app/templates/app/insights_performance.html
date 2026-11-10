@@ -216,6 +216,31 @@
 </div>
 {% endmacro %}
 
+{# Trend-window pager — Older/Newer links that shift every chart's 6-period window through
+   history (the `off` URL param), with the visible range between them. Server-rendered
+   links (CSP-safe, no inline JS); an edge with no further data renders disabled. Only the
+   `off` arg changes — brand/item/tab/period are preserved — and the whole control is
+   omitted unless the page passed show_pager (all data fits one window → no pager). #}
+{% macro trend_pager() %}
+{% if show_pager %}
+<div class="perf-pager" role="group" aria-label="Trend window">
+  {% if can_older %}
+  <a class="perf-pager-btn" aria-label="Older periods"
+     href="{{ url_for('pages.insights_performance', group_id=selected_group_id, tab=tab, period=period, item=(item or 'all'), off=older_off) }}">&larr;</a>
+  {% else %}
+  <span class="perf-pager-btn is-disabled" aria-hidden="true">&larr;</span>
+  {% endif %}
+  <span class="perf-pager-label">{{ window_label }}</span>
+  {% if can_newer %}
+  <a class="perf-pager-btn" aria-label="Newer periods"
+     href="{{ url_for('pages.insights_performance', group_id=selected_group_id, tab=tab, period=period, item=(item or 'all'), off=newer_off) }}">&rarr;</a>
+  {% else %}
+  <span class="perf-pager-btn is-disabled" aria-hidden="true">&rarr;</span>
+  {% endif %}
+</div>
+{% endif %}
+{% endmacro %}
+
 {% block pane_content %}
 <div class="page-header perf-header">
   <div>
@@ -346,6 +371,7 @@
         <div class="perf-trend" data-perf-trend data-kw-chart
              data-series='{{ detail.rank_trend | tojson }}'></div>
       </div>
+      {{ trend_pager() }}
     </div>
   </div>
   {# Bottom table — the brand all-items Tracked Products table, scoped to this one item
@@ -393,6 +419,7 @@
         <div class="perf-trend" data-perf-trend data-kw-chart
              data-series='{{ detail.share_trend | tojson }}'></div>
       </div>
+      {{ trend_pager() }}
     </div>
   </div>
   {# Bottom table — the brand all-items Tracked Products table, scoped to this one item
@@ -438,6 +465,7 @@
         <div class="perf-trend" data-perf-trend data-kw-chart
              data-series='{{ detail.readiness_trend | tojson }}'></div>
       </div>
+      {{ trend_pager() }}
     </div>
   </div>
   {# This item's latest overall + per-dimension scores — the same Content Scores table the
@@ -512,6 +540,7 @@
       <div class="chart-wrap">
         <div class="perf-trend" data-perf-trend data-series='{{ trend | tojson }}'></div>
       </div>
+      {{ trend_pager() }}
     </div>
   </div>
 
