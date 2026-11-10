@@ -373,6 +373,28 @@ def readiness_items(conn: sqlite3.Connection, user_id: int, brands: list[str]) -
     return [{"item_id": r["item_id"], "title": r["title"], "score": r["overall"]} for r in rows]
 
 
+def _result_dim_detail(dims: list[dict]) -> dict:
+    """Shape a scored result's dimension list into ``{key: {label, score, available,
+    recommendations}}`` — the per-dimension detail the Content Scores table's expandable
+    rows read (the same findings the PDP results screen shows). A dimension marked
+    unavailable reports ``score=None`` so the table renders a muted "—"; recommendations
+    default to an empty list when the scorer offered none.
+    """
+    detail = {}
+    for d in dims:
+        key = d.get("key")
+        if not key:
+            continue
+        available = d.get("available", True)
+        detail[key] = {
+            "label": d.get("label") or key,
+            "score": d.get("score") if available else None,
+            "available": available,
+            "recommendations": list(d.get("recommendations") or []),
+        }
+    return detail
+
+
 def readiness_items_detail(conn: sqlite3.Connection, user_id: int,
                            brands: list[str]) -> list[dict]:
     """Every scored product for a set of brands at its latest score, with per-dimension
@@ -381,10 +403,11 @@ def readiness_items_detail(conn: sqlite3.Connection, user_id: int,
     Like :func:`readiness_items` (latest-per-item, worst-first) but each row also carries
     its dimensions' scores, so the Performance Content Readiness tab can show the same
     overall + per-dimension breakdown the PDP scoring results screen does. Returns
-    ``[{item_id, title, overall, dimensions}]`` where ``dimensions`` is ``{key: score}``
-    (``None`` when a dimension wasn't measurable on that run). A product whose result JSON
-    is unparseable keeps its overall score with empty dimensions rather than vanishing.
-    An empty brand scope short-circuits.
+    ``[{item_id, title, overall, dimensions, dims}]`` where ``dimensions`` is
+    ``{key: score}`` (``None`` when a dimension wasn't measurable) and ``dims`` is the
+    richer ``{key: {label, score, available, recommendations}}`` the expandable rows read.
+    A product whose result JSON is unparseable keeps its overall score with empty
+    dimensions rather than vanishing. An empty brand scope short-circuits.
     """
     wanted = [b.strip().lower() for b in brands if b and b.strip()]
     if not wanted:
@@ -415,7 +438,8 @@ def readiness_items_detail(conn: sqlite3.Connection, user_id: int,
         scores = {d.get("key"): (d.get("score") if d.get("available", True) else None)
                   for d in dims if d.get("key")}
         out.append({"item_id": r["item_id"], "title": r["title"],
-                    "overall": r["overall"], "dimensions": scores})
+                    "overall": r["overall"], "dimensions": scores,
+                    "dims": _result_dim_detail(dims)})
     return out
 
 
@@ -522,6 +546,40 @@ def readiness_item(conn: sqlite3.Connection, user_id: int, item_id: str,
     dimensions = [{"label": d.get("label") or d.get("key"), "score": d.get("score"),
                    "available": d.get("available", True)} for d in dims]
     return {"title": row["title"], "overall": row["overall"], "dimensions": dimensions}
+
+
+def readiness_item_detail(conn: sqlite3.Connection, user_id: int, item_id: str,
+                          as_of: str | None = None) -> dict | None:
+    """One product's latest scored result with full per-dimension detail, keyed by key.
+
+    Mirrors :func:`readiness_items_detail`'s ``dims`` shape for a single item, so the
+    Performance Content Readiness drill can render the same expandable Content Scores
+    table (overall + per-dimension score + recommendations) the brand all-items view
+    shows. Returns ``{title, overall, dims}`` where ``dims`` is
+    ``{key: {label, score, available, recommendations}}``, or ``None`` when the product
+    has never been scored. ``as_of`` reads the score as it stood on or before that
+    timestamp. Scoped to the owner.
+    """
+    params: list = [user_id, item_id]
+    clause = ""
+    if as_of:
+        clause = " AND created_at <= ?"
+        params.append(as_of)
+    row = conn.execute(
+        "SELECT title, overall, result_json FROM scored_items "
+        "WHERE user_id = ? AND item_id = ? AND overall IS NOT NULL" + clause +
+        " ORDER BY created_at DESC, id DESC LIMIT 1",
+        params,
+    ).fetchone()
+    if row is None:
+        return None
+    try:
+        dims = json.loads(row["result_json"] or "{}").get("dimensions", [])
+    except (ValueError, TypeError):
+        logger.warning("Unparseable scored result user_id=%s item_id=%s", user_id, item_id)
+        dims = []
+    return {"title": row["title"], "overall": row["overall"],
+            "dims": _result_dim_detail(dims)}
 
 
 def readiness_history(conn: sqlite3.Connection, user_id: int, item_id: str) -> list[dict]:

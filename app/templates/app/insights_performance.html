@@ -91,14 +91,22 @@
 {% macro readiness_scores_table(tbl, title, subtitle) %}
 <div class="perf-tables single">
   <div class="card tbl-card">
-    <div class="tbl-head">{{ title }}<div class="sub">{{ subtitle }}</div></div>
+    <div class="tbl-head perf-tbl-head">
+      <span>{{ title }}<div class="sub">{{ subtitle }}</div></span>
+      {# Expand All toggles every row's recommendations at once (performance.js); it's a
+         no-op without JS, where the detail panels are already open. #}
+      {% if tbl.rows %}<button type="button" class="wbtn wbtn-ghost perf-expand-all" aria-expanded="false">Expand all</button>{% endif %}
+    </div>
     <table class="dash perf-dash perf-readiness-dash">
       <thead><tr><th>#</th><th>Product</th><th class="col-right">Overall</th>
         {% for key, label in tbl.dims %}<th class="col-center">{{ label }}</th>{% endfor %}
+        <th class="col-center perf-caret-head" aria-label="Recommendations"></th>
       </tr></thead>
       <tbody>
         {% for r in tbl.rows %}
-        <tr>
+        {# Summary row — clicking it (or its caret) reveals the recommendations row below,
+           the same expand behaviour as the PDP "Product Detail Page Content Scores" screen. #}
+        <tr class="perf-row" data-perf-row>
           <td class="col-num">{{ loop.index }}</td>
           <td>{{ r.name }}</td>
           {# Overall: the headline score (colored by band) over a thin progress bar. #}
@@ -119,9 +127,48 @@
             {% endif %}
           </td>
           {% endfor %}
+          <td class="perf-caret-cell">
+            <span class="pdp-caret" role="button" tabindex="0" aria-expanded="false"
+                  aria-label="Show recommendations for {{ r.name }}"></span>
+          </td>
+        </tr>
+        {# Detail row — per-dimension recommendations (what to do to improve each dimension),
+           plus a link to the tool that fixes it. Collapsed by performance.js; visible with
+           JS off (nothing here is JS-gated). #}
+        <tr class="perf-detail-row" data-perf-detail>
+          <td colspan="{{ 4 + (tbl.dims | length) }}" class="perf-detail-cell">
+            <div class="pdp-detail">
+              <div class="pdp-recs">
+                {% for c in r.cells %}
+                <div class="pdp-rec-dim">
+                  <div class="pdp-rec-head">
+                    <span class="pdp-rec-name">{{ c.label }}</span>
+                    {% if c.score is not none %}
+                    <span class="pdp-rec-score {{ c.cls }}">{{ c.score }}/100</span>
+                    {% else %}
+                    <span class="pdp-rec-score muted">not measured yet</span>
+                    {% endif %}
+                  </div>
+                  {% if c.recommendations %}
+                  <ul class="dim-recs">
+                    {% for rec in c.recommendations %}<li>{{ rec }}</li>{% endfor %}
+                  </ul>
+                  {% elif c.score is not none %}
+                  <p class="pdp-rec-none">No changes recommended — this dimension looks good.</p>
+                  {% endif %}
+                  {# Where to act on it: imagery → the Image Set tool, the copy dimensions →
+                     Product Copy. The tool opens on its managed-item picker (no per-item
+                     preselect yet), so the link lands on the tool, not this item. #}
+                  {% set improve_url = url_for('pages.imageset_intake') if c.key == 'imagery' else url_for('pages.pdp_copy') %}
+                  <a class="perf-improve-link" href="{{ improve_url }}">{{ 'Improve images' if c.key == 'imagery' else 'Improve copy' }} &rarr;</a>
+                </div>
+                {% endfor %}
+              </div>
+            </div>
+          </td>
         </tr>
         {% else %}
-        <tr><td colspan="{{ 3 + (tbl.dims | length) }}" class="perf-empty-cell">No scored products yet.</td></tr>
+        <tr><td colspan="{{ 4 + (tbl.dims | length) }}" class="perf-empty-cell">No scored products yet.</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -129,23 +176,39 @@
 </div>
 {% endmacro %}
 
-{# Per-keyword breakdown table for a single item's Search Rank / Share of Search drill —
-   the Discovery analogue of the Content Scores table, so every tab's drill ends in a
-   table listing this item's information. `attr` picks the cell on each keyword row
-   ('rank' or 'share', each a {display, cls}); rows come from detail.keywords. #}
-{% macro item_keyword_table(title, subtitle, rows, attr, metric_label) %}
+{# Tracked-products table — the brand all-items Discovery table (Search Rank / Share of
+   Search), shared by the brand overview and each item drill so a drilled item's bottom
+   table reads in the identical format (just one row). `metric_cols` is the metric column
+   header list; each product carries either a `cells` list (one per metric column) or a
+   single `display`/`cls`. Drillable rows (brand view) navigate into the item; a drill's
+   one-row table is non-drillable. #}
+{% macro products_table(products, metric_cols, drillable, selected_group_id, tab, period) %}
 <div class="perf-tables single">
   <div class="card tbl-card">
-    <div class="tbl-head">{{ title }}<div class="sub">{{ subtitle }}</div></div>
+    <div class="tbl-head">Tracked Products{% if drillable %}<div class="sub">Click an item to drill in</div>{% endif %}</div>
     <table class="dash perf-dash">
-      <thead><tr><th>#</th><th>Keyword</th><th class="col-right">{{ metric_label }}</th></tr></thead>
+      <thead><tr><th>#</th><th>Product</th>
+        {% for c in metric_cols %}<th class="col-right">{{ c }}</th>{% endfor %}
+      </tr></thead>
       <tbody>
-        {% for k in rows %}
-        <tr><td class="col-num">{{ loop.index }}</td>
-          <td title="{{ k.keyword }}">{{ k.keyword }}</td>
-          <td class="col-metric {{ k[attr].cls }}">{{ k[attr].display }}</td></tr>
+        {% for r in products %}
+        {% set cells = r.cells if r.cells else [{'display': r.display, 'cls': r.cls}] %}
+        {% if drillable %}
+        {% set drill = url_for('pages.insights_performance', group_id=selected_group_id, tab=tab, period=period, item=r.item_id) %}
+        <tr class="row-drill" data-href="{{ drill }}">
+          <td class="col-num">{{ loop.index }}</td>
+          <td><a class="perf-drill-link" href="{{ drill }}">{{ r.name }}</a></td>
+          {% for c in cells %}<td class="col-metric {{ c.cls }}">{{ c.display }}</td>{% endfor %}
+        </tr>
         {% else %}
-        <tr><td colspan="3" class="perf-empty-cell">No tracked keywords for this item yet.</td></tr>
+        <tr>
+          <td class="col-num">{{ loop.index }}</td>
+          <td>{{ r.name }}</td>
+          {% for c in cells %}<td class="col-metric {{ c.cls }}">{{ c.display }}</td>{% endfor %}
+        </tr>
+        {% endif %}
+        {% else %}
+        <tr><td colspan="{{ 2 + (metric_cols | length) }}" class="perf-empty-cell">No tracked products for this brand yet.</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -285,11 +348,9 @@
       </div>
     </div>
   </div>
-  {# This item's rank per tracked keyword — keeps a table at the bottom of the drill,
-     consistent with the other tabs. #}
-  {{ item_keyword_table("Search Rank by keyword",
-       "This item's avg page-1 position per tracked keyword · lower is better",
-       detail.keywords, "rank", "Avg rank") }}
+  {# Bottom table — the brand all-items Tracked Products table, scoped to this one item
+     (one row), so the drill ends in the same format every tab uses. #}
+  {{ products_table([detail.rank_table_row], ["Avg Rank"], false, selected_group_id, tab, period) }}
 
   {% elif tab == 'shelf' %}
   {# Interactive Share of Search drill — same pattern as Search Rank, per-keyword share. #}
@@ -334,11 +395,10 @@
       </div>
     </div>
   </div>
-  {# This item's share per tracked keyword — keeps a table at the bottom of the drill,
-     consistent with the other tabs. #}
-  {{ item_keyword_table("Share by keyword",
-       "This item's share of page-1 slots per tracked keyword",
-       detail.keywords, "share", "Share") }}
+  {# Bottom table — the brand all-items Tracked Products table, scoped to this one item
+     (one row): Total Share with its Organic / Paid split, the same format the brand view
+     and the Search Rank drill use. #}
+  {{ products_table([detail.share_table_row], ["Total Share", "Organic", "Paid"], false, selected_group_id, tab, period) }}
 
   {% else %}
   {# Interactive Content Readiness drill — the per-dimension analogue of the Search Rank /
@@ -428,6 +488,23 @@
         </ul>
       </div>
       {% endif %}
+      {# Content Readiness tab only: the average of each content dimension across the
+         brand's scored products — the all-items analogue of the single-item card's
+         "Score by dimension" list. Static (no chart to swap on the brand view), so it
+         reuses the kw-select layout without the interactive hooks. #}
+      {% if readiness_dim_averages %}
+      <div class="kpi-keywords">
+        <div class="kpi-keywords-label">Score by dimension</div>
+        <ul class="kw-select" aria-label="Average score by dimension">
+          {% for d in readiness_dim_averages %}
+          <li class="kw-opt is-static">
+            <span class="kw-opt-term">{{ d.label }}</span>
+            <span class="kw-opt-val {{ d.cls }}">{{ d.display }}</span>
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
     </div>
     <div class="card card-pad chart-card">
       <h2 class="chart-title">{{ tab_labels[tab] }} Trend</h2>
@@ -443,42 +520,12 @@
        "Each product's latest overall + per-dimension score · strong ≥ " ~ readiness_target) }}
 
   {% else %}
-  <div class="perf-tables single">
-    <div class="card tbl-card">
-      <div class="tbl-head">Tracked Products{% if drillable %}<div class="sub">Click an item to drill in</div>{% endif %}</div>
-      {# One metric column per tab normally; the Share of Search tab passes
-         `products_cols` (Total Share · Organic · Paid) and each row a `cells` list,
-         so the table renders N metric columns. Fall back to the single
-         `products_label` + `r.display`/`r.cls` for the Rank tab. #}
-      {% set metric_cols = products_cols if products_cols else [products_label] %}
-      <table class="dash perf-dash">
-        <thead><tr><th>#</th><th>Product</th>
-          {% for c in metric_cols %}<th class="col-right">{{ c }}</th>{% endfor %}
-        </tr></thead>
-        <tbody>
-          {% for r in products %}
-          {% set cells = r.cells if r.cells else [{'display': r.display, 'cls': r.cls}] %}
-          {% if drillable %}
-          {% set drill = url_for('pages.insights_performance', group_id=selected_group_id, tab=tab, period=period, item=r.item_id) %}
-          <tr class="row-drill" data-href="{{ drill }}">
-            <td class="col-num">{{ loop.index }}</td>
-            <td><a class="perf-drill-link" href="{{ drill }}">{{ r.name }}</a></td>
-            {% for c in cells %}<td class="col-metric {{ c.cls }}">{{ c.display }}</td>{% endfor %}
-          </tr>
-          {% else %}
-          <tr>
-            <td class="col-num">{{ loop.index }}</td>
-            <td>{{ r.name }}</td>
-            {% for c in cells %}<td class="col-metric {{ c.cls }}">{{ c.display }}</td>{% endfor %}
-          </tr>
-          {% endif %}
-          {% else %}
-          <tr><td colspan="{{ 2 + (metric_cols | length) }}" class="perf-empty-cell">No tracked products for this brand yet.</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </div>
+  {# One metric column per tab normally; the Share of Search tab passes `products_cols`
+     (Total Share · Organic · Paid) and each row a `cells` list, so the table renders N
+     metric columns. Fall back to the single `products_label` + `r.display`/`r.cls` for the
+     Rank tab. The item drills reuse this same macro, scoped to one row. #}
+  {% set metric_cols = products_cols if products_cols else [products_label] %}
+  {{ products_table(products, metric_cols, drillable, selected_group_id, tab, period) }}
   {% endif %}
   {% endif %}
 

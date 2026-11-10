@@ -1676,7 +1676,10 @@ def test_performance_item_drilldown_rescopes(client, auth, app):
     assert b"Rank by keyword" in body              # drilled view's in-card keyword list
     assert b"All items" in body                    # back chip
     assert b"Tabasco Green Pepper Sauce" in body   # the drilled item in the bar
-    assert b"Tracked Products" not in body         # products table is gone when drilled
+    # The drill's bottom table is now the brand all-items "Tracked Products" table, scoped
+    # to just this one item (one row) — the same format every tab's drill ends in.
+    assert b"Tracked Products" in body
+    assert b"Avg Rank" in body                     # the rank metric column header
 
 
 def test_performance_item_drill_is_tab_scoped(client, auth, app):
@@ -1716,6 +1719,10 @@ def test_performance_item_drill_is_tab_scoped(client, auth, app):
     assert b"data-kw-context" in shelf                     # payload for the chart/KPI swap
     assert b'data-kw-id="all"' in shelf                      # the default option
     assert b"This item's avg page-1 position" not in shelf  # rank card is on its own tab
+    # The drill's bottom table is the brand all-items products table scoped to this item:
+    # the Share tab keeps its Total Share / Organic / Paid columns.
+    assert b"Tracked Products" in shelf
+    assert b"Total Share" in shelf
 
 
 def test_performance_rank_brand_card_lists_tracked_keywords(client, auth, app):
@@ -1820,6 +1827,52 @@ def test_performance_readiness_item_drilldown_shows_dimensions(client, auth, app
     # The Content Scores table stays at the bottom, scoped to this one item.
     assert b"Content Scores" in body
     assert b"perf-readiness-dash" in body
+
+
+def test_performance_readiness_card_shows_dimension_averages(client, auth, app):
+    # The All-Items Content Readiness card gains a "Score by dimension" list — each
+    # content dimension's average across the brand's scored products, mirroring the
+    # single-item card's per-dimension list (static, non-interactive on the brand view).
+    auth.register(email="rdavg@example.com")
+    gid = _seed_readiness(app, "rdavg@example.com")
+    body = client.get(f"/app/insights/performance?group_id={gid}&tab=readiness").data
+    assert b"Score by dimension" in body
+    assert b"kw-opt is-static" in body            # rendered static, not an interactive swap
+    # The Rank / Share brand cards don't show it (readiness-only).
+    rank = client.get(f"/app/insights/performance?group_id={gid}&tab=rank").data
+    assert b"Score by dimension" not in rank
+
+
+def test_performance_readiness_table_rows_expand_with_recommendations(client, auth, app):
+    # The Content Scores table's rows expand (PDP-style) to each dimension's score +
+    # recommendations, with links to the tool that fixes it.
+    auth.register(email="rdrec@example.com")
+    gid = _seed_performance(app, "rdrec@example.com")
+    import json as _json
+
+    from app.db import get_db
+    with app.app_context():
+        db = get_db()
+        uid = db.execute("SELECT id FROM users WHERE email = ?",
+                         ("rdrec@example.com",)).fetchone()[0]
+        db.execute(
+            "INSERT INTO scored_items (user_id, item_id, url, title, brand, overall, result_json) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (uid, "222", "u", "Tabasco Green Pepper Sauce", "Tabasco", 58,
+             _json.dumps({"overall": 58, "dimensions": [
+                 {"key": "imagery", "label": "Imagery", "score": 45, "available": True,
+                  "recommendations": ["Add a lifestyle image"]},
+                 {"key": "title", "label": "Title", "score": 95, "available": True,
+                  "recommendations": []},
+             ]})))
+        db.commit()
+    body = client.get(f"/app/insights/performance?group_id={gid}&tab=readiness").data
+    assert b"Add a lifestyle image" in body        # the recommendation text in the detail panel
+    assert b"No changes recommended" in body        # the strong dimension's "looks good" line
+    assert b"Expand all" in body                     # the expand-all control
+    assert b"perf-detail-row" in body                # the expandable detail row
+    assert b"Improve images" in body                 # link to the Image Set tool (imagery)
+    assert b"Improve copy" in body                    # link to Product Copy (copy dimensions)
 
 
 def test_performance_readiness_tab_offered_and_dashboard_links_to_it(client, auth, app):

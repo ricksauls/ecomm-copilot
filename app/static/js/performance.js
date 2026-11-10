@@ -309,12 +309,20 @@
       svg.appendChild(lab);
     });
 
-    // x labels — the first/last labels anchor inward (start/end) so a wide period
-    // label (e.g. "Oct 26–Nov 1") stays inside the plot instead of clipping at the
-    // SVG edge; interior labels stay centered on their point. Mirrors the dashboard
-    // card charts (_card_chart in pages.py).
+    // x labels — thinned to at most ~8 ticks so a long series (the Content Readiness
+    // trend draws one point per weekly scoring run, ~26 since spring) doesn't overprint
+    // its labels into an unreadable smear; the first and last are always kept, and a
+    // regular tick landing within one step of the forced last one is dropped so they
+    // don't collide. The first/last anchor inward (start/end) so a wide period label
+    // (e.g. "Oct 26–Nov 1") stays inside the plot instead of clipping at the SVG edge;
+    // interior labels stay centered. Mirrors the dashboard card charts.
+    var nDates = dates.length;
+    var labelStep = Math.max(1, Math.ceil(nDates / 8));
     dates.forEach(function (d, i) {
-      var anchor = i === 0 ? "start" : (i === dates.length - 1 ? "end" : "middle");
+      var isLast = i === nDates - 1;
+      if (i % labelStep !== 0 && !isLast) { return; }
+      if (!isLast && (nDates - 1 - i) < labelStep) { return; }
+      var anchor = i === 0 ? "start" : (isLast ? "end" : "middle");
       var t = el("text", { x: x(i), y: H - 11, "text-anchor": anchor,
         "font-size": 11, fill: LABEL });
       t.textContent = xLabel(d);
@@ -514,11 +522,58 @@
     });
   }
 
+  // Content Scores table (Content Readiness tab): clicking a product row — or its caret —
+  // reveals a recommendations panel for that item, the same expand behaviour as the PDP
+  // "Product Detail Page Content Scores" screen. Pure enhancement: the panels are open by
+  // default, and adding `.perf-js` is what collapses them (CSS), so with JS off every
+  // product's recommendations stay visible. "Expand all" toggles the whole table at once.
+  function wireReadinessExpand() {
+    document.querySelectorAll(".perf-readiness-dash").forEach(function (table) {
+      var rows = Array.prototype.slice.call(table.querySelectorAll("[data-perf-row]"));
+      if (!rows.length) { return; }
+      table.classList.add("perf-js"); // enables the collapsed state in CSS
+
+      rows.forEach(function (row) {
+        var detail = row.nextElementSibling;
+        if (!detail || !detail.hasAttribute("data-perf-detail")) { return; }
+        var caret = row.querySelector(".pdp-caret");
+        function toggle(force) {
+          var open = force === undefined ? !row.classList.contains("is-open") : force;
+          row.classList.toggle("is-open", open);
+          detail.classList.toggle("is-open", open);
+          if (caret) { caret.setAttribute("aria-expanded", open ? "true" : "false"); }
+        }
+        row.addEventListener("click", function (e) {
+          if (e.target.closest("a")) { return; } // let the "Improve …" links work
+          toggle();
+        });
+        if (caret) {
+          caret.addEventListener("keydown", function (e) {
+            if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); }
+          });
+        }
+        row._perfToggle = toggle; // expand-all drives each row through this
+      });
+
+      var card = table.closest(".tbl-card");
+      var btn = card ? card.querySelector(".perf-expand-all") : null;
+      if (btn) {
+        btn.addEventListener("click", function () {
+          var expand = btn.getAttribute("aria-expanded") !== "true";
+          rows.forEach(function (r) { if (r._perfToggle) { r._perfToggle(expand); } });
+          btn.setAttribute("aria-expanded", expand ? "true" : "false");
+          btn.textContent = expand ? "Collapse all" : "Expand all";
+        });
+      }
+    });
+  }
+
   function init() {
     document.querySelectorAll("[data-perf-trend]").forEach(drawTrend);
     wireControls();
     wireRowDrill();
     wireKeywordSelect();
+    wireReadinessExpand();
   }
 
   if (document.readyState === "loading") {
