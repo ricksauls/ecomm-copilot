@@ -19,7 +19,15 @@ import io
 import logging
 import os
 
-from PIL import Image, ImageChops, ImageDraw, ImageEnhance, ImageFilter, ImageFont, ImageOps
+from PIL import (
+    Image,
+    ImageChops,
+    ImageDraw,
+    ImageEnhance,
+    ImageFilter,
+    ImageFont,
+    ImageOps,
+)
 
 from app.imageset.config import CANVAS_SIZE, SAFE_MARGIN
 
@@ -67,8 +75,7 @@ def detect_dominant_color(cutout: "Image.Image") -> str | None:
     # Prominence = pixel count × average saturation (favors a vivid, common hue).
     key = max(buckets, key=lambda k: buckets[k][0] * (buckets[k][4] / buckets[k][0]))
     count, rs, gs, bs, _ = buckets[key]
-    hex_color = "#{:02x}{:02x}{:02x}".format(
-        round(rs / count), round(gs / count), round(bs / count))
+    hex_color = f"#{round(rs / count):02x}{round(gs / count):02x}{round(bs / count):02x}"
     logger.debug("Detected dominant brand color %s (bucket=%d, px=%d)", hex_color, key, int(count))
     return hex_color
 

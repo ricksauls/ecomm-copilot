@@ -535,7 +535,7 @@ def _seed_ci_run(conn: sqlite3.Connection, group_id: int, run_id: int, iso: str,
     """
     mine = spec["brand"]
     mine_share = _mine_share(spec["role"], f)
-    for kw, kw_id in keyword_ids.items():
+    for kw_id in keyword_ids.values():
         shelf = rng.randint(SHELF_SLOTS_MIN, SHELF_SLOTS_MAX)
         mine_total = max(1, round(shelf * mine_share))
         remaining = shelf - mine_total
@@ -691,7 +691,7 @@ def main(argv: list[str] | None = None) -> int:
         conn.commit()
     except Exception:
         conn.rollback()
-        logger.error("Demo seed failed; rolled back", exc_info=True)
+        logger.exception("Demo seed failed; rolled back")
         raise
     finally:
         conn.close()

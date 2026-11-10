@@ -41,7 +41,7 @@ def process_item(conn: sqlite3.Connection, item: sqlite3.Row) -> None:
             logger.info("Resolved %d image(s) for import item=%s", len(refs), item_id)
     except sources.SourceError as e:
         store.set_item_status(conn, item_id, store.ITEM_ERROR, error=str(e))
-    except Exception as e:  # noqa: BLE001 - never let one item crash the worker
+    except Exception as e:  # never let one item crash the worker
         logger.exception("Unexpected error processing import item=%s", item_id)
         store.set_item_status(conn, item_id, store.ITEM_ERROR, error=f"Unexpected error: {e}")
     finally:

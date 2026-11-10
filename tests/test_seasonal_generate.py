@@ -86,7 +86,7 @@ def test_process_product_no_images_is_error(app, monkeypatch):
     with app.app_context():
         db = get_db()
         uid = create_local_user("seag-c@example.com", "password123")
-        cid, pid = _campaign_with_product(db, uid)
+        _cid, pid = _campaign_with_product(db, uid)
         monkeypatch.setattr(sources, "resolve_images", lambda url, stype: ("Empty", []))
         generate.process_product(db, store.claim_next_product(db))
         assert store.get_product(db, pid, uid)["status"] == store.PRODUCT_ERROR

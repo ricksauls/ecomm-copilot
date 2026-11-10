@@ -341,7 +341,7 @@ def test_activity_item_route_is_ownership_scoped(client, auth, app):
 def test_view_copy_scopes_to_selection_and_lists_missing(client, auth, app):
     # "View copy results" scoped to the ticked items shows copy for those that
     # have it and lists the rest with a "copy not created" note.
-    from app import jobs, copy_jobs
+    from app import copy_jobs, jobs
     from app.db import get_db
     from app.routes.pages import _BATCH_KEY
 
@@ -780,8 +780,8 @@ _IMAGERY_WHITE_BG = {
     "overall": 70,
     "dimensions": [{
         "key": "imagery", "label": "Imagery", "score": 70, "available": True,
-        "recommendations": ["Set the main image to the product on a pure white background "
-                            "(a Walmart main-image requirement)"],
+        "recommendations": [("Set the main image to the product on a pure white background "
+                            "(a Walmart main-image requirement)")],
         "image_issues": [],
         "white_bg_url": "https://i5.walmartimages.com/seo/main.jpg",
     }],

@@ -110,7 +110,7 @@ def process_product(conn, product) -> None:
         logger.info("Queued main image for seasonal product=%s image=%s", product_id, image_id)
     except sources.SourceError as e:
         store.set_product_status(conn, product_id, store.PRODUCT_ERROR, error=str(e))
-    except Exception as e:  # noqa: BLE001 - never let one product crash the worker
+    except Exception as e:  # never let one product crash the worker
         logger.exception("Unexpected error acquiring seasonal product=%s", product_id)
         store.set_product_status(conn, product_id, store.PRODUCT_ERROR,
                                  error=f"Unexpected error: {e}")

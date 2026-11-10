@@ -289,7 +289,7 @@ def _claude_plan(ctx: PlanProductContext, *, model: str | None = None, client=No
         )
     except PlanError:
         raise
-    except Exception as e:  # noqa: BLE001 - normalize any SDK/transport error
+    except Exception as e:  # normalize any SDK/transport error into PlanError
         raise PlanError(f"Creative plan request failed: {e}") from e
 
     if getattr(response, "stop_reason", None) == "refusal":

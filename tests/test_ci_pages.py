@@ -5,9 +5,8 @@ create/config flows, monitoring schedule-run, the View dropdown, monitoring PDF,
 and IDOR across the routes.
 """
 
-from datetime import date, timedelta
-
 import io
+from datetime import date, timedelta
 
 from app import ci_analysis, ci_config, ci_images, ci_jobs, portfolio
 from app.db import get_db
@@ -369,8 +368,8 @@ def test_delete_competitor_frees_a_slot(client, auth):
     client.post(f"/app/competitive-intel/groups/{gid}/competitors",
                 data={"urls": ["https://www.walmart.com/ip/Franks/111"]})
     with client.application.app_context():
-        bid = [b for b in ci_config.list_brands(get_db(), gid, 1)
-               if b["type"] == "competitor"][0]["id"]
+        bid = next(b for b in ci_config.list_brands(get_db(), gid, 1)
+               if b["type"] == "competitor")["id"]
     client.post(f"/app/competitive-intel/brands/{bid}/delete", data={"group_id": gid})
     with client.application.app_context():
         comp = [b for b in ci_config.list_brands(get_db(), gid, 1) if b["type"] == "competitor"]

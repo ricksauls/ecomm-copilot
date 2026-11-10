@@ -11,7 +11,8 @@ from datetime import date, timedelta
 
 import pytest
 
-from app import ci_config, report_schedules as rs, report_store
+from app import ci_config, report_store
+from app import report_schedules as rs
 from app.db import get_db
 from app.users import create_local_user
 

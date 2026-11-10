@@ -6,7 +6,6 @@ header and example rows that screen's parser expects.
 
 import pytest
 
-
 # (route, expected filename, a header substring, an example-URL substring)
 _TEMPLATES = [
     ("/app/portfolio/template.csv", "portfolio-template.csv", b"Walmart Item URL", b"walmart.com/ip/"),

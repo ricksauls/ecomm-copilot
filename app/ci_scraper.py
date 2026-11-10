@@ -380,7 +380,7 @@ def _challenge_overlay_present(page) -> bool:
     try:
         if _has_markers(page.inner_text("body")):
             return True
-    except Exception:  # noqa: BLE001 - unreadable body -> fall through to frames
+    except Exception:  # noqa: BLE001, S110 - unreadable body -> fall through to frames
         pass
     try:
         for frame in page.frames:
@@ -389,9 +389,9 @@ def _challenge_overlay_present(page) -> bool:
             try:
                 if _has_markers(frame.inner_text("body")):
                     return True
-            except Exception:  # noqa: BLE001 - a detached/cross-origin frame is skipped
+            except Exception:  # noqa: BLE001, S112 - a detached/cross-origin frame is skipped
                 continue
-    except Exception:  # noqa: BLE001 - no frame access -> rely on the body check above
+    except Exception:  # noqa: BLE001, S110 - no frame access -> rely on the body check above
         pass
     return False
 

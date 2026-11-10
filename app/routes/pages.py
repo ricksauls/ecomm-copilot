@@ -1173,7 +1173,7 @@ def report_generate():
             payload = build_business_report_pptx(data)
             mimetype = ("application/vnd.openxmlformats-officedocument."
                         "presentationml.presentation")
-    except Exception:  # noqa: BLE001 — surface a safe message, log the detail
+    except Exception:  # surface a safe message to the user, log the detail
         logger.exception("Report build failed user_id=%s group_id=%s fmt=%s",
                          uid, group_id, fmt)
         flash("Sorry — that report couldn't be generated. Please try again.", "error")
@@ -2802,7 +2802,10 @@ def _annotate_enhance(items: list[dict], jobs_map: dict, ext: str) -> dict:
         # Per-item tally by state, so the row badge can read "M done · K failed".
         counts = {"total": 0, "done": 0, "queued": 0, "processing": 0, "failed": 0}
 
-        def _tally(state):
+        # counts=counts binds this iteration's dict (B023: don't late-bind the loop
+        # var). _tally is only ever called within the same iteration, so the binding
+        # is purely defensive, but it keeps the closure correct if that changes.
+        def _tally(state, counts=counts):
             counts["total"] += 1
             status = state["status"]
             if status == "done":
@@ -4479,16 +4482,18 @@ def _detect_project_brand_color(project) -> str | None:
     Best-effort: a decode/IO failure just yields None (the form shows a blank
     field and the default palette is used), so prefill never blocks on it.
     """
-    rel = project["original_path"] if "original_path" in project.keys() else None
+    # sqlite3.Row: `x in row` tests values, so `.keys()` is required (see SIM118).
+    rel = project["original_path"] if "original_path" in project.keys() else None  # noqa: SIM118
     path = imageset_storage.abs_path(rel) if rel else None
     if not path or not os.path.isfile(path):
         return None
     try:
-        from app.imageset import compose as _compose
         from PIL import Image as _Image
+
+        from app.imageset import compose as _compose
         with _Image.open(path) as img:
             return _compose.detect_dominant_color(img)
-    except Exception:  # noqa: BLE001 - detection is a convenience, never fatal
+    except Exception:  # detection is a convenience, never fatal
         logger.debug("Brand-color auto-detect failed for project=%s", project["id"], exc_info=True)
         return None
 
@@ -4905,7 +4910,8 @@ def _imageset_product_id(project) -> str:
     download ties back to the live listing; falls back to the internal project id
     (``proj<pid>``) for manually-uploaded products that have no Walmart URL.
     """
-    url = project["source_url"] if "source_url" in project.keys() else None
+    # sqlite3.Row: `x in row` tests values, so `.keys()` is required (see SIM118).
+    url = project["source_url"] if "source_url" in project.keys() else None  # noqa: SIM118
     item = pdp.item_number_from_url(url) if url else None
     return item or f"proj{project['id']}"
 

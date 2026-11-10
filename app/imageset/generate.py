@@ -14,7 +14,15 @@ run can enqueue only the implemented ones (see :func:`enqueue_project_assets`).
 import json
 import logging
 
-from app.imageset import compose, config, iconlib, plan, reference_objects, storage, templates
+from app.imageset import (
+    compose,
+    config,
+    iconlib,
+    plan,
+    reference_objects,
+    storage,
+    templates,
+)
 from app.imageset import store as isstore
 from app.imageset.prompts import (
     build_backdrop_prompt,
@@ -576,7 +584,9 @@ def _selected_types(project) -> frozenset[str] | None:
     Stored as a JSON array in ``selected_types``; NULL/absent/malformed means the
     user made no explicit choice, so we fall back to all implemented types.
     """
-    raw = project["selected_types"] if "selected_types" in project.keys() else None
+    # sqlite3.Row: `x in row` tests values, not column names, so `.keys()` is
+    # required here (SIM118's simplification would silently misbehave).
+    raw = project["selected_types"] if "selected_types" in project.keys() else None  # noqa: SIM118
     if not raw:
         return None
     try:

@@ -31,12 +31,7 @@ def test_intake_get_renders(client, auth):
 
 def test_intake_post_creates_classified_items(client, auth, app):
     auth.register(email="imp-intake@example.com")
-    urls = "\n".join([
-        "https://www.walmart.com/ip/10294528",
-        "https://m.media-amazon.com/images/I/71abc._AC_SL1500_.jpg",
-        "https://www.amazon.com/dp/B07XYZ",
-        "not a url",
-    ])
+    urls = "https://www.walmart.com/ip/10294528\nhttps://m.media-amazon.com/images/I/71abc._AC_SL1500_.jpg\nhttps://www.amazon.com/dp/B07XYZ\nnot a url"
     resp = client.post("/app/import-images", data={"urls": urls})
     assert resp.status_code == 302
     assert "/app/import-images/" in resp.headers["Location"]
@@ -74,7 +69,7 @@ def _seed_ready_run(app, email, urls):
 def test_gallery_hotlinks_thumbnails(client, auth, app):
     auth.register(email="imp-gal@example.com")
     full = "https://m.media-amazon.com/images/I/71abc.jpg"
-    run_id, aids, uid = _seed_ready_run(app, "imp-gal@example.com", [full])
+    run_id, _aids, _ = _seed_ready_run(app, "imp-gal@example.com", [full])
 
     gal = client.get(f"/app/import-images/{run_id}")
     assert gal.status_code == 200
@@ -88,7 +83,7 @@ def test_gallery_hotlinks_thumbnails(client, auth, app):
 def test_acquired_history_lists_finished_runs(client, auth, app):
     auth.register(email="imp-hist@example.com")
     full = "https://m.media-amazon.com/images/I/71abc.jpg"
-    run_id, aids, uid = _seed_ready_run(app, "imp-hist@example.com", [full])
+    run_id, _aids, _ = _seed_ready_run(app, "imp-hist@example.com", [full])
 
     resp = client.get("/app/activity/acquired")
     assert resp.status_code == 200
@@ -114,7 +109,7 @@ def test_acquired_history_empty_when_no_finished_runs(client, auth, app):
 
 def test_download_fetches_on_demand(client, auth, app, monkeypatch):
     auth.register(email="imp-dl@example.com")
-    run_id, aids, uid = _seed_ready_run(app, "imp-dl@example.com",
+    run_id, aids, _ = _seed_ready_run(app, "imp-dl@example.com",
                                         ["https://m.media-amazon.com/images/I/71abc.jpg"])
     monkeypatch.setattr("app.imgimport.sources.download_image", lambda u: _fake_download(u))
     dl = client.get(f"/app/import-images/{run_id}/asset/{aids[0]}/download")
@@ -126,7 +121,7 @@ def test_download_fetches_on_demand(client, auth, app, monkeypatch):
 def test_zip_respects_selection(client, auth, app, monkeypatch):
     auth.register(email="imp-sel@example.com")
     urls = [f"https://m.media-amazon.com/images/I/{n}.jpg" for n in ("a", "b", "c")]
-    run_id, aids, uid = _seed_ready_run(app, "imp-sel@example.com", urls)
+    run_id, aids, _ = _seed_ready_run(app, "imp-sel@example.com", urls)
     monkeypatch.setattr("app.imgimport.sources.download_image", lambda u: _fake_download(u))
 
     z = client.get(f"/app/import-images/{run_id}/download.zip"
@@ -161,7 +156,7 @@ def test_product_id_and_slug_helpers():
 
 def test_download_filename_uses_product_name(client, auth, app, monkeypatch):
     auth.register(email="imp-name@example.com")
-    run_id, aids, uid = _seed_ready_run(app, "imp-name@example.com",
+    run_id, aids, _ = _seed_ready_run(app, "imp-name@example.com",
                                         ["https://m.media-amazon.com/images/I/71abc.jpg"])
     monkeypatch.setattr("app.imgimport.sources.download_image", lambda u: _fake_download(u))
     dl = client.get(f"/app/import-images/{run_id}/asset/{aids[0]}/download")
@@ -171,7 +166,7 @@ def test_download_filename_uses_product_name(client, auth, app, monkeypatch):
 
 def test_download_upscales_when_below_target(client, auth, app, monkeypatch):
     auth.register(email="imp-up@example.com")
-    run_id, aids, uid = _seed_ready_run(app, "imp-up@example.com",
+    run_id, aids, _ = _seed_ready_run(app, "imp-up@example.com",
                                         ["https://m.media-amazon.com/images/I/71abc.jpg"])
     # Native image is small → below the 2000px target → should upscale via Claid.
     monkeypatch.setattr("app.imgimport.sources.download_image",
@@ -187,7 +182,7 @@ def test_download_upscales_when_below_target(client, auth, app, monkeypatch):
 
 def test_download_skips_upscale_when_large(client, auth, app, monkeypatch):
     auth.register(email="imp-noup@example.com")
-    run_id, aids, uid = _seed_ready_run(app, "imp-noup@example.com",
+    run_id, aids, _ = _seed_ready_run(app, "imp-noup@example.com",
                                         ["https://m.media-amazon.com/images/I/71abc.jpg"])
     # Already at/above target → serve native, never call Claid.
     monkeypatch.setattr("app.imgimport.sources.download_image",
@@ -204,7 +199,7 @@ def test_download_skips_upscale_when_large(client, auth, app, monkeypatch):
 
 def test_status_json(client, auth, app):
     auth.register(email="imp-status@example.com")
-    run_id, aids, uid = _seed_ready_run(app, "imp-status@example.com",
+    run_id, _aids, _ = _seed_ready_run(app, "imp-status@example.com",
                                         ["https://m.media-amazon.com/images/I/71abc.jpg"])
     body = client.get(f"/app/import-images/{run_id}/status").get_json()
     assert body["pending"] is False and body["status"] == "ready"
@@ -213,7 +208,7 @@ def test_status_json(client, auth, app):
 
 def test_idor_other_user_cannot_access(client, auth, app):
     auth.register(email="imp-owner@example.com")
-    run_id, aids, uid = _seed_ready_run(app, "imp-owner@example.com",
+    run_id, aids, _ = _seed_ready_run(app, "imp-owner@example.com",
                                         ["https://m.media-amazon.com/images/I/71abc.jpg"])
     auth.logout()
     auth.register(email="imp-intruder@example.com")

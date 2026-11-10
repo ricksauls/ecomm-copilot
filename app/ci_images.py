@@ -94,7 +94,7 @@ def save_product_image(item_id: str, data: bytes) -> bool:
             img.save(path, format="JPEG", quality=_JPEG_QUALITY)
         logger.info("Cached CI product image item_id=%s src_bytes=%d", item_id, len(data))
         return True
-    except Exception:  # noqa: BLE001 - best-effort; a decode failure isn't fatal
+    except Exception:  # best-effort cache; a decode/IO failure isn't fatal
         logger.exception("Failed to cache CI product image item_id=%s", item_id)
         return False
 
@@ -237,7 +237,7 @@ def save_ad_image(run_id: int, keyword_id: int, ad_type: str, data: bytes) -> st
         logger.info("Cached CI ad image run=%s kw=%s type=%s src_bytes=%d",
                     run_id, keyword_id, ad_type, len(data))
         return rel
-    except Exception:  # noqa: BLE001 - best-effort; a decode failure isn't fatal
+    except Exception:  # best-effort cache; a decode/IO failure isn't fatal
         logger.exception("Failed to cache CI ad image run=%s kw=%s type=%s",
                          run_id, keyword_id, ad_type)
         return None

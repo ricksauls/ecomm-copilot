@@ -195,7 +195,7 @@ def suggest_keywords(brand: str | None, title: str | None,
     try:
         resp = session.post(_CHAT_URL, json=payload, headers=headers,
                             timeout=_REQUEST_TIMEOUT_S)
-    except Exception as e:  # noqa: BLE001 - normalize any transport error for the caller
+    except Exception as e:  # normalize any transport error for the caller
         # The exception message does not contain our key; still, don't add request
         # internals (which carry the prompt) beyond the message itself.
         raise KeywordAIError(f"Keyword suggestion request failed: {e}") from e

@@ -2,8 +2,7 @@
 the resolve-only acquire orchestrator (no-pre-download model)."""
 
 from app.db import get_db
-from app.imgimport import acquire, sources
-from app.imgimport import store
+from app.imgimport import acquire, sources, store
 from app.users import create_local_user
 
 
@@ -39,7 +38,7 @@ def test_claim_next_item_is_atomic(app):
     with app.app_context():
         db = get_db()
         uid = create_local_user("imp-c@example.com", "password123")
-        run_id, item_id = _run_with_item(db, uid)
+        _run_id, item_id = _run_with_item(db, uid)
         assert store.has_claimable_item(db) is True
         claimed = store.claim_next_item(db)
         assert claimed["id"] == item_id and claimed["status"] == store.ITEM_PROCESSING
@@ -68,7 +67,7 @@ def test_reclaim_orphaned_items(app):
     with app.app_context():
         db = get_db()
         uid = create_local_user("imp-e@example.com", "password123")
-        run_id, item_id = _run_with_item(db, uid)
+        run_id, _item_id = _run_with_item(db, uid)
         store.claim_next_item(db)  # -> processing (orphaned by a "crash")
         assert store.reclaim_orphaned_items(db) == 1
         assert store.items_for_run(db, run_id, uid)[0]["status"] == store.ITEM_ERROR
@@ -119,7 +118,7 @@ def test_list_acquire_activity_excludes_unfinished_and_scopes_by_user(app):
         other = create_local_user("imp-hist3@example.com", "password123")
 
         # Still-processing run (no ready asset) — excluded.
-        processing, _ = _run_with_item(db, uid)
+        _processing, _ = _run_with_item(db, uid)
         # Wholly-failed run — excluded.
         failed, fitem = _run_with_item(db, uid, url="x", stype="unknown")
         store.set_item_status(db, fitem, store.ITEM_ERROR, error="nope")
@@ -141,7 +140,7 @@ def test_process_item_records_resolved_images(app, monkeypatch):
     with app.app_context():
         db = get_db()
         uid = create_local_user("imp-f@example.com", "password123")
-        run_id, item_id = _run_with_item(db, uid)
+        run_id, _item_id = _run_with_item(db, uid)
         item = store.claim_next_item(db)
 
         refs = [
@@ -171,7 +170,7 @@ def test_process_item_marks_error_on_source_error(app, monkeypatch):
     with app.app_context():
         db = get_db()
         uid = create_local_user("imp-h@example.com", "password123")
-        run_id, item_id = _run_with_item(db, uid, url="https://www.amazon.com/dp/B0",
+        run_id, _item_id = _run_with_item(db, uid, url="https://www.amazon.com/dp/B0",
                                          stype="amazon_pdp")
         item = store.claim_next_item(db)
         monkeypatch.setattr(
@@ -187,7 +186,7 @@ def test_process_item_no_images_is_error(app, monkeypatch):
     with app.app_context():
         db = get_db()
         uid = create_local_user("imp-i@example.com", "password123")
-        run_id, item_id = _run_with_item(db, uid)
+        run_id, _item_id = _run_with_item(db, uid)
         item = store.claim_next_item(db)
         monkeypatch.setattr(acquire.sources, "resolve_images", lambda url, st: ("x", []))
         acquire.process_item(db, item)

@@ -18,7 +18,6 @@ from app import ci_analysis, ci_config, ci_jobs, jobs, report, report_store
 from app.db import get_db
 from app.users import create_local_user
 
-
 # ── Seeding helpers ──────────────────────────────────────────────────────────
 
 def _uid(db, email="user@example.com"):

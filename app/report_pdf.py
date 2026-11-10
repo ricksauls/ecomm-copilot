@@ -75,7 +75,7 @@ def _para(c, text, x, y_top, width, style) -> float:
     reasons top-down, like slides do).
     """
     p = Paragraph(text, style)
-    w, h = p.wrap(width, PAGE_H)
+    _w, h = p.wrap(width, PAGE_H)
     p.drawOn(c, x, y_top - h)
     return h
 
@@ -301,7 +301,7 @@ def _table(c, header, rows, col_widths, x, y_top, *, max_rows=None):
         ("LEFTPADDING", (0, 0), (-1, -1), 8),
         ("RIGHTPADDING", (0, 0), (-1, -1), 8),
     ]))
-    w, h = t.wrap(sum(col_widths), PAGE_H)
+    _w, h = t.wrap(sum(col_widths), PAGE_H)
     t.drawOn(c, x, y_top - h)
     return h
 
