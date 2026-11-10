@@ -1795,22 +1795,31 @@ def test_performance_readiness_tab_brand_view(client, auth, app):
     gid = _seed_readiness(app, "rdtab@example.com")
     body = client.get(f"/app/insights/performance?group_id={gid}&tab=readiness").data
     assert b"Content Readiness" in body
-    assert b"/100" in body                          # the KPI metric
+    assert b"/100" in body                          # the KPI metric + per-row overall cells
     assert b"Tabasco Green Pepper Sauce" in body     # a scored product row
     assert b"data-perf-trend" in body               # the readiness trend chart
     assert b"Tracked Keywords" not in body           # readiness has no keyword table
+    # The all-items table now shows overall + per-dimension content scores (PDP-style).
+    assert b"Content Scores" in body
+    assert b"Key features" in body                   # a dimension column header
+    assert b"perf-readiness-dash" in body
 
 
 def test_performance_readiness_item_drilldown_shows_dimensions(client, auth, app):
     auth.register(email="rddrill@example.com")
     gid = _seed_readiness(app, "rddrill@example.com")
     pk = _perf_item_pk(app, "rddrill@example.com", "222")
-    # The drill is now tab-scoped; the Content Readiness section (per-dimension scores)
-    # lives on the Content Readiness tab.
+    # The drill is now an interactive per-dimension trend (the same kw-select swap the
+    # Rank / Share tabs use), scoped to the Content Readiness tab.
     body = client.get(f"/app/insights/performance?group_id={gid}&item={pk}&tab=readiness").data
-    assert b"Each content dimension's latest score" in body   # the readiness table head
+    assert b"data-kw-drill" in body                   # interactive drill is wired
+    assert b"All dimensions" in body                  # the "reset to overall" option
+    assert b"Content Readiness Trend" in body         # the trend chart title
     assert b"Imagery" in body and b"Description" in body
     assert b"All items" in body                       # the back chip
+    # The Content Scores table stays at the bottom, scoped to this one item.
+    assert b"Content Scores" in body
+    assert b"perf-readiness-dash" in body
 
 
 def test_performance_readiness_tab_offered_and_dashboard_links_to_it(client, auth, app):

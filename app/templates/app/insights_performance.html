@@ -83,6 +83,76 @@
 </div>
 {%- endmacro %}
 
+{# Content Scores table — overall score + one column per content dimension, the same
+   at-a-glance breakdown the PDP scoring results screen shows (reuses its bar styling).
+   Shared by the brand all-items view and the single-item drill so both read identically;
+   `tbl` is {dims, rows} (see _readiness_scores_row). Each dimension cell is a mini-bar +
+   score, a muted "—" when that dimension wasn't measured on the latest run. #}
+{% macro readiness_scores_table(tbl, title, subtitle) %}
+<div class="perf-tables single">
+  <div class="card tbl-card">
+    <div class="tbl-head">{{ title }}<div class="sub">{{ subtitle }}</div></div>
+    <table class="dash perf-dash perf-readiness-dash">
+      <thead><tr><th>#</th><th>Product</th><th class="col-right">Overall</th>
+        {% for key, label in tbl.dims %}<th class="col-center">{{ label }}</th>{% endfor %}
+      </tr></thead>
+      <tbody>
+        {% for r in tbl.rows %}
+        <tr>
+          <td class="col-num">{{ loop.index }}</td>
+          <td>{{ r.name }}</td>
+          {# Overall: the headline score (colored by band) over a thin progress bar. #}
+          <td class="col-right perf-overall-cell">
+            <span class="pdp-overall-num {{ r.overall_cls }}">{{ r.overall }}<small>/100</small></span>
+            <span class="pdp-overall-bar"><span style="width: {{ r.overall }}%;"></span></span>
+          </td>
+          {# Per-dimension mini-bars, aligned to the dimension header columns. The bar +
+             score stack inside the cell (a wrapper, not the <td> — a flex <td> would drop
+             out of the table layout). #}
+          {% for c in r.cells %}
+          <td class="perf-dim-cell">
+            {% if c.score is not none %}
+            <span class="pdp-mini"><span style="width: {{ c.score }}%;"></span></span>
+            <span class="pdp-dim-score {{ c.cls }}">{{ c.score }}</span>
+            {% else %}
+            <span class="pdp-dim-empty" title="Not measured">—</span>
+            {% endif %}
+          </td>
+          {% endfor %}
+        </tr>
+        {% else %}
+        <tr><td colspan="{{ 3 + (tbl.dims | length) }}" class="perf-empty-cell">No scored products yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endmacro %}
+
+{# Per-keyword breakdown table for a single item's Search Rank / Share of Search drill —
+   the Discovery analogue of the Content Scores table, so every tab's drill ends in a
+   table listing this item's information. `attr` picks the cell on each keyword row
+   ('rank' or 'share', each a {display, cls}); rows come from detail.keywords. #}
+{% macro item_keyword_table(title, subtitle, rows, attr, metric_label) %}
+<div class="perf-tables single">
+  <div class="card tbl-card">
+    <div class="tbl-head">{{ title }}<div class="sub">{{ subtitle }}</div></div>
+    <table class="dash perf-dash">
+      <thead><tr><th>#</th><th>Keyword</th><th class="col-right">{{ metric_label }}</th></tr></thead>
+      <tbody>
+        {% for k in rows %}
+        <tr><td class="col-num">{{ loop.index }}</td>
+          <td title="{{ k.keyword }}">{{ k.keyword }}</td>
+          <td class="col-metric {{ k[attr].cls }}">{{ k[attr].display }}</td></tr>
+        {% else %}
+        <tr><td colspan="3" class="perf-empty-cell">No tracked keywords for this item yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endmacro %}
+
 {% block pane_content %}
 <div class="page-header perf-header">
   <div>
@@ -215,6 +285,11 @@
       </div>
     </div>
   </div>
+  {# This item's rank per tracked keyword — keeps a table at the bottom of the drill,
+     consistent with the other tabs. #}
+  {{ item_keyword_table("Search Rank by keyword",
+       "This item's avg page-1 position per tracked keyword · lower is better",
+       detail.keywords, "rank", "Avg rank") }}
 
   {% elif tab == 'shelf' %}
   {# Interactive Share of Search drill — same pattern as Search Rank, per-keyword share. #}
@@ -259,25 +334,69 @@
       </div>
     </div>
   </div>
+  {# This item's share per tracked keyword — keeps a table at the bottom of the drill,
+     consistent with the other tabs. #}
+  {{ item_keyword_table("Share by keyword",
+       "This item's share of page-1 slots per tracked keyword",
+       detail.keywords, "share", "Share") }}
 
   {% else %}
-  {# Content Readiness tab: this item's latest per-dimension content scores. #}
+  {# Interactive Content Readiness drill — the per-dimension analogue of the Search Rank /
+     Share of Search drills (same data-kw-* hooks + performance.js swap). Picking a
+     dimension swaps the trend chart + KPI headline to that dimension's score over time;
+     "All dimensions" resets to the item's overall readiness. The dimension list is
+     server-rendered (label + latest score) so it still informs without JS. #}
+  {% set rd = detail.readiness_dim_context %}
+  {% if rd %}
+  <div class="perf-top" data-kw-drill data-kw-context='{{ rd | tojson }}'>
+    <div class="card card-pad kpi-tile">
+      <div class="label">Content Readiness</div>
+      <div class="kpi-metric" data-kw-metric>{{ detail.readiness_metric }}</div>
+      <div class="kpi-delta {{ detail.readiness_delta.dir or '' }}" data-kw-delta
+           {{ 'hidden' if not detail.readiness_delta.display }}>{{ detail.readiness_delta.display }}</div>
+      <div class="kpi-foot">This item's overall content score · strong ≥ {{ readiness_target }}</div>
+      <div class="kpi-keywords">
+        <div class="kpi-keywords-label">Score by dimension</div>
+        <ul class="kw-select" role="listbox" aria-label="Score by dimension" data-kw-select>
+          <li class="kw-opt is-active" data-kw-id="all" role="option" aria-selected="true" tabindex="0">
+            <span class="kw-opt-term">All dimensions</span>
+            <span class="kw-opt-val {{ rd.all.cell.cls }}">{{ detail.readiness_metric }}</span>
+          </li>
+          {% for d in rd.keywords %}
+          <li class="kw-opt" data-kw-id="{{ d.id }}" role="option" aria-selected="false" tabindex="0">
+            <span class="kw-opt-term" title="{{ d.keyword }}">{{ d.keyword }}</span>
+            <span class="kw-opt-val {{ d.cell.cls }}">{{ d.metric }}</span>
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+    <div class="card card-pad chart-card">
+      <h2 class="chart-title">Content Readiness Trend</h2>
+      <span class="chart-legend"><span class="sw"></span> <span data-kw-legend>This item's overall content readiness</span></span>
+      <div class="chart-wrap">
+        <div class="perf-trend" data-perf-trend data-kw-chart
+             data-series='{{ detail.readiness_trend | tojson }}'></div>
+      </div>
+    </div>
+  </div>
+  {# This item's latest overall + per-dimension scores — the same Content Scores table the
+     brand view shows, scoped to the drilled item so the breakdown stays on screen. #}
+  {% if detail.readiness_item_table %}
+  {{ readiness_scores_table(detail.readiness_item_table, "Content Scores",
+       "This item's latest overall + per-dimension score · strong ≥ " ~ readiness_target) }}
+  {% endif %}
+  {% else %}
+  {# Never scored — no history to chart or break down. #}
   <div class="perf-tables single">
     <div class="card tbl-card">
-      <div class="tbl-head">Content Readiness<div class="sub">Each content dimension's latest score</div></div>
+      <div class="tbl-head">Content Readiness</div>
       <table class="dash perf-dash">
-        <thead><tr><th>#</th><th>Dimension</th><th class="col-right">Score</th></tr></thead>
-        <tbody>
-          {% for r in detail.readiness_dims %}
-          <tr><td class="col-num">{{ loop.index }}</td><td>{{ r.label }}</td>
-            <td class="col-metric {{ r.cls }}">{{ r.display }}</td></tr>
-          {% else %}
-          <tr><td colspan="3" class="perf-empty-cell">No content-readiness scores for this item yet.</td></tr>
-          {% endfor %}
-        </tbody>
+        <tbody><tr><td class="perf-empty-cell">No content-readiness scores for this item yet.</td></tr></tbody>
       </table>
     </div>
   </div>
+  {% endif %}
   {% endif %}
 
   {% else %}
@@ -319,13 +438,18 @@
     </div>
   </div>
 
+  {% if readiness_table %}
+  {{ readiness_scores_table(readiness_table, "Content Scores",
+       "Each product's latest overall + per-dimension score · strong ≥ " ~ readiness_target) }}
+
+  {% else %}
   <div class="perf-tables single">
     <div class="card tbl-card">
       <div class="tbl-head">Tracked Products{% if drillable %}<div class="sub">Click an item to drill in</div>{% endif %}</div>
       {# One metric column per tab normally; the Share of Search tab passes
          `products_cols` (Total Share · Organic · Paid) and each row a `cells` list,
          so the table renders N metric columns. Fall back to the single
-         `products_label` + `r.display`/`r.cls` for the Rank / Readiness tabs. #}
+         `products_label` + `r.display`/`r.cls` for the Rank tab. #}
       {% set metric_cols = products_cols if products_cols else [products_label] %}
       <table class="dash perf-dash">
         <thead><tr><th>#</th><th>Product</th>
@@ -355,6 +479,7 @@
       </table>
     </div>
   </div>
+  {% endif %}
   {% endif %}
 
 {% endif %}{# available #}

@@ -373,6 +373,52 @@ def readiness_items(conn: sqlite3.Connection, user_id: int, brands: list[str]) -
     return [{"item_id": r["item_id"], "title": r["title"], "score": r["overall"]} for r in rows]
 
 
+def readiness_items_detail(conn: sqlite3.Connection, user_id: int,
+                           brands: list[str]) -> list[dict]:
+    """Every scored product for a set of brands at its latest score, with per-dimension
+    detail — the Content Readiness all-items table (overall + each content dimension).
+
+    Like :func:`readiness_items` (latest-per-item, worst-first) but each row also carries
+    its dimensions' scores, so the Performance Content Readiness tab can show the same
+    overall + per-dimension breakdown the PDP scoring results screen does. Returns
+    ``[{item_id, title, overall, dimensions}]`` where ``dimensions`` is ``{key: score}``
+    (``None`` when a dimension wasn't measurable on that run). A product whose result JSON
+    is unparseable keeps its overall score with empty dimensions rather than vanishing.
+    An empty brand scope short-circuits.
+    """
+    wanted = [b.strip().lower() for b in brands if b and b.strip()]
+    if not wanted:
+        return []
+    placeholders = ",".join("?" for _ in wanted)
+    # Latest result per product (same window rule as readiness_items), carrying the full
+    # dimension detail so we can surface each dimension's score alongside the overall.
+    rows = conn.execute(
+        "SELECT item_id, title, overall, result_json FROM ("
+        "  SELECT item_id, title, overall, result_json, ROW_NUMBER() OVER ("
+        "    PARTITION BY item_id ORDER BY created_at DESC, id DESC) AS rn "
+        "  FROM scored_items "
+        "  WHERE user_id = ? AND item_id IS NOT NULL AND item_id != '' "
+        "    AND overall IS NOT NULL AND LOWER(TRIM(brand)) IN (" + placeholders + ")"
+        ") WHERE rn = 1 ORDER BY overall ASC, item_id",
+        [user_id, *wanted],
+    ).fetchall()
+    out = []
+    for r in rows:
+        try:
+            dims = json.loads(r["result_json"] or "{}").get("dimensions", [])
+        except (ValueError, TypeError):
+            # A malformed result shouldn't drop the product from the table — keep the
+            # overall score and leave its dimensions unmeasured.
+            logger.warning("Unparseable scored result in readiness_items_detail user_id=%s item_id=%s",
+                           user_id, r["item_id"])
+            dims = []
+        scores = {d.get("key"): (d.get("score") if d.get("available", True) else None)
+                  for d in dims if d.get("key")}
+        out.append({"item_id": r["item_id"], "title": r["title"],
+                    "overall": r["overall"], "dimensions": scores})
+    return out
+
+
 # Primary (above-the-fold) content dimensions, in the order a scorecard reads
 # them: the three copy fields, then imagery. Secondary / below-the-fold content
 # (brand story, comparison charts, video) is intentionally excluded — the app
@@ -493,6 +539,36 @@ def readiness_history(conn: sqlite3.Connection, user_id: int, item_id: str) -> l
         (user_id, item_id),
     ).fetchall()
     return [{"as_of": r["created_at"], "score": r["overall"]} for r in rows]
+
+
+def readiness_runs(conn: sqlite3.Connection, user_id: int, item_id: str) -> list[dict]:
+    """Every scored run for one product with its per-dimension breakdown, oldest→newest.
+
+    Like :func:`readiness_history` (overall score per run) but each run also carries its
+    dimension scores, so the Content Readiness drill can chart the overall trend *and* any
+    single dimension's trend over time from one read. Returns ``[{as_of, overall,
+    dimensions}]`` where ``dimensions`` is ``{key: score}`` (``None`` when that dimension
+    wasn't measurable on the run). A run whose result JSON is unparseable keeps its overall
+    point with empty dimensions rather than dropping it from the series. Scoped to the owner.
+    """
+    rows = conn.execute(
+        "SELECT created_at, overall, result_json FROM scored_items "
+        "WHERE user_id = ? AND item_id = ? AND overall IS NOT NULL "
+        "ORDER BY created_at, id",
+        (user_id, item_id),
+    ).fetchall()
+    runs = []
+    for r in rows:
+        try:
+            dims = json.loads(r["result_json"] or "{}").get("dimensions", [])
+        except (ValueError, TypeError):
+            logger.warning("Unparseable scored result in readiness_runs user_id=%s item_id=%s",
+                           user_id, item_id)
+            dims = []
+        scores = {d.get("key"): (d.get("score") if d.get("available", True) else None)
+                  for d in dims if d.get("key")}
+        runs.append({"as_of": r["created_at"], "overall": r["overall"], "dimensions": scores})
+    return runs
 
 
 def count_managed_products(conn: sqlite3.Connection, user_id: int,

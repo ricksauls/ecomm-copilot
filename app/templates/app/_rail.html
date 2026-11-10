@@ -157,6 +157,12 @@
     </a>
     {% endif %}
 
+    {# Insights — the in-app read on how brands and items are performing (Performance,
+       Opportunities, Competitive Intelligence). Sits right after Competitive Tracking so
+       "what we track" is immediately followed by "how it's doing", ahead of the content
+       tools below. #}
+    {{ rail_group('reporting', 'Insights', reporting_items, active_nav) }}
+
     {# Content Scoring — single workspace, so a standalone leaf (its history is a
        tab inside the tool, reached from the scoring page). #}
     <a href="{{ url_for('pages.pdp_scoring') }}"
@@ -174,11 +180,10 @@
     </a>
 
     {{ rail_group('creative', 'Creative Studio', creative_items, active_nav) }}
-    {{ rail_group('reporting', 'Insights', reporting_items, active_nav) }}
 
     {# Reports — generate and download a brand's performance deck (PDF/PowerPoint).
-       A single workspace (Create / History tabs), so a standalone leaf. Sits
-       after Insights: Insights is the in-app read, Reports is the shareable export. #}
+       A single workspace (Create / History tabs), so a standalone leaf. Insights (above,
+       by Competitive Tracking) is the in-app read; Reports is the shareable export. #}
     <a href="{{ url_for('pages.reports_home') }}"
        class="rail-leaf{{ ' active' if active_nav == 'reports' else '' }}">
       <span class="rail-ico">{{ rail_icon('reports') }}</span>

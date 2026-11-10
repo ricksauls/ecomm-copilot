@@ -1446,6 +1446,13 @@ _PERF_TAB_LABELS = {"rank": "Search Rank", "shelf": "Share of Search",
 # there's no "absent" state — every scored product has a number.
 _READINESS_TARGET = jobs.READINESS_STRONG_MIN
 
+# Content dimensions surfaced as columns in the all-items table and as selectable
+# series in the item drill, as (key, label) in the same order the PDP scoring results
+# screen uses (imagery first). 'attributes' is intentionally omitted — it feeds the
+# overall score but, like on the PDP screen, isn't surfaced as its own column.
+_READINESS_DIM_COLS = (("imagery", "Imagery"), ("title", "Title"),
+                       ("key_features", "Key features"), ("description", "Description"))
+
 
 def _rank_cell(avg_position) -> dict:
     """Display + color for a search-rank value: green when the item holds a page-1
@@ -1639,6 +1646,7 @@ def _performance_insights(db, uid) -> dict:
         "selected_group_id": gid,
         "period": period,
         "period_label": ci_analysis.period_label(period),
+        "readiness_target": _READINESS_TARGET,   # "strong ≥ N" cue on the readiness tab
         "tab": tab,
         "tab_labels": _PERF_TAB_LABELS,
         "tabs": list(_PERF_TABS),
@@ -1870,10 +1878,14 @@ def _perf_readiness_tab(db, uid, mine_brands, period) -> dict:
         },
         "trend": _perf_trend(values, dates, "score"),
         "trend_legend": "Content readiness (all scored products)",
-        "products": [{"item_id": p["item_id"], "name": p["title"] or p["item_id"],
-                      **_readiness_cell(p["score"])}
-                     for p in jobs.readiness_items(db, uid, mine_brands)],
-        "products_label": "Readiness",
+        # Rich all-items table (overall + per-dimension scores), mirroring the PDP scoring
+        # results screen. Each row carries the overall score plus one cell per dimension
+        # column; a missing dimension reads as "—" (muted). Worst-first (from the query).
+        "readiness_table": {
+            "dims": _READINESS_DIM_COLS,
+            "rows": [_readiness_scores_row(p["title"] or p["item_id"], p)
+                     for p in jobs.readiness_items_detail(db, uid, mine_brands)],
+        },
         "drillable": False,
         "keywords": None,
     }
@@ -1982,6 +1994,78 @@ def _item_keyword_metric_payload(db, uid, item_pk, period, keywords, metric,
     return {"all": all_view, "keywords": entries}
 
 
+def _readiness_dim_context(runs) -> dict | None:
+    """Interactive Content Readiness drill context — the per-dimension analogue of
+    :func:`_item_keyword_metric_payload`, so performance.js's generic kw-select swap drives
+    it unchanged (dimensions take the place of keywords).
+
+    Takes the item's scoring ``runs`` (from :func:`jobs.readiness_runs`, oldest→newest) so
+    the caller can also build the single-item table from the same read. Returns
+    ``{all, keywords}``: ``all`` is the overall-readiness view (metric, delta vs the prior
+    scoring run, legend, and the overall score trend), and ``keywords`` is one view per
+    content dimension — its latest score, run-over-run delta, legend, and its own score
+    trend. Readiness moves per scoring run (the weekly re-score), not per tracking period, so
+    the delta compares the last two runs. A dimension's series skips runs where it wasn't
+    measured, so a line never dips to a false zero. Returns ``None`` when the item has never
+    been scored (the template then shows the empty state).
+    """
+    if not runs:
+        return None
+    # xLabel() in performance.js turns an ISO date into a short "Mon D" tick, so pass the
+    # date portion of each run's timestamp rather than the full "YYYY-MM-DD HH:MM:SS".
+    overall_vals = [r["overall"] for r in runs]
+    overall_dates = [r["as_of"][:10] for r in runs]
+    cur = overall_vals[-1]
+    prior = overall_vals[-2] if len(overall_vals) > 1 else None
+    overall_delta = (cur - prior) if prior is not None else None
+    all_view = {
+        "metric": f"{cur}/100",
+        "delta": _perf_delta(overall_delta, unit="pts"),
+        "cell": _readiness_cell(cur),
+        "legend": "This item's overall content readiness",
+        "series": _perf_trend(overall_vals, overall_dates, "score"),
+    }
+    entries = []
+    for key, label in _READINESS_DIM_COLS:
+        vals, dates = [], []
+        for r in runs:
+            v = r["dimensions"].get(key)
+            if v is not None:
+                vals.append(v)
+                dates.append(r["as_of"][:10])
+        d_cur = vals[-1] if vals else None
+        d_prior = vals[-2] if len(vals) > 1 else None
+        d_delta = (d_cur - d_prior) if (d_cur is not None and d_prior is not None) else None
+        entries.append({
+            "id": key,
+            "keyword": label,                       # the kw-select template reads `.keyword`
+            "cell": _readiness_cell(d_cur),
+            "metric": f"{d_cur}/100" if d_cur is not None else "—",
+            "delta": _perf_delta(d_delta, unit="pts"),
+            "legend": f"{label} score over time",
+            "series": _perf_trend(vals, dates, "score"),
+        })
+    return {"all": all_view, "keywords": entries}
+
+
+def _readiness_scores_row(name, latest) -> dict:
+    """One product's overall + per-dimension scores, shaped for the Content Scores table.
+
+    ``latest`` is a scoring run (``{overall, dimensions}`` from :func:`jobs.readiness_runs`).
+    The same row shape the all-items table uses, so the single-item drill and the brand view
+    render through one template macro. A dimension absent from the run reads as ``None`` (the
+    table shows a muted "—").
+    """
+    scores = latest["dimensions"]
+    return {
+        "name": name,
+        "overall": latest["overall"],
+        "overall_cls": _readiness_cell(latest["overall"])["cls"],
+        "cells": [{"key": key, "score": scores.get(key), **_readiness_cell(scores.get(key))}
+                  for key, _label in _READINESS_DIM_COLS],
+    }
+
+
 def _perf_item_detail(db, uid, item, period, tab="rank") -> dict:
     """Comprehensive per-item detail shown on drill — one tracked item's Discovery +
     Conversion data, gathering what used to live on the retired Portfolio "View
@@ -2022,6 +2106,16 @@ def _perf_item_detail(db, uid, item, period, tab="rank") -> dict:
     cur_item = jobs.readiness_item(db, uid, item["item_id"]) if item["item_id"] else None
     readiness_dims = [{"label": (d["label"] or "").replace("_", " ").title(), **_readiness_cell(d["score"])}
                       for d in (cur_item["dimensions"] if cur_item else [])]
+    # Interactive Content Readiness drill (overall + per-dimension trend swap) plus the
+    # single-item Content Scores table below it. Both come from one read of the item's
+    # scoring history, built only on the readiness tab to keep the other tabs' loads lean.
+    # Empty when the item has never been scored (the template then shows the empty state).
+    rd_runs = (jobs.readiness_runs(db, uid, item["item_id"])
+               if tab == "readiness" and item["item_id"] else [])
+    readiness_dim_context = _readiness_dim_context(rd_runs) if rd_runs else None
+    readiness_item_table = ({"dims": _READINESS_DIM_COLS,
+                             "rows": [_readiness_scores_row(item["title"] or item["item_id"], rd_runs[-1])]}
+                            if rd_runs else None)
     latest = facts[-1] if facts else None
     price_current = (latest["price_string"] if latest and latest["price_string"]
                      else (f"${price_vals[-1]:.2f}" if price_vals else None))
@@ -2068,6 +2162,19 @@ def _perf_item_detail(db, uid, item, period, tab="rank") -> dict:
             "keywords": keywords,
             "metrics": metrics,
             "readiness_dims": readiness_dims,
+            # Interactive readiness drill: KPI headline + delta + overall trend seed the
+            # card, and `readiness_dim_context` drives the per-dimension swap (reusing the
+            # generic kw-select machinery). All derived from the "all" view so the initial
+            # render matches the default selection.
+            "readiness_metric": readiness_dim_context["all"]["metric"] if readiness_dim_context else "—",
+            "readiness_delta": (readiness_dim_context["all"]["delta"] if readiness_dim_context
+                                else _perf_delta(None, unit="pts")),
+            "readiness_trend": (readiness_dim_context["all"]["series"] if readiness_dim_context
+                                else _perf_trend([], [], "score")),
+            "readiness_dim_context": readiness_dim_context,
+            # The single-item Content Scores table rendered below the drill (same shape +
+            # macro as the brand all-items table, scoped to this one item's latest run).
+            "readiness_item_table": readiness_item_table,
             "latest": latest,
             "in_stock": latest["in_stock"] if latest else None,
             "facts": list(reversed(facts)),  # table shows newest first
