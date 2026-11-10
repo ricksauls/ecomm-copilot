@@ -1,23 +1,107 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-11-10 (session 64 — **interactive Content Readiness drill + per-item Performance tables + rail
-reorder**, **PR #91 MERGED + Deploy green → LIVE** on main `18d987f`). Reworked the Performance → Content Readiness
-tab: the item drill is now the per-dimension analogue of the Search Rank / Share of Search drills — a KPI (overall
-`/100` + run-over-run delta + "strong ≥ 80" foot), an overall-readiness trend chart, and a clickable **Score by
-dimension** list that swaps the chart + KPI to each dimension's score over time. **No new JS** — it emits the
-dimensions as `data-kw-context` so `performance.js`'s existing generic `wireKeywordSelect` swap drives it unchanged.
-The brand all-items view gained a PDP-style **Content Scores** table (overall + per-dimension score bars, worst-first,
-reusing the PDP results screen's `.pdp-overall-*` / `.pdp-mini` bar classes). **Per the user, every single-item drill
-now ends in a bottom table scoped to that item, for consistency:** Search Rank → *Search Rank by keyword*, Share of
-Search → *Share by keyword*, Content Readiness → the *Content Scores* breakdown — all via two shared Jinja macros
-(`readiness_scores_table`, `item_keyword_table`) in `insights_performance.html`. New `jobs.readiness_runs`
-(per-run dimension history) + `jobs.readiness_items_detail` (per-item latest overall + dimensions), each with unit
-tests; `_readiness_dim_context` now takes the runs list. **Rail reorder:** Insights moved to sit directly after
-Competitive Tracking (`_rail.html`). **936 tests pass** (+2), ruff clean, browser-verified all three drills + the
-rail. 7 files; S63 (`ruff.toml`) is now also merged+live. **Still open:** `landing.html` redesign (deferred — don't
-touch piecemeal; still advertises the removed $250 one-time-snapshot card); ruff **0.17.4** patch bump available
-whenever wanted; the weekly commerce-fact snapshot's builder is kept in `_perf_item_detail` for reuse, place undecided
-(NOT rendered in the drill — the Content Scores table is content-dimension scores, not commerce facts).)_
+_Last updated: 2026-11-11 (session 65 — **Performance-tab table + card changes across all three tabs**, branched off
+main `18d987f` after S64 #91 LIVE. **Code SHIPPED: PR #93 MERGED to main `72b4056`** (squash). Doc note: the S64-docs
+**PR #92 was merged from an EARLIER snapshot** (squashed as "session 64", `415e24c`) **before this S65 block was
+pushed**, so it landed the S64 block only — this **separate docs PR (`docs/handoff-s65`) re-adds the missing S65
+block** on top of main. (1) **Search Rank & Share of Search drills** now end in the brand all-items *Tracked Products* table
+scoped to the one drilled item (one row) — Rank → `Avg Rank`, Share → `Total Share · Organic · Paid` — **replacing**
+the per-keyword `item_keyword_table` (removed). The products table is extracted into a shared `products_table` Jinja
+macro used by the brand view AND both drills (one-row list, non-drillable). The drill tables keep the header "Tracked
+Products". (2) **Content Readiness card (All Items)** gains a static *Score by dimension* list = each content
+dimension's average across the brand's scored products, mirroring the single-item card (reuses
+`jobs.readiness_dimension_averages`, reordered to the table's `_READINESS_DIM_COLS` order via new
+`_readiness_dim_averages`; rendered as a non-interactive `.kw-opt.is-static` list). (3) **Readiness trend date labels
+thinned** in `performance.js drawTrend` to ≤8 ticks (first + last always kept; a regular tick within one step of the
+forced last is dropped) so the one-point-per-scoring-run readiness series (~26 since spring) stops overprinting its
+x-labels; short series (the other tabs, ≤8 periods) unaffected — verified 26→7 labels in-browser. (4) **Content Scores
+table rows now expand** (click row/caret or *Expand all*) to each dimension's score + **recommendations** — the same
+"what to improve" findings the PDP *Product Detail Page Content Scores* screen shows — plus an *Improve images* (Image
+Set) / *Improve copy* (Product Copy) deep link per dimension; wired by new `wireReadinessExpand` in `performance.js`
+(adds `.perf-js` to collapse; no-JS leaves panels open), reusing the GLOBAL `.pdp-caret` / `.pdp-detail` / `.pdp-recs`
+/ `.dim-recs` styles. The detail renders as a second `<tr>` per row (full colspan) — a table needs a real row, not the
+PDP's flex `.pdp-cols`. Backed by richer per-dimension detail: `jobs.readiness_items_detail` now ALSO returns a `dims`
+map `{key:{label,score,available,recommendations}}` (KEEPS the old `dimensions` scores map for back-compat), + new
+`jobs.readiness_item_detail(uid, item_id, as_of=None)` for the single-item drill, both via shared `_result_dim_detail`
+helper; `_readiness_scores_row` reshaped to `(name, overall, dims_by_key)` and now carries per-cell recs. **939 tests
+pass** (+3: readiness_item_detail recs, card dim-averages, expandable recs), ruff clean, browser-verified all three
+tabs on All-Items + drilled-item (demo acct `demo@test.local`, local only). 7 files (jobs.py, routes/pages.py,
+insights_performance.html, performance.js, workspace.css, test_jobs.py, test_pages.py). **GOTCHA:** the image-fix tool
+endpoint is `pages.imageset_intake` (NOT `pdp_image_set`); copy intake is `pages.pdp_copy`; both are POST-intake
+managed-item pickers with **no per-item preselect**, so the Improve links open the tool, not this item (preselect =
+small deferred follow-up the user is aware of). On demo-seeded items with no stored `recommendations`, a low-score
+dimension still shows "No changes recommended — looks good" (same logic as the PDP screen; real scores populate recs).
+**Still open (unchanged from S64):** `landing.html` redesign (deferred — don't touch piecemeal; still advertises the
+removed $250 one-time-snapshot card); ruff **0.17.4** patch bump available whenever wanted; the weekly commerce-fact
+snapshot builder kept in `_perf_item_detail` for reuse, placement undecided. S64 block (unchanged) is below this S65
+block.)_
+
+---
+
+## Session 65 — Performance-tab table + card changes across all three tabs (#93)
+
+**PR #93 MERGED to main `72b4056`** (branched off `18d987f`, squash-merged). Five user-requested changes
+across the Performance screen's three tabs (Search Rank / Share of Search / Content Readiness). 939 tests pass (+3),
+ruff clean, browser-verified end to end against `demo@test.local` on a local preview.
+
+**1 & 2 — Discovery drills reuse the all-items table (one row).** The per-keyword bottom table on the Search Rank and
+Share of Search item drills is replaced by the **same brand all-items *Tracked Products* table scoped to the one
+drilled item** (one row): Search Rank → an `Avg Rank` column, Share of Search → `Total Share · Organic · Paid`. The
+brand products table was extracted out of the overview block into a shared Jinja macro
+`products_table(products, metric_cols, drillable, selected_group_id, tab, period)` in `insights_performance.html`,
+called by the brand view (drillable) and by each drill (a one-row list built in `_perf_item_detail`:
+`detail.rank_table_row` = `{name, **_rank_cell}`, `detail.share_table_row` = `{name, cells:[share, organic, paid]}`).
+The old `item_keyword_table` macro + its two calls are **removed** (the per-keyword data still lives in the KPI card's
+selectable list, unchanged). Drill tables keep the "Tracked Products" header.
+
+**3 — Content Readiness card gains a dimension-average breakdown (All Items).** Per the user, the All-Items card now
+shows "the average of all dimensions": the overall-average headline is unchanged, and below it a static **Score by
+dimension** list (Imagery / Title / Key features / Description) shows each dimension's average across the brand's
+scored products. Data from existing `jobs.readiness_dimension_averages`, reshaped by new helper
+`_readiness_dim_averages(db, uid, mine_brands)` into `_READINESS_DIM_COLS` order with `_readiness_cell(avg, "/100")`.
+Rendered as a non-interactive `.kw-opt.is-static` list (no chart to swap on the brand view), gated on
+`readiness_dim_averages` so only the readiness tab shows it.
+
+**4 — Readiness trend date labels thinned.** The readiness trend draws one point per *scoring run* (~26 since spring),
+which overprinted its x-axis labels into an unreadable smear (the user's reported bug). `drawTrend` in `performance.js`
+now thins x-labels to ≤8 ticks: `labelStep = ceil(n/8)`, draw indices where `i % labelStep == 0` plus the forced last,
+and drop a regular tick landing within one step of the last so they never collide. First + last anchor inward
+(start/end) as before. Short series (≤8 points: the Rank/Share tabs' period labels) are unchanged. Verified in-browser:
+a 26-point series renders 7 evenly-spaced, non-overlapping labels.
+
+**5 — Content Scores table rows expand (PDP-style) with recommendations + links.** Each product row in the Content
+Scores table (brand all-items AND the single-item drill) is now expandable — click the row or its caret, or the new
+**Expand all** button in the table head. The detail panel lists each content dimension's score + its **recommendations**
+(the "what to improve" text), or "No changes recommended — looks good", mirroring the PDP results screen, plus a deep
+link to the fixing tool: **Improve images** → `pages.imageset_intake`, **Improve copy** → `pages.pdp_copy` (copy
+dimensions). Implementation:
+- Template: `readiness_scores_table` macro adds a caret column + a second `<tr class="perf-detail-row">` per row (full
+  colspan `4 + dims`) wrapping `.pdp-detail > .pdp-recs` — a real table needs a row, not the PDP's flex `.pdp-cols`.
+- JS: new `wireReadinessExpand()` adds `.perf-js` to each `.perf-readiness-dash` (enables the collapsed CSS state),
+  toggles each summary row's paired detail row on click/Enter/Space, and drives Expand-all. No-JS leaves all panels
+  open (nothing is JS-gated).
+- CSS (`workspace.css`): `.perf-tbl-head` flex (Expand-all to the right), `.perf-caret-cell/-head`,
+  `.perf-row.is-open .pdp-caret` rotation, `.perf-readiness-dash.perf-js .perf-detail-row:not(.is-open){display:none}`,
+  `.perf-improve-link`, `.kw-opt.is-static`. Reuses the GLOBAL `.pdp-caret/.pdp-detail/.pdp-recs/.pdp-rec-*/.dim-recs`
+  styles (they were already app-wide, not PDP-scoped).
+- Backend (`jobs.py`): shared helper `_result_dim_detail(dims)` → `{key:{label,score,available,recommendations}}`;
+  `readiness_items_detail` now also returns a `dims` map per item (KEEPS the old `dimensions` scores map — tests +
+  other readers rely on it); new `readiness_item_detail(conn, uid, item_id, as_of=None)` → `{title, overall, dims}`
+  for the single-item drill. `_readiness_scores_row(name, overall, dims_by_key)` reshaped to attach per-cell
+  `recommendations` + `available` + `label` alongside the existing score/cls.
+
+**GOTCHAS / notes for next session.**
+- Image-fix tool endpoint is **`pages.imageset_intake`**, not `pdp_image_set` (that build error cost a test cycle).
+  Copy intake is `pages.pdp_copy`. Both are POST-intake managed-item pickers — **no per-item preselect** — so the
+  Improve links land on the tool, not this item. Adding preselect is the one explicit deferred follow-up (user OK'd
+  deferring it).
+- On items whose stored `result_json` has empty `recommendations` (the local demo seed), a weak dimension still reads
+  "No changes recommended — looks good" — this is the PDP screen's own logic, not a bug; real scored items carry recs.
+- Verification used a **temporary local password** on `demo@test.local` (uid 48), **restored afterward** — no lasting
+  change to `app.db`.
+
+**Files (7):** `app/jobs.py`, `app/routes/pages.py`, `app/templates/app/insights_performance.html`,
+`app/static/js/performance.js`, `app/static/css/workspace.css`, `tests/test_jobs.py`, `tests/test_pages.py`.
 
 ---
 
