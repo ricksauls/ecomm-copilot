@@ -1,25 +1,68 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-11-09 (session 61 — **Performance chart polish**, main `45719af`, all three PRs **merged +
-deployed** (CI + Deploy green on main). Three PRs close out the Organic/Paid thread from sessions 59 (#79) and 60
-(#81/#82); **no schema change** in any — the split columns (`item_sponsored_slots` / `total_sponsored_slots`)
-already live **per keyword** on `portfolio_rank_readings`, so all three are roll-up + presentation. **#84**
-(`0b27e53`) — the Share of Search **trend chart now stacks Organic vs Paid** (organic ink band on the bottom, paid
-blue band on top, total line + endpoint capping it) on the brand overview and the item drill's "All keywords" view;
-a window with <2 split-bearing periods falls back to the single total-share line. **#85** (`2480ec2`) — **per-keyword
-Organic/Paid in the drill**: selecting a keyword now rescopes the *whole* card — headline, the Organic/Paid split
-block, and a stacked per-keyword trend — not just the headline; a keyword still collecting its split hides the block
-and shows a single line. **No separate table** (decided with the user). **#86** (`45719af`) — **hover tooltips on
-every Performance trend chart**: hovering snaps a highlight dot + vertical guide to the nearest point and shows its
-values (Total/Organic/Paid breakdown on the stacked chart, `#rank` on Search Rank, `N/100` on Content Readiness).
-Both S60 "deferred follow-ups" (stacked trend-over-time, per-keyword Organic/Paid) are now **DONE** via #84/#85.
-934 tests + ruff clean (the hover PR is JS/CSS-only and added no Python). **Live-data timing still holds:** the split
-accrues forward only, so real (non-demo) tracked items won't show Organic/Paid on the default **Week** view until
-~the week of Nov 9–15 completes (~Nov 16); the demo account (`demo@ecomm-copilot.com`) is seeded so it shows now.
-**Next open:** `landing.html` redesign (deferred — don't touch piecemeal; still advertises the removed $250
-one-time-snapshot card). Also still true: the Content Readiness item drill stays a static table, and the weekly
-commerce-fact snapshot's builder is kept in `_perf_item_detail` for reuse elsewhere, place undecided. The old
-`docs/handoff-s60` local branch is redundant (its content merged as #83, `eee02a2`) — safe to delete.)_
+_Last updated: 2026-11-10 (session 62 — **Dependabot batch + ruff cleanup**, main `f6bb0c9`, all six dependency
+PRs **merged + deployed** (CI + Deploy green on main). Cleared the whole Dependabot backlog: **#88** ruff
+0.6.2 → 0.17.3 + 121 lint fixes (the only one needing code — see S62 below), plus five green bumps — **#70**
+playwright 1.64.1, **#69** anthropic 1.0 → 2.3.0, **#67** pytest 9.2.0, **#61** actions/setup-python v5 → v7,
+**#16** gunicorn 26.2.0. ruff 0.17.3 enforces a far broader **default** rule set than 0.6.2
+(I/B/S/UP/SIM/C/RUF/PERF/LOG/G…) — the repo has **no ruff config**, so it rides those implicit defaults — surfacing
+121 findings; fixed via autofixes + judgment calls (SIM118 sites are `sqlite3.Row` so `# noqa`'d, B023 closure
+bound, S110/S112, LOG014, G201, PERF102, RUF059). 934 tests + ruff + pip-audit clean. The RUF100 autofix stripped
+dormant `# noqa: BLE001`/`# noqa: E402` across ~25 sites (**neither rule is in ruff's defaults**); specific
+rationale kept as plain comments in the app modules, worker.py loop-guards left simplified. **Open follow-up
+(deferred, user undecided):** a ~3-line `[tool.ruff.lint] extend-select = ["BLE001", "E402"]` config would restore
++ enforce blind-except discipline uniformly (aligns with the global error-handling standards). Housekeeping: stale
+#47 (S35 handoff) closed; #68 (Dependabot's own ruff PR) auto-rebased to 0.17.3 → **0.17.4** then closed (a ruff
+0.17.4 patch bump is available whenever wanted). #61/#16 needed `@dependabot rebase` (stale bases); the rest merged
+clean. **Next open feature:** `landing.html` redesign (still deferred — don't touch piecemeal; still advertises the
+removed $250 one-time-snapshot card). Also still true: Content Readiness item drill is a static table; the weekly
+commerce-fact snapshot's builder is kept in `_perf_item_detail` for reuse, place undecided.)_
+
+---
+
+## Session 62 — Dependabot batch triage + ruff 0.17.3 cleanup (#88 + #70/#69/#67/#61/#16)
+
+Cleared the entire Dependabot backlog (6 open dep PRs) — all **merged + deployed**, CI + Deploy green on the final
+main (`f6bb0c9`), so every bump is **LIVE** in production. Five were low-risk version bumps; **#88** was the only
+one that needed code.
+
+**Triage.** Verified all six locally in one venv (candidate pins layered on current main): **934 tests + pip-audit
+clean** with anthropic 2.3 + gunicorn 26 + playwright 1.64.1 + pytest 9.2 all applied together. Notes: anthropic
+1 → 2 is two majors, but the app only touches the stable `client.messages.create(...)` surface (injectable for
+tests), so it's safe; gunicorn is a vanilla `gunicorn … wsgi:app` invocation (no config file / hooks); #61 is an
+action-SHA bump only. **#61 and #16 were on stale bases** (old authlib 1.8.0 CVEs / Sep-era `requirements.txt`) and
+needed `@dependabot rebase` to go green + mergeable; the other three merged clean (confirmed via local
+`git merge-tree` when GitHub's mergeability showed `unknown`).
+
+**#88 — ruff 0.6.2 → 0.17.3 (`9c0d019`).** 0.17.3 enforces a **much broader default rule set** than 0.6.2:
+`ruff check .` went from clean to **121 findings** across I/B/S/UP/SIM/C/RUF/PERF/LOG/G…. The repo has **no ruff
+config** — it rides ruff's implicit defaults, which expanded between the two versions (`--select E4,E7,E9,F` is
+still clean; the delta is all the newly-default families). Drove `ruff check .` back to green:
+- *Mechanical autofixes:* import sorting (I001), `datetime.UTC` (UP017), f-strings (UP032/FLY002), dict literals
+  (C408), `next(iter(...))` (RUF015), `_`-prefix for unused unpacks (RUF059).
+- *Judgment calls (NOT blind-fixed):* **SIM118** — the `"x" in project.keys()` sites are `sqlite3.Row`, where
+  `"x" in row` tests **values**, not column names, so the "simplification" would silently misbehave → kept with
+  `# noqa: SIM118` + a why-comment. **B023** — `_tally` (in `_annotate_enhance`) closed over the per-item `counts`
+  loop var (called only within the same iteration) → bound explicitly via `counts=counts`. **S110/S112** — the
+  best-effort challenge-overlay DOM guards in `ci_scraper._challenge_overlay_present` already carried
+  `# noqa: BLE001` → extended the noqa to cover S110/S112 rather than add noisy per-frame logging. **LOG014** — the
+  500 errorhandler runs outside an `except`, so `exc_info=True` has no current exception → pass `exc_info=error`.
+  **G201** — `logger.exception(...)` in the `seed_demo` rollback handler. **PERF102** — iterate
+  `keyword_ids.values()` where the key was unused.
+- *Dormant noqa removal:* the RUF100 autofix stripped `# noqa: BLE001` / `# noqa: E402` across ~25 sites — **neither
+  rule is in ruff's default set**, so they were never actually enforced (ruff itself labels them "non-enabled").
+  Specific intent notes in the app modules were preserved as plain comments; worker.py's uniform
+  `except Exception:` loop-guards were left simplified. **Deferred follow-up (user undecided):** a ~3-line
+  `[tool.ruff.lint] extend-select = ["BLE001", "E402"]` config would make those directives meaningful again and
+  actually enforce blind-except discipline — which matches the global error-handling standards ("do not silently
+  swallow exceptions") — and would also pin the lint surface so a future ruff bump can't silently change it.
+
+**Verified:** 934 tests + ruff 0.17.3 + pip-audit all clean locally; CI + Deploy green on every merge and on final
+main (`f6bb0c9`).
+
+**Housekeeping.** Stale **#47** (session-35 HANDOFF snapshot) closed. **#68** (Dependabot's own ruff PR) auto-rebased
+to propose **0.17.3 → 0.17.4** once #88 landed, then was closed — a ruff **0.17.4** patch bump is available whenever
+wanted.
 
 ---
 
