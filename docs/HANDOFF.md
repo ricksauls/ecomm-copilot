@@ -1,21 +1,76 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-11-11 (session 63 — **ruff BLE001 + E402 enforcement**, branched off main `5bcbbb0` (S62 handoff
-PR **#89 merged**). Closes the S62 open follow-up: a new minimal **`ruff.toml`** with `[lint] extend-select =
-["BLE001", "E402"]`, pinning ruff's default rule set (for the pinned 0.17.3) plus those two rules. **BLE001 added
-zero findings** — the 20 best-effort swallow sites already carry inline `# noqa: BLE001 - <why>` and re-raising
-handlers aren't flagged, so it's pure forward-enforcement (a NEW undocumented blind-except that swallows fails CI).
-**E402's 17 sites** (worker.py ×15, wsgi.py ×1, one test) handled **per-line** with inline `# noqa: E402` —
-deliberately NOT a file-level / `[per-file-ignores]` blanket, so a new stray late import in those files is still
-caught; plus two **real fixes** (not suppressions): worker.py's `dataclasses`/`datetime`/`zoneinfo` moved up into
-the stdlib import group (no env dependency) and the one late import in `tests/test_keywords.py` moved to the top
-block. Verified in a clean CI-matching venv (ruff 0.17.3): `ruff check .` clean, a stdin negative test confirms both
-rules fire **via the config file** (not just CLI flags), pip-audit clean, **934 tests pass** (unchanged). **PR #90
-OPEN (merge it)** — code + this handoff in one PR; repo auto-merge is off so merge manually. Lint-only, no runtime
-change. **Still open:** `landing.html` redesign (deferred — don't touch piecemeal; still advertises the removed $250
-one-time-snapshot card); ruff **0.17.4** patch bump available whenever wanted; Content Readiness item drill is a
-static table; the weekly commerce-fact snapshot's builder is kept in `_perf_item_detail` for reuse, place
-undecided.)_
+_Last updated: 2026-11-10 (session 64 — **interactive Content Readiness drill + per-item Performance tables + rail
+reorder**, **PR #91 MERGED + Deploy green → LIVE** on main `18d987f`). Reworked the Performance → Content Readiness
+tab: the item drill is now the per-dimension analogue of the Search Rank / Share of Search drills — a KPI (overall
+`/100` + run-over-run delta + "strong ≥ 80" foot), an overall-readiness trend chart, and a clickable **Score by
+dimension** list that swaps the chart + KPI to each dimension's score over time. **No new JS** — it emits the
+dimensions as `data-kw-context` so `performance.js`'s existing generic `wireKeywordSelect` swap drives it unchanged.
+The brand all-items view gained a PDP-style **Content Scores** table (overall + per-dimension score bars, worst-first,
+reusing the PDP results screen's `.pdp-overall-*` / `.pdp-mini` bar classes). **Per the user, every single-item drill
+now ends in a bottom table scoped to that item, for consistency:** Search Rank → *Search Rank by keyword*, Share of
+Search → *Share by keyword*, Content Readiness → the *Content Scores* breakdown — all via two shared Jinja macros
+(`readiness_scores_table`, `item_keyword_table`) in `insights_performance.html`. New `jobs.readiness_runs`
+(per-run dimension history) + `jobs.readiness_items_detail` (per-item latest overall + dimensions), each with unit
+tests; `_readiness_dim_context` now takes the runs list. **Rail reorder:** Insights moved to sit directly after
+Competitive Tracking (`_rail.html`). **936 tests pass** (+2), ruff clean, browser-verified all three drills + the
+rail. 7 files; S63 (`ruff.toml`) is now also merged+live. **Still open:** `landing.html` redesign (deferred — don't
+touch piecemeal; still advertises the removed $250 one-time-snapshot card); ruff **0.17.4** patch bump available
+whenever wanted; the weekly commerce-fact snapshot's builder is kept in `_perf_item_detail` for reuse, place undecided
+(NOT rendered in the drill — the Content Scores table is content-dimension scores, not commerce facts).)_
+
+---
+
+## Session 64 — interactive Content Readiness drill + per-item tables + rail reorder (#91)
+
+**Shipped + LIVE** (PR #91 merged to main `18d987f`, Deploy run 42750961815 green). Brought the Performance →
+**Content Readiness** tab to parity with the Search Rank / Share of Search tabs, and — at the user's request — made
+every single-item drill end in a table listing that item's information, for consistency.
+
+**Interactive item drill (readiness).** The old static per-dimension table is replaced by the same interactive card the
+other tabs use: a KPI tile (`data-kw-metric` overall `/100`, `data-kw-delta` run-over-run delta, foot "strong ≥
+`_READINESS_TARGET`"=80) beside an overall-readiness trend chart, plus a **Score by dimension** `kw-select` list.
+Selecting a dimension swaps the chart + KPI to that dimension's score over time; "All dimensions" resets to overall.
+**Key reuse:** `performance.js`'s `wireKeywordSelect` is fully generic (reads `data-kw-drill` / `data-kw-context`
+with `{all, keywords:[{id,keyword,cell,metric,delta,legend,series}]}`), so the readiness drill emits its **dimensions**
+as that payload and needs **zero new JS**. Readiness moves per **scoring run** (not per tracking period), so deltas
+compare the last two runs and each dimension's series skips runs where it wasn't measured. Chart uses the existing
+`unit:"score"` path (performance.js already renders "Readiness X/100").
+
+**Content Scores tables (PDP-style).** Brand all-items view: a `perf-readiness-dash` table — `#` · Product · Overall
+(big num + bar) · one column per dimension (Imagery · Title · Key features · Description, mini-bar + band-colored
+score), worst-first, "—" when a dimension wasn't measured. Dimension order + column set live in
+`_READINESS_DIM_COLS` (pages.py), matching the PDP results screen (attributes omitted). Single-item drill renders the
+**same table scoped to one item** (its latest run). Both go through one Jinja macro `readiness_scores_table(tbl, title,
+subtitle)`. **Gotcha fixed:** the PDP `.pdp-dim-cell` class sets `display:flex`, which collapses a `<td>` out of the
+table layout (all dim cells stacked in one column) — so the perf table uses its own `.perf-dim-cell` with the bar/score
+stacking via a wrapper, not the cell. CSS added under `.perf-readiness-dash` in `workspace.css` (band colors, column
+alignment, overall cell).
+
+**Rank/Share single-item tables.** Both drills now also end in a keyword table (`item_keyword_table` macro) built from
+the already-present `detail.keywords` — Search Rank → "Search Rank by keyword" (avg rank cell), Share of Search →
+"Share by keyword" (share cell). Plain `.perf-dash` styling (rank isn't 0–100 so no bars). The macro's `attr` arg
+("rank"/"share") picks the cell on each row.
+
+**Backend (`jobs.py`).** `readiness_runs(db, uid, item_id)` → every scored run oldest→newest with `{as_of, overall,
+dimensions:{key: score|None}}` (unavailable dim → None). `readiness_items_detail(db, uid, brands)` → latest-per-item,
+worst-first, each `{item_id, title, overall, dimensions:{key: score|None}}`. `pages._readiness_dim_context(runs)` now
+takes the runs list (so the drill + item table share one read); `_readiness_scores_row(name, latest)` shapes a table
+row reused by both views.
+
+**Rail (`_rail.html`).** Moved the **Insights** group to sit directly after **Competitive Tracking** (was after
+Creative Studio): Dashboard · Portfolio Management · Competitive Tracking · **Insights** · Content Scoring · Product
+Copy · Creative Studio · Reports · Contact Us. Nav tests still green (they assert presence/visibility, not order).
+
+**Tests + verification.** +2 jobs tests (`readiness_runs`, `readiness_items_detail`); the two readiness page tests
+updated (old static-table assertion → interactive drill + Content Scores table). **936 pass, ruff clean.**
+Browser-verified under local dev (set dev passwords + seeded a few historical scored runs on two throwaway local
+accounts — app.db is gitignored, so none of that is in the repo): all-items table columns, the live dimension swap
+(Imagery → KPI 78/100, −12 pts, chart redraws), the bottom tables on all three drills, and the new rail order.
+
+**Ops.** `unset GITHUB_TOKEN` before `gh` (invalid env token still shadows the good keyring login). Repo auto-merge
+off + `gh pr merge` classifier-blocked → **user merged #91 manually**; Deploy runs off main on merge and confirmed
+green/LIVE.
 
 ---
 
@@ -54,8 +109,8 @@ file**, not just CLI flags; `pip-audit` clean; **934 tests pass** (unchanged cou
 nothing). The CVEs a first `pip-audit` showed were drift in the shared local `.venv` (stale/extra packages across
 sessions) — gone in a fresh env; this change touches no dependencies.
 
-**State.** Branch `chore/ruff-enforce-ble001-e402`, **PR #90 OPEN** (code + this handoff together). Repo auto-merge
-is off and `gh pr merge` is classifier-blocked → **merge manually**. Lint-only; not deployed (no runtime change).
+**State.** Branch `chore/ruff-enforce-ble001-e402`, **PR #90 MERGED** (main `8093982`; code + handoff together).
+Lint-only, no runtime change. Repo auto-merge is off and `gh pr merge` is classifier-blocked → merged manually.
 Remember to `unset GITHUB_TOKEN` before `gh` (invalid env token shadows the good keyring login).
 
 ---
