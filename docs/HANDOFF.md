@@ -1,22 +1,62 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-11-10 (session 62 — **Dependabot batch + ruff cleanup**, main `f6bb0c9`, all six dependency
-PRs **merged + deployed** (CI + Deploy green on main). Cleared the whole Dependabot backlog: **#88** ruff
-0.6.2 → 0.17.3 + 121 lint fixes (the only one needing code — see S62 below), plus five green bumps — **#70**
-playwright 1.64.1, **#69** anthropic 1.0 → 2.3.0, **#67** pytest 9.2.0, **#61** actions/setup-python v5 → v7,
-**#16** gunicorn 26.2.0. ruff 0.17.3 enforces a far broader **default** rule set than 0.6.2
-(I/B/S/UP/SIM/C/RUF/PERF/LOG/G…) — the repo has **no ruff config**, so it rides those implicit defaults — surfacing
-121 findings; fixed via autofixes + judgment calls (SIM118 sites are `sqlite3.Row` so `# noqa`'d, B023 closure
-bound, S110/S112, LOG014, G201, PERF102, RUF059). 934 tests + ruff + pip-audit clean. The RUF100 autofix stripped
-dormant `# noqa: BLE001`/`# noqa: E402` across ~25 sites (**neither rule is in ruff's defaults**); specific
-rationale kept as plain comments in the app modules, worker.py loop-guards left simplified. **Open follow-up
-(deferred, user undecided):** a ~3-line `[tool.ruff.lint] extend-select = ["BLE001", "E402"]` config would restore
-+ enforce blind-except discipline uniformly (aligns with the global error-handling standards). Housekeeping: stale
-#47 (S35 handoff) closed; #68 (Dependabot's own ruff PR) auto-rebased to 0.17.3 → **0.17.4** then closed (a ruff
-0.17.4 patch bump is available whenever wanted). #61/#16 needed `@dependabot rebase` (stale bases); the rest merged
-clean. **Next open feature:** `landing.html` redesign (still deferred — don't touch piecemeal; still advertises the
-removed $250 one-time-snapshot card). Also still true: Content Readiness item drill is a static table; the weekly
-commerce-fact snapshot's builder is kept in `_perf_item_detail` for reuse, place undecided.)_
+_Last updated: 2026-11-11 (session 63 — **ruff BLE001 + E402 enforcement**, branched off main `5bcbbb0` (S62 handoff
+PR **#89 merged**). Closes the S62 open follow-up: a new minimal **`ruff.toml`** with `[lint] extend-select =
+["BLE001", "E402"]`, pinning ruff's default rule set (for the pinned 0.17.3) plus those two rules. **BLE001 added
+zero findings** — the 20 best-effort swallow sites already carry inline `# noqa: BLE001 - <why>` and re-raising
+handlers aren't flagged, so it's pure forward-enforcement (a NEW undocumented blind-except that swallows fails CI).
+**E402's 17 sites** (worker.py ×15, wsgi.py ×1, one test) handled **per-line** with inline `# noqa: E402` —
+deliberately NOT a file-level / `[per-file-ignores]` blanket, so a new stray late import in those files is still
+caught; plus two **real fixes** (not suppressions): worker.py's `dataclasses`/`datetime`/`zoneinfo` moved up into
+the stdlib import group (no env dependency) and the one late import in `tests/test_keywords.py` moved to the top
+block. Verified in a clean CI-matching venv (ruff 0.17.3): `ruff check .` clean, a stdin negative test confirms both
+rules fire **via the config file** (not just CLI flags), pip-audit clean, **934 tests pass** (unchanged). **PR #90
+OPEN (merge it)** — code + this handoff in one PR; repo auto-merge is off so merge manually. Lint-only, no runtime
+change. **Still open:** `landing.html` redesign (deferred — don't touch piecemeal; still advertises the removed $250
+one-time-snapshot card); ruff **0.17.4** patch bump available whenever wanted; Content Readiness item drill is a
+static table; the weekly commerce-fact snapshot's builder is kept in `_perf_item_detail` for reuse, place
+undecided.)_
+
+---
+
+## Session 63 — ruff BLE001 + E402 enforcement (`ruff.toml`, #90)
+
+Closed the S62 open follow-up. Added a minimal **`ruff.toml`** so the lint surface is pinned — ruff's default rule
+set for the pinned 0.17.3 **plus two rules enforced on top**:
+
+```toml
+[lint]
+extend-select = ["BLE001", "E402"]
+```
+
+**BLE001 (blind-except) — zero current findings.** `ruff check . --extend-select BLE001` was already clean: the 20
+best-effort swallow sites carry inline `# noqa: BLE001 - <why>`, and the ~14 other `except Exception` sites re-raise
+(normalize into `CopyGenError` / `PlanError` / etc.), which BLE001 does not flag. So enabling it is pure
+forward-enforcement — a NEW undocumented blind-except that swallows now fails CI. Aligns with the fail-loud /
+fail-safe discipline in logging-and-error-handling. (Note: the S62 handoff's "RUF100 stripped ~25 dormant noqas" was
+imprecise — 20 `# noqa: BLE001` are present and intact.)
+
+**E402 (import not at top of file) — 17 sites, all legitimate late imports.** worker.py ×15 + wsgi.py ×1 (imports
+that MUST follow `load_dotenv()` because the app modules read env at import time) + one test. Handled **per-line**
+with inline `# noqa: E402`, deliberately NOT a `[per-file-ignores]` or file-level `# ruff: noqa` blanket — per-line
+preserves enforcement (a new misplaced import on a new line is still caught; a per-file ignore would silence future
+mistakes in the same file). Two of the 17 were **real fixes, not suppressions**: worker.py's `dataclasses` /
+`datetime` / `zoneinfo` have no env dependency so they moved up into the stdlib import group, and
+`tests/test_keywords.py`'s one late import moved to the top block.
+
+**Gotcha worth remembering.** A first draft put the literal token `# noqa: E402` inside an *explanatory* comment
+above the imports — ruff parsed it as a real directive and RUF100-flagged it as unused. Reword any prose that needs
+to mention a noqa token so the token isn't reproduced verbatim.
+
+**Verification (clean CI-matching venv, ruff 0.17.3).** `ruff check .` clean; a stdin negative test
+(`… | ruff check --config ruff.toml -` on a blind-except + late import) confirms BLE001 + E402 fire **via the config
+file**, not just CLI flags; `pip-audit` clean; **934 tests pass** (unchanged count, so the test-import move lost
+nothing). The CVEs a first `pip-audit` showed were drift in the shared local `.venv` (stale/extra packages across
+sessions) — gone in a fresh env; this change touches no dependencies.
+
+**State.** Branch `chore/ruff-enforce-ble001-e402`, **PR #90 OPEN** (code + this handoff together). Repo auto-merge
+is off and `gh pr merge` is classifier-blocked → **merge manually**. Lint-only; not deployed (no runtime change).
+Remember to `unset GITHUB_TOKEN` before `gh` (invalid env token shadows the good keyring login).
 
 ---
 
