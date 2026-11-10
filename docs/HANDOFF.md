@@ -1,40 +1,95 @@
 # DISCOtech (ecomm-copilot) — Session Handoff
 
-_Last updated: 2026-11-11 (session 65 — **Performance-tab table + card changes across all three tabs**, branched off
-main `18d987f` after S64 #91 LIVE. **Code SHIPPED: PR #93 MERGED to main `72b4056`** (squash). Doc note: the S64-docs
-**PR #92 was merged from an EARLIER snapshot** (squashed as "session 64", `415e24c`) **before this S65 block was
-pushed**, so it landed the S64 block only — this **separate docs PR (`docs/handoff-s65`) re-adds the missing S65
-block** on top of main. (1) **Search Rank & Share of Search drills** now end in the brand all-items *Tracked Products* table
-scoped to the one drilled item (one row) — Rank → `Avg Rank`, Share → `Total Share · Organic · Paid` — **replacing**
-the per-keyword `item_keyword_table` (removed). The products table is extracted into a shared `products_table` Jinja
-macro used by the brand view AND both drills (one-row list, non-drillable). The drill tables keep the header "Tracked
-Products". (2) **Content Readiness card (All Items)** gains a static *Score by dimension* list = each content
-dimension's average across the brand's scored products, mirroring the single-item card (reuses
-`jobs.readiness_dimension_averages`, reordered to the table's `_READINESS_DIM_COLS` order via new
-`_readiness_dim_averages`; rendered as a non-interactive `.kw-opt.is-static` list). (3) **Readiness trend date labels
-thinned** in `performance.js drawTrend` to ≤8 ticks (first + last always kept; a regular tick within one step of the
-forced last is dropped) so the one-point-per-scoring-run readiness series (~26 since spring) stops overprinting its
-x-labels; short series (the other tabs, ≤8 periods) unaffected — verified 26→7 labels in-browser. (4) **Content Scores
-table rows now expand** (click row/caret or *Expand all*) to each dimension's score + **recommendations** — the same
-"what to improve" findings the PDP *Product Detail Page Content Scores* screen shows — plus an *Improve images* (Image
-Set) / *Improve copy* (Product Copy) deep link per dimension; wired by new `wireReadinessExpand` in `performance.js`
-(adds `.perf-js` to collapse; no-JS leaves panels open), reusing the GLOBAL `.pdp-caret` / `.pdp-detail` / `.pdp-recs`
-/ `.dim-recs` styles. The detail renders as a second `<tr>` per row (full colspan) — a table needs a real row, not the
-PDP's flex `.pdp-cols`. Backed by richer per-dimension detail: `jobs.readiness_items_detail` now ALSO returns a `dims`
-map `{key:{label,score,available,recommendations}}` (KEEPS the old `dimensions` scores map for back-compat), + new
-`jobs.readiness_item_detail(uid, item_id, as_of=None)` for the single-item drill, both via shared `_result_dim_detail`
-helper; `_readiness_scores_row` reshaped to `(name, overall, dims_by_key)` and now carries per-cell recs. **939 tests
-pass** (+3: readiness_item_detail recs, card dim-averages, expandable recs), ruff clean, browser-verified all three
-tabs on All-Items + drilled-item (demo acct `demo@test.local`, local only). 7 files (jobs.py, routes/pages.py,
-insights_performance.html, performance.js, workspace.css, test_jobs.py, test_pages.py). **GOTCHA:** the image-fix tool
-endpoint is `pages.imageset_intake` (NOT `pdp_image_set`); copy intake is `pages.pdp_copy`; both are POST-intake
-managed-item pickers with **no per-item preselect**, so the Improve links open the tool, not this item (preselect =
-small deferred follow-up the user is aware of). On demo-seeded items with no stored `recommendations`, a low-score
-dimension still shows "No changes recommended — looks good" (same logic as the PDP screen; real scores populate recs).
-**Still open (unchanged from S64):** `landing.html` redesign (deferred — don't touch piecemeal; still advertises the
-removed $250 one-time-snapshot card); ruff **0.17.4** patch bump available whenever wanted; the weekly commerce-fact
-snapshot builder kept in `_perf_item_detail` for reuse, placement undecided. S64 block (unchanged) is below this S65
-block.)_
+_Last updated: 2026-11-09 (session 66 — **Performance trend-chart window paging**, branched off main `6331810` after
+S65 (#93 code + #94 docs) LIVE. **Code in PR #95 OPEN** (`feat/perf-trend-window-paging`; CI running at handoff, user
+merges manually — this S66 docs block rides in the **SAME** PR, not a separate docs PR). Every Performance trend chart
+(Search Rank / Share of Search / Content Readiness, brand view AND item drill) now shows ONE 6-period window with
+◀ Older / Newer ▶ pager links that shift the window through history at the selected granularity (wow/mom/qoq/yoy); the
+visible range is labelled between the arrows. **KEY FACTS:** (1) New URL param `off` = periods the window is shifted
+into the past (0 = most recent). Paging is NON-OVERLAPPING pages of 6 — step = new `ci_analysis.TREND_PAGE_STEP`
+(=`TREND_PERIODS`; set to 1 for pan-by-one and nothing else changes). (2) Only the CHART series page; headline KPIs +
+tables stay on the CURRENT period. New shared `_perf_window(off)` in `routes/pages.py` replaces every
+`range(TREND_PERIODS-1,-1,-1)` loop in the 7 Performance trend builders: brand+item rank/share
+(`_discovery_trend`/`_item_discovery_trend`), their organic/paid splits, the per-keyword drill series
+(`_item_keyword_metric_payload`, both its `periods` + `split_periods` loops), and brand `_readiness_trend`. (3)
+Content Readiness DRILL converted from per-scoring-run (~26 pts) to one point per completed period via new
+`_readiness_window_points` (latest run on/before each period's close, mirroring `_readiness_trend`'s closing-state
+rule); `_readiness_dim_context(runs, period, off)` now builds the headline metric/delta from the latest RUNS (current
+state) and the SERIES from the windowed period points. (4) Route reads+clamps `off`, derives
+`can_older`/`can_newer`/`window_label`/`show_pager` from the ACTIVE tab's oldest reading — new
+`portfolio_perf.earliest_reading_date` (rank/share, `MIN(captured_at)`) + `jobs.earliest_readiness_date` (readiness,
+`MIN(created_at)`), each converted to a window index by new `ci_analysis.periods_ago(period, when)`. Pager HIDES when
+all data fits one window; bound is PER-TAB scope, so it can show on Rank yet hide on Readiness when their histories
+differ. (5) Trend links carry `off`; changing brand/item/tab/period OMITS it → resets to the newest window (only the
+pager moves `off`). Server-rendered CSP-safe pager = `trend_pager()` Jinja macro in `insights_performance.html`,
+dropped into all 4 chart cards; styles `.perf-pager*` in `workspace.css`. **943 tests pass** (+4: `periods_ago`,
+readiness-drill windowing [≤6 pts + headline unaffected by paging], route pager appearance/clamp[`off=9999`/`-4`]/
+paging), ruff clean, browser-verified vs `demo@test.local` (group 30) — brand rank paged both windows (Older→`off=6`,
+Newer disabled at `off=0`; oldest-data bound verified at `off=6`), readiness drill now 5 period-pts + SVG drawn,
+item-drill pager preserves `item=`. 8 files (ci_analysis.py, jobs.py, portfolio_perf.py, routes/pages.py,
+workspace.css, insights_performance.html, test_ci_analysis.py, test_pages.py). **GOTCHA:** a <2-point window renders
+NO `<svg>` (drawTrend's `vals.length < 2` guard) — correct for a single-point window, not a bug. **LOCAL-ONLY:** to
+verify, set a throwaway password on the `demo@test.local` dev row in local `app.db` (not committed; original hash not
+preserved — a demo/test account). **Approved design choices:** page-by-6 (not pan-by-1), readiness aggregation =
+latest-run-in-window, Older disabled at oldest DATA (not blank windows). **Still open (carried from S65):**
+`landing.html` redesign (deferred — don't touch piecemeal; still advertises the removed $250 one-time-snapshot card);
+Improve image/copy deep links still open the tool with **no per-item preselect** (`pages.imageset_intake` /
+`pages.pdp_copy`); ruff **0.17.4** patch bump available; the weekly commerce-fact snapshot builder kept in
+`_perf_item_detail`, placement undecided. S65 block (unchanged) is below this S66 block.)_
+
+---
+
+## Session 66 — Performance trend-chart window paging (#95, OPEN)
+
+**PR #95 OPEN** (`feat/perf-trend-window-paging`, branched off main `6331810`; CI running at handoff, user merges
+manually — the S66 docs block above + the Session-66 section here ship in this SAME PR). 943 tests pass (+4), ruff
+clean, browser-verified against `demo@test.local` on a local preview.
+
+**The problem.** The Performance trend charts were already capped at the last `TREND_PERIODS` (6) completed periods,
+and the period pills (Week/Month/Quarter/Year = `wow/mom/qoq/yoy`) already act as a granularity switch — but there was
+no way to look *further back* at a fixed granularity (e.g. weeks 7–12 ago) short of coarsening to quarters/years. One
+chart, the Content Readiness **drill**, also ignored the 6-cap entirely and plotted every scoring run (~26 points).
+
+**What shipped.** Every chart (Search Rank / Share of Search / Content Readiness, brand view AND item drill) now shows
+one 6-period window with **◀ Older / Newer ▶** links that page the window back/forward through history, plus a
+range label between them ("Sep 28–Oct 4 to Nov 2–8").
+
+**1 — `off` paging, chart-only.** New URL param `off` shifts every chart's window `off` periods into the past (0 =
+most recent). Pages are NON-OVERLAPPING (step = `ci_analysis.TREND_PAGE_STEP`, = `TREND_PERIODS`; one-line switch to
+pan-by-1). The shared `_perf_window(off)` helper (`routes/pages.py`) returns the window's period indices and replaces
+every `range(TREND_PERIODS-1,-1,-1)` loop across the 7 Performance trend builders. **Headlines and tables stay on the
+current period** — only the chart series pages — so the big KPI always reads "now."
+
+**2 — Content Readiness drill → per-period.** New `_readiness_window_points(runs, period, off)` collapses the item's
+per-run scoring history to one point per completed period (the latest run on/before each period's close, mirroring
+`_readiness_trend`). `_readiness_dim_context(runs, period, off)` was reshaped: the headline metric/delta come from the
+latest RUNS (current state, unaffected by paging), the overall + per-dimension SERIES from the windowed points.
+
+**3 — Pager bounds.** The route reads and clamps `off`, then derives `can_older`/`can_newer`/`window_label`/
+`show_pager` from the oldest reading in the ACTIVE tab's scope: `portfolio_perf.earliest_reading_date`
+(`MIN(captured_at)`, brand- or item-scoped) for rank/share and `jobs.earliest_readiness_date` (`MIN(created_at)`) for
+readiness, each turned into a window index by new `ci_analysis.periods_ago(period, when)`. Older disables at the true
+edge of data (not blank windows); the whole pager is omitted when all data fits one window, so it can show on one tab
+and hide on another whose history is shorter.
+
+**4 — Links + UI.** Trend links carry `off`; the tab bar, period pills, brand/item selectors, drill links and
+back-chip all OMIT it, so changing brand/item/tab/period resets to the newest window — only the pager moves `off`. The
+control is a CSP-safe server-rendered `trend_pager()` Jinja macro dropped into all four chart cards, styled by
+`.perf-pager*` in `workspace.css`.
+
+**Tests (+4).** `periods_ago` date→index mapping (`test_ci_analysis.py`); readiness-drill windowing (≤6 points,
+headline unchanged by paging) and route-level pager appearance / clamp (`off=9999`, `off=-4`) / paging
+(`test_pages.py`, with a new `_seed_perf_weeks` helper).
+
+**Files (8):** `app/ci_analysis.py` (`TREND_PAGE_STEP`, `periods_ago`), `app/jobs.py` (`earliest_readiness_date`),
+`app/portfolio_perf.py` (`earliest_reading_date`), `app/routes/pages.py` (route + all trend builders + readiness
+windowing), `app/static/css/workspace.css` (`.perf-pager*`), `app/templates/app/insights_performance.html`
+(`trend_pager` macro + 4 call sites), `tests/test_ci_analysis.py`, `tests/test_pages.py`.
+
+**Gotchas / notes.** A <2-point window renders no `<svg>` (drawTrend's `vals.length < 2` guard) — expected for a
+single-point window. Approved design choices: page-by-6, latest-run-in-window for readiness, Older disabled at oldest
+data. To browser-verify locally a throwaway password was set on the `demo@test.local` dev row in `app.db` (local only,
+not committed; the original hash was not preserved).
 
 ---
 
