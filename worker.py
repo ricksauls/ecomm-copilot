@@ -29,29 +29,46 @@ from dotenv import load_dotenv
 # Load DATABASE_URL (and anything else) before importing app modules that read it.
 load_dotenv()
 
-from dataclasses import asdict, replace  # noqa: E402
-from datetime import datetime  # noqa: E402
-from zoneinfo import ZoneInfo  # noqa: E402
+from dataclasses import asdict, replace
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
-from app import (  # noqa: E402  (after load_dotenv is intentional)
-    ci_config, ci_images, ci_jobs, ci_scraper, copy_jobs, copygen, db,
-    image_enhance, image_jobs, item_rank, jobs, keywords, portfolio, report,
-    report_store, tracking,
+from app import (
+    ci_config,
+    ci_images,
+    ci_jobs,
+    ci_scraper,
+    copy_jobs,
+    copygen,
+    db,
+    image_enhance,
+    image_jobs,
+    item_rank,
+    jobs,
+    keywords,
+    portfolio,
+    report,
+    report_store,
+    tracking,
 )
-from app.imageset import generate as imageset_generate  # noqa: E402
-from app.imageset import jobs as imageset_jobs  # noqa: E402
-from app.imageset import plan as imageset_plan  # noqa: E402
-from app.imageset import store as imageset_store  # noqa: E402
-from app.imgimport import acquire as import_acquire  # noqa: E402
-from app.imgimport import store as import_store  # noqa: E402
-from app.seasonal import generate as seasonal_generate  # noqa: E402
-from app.seasonal import jobs as seasonal_jobs  # noqa: E402
-from app.seasonal import store as seasonal_store  # noqa: E402
-from app.fetch import (  # noqa: E402
-    FetchBlocked, FetchError, fetch_item_descriptors, fetch_item_facts,
-    fetch_main_image_url, fetch_pdp,
+from app.fetch import (
+    FetchBlocked,
+    FetchError,
+    fetch_item_descriptors,
+    fetch_item_facts,
+    fetch_main_image_url,
+    fetch_pdp,
 )
-from app.scoring import PdpRecord, result_to_dict, score_pdp  # noqa: E402
+from app.imageset import generate as imageset_generate
+from app.imageset import jobs as imageset_jobs
+from app.imageset import plan as imageset_plan
+from app.imageset import store as imageset_store
+from app.imgimport import acquire as import_acquire
+from app.imgimport import store as import_store
+from app.scoring import PdpRecord, result_to_dict, score_pdp
+from app.seasonal import generate as seasonal_generate
+from app.seasonal import jobs as seasonal_jobs
+from app.seasonal import store as seasonal_store
 
 # Scrape dates are stamped in Central time so a monitoring run near midnight lands
 # on the day the user expects (the droplet clock is UTC).
@@ -150,7 +167,7 @@ def resolve_keywords(conn: sqlite3.Connection, row_id: int, pdp) -> list[str] | 
             jobs.put_cached_keywords(conn, key, found)
         log.info("Keyword cache MISS id=%s key=%r discovered=%d", row_id, key, len(found))
         return found
-    except Exception:  # noqa: BLE001 - keyword resolution must never fail the job
+    except Exception:
         log.exception("Keyword resolution failed id=%s; continuing without it", row_id)
         return None
 
@@ -167,7 +184,7 @@ def _cache_item_image(item_id: str | None, image_url: str | None) -> None:
         return
     try:
         ci_images.cache_product_image_from_url(item_id, image_url)
-    except Exception:  # noqa: BLE001 - image caching must never fail the job
+    except Exception:
         log.exception("Failed to cache item image item_id=%s", item_id)
 
 
@@ -191,7 +208,7 @@ def process_one(conn: sqlite3.Connection, row: sqlite3.Row) -> None:
     except FetchError as e:
         log.warning("Fetch error id=%s: %s", row_id, e)
         jobs.mark_failed(conn, row_id, "error", str(e))
-    except Exception as e:  # noqa: BLE001 - a bad item must not kill the worker
+    except Exception as e:
         log.exception("Unexpected error scoring id=%s", row_id)
         jobs.mark_failed(conn, row_id, "error", f"Unexpected error: {e}")
 
@@ -215,7 +232,7 @@ def process_fact_one(conn: sqlite3.Connection, row: sqlite3.Row) -> None:
     except FetchError as e:
         log.warning("Facts fetch error job=%s: %s", job_id, e)
         tracking.mark_fact_failed(conn, job_id, str(e))
-    except Exception as e:  # noqa: BLE001 - a bad item must not kill the worker
+    except Exception as e:
         log.exception("Unexpected error fetching facts job=%s", job_id)
         tracking.mark_fact_failed(conn, job_id, f"Unexpected error: {e}")
 
@@ -244,7 +261,7 @@ def process_rank_one(conn: sqlite3.Connection, job: sqlite3.Row) -> None:
     except FetchError as e:
         log.warning("Rank scrape error job=%s: %s", job_id, e)
         item_rank.mark_rank_failed(conn, job_id, str(e))
-    except Exception as e:  # noqa: BLE001 - a bad keyword must not kill the worker
+    except Exception as e:
         log.exception("Unexpected error capturing rank job=%s", job_id)
         item_rank.mark_rank_failed(conn, job_id, f"Unexpected error: {e}")
 
@@ -284,7 +301,7 @@ def _copy_fetch(conn: sqlite3.Connection, row: sqlite3.Row) -> None:
     except FetchError as e:
         log.warning("Copy fetch error id=%s: %s", row_id, e)
         copy_jobs.mark_copy_failed(conn, row_id, "error", str(e))
-    except Exception as e:  # noqa: BLE001 - a bad item must not kill the worker
+    except Exception as e:
         log.exception("Unexpected error fetching copy id=%s", row_id)
         copy_jobs.mark_copy_failed(conn, row_id, "error", f"Unexpected error: {e}")
 
@@ -314,7 +331,7 @@ def _copy_generate(conn: sqlite3.Connection, row: sqlite3.Row) -> None:
     except copygen.CopyGenError as e:
         log.warning("Copy generation failed id=%s: %s", row_id, e)
         copy_jobs.mark_copy_failed(conn, row_id, "error", str(e))
-    except Exception as e:  # noqa: BLE001 - a bad item must not kill the worker
+    except Exception as e:
         log.exception("Unexpected error generating copy id=%s", row_id)
         copy_jobs.mark_copy_failed(conn, row_id, "error", f"Unexpected error: {e}")
 
@@ -356,7 +373,7 @@ def _cache_ci_product_images(run_id: int, item_map: dict) -> None:
         except (FetchBlocked, FetchError) as e:
             log.warning("CI run id=%s product image fetch failed item_id=%s: %s",
                         run_id, item_id, e)
-        except Exception:  # noqa: BLE001 - image caching must never sink the run
+        except Exception:
             log.exception("CI run id=%s unexpected error caching image item_id=%s",
                           run_id, item_id)
         # Polite pause between PDP fetches (same courtesy as the keyword sweep).
@@ -386,7 +403,7 @@ def _write_keyword_ads(conn, ads, *, run_id, group_id, keyword_id, brand_map, sc
             brand_map=brand_map, scrape_date=scrape_date,
         )
         ci_jobs.write_ad_units(conn, rows)
-    except Exception:  # noqa: BLE001 - never let ad bookkeeping sink the run
+    except Exception:
         log.exception("CI run id=%s failed writing ad units keyword_id=%s",
                       run_id, keyword_id)
 
@@ -444,7 +461,7 @@ def process_ci_run(conn: sqlite3.Connection, run: sqlite3.Row) -> None:
             except (FetchBlocked, FetchError) as e:
                 failed += 1
                 log.warning("CI run id=%s keyword=%r failed: %s", run_id, kw["keyword"], e)
-            except Exception:  # noqa: BLE001 - one bad keyword must not kill the run
+            except Exception:
                 failed += 1
                 log.exception("CI run id=%s keyword=%r unexpected error", run_id, kw["keyword"])
             # Polite pause before the next keyword (skip after the last one).
@@ -456,7 +473,7 @@ def process_ci_run(conn: sqlite3.Connection, run: sqlite3.Row) -> None:
         else:
             ci_jobs.finish_run(conn, run_id)
             log.info("CI run id=%s complete — %d ok, %d failed", run_id, succeeded, failed)
-    except Exception as e:  # noqa: BLE001 - a bad run must not kill the worker
+    except Exception as e:
         log.exception("Unexpected error on CI run id=%s", run_id)
         ci_jobs.fail_run(conn, run_id, f"Unexpected error: {e}")
 
@@ -594,7 +611,7 @@ def process_image_one(conn: sqlite3.Connection, row: sqlite3.Row) -> None:
     except image_enhance.EnhanceError as e:
         log.warning("Image job id=%s failed item=%s slot=%s: %s", row_id, sid, slot, e)
         image_jobs.mark_image_failed(conn, row_id, "Image enhancement failed — try again shortly.")
-    except Exception as e:  # noqa: BLE001 - a bad item must not kill the worker
+    except Exception as e:
         log.exception("Unexpected error enhancing image job id=%s", row_id)
         image_jobs.mark_image_failed(conn, row_id, f"Unexpected error: {e}")
 
@@ -668,7 +685,7 @@ def process_imageset_one(conn: sqlite3.Connection, row: sqlite3.Row) -> None:
         log.warning("Image-set asset job id=%s failed project=%s asset=%s: %s", row_id, pid, aid, e)
         imageset_jobs.mark_failed(conn, row_id, str(e))
         imageset_store.update_asset(conn, aid, status="failed", error=str(e)[:500])
-    except Exception as e:  # noqa: BLE001 - a bad asset must not kill the worker
+    except Exception as e:
         log.exception("Unexpected error generating image-set asset job id=%s", row_id)
         imageset_jobs.mark_failed(conn, row_id, f"Unexpected error: {e}")
         imageset_store.update_asset(conn, aid, status="failed", error=f"Unexpected error: {e}"[:500])
@@ -738,7 +755,7 @@ def process_imageset_fetch_one(conn: sqlite3.Connection, project: sqlite3.Row) -
             conn, pid, "Couldn't read that product page — please fill in the details manually.")
     except imageset_generate.GenerationError as e:
         imageset_store.fail_fetch(conn, pid, str(e))
-    except Exception as e:  # noqa: BLE001 - a bad prefill must not kill the worker
+    except Exception as e:
         log.exception("Unexpected error prefilling image-set draft project=%s", pid)
         imageset_store.fail_fetch(conn, pid, f"Unexpected error: {e}")
 
@@ -758,7 +775,7 @@ def process_imageset_plan_one(conn: sqlite3.Connection, project: sqlite3.Row) ->
         imageset_generate.enqueue_project_assets(
             conn, imageset_store.get_project(conn, pid, uid), uid)
         log.info("Planned image-set project=%s and enqueued its assets", pid)
-    except Exception as e:  # noqa: BLE001 - a bad plan must not kill the worker
+    except Exception as e:
         log.exception("Unexpected error planning image-set project=%s", pid)
         imageset_store.set_status(
             conn, pid, imageset_store.STATUS_FAILED,
@@ -826,7 +843,7 @@ def process_report_one(conn: sqlite3.Connection, row: sqlite3.Row) -> None:
         report_store.finish_report(conn, row["id"], payload)
         log.info("Scheduled report built id=%s user_id=%s group_id=%s fmt=%s bytes=%d",
                  row["id"], row["user_id"], row["group_id"], row["fmt"], len(payload))
-    except Exception as e:  # noqa: BLE001 — settle the row, keep the worker draining
+    except Exception as e:
         log.exception("Scheduled report build failed id=%s", row["id"])
         report_store.fail_report(conn, row["id"], str(e))
 
@@ -867,7 +884,7 @@ def process_seasonal_one(conn: sqlite3.Connection, row: sqlite3.Row) -> None:
         seasonal_jobs.mark_failed(conn, row_id, str(e))
         seasonal_store.update_image(conn, iid, gen_status=seasonal_store.GEN_FAILED,
                                     error=str(e)[:500])
-    except Exception as e:  # noqa: BLE001 - a bad image must not kill the worker
+    except Exception as e:
         log.exception("Unexpected error generating seasonal image job id=%s", row_id)
         seasonal_jobs.mark_failed(conn, row_id, f"Unexpected error: {e}")
         seasonal_store.update_image(conn, iid, gen_status=seasonal_store.GEN_FAILED,

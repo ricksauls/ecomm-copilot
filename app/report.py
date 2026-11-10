@@ -19,7 +19,7 @@ calls it the same way the on-demand route does.
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from app import ci_analysis, ci_config, ci_images, jobs
 
@@ -478,8 +478,8 @@ def assemble_business_report(conn, user_id: int, group, period: str) -> dict:
         "meta": {
             "brand_label": group["name"],
             "period": period, "period_label": period_label, "prior_label": prior_label,
-            "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
-            "generated_date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+            "generated_at": datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC"),
+            "generated_date": datetime.now(UTC).strftime("%Y-%m-%d"),
             "has_data": has_data,
             "my_brands": mine_brands, "competitor_brands": competitor_brands,
             "keywords": keywords, "products": products, "product_count": len(products),

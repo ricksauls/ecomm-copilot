@@ -1,6 +1,6 @@
 """Tests for the rule-based PDP scorer."""
 
-from app.scoring import PdpRecord, WEIGHTS, score_pdp
+from app.scoring import WEIGHTS, PdpRecord, score_pdp
 
 
 def _strong_pdp() -> PdpRecord:
@@ -95,7 +95,7 @@ def test_video_does_not_affect_imagery_score():
 
     A full gallery at zoom resolution should reach 100 with or without a video.
     """
-    base = dict(url="u", image_count=6, max_image_px=2000)
+    base = {"url": "u", "image_count": 6, "max_image_px": 2000}
     with_video = score_pdp(PdpRecord(has_video=True, **base))
     without_video = score_pdp(PdpRecord(has_video=False, **base))
 
@@ -106,7 +106,7 @@ def test_video_does_not_affect_imagery_score():
 
 def test_white_background_blends_into_imagery():
     # Full gallery at zoom resolution -> base imagery 100. White-bg blends at 20%.
-    base = dict(url="u", image_count=6, max_image_px=2000)
+    base = {"url": "u", "image_count": 6, "max_image_px": 2000}
 
     def imagery(white_bg):
         pdp = PdpRecord(main_image_white_bg=white_bg, **base)

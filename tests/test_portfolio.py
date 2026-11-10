@@ -279,8 +279,8 @@ def test_worker_backfills_descriptors_mechanical_fallback(app, monkeypatch):
 
 def test_worker_backfills_descriptors_with_ai(app, monkeypatch):
     # AI on -> the backfill writes the AI-chosen terms into the five slots.
-    from app import keyword_ai
     import worker
+    from app import keyword_ai
     monkeypatch.setattr(
         keyword_ai, "suggest_keywords",
         lambda brand, title, size, category, **kw: [

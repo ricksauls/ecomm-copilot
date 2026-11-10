@@ -79,7 +79,7 @@ def test_period_bounds_are_last_completed_calendar():
 def test_available_periods_gate_on_completed_period_data(app):
     with app.app_context():
         db = get_db()
-        _, gid, mine, comp, _, kid, rid = _setup(db)
+        _, gid, mine, _comp, _, kid, rid = _setup(db)
         T = date(2026, 8, 26)
         # Data only in the last completed WEEK (Aug 17–23) -> only week is offered.
         _sos(db, rid, gid, kid, "2026-08-20", mine, 5, 0)
@@ -96,7 +96,7 @@ def test_available_periods_gate_on_completed_period_data(app):
 def test_monitoring_avg_rank_period_delta_and_trend(app):
     with app.app_context():
         db = get_db()
-        _, gid, mine, comp, _, kid, rid = _setup(db)  # mine tracks 10294528
+        _, gid, mine, _comp, _, kid, rid = _setup(db)  # mine tracks 10294528
         item = "10294528"
         T = date(2026, 8, 26)
         # Last completed week (Aug 17–23): #5 and #3 -> avg 4.0.
@@ -169,7 +169,7 @@ def test_monitoring_brand_share_of_shelf_period_delta_and_trend(app):
 def test_monitoring_brand_ads_counts_over_period(app):
     with app.app_context():
         db = get_db()
-        _, gid, mine, comp, _, kid, rid = _setup(db)
+        _, gid, mine, _comp, _, kid, rid = _setup(db)
         T = date(2026, 8, 26)
         # Two headline sightings in the last completed week; one in a prior week (excluded).
         _ad(db, rid, gid, kid, "2026-08-18", "headline", mine)
@@ -273,7 +273,7 @@ def test_tracked_shelf_share_counts_only_owned_tracked_skus(app):
     # all competitors land in the denominator but never the numerator.
     with app.app_context():
         db = get_db()
-        uid, gid, mine, comp, _, kid, rid = _setup(db)
+        _uid, gid, mine, comp, _, kid, rid = _setup(db)
         _track(db, gid, mine, "m1")  # a product I actually manage
         T = date(2026, 8, 26)
         # Last completed week (Aug 17–23): 2 of my cards out of 10 total slots.
@@ -306,7 +306,7 @@ def test_tracked_shelf_share_counts_only_owned_tracked_skus(app):
 def test_mine_items_lists_active_mine_products_only(app):
     with app.app_context():
         db = get_db()
-        _, gid, mine, comp, _, kid, rid = _setup(db)  # mine tracks 10294528
+        _, gid, mine, comp, _, _kid, _rid = _setup(db)  # mine tracks 10294528
         _track(db, gid, mine, "t2")
         _track(db, gid, comp, "f2")  # competitor's tracked SKU -> excluded
         db.commit()
@@ -373,7 +373,7 @@ def test_monitoring_item_shelf_share_per_sku(app):
 def test_item_rank_by_keyword_includes_all_tracked_keywords(app):
     with app.app_context():
         db = get_db()
-        uid, gid, mine, comp, _, kid, rid = _setup(db)
+        uid, gid, mine, _comp, _, kid, rid = _setup(db)
         ci_config.add_keyword(db, gid, uid, "pepper sauce")  # item doesn't rank here
         T = date(2026, 8, 26)
         _result(db, rid, gid, kid, "2026-08-18", 4, "10294528", mine)
@@ -408,7 +408,7 @@ def test_item_share_by_keyword_is_item_slots_over_keyword_slots(app):
 def test_mine_avg_rank_headline_delta_and_trend(app):
     with app.app_context():
         db = get_db()
-        _, gid, mine, comp, _, kid, rid = _setup(db)
+        _, gid, mine, _comp, _, kid, rid = _setup(db)
         T = date(2026, 8, 26)
         _result(db, rid, gid, kid, "2026-08-18", 4, "10294528", mine)
         _result(db, rid, gid, kid, "2026-08-20", 6, "10294528", mine)  # this week avg 5.0

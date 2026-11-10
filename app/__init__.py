@@ -72,7 +72,9 @@ def _register_error_handlers(app: Flask) -> None:
 
     @app.errorhandler(500)
     def internal_error(error):
-        logger.error("Unhandled 500 serving a request: %s", error, exc_info=True)
+        # exc_info=error (not True): an errorhandler runs outside the `except`, so
+        # there is no "current" exception for exc_info=True to capture (LOG014).
+        logger.error("Unhandled 500 serving a request: %s", error, exc_info=error)
         return render_template("errors/500.html"), 500
 
 

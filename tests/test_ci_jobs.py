@@ -120,7 +120,7 @@ def test_write_search_results_and_share_of_search_rollup(app):
 def test_list_and_count_runs_for_admin(app):
     with app.app_context():
         db = get_db()
-        uid, gid = _group(db, "admin-view@example.com")
+        _uid, gid = _group(db, "admin-view@example.com")
         ci_jobs.enqueue_run(db, gid, "one_time")
         ci_jobs.enqueue_run(db, gid, "monitoring", "night")
         assert ci_jobs.count_runs(db) == 2

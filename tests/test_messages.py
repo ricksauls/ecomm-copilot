@@ -47,7 +47,7 @@ def test_admin_reply_flips_unread_to_user_even_same_second(app):
 def test_user_reply_flips_unread_back_to_admin(app):
     with app.app_context():
         db = get_db()
-        uid, admin = _two_users(db)
+        uid, _admin = _two_users(db)
         tid = messages.create_thread(db, uid, "Q", "question", "Hi")
         messages.mark_read(db, tid, "admin")               # admin catches up
         assert messages.count_unread_for_admin(db) == 0
@@ -92,13 +92,13 @@ def test_list_threads_scoped_and_flagged(app):
 def test_list_all_threads_orders_unread_first(app):
     with app.app_context():
         db = get_db()
-        uid, admin = _two_users(db)
+        uid, _admin = _two_users(db)
         read_t = messages.create_thread(db, uid, "Read one", "question", "a")
         messages.mark_read(db, read_t, "admin")            # no longer unread
         unread_t = messages.create_thread(db, uid, "Unread one", "question", "b")
         rows = messages.list_all_threads(db)
         assert rows[0]["id"] == unread_t and rows[0]["unread"] == 1
-        assert all("user_email" in r.keys() for r in rows)
+        assert all("user_email" in r.keys() for r in rows)  # noqa: SIM118 - sqlite3.Row
 
 
 @pytest.mark.parametrize("subject,category,body", [

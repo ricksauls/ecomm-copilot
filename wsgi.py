@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 # — load_dotenv is a no-op when there's nothing to load.
 load_dotenv()
 
-from app import create_app  # noqa: E402  (import after load_dotenv is intentional)
+from app import create_app
 
 app = create_app()
 

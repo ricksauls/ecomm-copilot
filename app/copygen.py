@@ -214,7 +214,7 @@ def generate_copy(
         )
     except CopyGenError:
         raise
-    except Exception as e:  # noqa: BLE001 - normalize any SDK/transport error
+    except Exception as e:  # normalize any SDK/transport error into CopyGenError
         # Deliberately do not include request internals (which could carry the
         # prompt) beyond the exception's own message; never the API key.
         raise CopyGenError(f"Copy generation request failed: {e}") from e

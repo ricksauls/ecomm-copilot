@@ -10,7 +10,14 @@ Covers three things the demo depends on:
 import sqlite3
 from datetime import date, timedelta
 
-from app import db, enqueue_item_tracking, item_rank, portfolio_perf, seed_demo, tracking
+from app import (
+    db,
+    enqueue_item_tracking,
+    item_rank,
+    portfolio_perf,
+    seed_demo,
+    tracking,
+)
 from app.db import get_db
 from app.users import create_local_user
 

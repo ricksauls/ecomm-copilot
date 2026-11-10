@@ -10,10 +10,8 @@ carries ``item_id``, ``url``, ``title``, ``status``, ``overall`` and a parsed
 import io
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from xml.sax.saxutils import escape
-
-from app import ci_images
 
 from reportlab.graphics.shapes import Circle, Drawing, PolyLine, Rect, String
 from reportlab.lib import colors
@@ -24,7 +22,6 @@ from reportlab.lib.units import inch
 from reportlab.lib.utils import ImageReader
 from reportlab.platypus import (
     HRFlowable,
-    Image as RLImage,
     PageBreak,
     Paragraph,
     SimpleDocTemplate,
@@ -32,6 +29,11 @@ from reportlab.platypus import (
     Table,
     TableStyle,
 )
+from reportlab.platypus import (
+    Image as RLImage,
+)
+
+from app import ci_images
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +116,7 @@ def build_results_pdf(items: list[dict]) -> bytes:
     flow = [
         Paragraph("Product Detail Page Content Scores", styles["h1"]),
         Paragraph(
-            "Generated " + datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+            "Generated " + datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
             + f" · {len(scored)} item{'' if len(scored) == 1 else 's'}",
             styles["meta"],
         ),
@@ -206,7 +208,7 @@ def build_copy_pdf(items: list[dict]) -> bytes:
     flow = [
         Paragraph("Product Detail Page Copy Content", styles["h1"]),
         Paragraph(
-            "Generated " + datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+            "Generated " + datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
             + f" · {len(done)} item{'' if len(done) == 1 else 's'}",
             styles["meta"],
         ),
@@ -289,7 +291,7 @@ def _ci_header(group: dict, subtitle: str, styles: dict) -> list:
     return [
         Paragraph(escape(group.get("name") or "Competitive Intelligence"), styles["h1"]),
         Paragraph(
-            "Generated " + datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+            "Generated " + datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
             + " &#183; " + escape(subtitle),
             styles["meta"],
         ),

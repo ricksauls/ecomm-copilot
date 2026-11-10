@@ -127,13 +127,13 @@ def test_keyword_cache_roundtrip_and_staleness(app):
 
 def _base_record(**overrides) -> PdpRecord:
     """A scorable record; keyword-related fields overridden per test."""
-    base = dict(
-        url="u",
-        title="Tabasco Chipotle Pepper Sauce, 5 fl oz",
-        image_count=6, max_image_px=2000,
-        bullets=["A benefit line here", "Another benefit line", "Third benefit line"],
-        description=" ".join(["Smoky chipotle pepper sauce with real heat."] * 30),
-    )
+    base = {
+        "url": "u",
+        "title": "Tabasco Chipotle Pepper Sauce, 5 fl oz",
+        "image_count": 6, "max_image_px": 2000,
+        "bullets": ["A benefit line here", "Another benefit line", "Third benefit line"],
+        "description": " ".join(["Smoky chipotle pepper sauce with real heat."] * 30),
+    }
     base.update(overrides)
     return PdpRecord(**base)
 
@@ -168,7 +168,7 @@ def test_missing_keywords_generate_recommendations():
 
 # --- Oxylabs walmart_search mining (Phase 2) ---------------------------------
 
-from app import keywords as _kw  # noqa: E402
+from app import keywords as _kw
 
 
 def _ox(title, pos, sponsored=False):
