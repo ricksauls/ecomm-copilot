@@ -5,6 +5,7 @@ requests/Chrome and aren't exercised here — like app.fetch, the parsing and
 ranking that turn raw responses into a keyword set are what these lock down.
 """
 
+from app import keywords as _kw
 from app.db import get_db
 from app.jobs import get_cached_keywords, put_cached_keywords
 from app.keywords import (
@@ -167,8 +168,6 @@ def test_missing_keywords_generate_recommendations():
 
 
 # --- Oxylabs walmart_search mining (Phase 2) ---------------------------------
-
-from app import keywords as _kw
 
 
 def _ox(title, pos, sponsored=False):
