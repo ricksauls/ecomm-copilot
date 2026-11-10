@@ -1,0 +1,24 @@
+# Ruff configuration.
+#
+# Deliberately minimal. With no config, ruff lints against its own implicit
+# default rule set for the pinned version (see requirements-dev.txt), which is
+# broad and shifts between releases. This file pins the lint surface to that
+# default set *plus* two rules we enforce on top of it — and nothing else, so
+# `ruff check .` stays reproducible against the pinned ruff version:
+#
+#   BLE001 - blind-except. Flags `except Exception` / bare `except` that
+#            SWALLOW the error (handlers that re-raise are not flagged). Every
+#            legitimate best-effort swallow already carries an inline
+#            `# noqa: BLE001 - <why>`, so this adds no current findings; its
+#            job is to make a NEW undocumented blind-except fail CI. Enforces
+#            the fail-loud / fail-safe discipline in logging-and-error-handling.
+#   E402   - module-level import not at top of file. The deliberate late
+#            imports (worker.py / wsgi.py must run load_dotenv() before
+#            importing app modules that read env at import time) carry an inline
+#            `# noqa: E402`; this makes a NEW stray late import fail CI.
+#
+# Suppressions stay inline, per-line, with a reason — never a file-level or
+# per-file blanket ignore — so enforcement survives: a new violation on a new
+# line is still caught.
+[lint]
+extend-select = ["BLE001", "E402"]

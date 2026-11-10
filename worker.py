@@ -23,17 +23,20 @@ import random
 import sqlite3
 import threading
 import time
+from dataclasses import asdict, replace
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
 
 # Load DATABASE_URL (and anything else) before importing app modules that read it.
 load_dotenv()
 
-from dataclasses import asdict, replace
-from datetime import datetime
-from zoneinfo import ZoneInfo
-
-from app import (
+# The app imports below must stay after load_dotenv(): these modules read
+# environment variables at import time, so the env has to be populated first.
+# Each is therefore marked to ignore E402 (the rule is otherwise enforced
+# repo-wide; see ruff.toml).
+from app import (  # noqa: E402
     ci_config,
     ci_images,
     ci_jobs,
@@ -51,7 +54,7 @@ from app import (
     report_store,
     tracking,
 )
-from app.fetch import (
+from app.fetch import (  # noqa: E402
     FetchBlocked,
     FetchError,
     fetch_item_descriptors,
@@ -59,16 +62,16 @@ from app.fetch import (
     fetch_main_image_url,
     fetch_pdp,
 )
-from app.imageset import generate as imageset_generate
-from app.imageset import jobs as imageset_jobs
-from app.imageset import plan as imageset_plan
-from app.imageset import store as imageset_store
-from app.imgimport import acquire as import_acquire
-from app.imgimport import store as import_store
-from app.scoring import PdpRecord, result_to_dict, score_pdp
-from app.seasonal import generate as seasonal_generate
-from app.seasonal import jobs as seasonal_jobs
-from app.seasonal import store as seasonal_store
+from app.imageset import generate as imageset_generate  # noqa: E402
+from app.imageset import jobs as imageset_jobs  # noqa: E402
+from app.imageset import plan as imageset_plan  # noqa: E402
+from app.imageset import store as imageset_store  # noqa: E402
+from app.imgimport import acquire as import_acquire  # noqa: E402
+from app.imgimport import store as import_store  # noqa: E402
+from app.scoring import PdpRecord, result_to_dict, score_pdp  # noqa: E402
+from app.seasonal import generate as seasonal_generate  # noqa: E402
+from app.seasonal import jobs as seasonal_jobs  # noqa: E402
+from app.seasonal import store as seasonal_store  # noqa: E402
 
 # Scrape dates are stamped in Central time so a monitoring run near midnight lands
 # on the day the user expects (the droplet clock is UTC).
