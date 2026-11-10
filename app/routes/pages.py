@@ -1883,12 +1883,32 @@ def _perf_readiness_tab(db, uid, mine_brands, period) -> dict:
         # column; a missing dimension reads as "—" (muted). Worst-first (from the query).
         "readiness_table": {
             "dims": _READINESS_DIM_COLS,
-            "rows": [_readiness_scores_row(p["title"] or p["item_id"], p)
+            "rows": [_readiness_scores_row(p["title"] or p["item_id"], p["overall"], p["dims"])
                      for p in jobs.readiness_items_detail(db, uid, mine_brands)],
         },
+        # "Score by dimension" breakdown in the KPI card — each primary dimension's average
+        # across the brand's scored products (the all-items analogue of the single-item
+        # card's per-dimension list). Informational; worst-to-best isn't needed since it
+        # follows the table's column order (imagery first). A dimension measured on zero
+        # products reads "n/a" (muted).
+        "readiness_dim_averages": _readiness_dim_averages(db, uid, mine_brands),
         "drillable": False,
         "keywords": None,
     }
+
+
+def _readiness_dim_averages(db, uid, mine_brands) -> list[dict]:
+    """Per-dimension average score across a brand's scored products, in the Content Scores
+    column order, shaped for the readiness KPI card's "Score by dimension" list.
+
+    Reuses :func:`jobs.readiness_dimension_averages` (latest score per product, only
+    ``available`` dimensions counted) and reorders it to match ``_READINESS_DIM_COLS`` so
+    the card list reads in the same order as the table columns. Each entry is
+    ``{label, display, cls}``; a dimension measured on no products shows "n/a" (muted).
+    """
+    avg_by_key = {d["key"]: d["avg"] for d in jobs.readiness_dimension_averages(db, uid, mine_brands)}
+    return [{"label": label, **_readiness_cell(avg_by_key.get(key), "/100")}
+            for key, label in _READINESS_DIM_COLS]
 
 
 def _item_keyword_metric_payload(db, uid, item_pk, period, keywords, metric,
@@ -2048,21 +2068,33 @@ def _readiness_dim_context(runs) -> dict | None:
     return {"all": all_view, "keywords": entries}
 
 
-def _readiness_scores_row(name, latest) -> dict:
+def _readiness_scores_row(name, overall, dims_by_key) -> dict:
     """One product's overall + per-dimension scores, shaped for the Content Scores table.
 
-    ``latest`` is a scoring run (``{overall, dimensions}`` from :func:`jobs.readiness_runs`).
-    The same row shape the all-items table uses, so the single-item drill and the brand view
-    render through one template macro. A dimension absent from the run reads as ``None`` (the
-    table shows a muted "—").
+    ``dims_by_key`` is ``{key: {label, score, available, recommendations}}`` (from
+    :func:`jobs.readiness_items_detail` or :func:`jobs.readiness_item_detail`). Each cell
+    carries the score + band color for the at-a-glance bar and the recommendations the
+    expandable detail panel lists; a dimension absent from the latest run reads as a muted
+    "—" with no recommendations. The same row shape backs the brand all-items table and the
+    single-item drill, so both render through one template macro.
     """
-    scores = latest["dimensions"]
+    cells = []
+    for key, label in _READINESS_DIM_COLS:
+        d = dims_by_key.get(key) or {}
+        score = d.get("score")
+        cells.append({
+            "key": key,
+            "label": label,
+            "score": score,
+            "available": d.get("available", score is not None),
+            "recommendations": d.get("recommendations") or [],
+            **_readiness_cell(score),
+        })
     return {
         "name": name,
-        "overall": latest["overall"],
-        "overall_cls": _readiness_cell(latest["overall"])["cls"],
-        "cells": [{"key": key, "score": scores.get(key), **_readiness_cell(scores.get(key))}
-                  for key, _label in _READINESS_DIM_COLS],
+        "overall": overall,
+        "overall_cls": _readiness_cell(overall)["cls"],
+        "cells": cells,
     }
 
 
@@ -2113,9 +2145,15 @@ def _perf_item_detail(db, uid, item, period, tab="rank") -> dict:
     rd_runs = (jobs.readiness_runs(db, uid, item["item_id"])
                if tab == "readiness" and item["item_id"] else [])
     readiness_dim_context = _readiness_dim_context(rd_runs) if rd_runs else None
+    # The single-item Content Scores table reads the latest result's rich per-dimension
+    # detail (score + recommendations) so its expandable rows match the brand all-items
+    # table; the trend/dim-context above come from the same latest run via rd_runs.
+    rd_detail = (jobs.readiness_item_detail(db, uid, item["item_id"])
+                 if tab == "readiness" and item["item_id"] else None)
     readiness_item_table = ({"dims": _READINESS_DIM_COLS,
-                             "rows": [_readiness_scores_row(item["title"] or item["item_id"], rd_runs[-1])]}
-                            if rd_runs else None)
+                             "rows": [_readiness_scores_row(item["title"] or item["item_id"],
+                                                            rd_detail["overall"], rd_detail["dims"])]}
+                            if rd_detail else None)
     latest = facts[-1] if facts else None
     price_current = (latest["price_string"] if latest and latest["price_string"]
                      else (f"${price_vals[-1]:.2f}" if price_vals else None))
@@ -2134,6 +2172,16 @@ def _perf_item_detail(db, uid, item, period, tab="rank") -> dict:
     # Item-level organic/paid split — the default ("all keywords") view's split block,
     # also rendered server-side for the no-JS baseline (detail.share_split below).
     item_share_split = _share_split(cur, prior)
+    # Single-row Content/Discovery table for the drill: the same products-table the brand
+    # all-items view shows, scoped to just this item (one row), so every tab's drill ends
+    # in the identical table format. Rank → one Avg Rank cell; Share → Total/Organic/Paid.
+    item_table_name = item["title"] or item["item_id"]
+    rank_table_row = {"name": item_table_name, **_rank_cell(cur["avg_rank"])}
+    share_table_row = {"name": item_table_name, "cells": [
+        _share_cell(cur["share"]),
+        _pct_cell(cur["organic_share"]),
+        _pct_cell(cur["paid_share"]),
+    ]}
     # The Discovery drills are interactive — a per-keyword context powers the in-card
     # keyword list + chart/KPI swap. Only the active tab's context is built (rank for
     # Search Rank, share for Share of Search), keeping the other tabs' loads lean.
@@ -2159,6 +2207,9 @@ def _perf_item_detail(db, uid, item, period, tab="rank") -> dict:
             "share_keyword_context": share_keyword_context,
             # Organic/paid decomposition of this item's share (earned vs bought).
             "share_split": item_share_split,
+            # One-row products tables (brand all-items format, scoped to this item).
+            "rank_table_row": rank_table_row,
+            "share_table_row": share_table_row,
             "keywords": keywords,
             "metrics": metrics,
             "readiness_dims": readiness_dims,

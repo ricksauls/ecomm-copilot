@@ -470,7 +470,43 @@ def test_readiness_items_detail_lists_dimensions_worst_first(app):
         assert items[0]["dimensions"]["imagery"] == 45             # latest score, not the stale 99
         assert items[0]["dimensions"]["description"] is None       # unmeasured -> None
         assert items[1]["dimensions"] == {"imagery": 95, "title": 88}
+        # The richer `dims` map backs the expandable Content Scores rows — same scores,
+        # plus availability + recommendations (empty when the scorer offered none).
+        assert items[1]["dims"]["imagery"]["score"] == 88 or items[1]["dims"]["title"]["score"] == 88
+        assert items[0]["dims"]["imagery"]["recommendations"] == []
+        assert items[0]["dims"]["description"]["available"] is False
         assert jobs.readiness_items_detail(db, uid, []) == []
+
+
+def test_readiness_item_detail_carries_dimension_recommendations(app):
+    # The single-item Content Scores table reads the latest result's rich per-dimension
+    # detail — score + recommendations (the "what to improve" text the PDP screen shows) —
+    # so its expandable rows match the brand all-items table.
+    with app.app_context():
+        db = get_db()
+        uid = create_local_user("rdid2@example.com", "password123")
+        db.execute(
+            "INSERT INTO scored_items (user_id, item_id, url, title, brand, overall, "
+            "result_json, created_at) VALUES (?,?,?,?,?,?,?,?)",
+            (uid, "1", "u", "Hot Sauce", "Tabasco", 72, json.dumps({"overall": 72, "dimensions": [
+                {"key": "imagery", "label": "Imagery", "score": 55, "available": True,
+                 "recommendations": ["Add a lifestyle image", "Use a white background"]},
+                {"key": "title", "label": "Title", "score": 90, "available": True, "recommendations": []},
+                {"key": "description", "label": "Description", "score": 0, "available": False},
+            ]}), "2026-03-01 00:00:00"))
+        db.commit()
+
+        detail = jobs.readiness_item_detail(db, uid, "1")
+        assert detail["overall"] == 72
+        assert detail["dims"]["imagery"]["score"] == 55
+        assert detail["dims"]["imagery"]["recommendations"] == [
+            "Add a lifestyle image", "Use a white background"]
+        assert detail["dims"]["title"]["recommendations"] == []
+        # Unavailable dimension → score None, recommendations default to an empty list.
+        assert detail["dims"]["description"]["score"] is None
+        assert detail["dims"]["description"]["available"] is False
+        assert detail["dims"]["description"]["recommendations"] == []
+        assert jobs.readiness_item_detail(db, uid, "999") is None
 
 
 def test_readiness_breakdown_carries_weak_dimension_scores(app):

@@ -4151,6 +4151,36 @@ select.pf-select[size] option { padding: 6px 8px; border-radius: 4px; }
 .perf-readiness-dash .pdp-dim-score.m-bad { color: var(--signal-red); }
 .perf-readiness-dash .pdp-dim-score.m-muted { color: var(--cool-gray); }
 
+/* Expandable Content Scores rows — clicking a product (or its caret) reveals a
+   per-dimension recommendations panel, mirroring the PDP results screen. The caret
+   column + detail row are specific to this table. */
+.perf-tbl-head {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+}
+.perf-expand-all { flex: none; margin-top: 2px; }
+.perf-readiness-dash th.perf-caret-head { width: 34px; }
+.perf-readiness-dash td.perf-caret-cell { text-align: center; width: 34px; }
+.perf-readiness-dash td.perf-caret-cell .pdp-caret { display: inline-block; }
+/* The caret rotates open; the whole summary row is clickable. */
+.perf-row { cursor: pointer; }
+.perf-row.is-open .pdp-caret { transform: rotate(90deg); }
+/* The detail <td> carries no padding of its own — .pdp-detail supplies the inset + wash. */
+.perf-readiness-dash td.perf-detail-cell { padding: 0; }
+.perf-readiness-dash .perf-detail-row:hover { background: transparent; }
+/* Collapsed only once performance.js marks the table (.perf-js); without JS the panels
+   stay open so every product's recommendations remain visible. */
+.perf-readiness-dash.perf-js .perf-detail-row:not(.is-open) { display: none; }
+/* "Improve …" deep link to the tool that fixes a dimension (Copy / Image Set). */
+.perf-improve-link {
+  display: inline-block; margin-top: 8px; font-size: 12px; font-weight: 600;
+  color: var(--accent); text-decoration: none;
+}
+.perf-improve-link:hover { text-decoration: underline; }
+/* Static "Score by dimension" list in the readiness brand card — the kw-select layout
+   without the interactive affordances (no row swaps a chart on the brand view). */
+.kw-opt.is-static { cursor: default; }
+.kw-opt.is-static:hover { background: transparent; }
+
 /* Tracked-product rows drill into one item (performance.js makes the row clickable;
    the name is also a real link for no-JS / keyboard access). */
 .row-drill { cursor: pointer; }
