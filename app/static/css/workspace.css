@@ -4128,6 +4128,29 @@ select.pf-select[size] option { padding: 6px 8px; border-radius: 4px; }
 .col-metric.m-muted { color: var(--cool-gray); }  /* an unmeasured dimension (n/a) */
 .perf-empty-cell { color: var(--cool-gray); }
 
+/* Content Readiness all-items table — overall score + one column per content dimension,
+   reusing the PDP results screen's bar styling (.pdp-overall-*, .pdp-mini, .pdp-dim-*).
+   The header/cell alignment and band coloring live here since the base .perf-dash only
+   right-aligns a single metric column. */
+.perf-readiness-dash thead th.col-center { text-align: center; }
+/* Overall: the band-colored number stacked over its progress bar, right-aligned. */
+.perf-readiness-dash td.perf-overall-cell { text-align: right; white-space: nowrap; }
+.perf-readiness-dash .perf-overall-cell .pdp-overall-bar { width: 56px; margin: 4px 0 0 auto; }
+/* Dimension cells: mini-bar + score centred under their header. The <td> stays a real
+   table cell; the bar (a fixed-width block) centres via auto margins and the score sits
+   on its own line below it. (A flex <td> — as .pdp-dim-cell uses on the PDP grid — would
+   drop out of the table's column layout, so it is deliberately not reused here.) */
+.perf-readiness-dash td.perf-dim-cell { text-align: center; white-space: nowrap; }
+.perf-readiness-dash td.perf-dim-cell .pdp-mini { margin: 0 auto 3px; }
+.perf-readiness-dash td.perf-dim-cell .pdp-dim-score { display: block; }
+/* Band coloring the base rules only give .col-metric — apply it to the score text here so
+   green (strong) / red (needs work) reads the same as the sibling Rank / Share tabs. */
+.perf-readiness-dash .pdp-overall-num.m-good,
+.perf-readiness-dash .pdp-dim-score.m-good { color: var(--signal-green); }
+.perf-readiness-dash .pdp-overall-num.m-bad,
+.perf-readiness-dash .pdp-dim-score.m-bad { color: var(--signal-red); }
+.perf-readiness-dash .pdp-dim-score.m-muted { color: var(--cool-gray); }
+
 /* Tracked-product rows drill into one item (performance.js makes the row clickable;
    the name is also a real link for no-JS / keyboard access). */
 .row-drill { cursor: pointer; }

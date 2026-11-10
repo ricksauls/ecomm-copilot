@@ -424,6 +424,55 @@ def test_readiness_item_returns_dimensions_and_respects_as_of(app):
         earlier = jobs.readiness_item(db, uid, "1", as_of="2026-02-01 00:00:00")
         assert earlier["overall"] == 40
         assert jobs.readiness_item(db, uid, "999") is None
+
+
+def test_readiness_runs_carries_per_dimension_scores_oldest_first(app):
+    # The interactive Content Readiness drill charts the overall trend and any single
+    # dimension's trend; readiness_runs feeds both from one read, oldest->newest, and
+    # reports an unmeasured dimension as None so its line skips that point.
+    with app.app_context():
+        db = get_db()
+        uid = create_local_user("runs@example.com", "password123")
+        _score_detailed(db, uid, "1", "Tabasco", 60,
+                        [("imagery", 50), ("title", 70)], "2026-01-01 00:00:00")
+        _score_detailed(db, uid, "1", "Tabasco", 85,
+                        [("imagery", 0, False), ("title", 90)], "2026-03-01 00:00:00")
+        db.commit()
+
+        runs = jobs.readiness_runs(db, uid, "1")
+        assert [r["overall"] for r in runs] == [60, 85]            # oldest-first
+        assert runs[0]["dimensions"] == {"imagery": 50, "title": 70}
+        # Unavailable imagery on the latest run reads as None (series skips it).
+        assert runs[1]["dimensions"] == {"imagery": None, "title": 90}
+        assert jobs.readiness_runs(db, uid, "999") == []
+
+
+def test_readiness_items_detail_lists_dimensions_worst_first(app):
+    # The all-items Content Readiness table shows each product's overall + per-dimension
+    # scores, worst-first, brand-scoped — latest score per product only.
+    with app.app_context():
+        db = get_db()
+        uid = create_local_user("rdid@example.com", "password123")
+        _score_detailed(db, uid, "1", "Tabasco", 90,
+                        [("imagery", 95), ("title", 88)], "2026-03-01 00:00:00", title="Strong")
+        # item 2 re-scored: only the latest (weak) result should surface.
+        _score_detailed(db, uid, "2", "Tabasco", 99,
+                        [("imagery", 99)], "2026-01-01 00:00:00", title="Weak")
+        _score_detailed(db, uid, "2", "Tabasco", 55,
+                        [("imagery", 45), ("description", 0, False)], "2026-03-01 00:00:00", title="Weak")
+        _score_detailed(db, uid, "3", "Frank's", 10,
+                        [("imagery", 10)], "2026-03-01 00:00:00", title="Rival")
+        db.commit()
+
+        items = jobs.readiness_items_detail(db, uid, ["Tabasco"])
+        assert [i["item_id"] for i in items] == ["2", "1"]         # worst-first; other brand excluded
+        assert items[0]["overall"] == 55 and items[0]["title"] == "Weak"
+        assert items[0]["dimensions"]["imagery"] == 45             # latest score, not the stale 99
+        assert items[0]["dimensions"]["description"] is None       # unmeasured -> None
+        assert items[1]["dimensions"] == {"imagery": 95, "title": 88}
+        assert jobs.readiness_items_detail(db, uid, []) == []
+
+
 def test_readiness_breakdown_carries_weak_dimension_scores(app):
     # The Opportunities page shows how far below target each product is, so the
     # breakdown now carries the weak dimensions' scores (worst-first for copy).
