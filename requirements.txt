@@ -32,7 +32,7 @@ Pillow==13.0.0
 
 # PDF export of scoring results. Pure-Python (no system libraries), so it runs in
 # a web request and deploys without extra apt packages on the droplet.
-reportlab==5.0.1
+reportlab==5.1.0
 
 # Business report export: the PDF deck (app.report_pdf) uses reportlab above; the
 # editable PowerPoint deck (app.report_pptx) uses python-pptx. Pure-Python
